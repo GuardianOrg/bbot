@@ -13,17 +13,31 @@ from bbot.core import CORE
 from bbot.core.helpers.misc import execute_sync_or_async
 from bbot.core.helpers.interactsh import server_list as interactsh_servers
 
+# silence stdout + trace
+root_logger = logging.getLogger()
+pytest_debug_file = Path(__file__).parent.parent.parent / "pytest_debug.log"
+print(f"pytest_debug_file: {pytest_debug_file}")
+debug_handler = logging.FileHandler(pytest_debug_file)
+debug_handler.setLevel(logging.DEBUG)
+debug_format = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(filename)s:%(lineno)s %(message)s")
+debug_handler.setFormatter(debug_format)
+root_logger.addHandler(debug_handler)
 
 test_config = OmegaConf.load(Path(__file__).parent / "test.conf")
-if test_config.get("debug", False):
-    os.environ["BBOT_DEBUG"] = "True"
-    logging.getLogger("bbot").setLevel(logging.DEBUG)
-    CORE.logger.log_level = logging.DEBUG
-else:
-    # silence stdout + trace
-    root_logger = logging.getLogger()
-    for h in root_logger.handlers:
-        h.addFilter(lambda x: x.levelname not in ("STDOUT", "TRACE"))
+
+os.environ["BBOT_DEBUG"] = "True"
+CORE.logger.log_level = logging.DEBUG
+
+# silence all stderr output:
+stderr_handler = CORE.logger.log_handlers["stderr"]
+stderr_handler.setLevel(logging.CRITICAL)
+handlers = list(CORE.logger.listener.handlers)
+handlers.remove(stderr_handler)
+CORE.logger.listener.handlers = tuple(handlers)
+
+for h in root_logger.handlers:
+    h.addFilter(lambda x: x.levelname not in ("STDOUT", "TRACE"))
+
 
 CORE.merge_default(test_config)
 
