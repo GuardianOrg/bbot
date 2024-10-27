@@ -42,7 +42,7 @@ class wpscan(BaseModule):
             "name": "Install Ruby Deps (Other Debian-based)",
             "package": {"name": ["ruby-rubygems", "ruby-dev"], "state": "present"},
             "become": True,
-            "when": "ansible_facts['distribution'] == 'Debian' and not (ansible_facts['os_family'] == 'Ubuntu' and ansible_facts['distribution_major_version'] == '20')",
+            "when": "ansible_facts['os_family'] == 'Debian' and not (ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_major_version'] == '20')",
         },
         {
             "name": "Install Ruby Deps (Arch)",
