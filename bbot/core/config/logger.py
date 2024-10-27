@@ -71,7 +71,6 @@ class BBOTLogger:
             # Start the QueueListener
             self.listener = logging.handlers.QueueListener(self.queue, *self.log_handlers.values())
             self.listener.start()
-            atexit.register(self.listener.stop)
 
         self.log_level = logging.INFO
 
