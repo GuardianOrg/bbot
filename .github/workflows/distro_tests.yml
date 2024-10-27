@@ -33,7 +33,7 @@ jobs:
               dnf install -y curl git bash gcc make openssl-devel bzip2-devel libffi-devel zlib-devel xz-devel tk-devel gdbm-devel readline-devel sqlite-devel
             elif [ "$ID" = "gentoo" ]; then
               emerge-webrsync
-              emerge --update --newuse dev-vcs/git curl bash
+              emerge --update --newuse dev-vcs/git media-libs/mesa curl bash
             fi
           fi
 

@@ -48,7 +48,7 @@ class wpscan(BaseModule):
             "name": "Install Ruby Deps (Fedora)",
             "package": {"name": ["rubygems", "ruby-devel"], "state": "present"},
             "become": True,
-            "when": "ansible_facts['os_family'] == 'Fedora'",
+            "when": "ansible_facts['os_family'] == 'RedHat'",
         },
         {
             "name": "Install wpscan gem",
