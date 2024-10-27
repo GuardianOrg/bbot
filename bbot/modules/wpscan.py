@@ -33,22 +33,10 @@ class wpscan(BaseModule):
     deps_apt = ["curl", "make", "gcc"]
     deps_ansible = [
         {
-            "name": "Install Ruby Deps (Ubuntu 20.04)",
-            "package": {"name": ["ruby-dev"], "state": "present"},
-            "become": True,
-            "when": "ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_major_version'] == '20'",
-        },
-        {
-            "name": "Update RubyGems System (Ubuntu 20.04)",
-            "command": "gem update --system",
-            "become": True,
-            "when": "ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_major_version'] == '20'",
-        },
-        {
-            "name": "Install Ruby Deps (Other Debian-based)",
+            "name": "Install Ruby Deps (Debian)",
             "package": {"name": ["ruby-rubygems", "ruby-dev"], "state": "present"},
             "become": True,
-            "when": "ansible_facts['os_family'] == 'Debian' and not (ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_major_version'] == '20')",
+            "when": "ansible_facts['os_family'] == 'Debian'",
         },
         {
             "name": "Install Ruby Deps (Arch)",
