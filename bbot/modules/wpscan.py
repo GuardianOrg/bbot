@@ -63,6 +63,12 @@ class wpscan(BaseModule):
             "when": "ansible_facts['os_family'] == 'RedHat'",
         },
         {
+            "name": "Install Ruby Deps (Alpine)",
+            "package": {"name": ["ruby-dev", "ruby-bundler"], "state": "present"},
+            "become": True,
+            "when": "ansible_facts['os_family'] == 'Alpine'",
+        },
+        {
             "name": "Install wpscan gem",
             "gem": {"name": "wpscan", "state": "latest", "user_install": False},
             "become": True,
