@@ -929,7 +929,6 @@ def test_event_closest_host():
 
 def test_test_output():
 
-    import sys
     import logging
 
     root = logging.getLogger()
