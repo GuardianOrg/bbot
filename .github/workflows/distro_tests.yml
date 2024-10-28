@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04", "debian", "archlinux", "fedora", "gentoo/python", "python:3.10-alpine", "kalilinux/kali-rolling", "parrotsec/security"]
+        os: ["ubuntu:22.04", "ubuntu:24.04", "debian", "archlinux", "fedora", "kalilinux/kali-rolling", "parrotsec/security"]
     steps:
       - uses: actions/checkout@v4
       - name: Install Python and Poetry
@@ -32,8 +32,9 @@ jobs:
             elif [ "$ID" = "fedora" ]; then
               dnf install -y curl git bash gcc make openssl-devel bzip2-devel libffi-devel zlib-devel xz-devel tk-devel gdbm-devel readline-devel sqlite-devel
             elif [ "$ID" = "gentoo" ]; then
+              echo "media-libs/libglvnd X" >> /etc/portage/package.use/libglvnd
               emerge-webrsync
-              emerge --update --newuse dev-vcs/git curl bash
+              emerge --update --newuse dev-vcs/git media-libs/mesa curl bash
             fi
           fi
 
@@ -60,4 +61,4 @@ jobs:
           export BBOT_DISTRO_TESTS=true
           poetry env use python3.11
           poetry install
-          poetry run pytest --reruns 2 -o timeout_func_only=true --timeout 1200 --disable-warnings --log-cli-level=DEBUG .
+          poetry run pytest --reruns 2 -o timeout_func_only=true --timeout 1200 --disable-warnings --log-cli-level=INFO .

@@ -342,7 +342,15 @@ class DepsInstaller:
         # ensure tldextract data is cached
         self.parent_helper.tldextract("evilcorp.co.uk")
         # command: package_name
-        core_deps = {"unzip": "unzip", "curl": "curl"}
+        core_deps = {
+            "unzip": "unzip",
+            "zipinfo": "unzip",
+            "curl": "curl",
+            "git": "git",
+            "make": "make",
+            "gcc": "gcc",
+            "bash": "bash",
+        }
         for command, package_name in core_deps.items():
             if not self.parent_helper.which(command):
                 to_install.add(package_name)
