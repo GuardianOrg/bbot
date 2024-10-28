@@ -90,8 +90,8 @@ class ModuleTestBase:
         self, httpx_mock, bbot_httpserver, bbot_httpserver_ssl, monkeypatch, request, caplog, capsys
     ):
         # Skip dastardly test if we're in the distro tests (because dastardly uses docker)
-        if os.getenv("BBOT_DISTRO_TESTS") and self.name == "dastardly":
-            pytest.skip("Skipping module_test for dastardly module due to BBOT_DISTRO_TESTS environment variable")
+        # if os.getenv("BBOT_DISTRO_TESTS") and self.name == "dastardly":
+        #     pytest.skip("Skipping module_test for dastardly module due to BBOT_DISTRO_TESTS environment variable")
 
         self.log.info(f"Starting {self.name} module test")
         module_test = self.ModuleTest(
