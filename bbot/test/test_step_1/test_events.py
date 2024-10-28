@@ -925,33 +925,3 @@ def test_event_closest_host():
         vuln = scan.make_event(
             {"path": "/tmp/asdf.txt", "description": "test", "severity": "HIGH"}, "VULNERABILITY", parent=event3
         )
-
-
-def test_test_output():
-
-    import logging
-
-    root = logging.getLogger()
-    print("Root logger handlers:")
-    for h in root.handlers:
-        print(f"  Handler: {type(h).__name__}")
-        print(f"  Stream: {getattr(h, 'stream', 'no stream')}")
-        print(f"  Level: {logging.getLevelName(h.level)}")
-        print(f"  Formatter: {h.formatter._fmt if h.formatter else 'None'}")
-        print()
-
-    # Check other loggers too
-    for name in logging.root.manager.loggerDict:
-        logger = logging.getLogger(name)
-        if logger.handlers:
-            print(f"Logger '{name}' handlers:")
-            for h in logger.handlers:
-                print(f"  Handler: {type(h).__name__}")
-                print(f"  Stream: {getattr(h, 'stream', 'no stream')}")
-                print(f"  Level: {logging.getLevelName(h.level)}")
-                print(f"  Formatter: {h.formatter._fmt if h.formatter else 'None'}")
-                print()
-
-    import traceback
-
-    assert False, traceback.format_stack()
