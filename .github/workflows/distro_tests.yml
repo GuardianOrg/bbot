@@ -1,4 +1,4 @@
-name: Linux Distro Tests
+name: Tests (Linux Distros)
 on:
   pull_request:
 
