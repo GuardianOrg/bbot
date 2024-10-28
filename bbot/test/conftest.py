@@ -216,20 +216,20 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):  # pragma: no
     errors = len(stats.get("error", []))
     failed = stats.get("failed", [])
 
-    print("\nTest Session Summary:")
-    print(f"Total tests run: {total_tests}")
-    print(
-        f"{GREEN}Passed: {passed}{RESET}, {RED}Failed: {len(failed)}{RESET}, {YELLOW}Skipped: {skipped}{RESET}, Errors: {errors}"
+    terminalreporter.write("\nTest Session Summary:")
+    terminalreporter.write(f"\nTotal tests run: {total_tests}")
+    terminalreporter.write(
+        f"\n{GREEN}Passed: {passed}{RESET}, {RED}Failed: {len(failed)}{RESET}, {YELLOW}Skipped: {skipped}{RESET}, Errors: {errors}"
     )
 
     if failed:
-        print(f"\n{RED}Detailed failed test report:{RESET}")
+        terminalreporter.write(f"\n{RED}Detailed failed test report:{RESET}")
         for item in failed:
             test_name = item.nodeid.split("::")[-1] if "::" in item.nodeid else item.nodeid
             file_and_line = f"{item.location[0]}:{item.location[1]}"  # File path and line number
-            print(f"{BLUE}Test Name: {test_name}{RESET} {CYAN}({file_and_line}){RESET}")
-            print(f"{RED}Location: {item.nodeid} at {item.location[0]}:{item.location[1]}{RESET}")
-            print(f"{RED}Failure details:\n{item.longreprtext}{RESET}")
+            terminalreporter.write(f"\n{BLUE}Test Name: {test_name}{RESET} {CYAN}({file_and_line}){RESET}")
+            terminalreporter.write(f"\n{RED}Location: {item.nodeid} at {item.location[0]}:{item.location[1]}{RESET}")
+            terminalreporter.write(f"\n{RED}Failure details:\n{item.longreprtext}{RESET}")
 
 
 # BELOW: debugging for frozen/hung tests
