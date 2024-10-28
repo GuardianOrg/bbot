@@ -1,9 +1,11 @@
 import sys
+import atexit
 import logging
 from copy import copy
 import multiprocessing
 import logging.handlers
 from pathlib import Path
+from contextlib import suppress
 
 from ..helpers.misc import mkdir, error_and_exit
 from ...logger import colorize, loglevel_mapping
@@ -70,8 +72,13 @@ class BBOTLogger:
             # Start the QueueListener
             self.listener = logging.handlers.QueueListener(self.queue, *self.log_handlers.values())
             self.listener.start()
+            atexit.register(self.listener.stop)
 
         self.log_level = logging.INFO
+
+    def stop_listener(self):
+        with suppress(Exception):
+            self.listener.stop()
 
     def setup_queue_handler(self, logging_queue=None, log_level=logging.DEBUG):
         if logging_queue is None:
