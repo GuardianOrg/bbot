@@ -78,20 +78,25 @@ class BBOTLogger:
 
     def cleanup_logging(self):
         # Close the queue handler
-        self.queue_handler.close()
+        with suppress(Exception):
+            self.queue_handler.close()
 
         # Clean root logger
         root_logger = logging.getLogger()
         for handler in list(root_logger.handlers):
-            root_logger.removeHandler(handler)
-            handler.close()
+            with suppress(Exception):
+                root_logger.removeHandler(handler)
+            with suppress(Exception):
+                handler.close()
 
         # Clean all other loggers
         for logger in logging.Logger.manager.loggerDict.values():
-            if hasattr(logger, 'handlers'):  # Logger, not PlaceHolder
+            if hasattr(logger, "handlers"):  # Logger, not PlaceHolder
                 for handler in list(logger.handlers):
-                    logger.removeHandler(handler)
-                    handler.close()
+                    with suppress(Exception):
+                        logger.removeHandler(handler)
+                    with suppress(Exception):
+                        handler.close()
 
         # Stop queue listener
         with suppress(Exception):
