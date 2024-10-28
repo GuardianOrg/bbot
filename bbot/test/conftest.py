@@ -50,7 +50,7 @@ def assert_all_responses_were_requested() -> bool:
 @pytest.fixture(autouse=True)
 def silence_live_logging():
     for handler in logging.getLogger().handlers:
-        if type(handler).__name__ == '_LiveLoggingStreamHandler':
+        if type(handler).__name__ == "_LiveLoggingStreamHandler":
             handler.setLevel(logging.CRITICAL)
 
 
