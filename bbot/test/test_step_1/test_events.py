@@ -925,3 +925,9 @@ def test_event_closest_host():
         vuln = scan.make_event(
             {"path": "/tmp/asdf.txt", "description": "test", "severity": "HIGH"}, "VULNERABILITY", parent=event3
         )
+
+
+def test_test_output():
+    import traceback
+
+    assert False, traceback.format_stack()
