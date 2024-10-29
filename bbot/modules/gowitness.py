@@ -72,7 +72,7 @@ class gowitness(BaseModule):
 
         # make sure we have a working chrome install
         chrome_test_pass = False
-        for binary in ("chrome", "chromium", custom_chrome_path):
+        for binary in ("chrome", "chromium", "chromium-browser", custom_chrome_path):
             binary_path = self.helpers.which(binary)
             if binary_path and Path(binary_path).is_file():
                 chrome_test_proc = await self.run_process([binary_path, "--version"])
