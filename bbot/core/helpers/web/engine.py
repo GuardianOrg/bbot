@@ -8,7 +8,7 @@ from socksio.exceptions import SOCKSError
 from contextlib import asynccontextmanager
 
 from bbot.core.engine import EngineServer
-from bbot.core.helpers.misc import bytes_to_human, human_to_bytes, truncate_string
+from bbot.core.helpers.misc import bytes_to_human, human_to_bytes, get_exception_chain, truncate_string
 
 log = logging.getLogger("bbot.core.helpers.web.engine")
 
