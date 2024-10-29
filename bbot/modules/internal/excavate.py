@@ -427,15 +427,11 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 for url in urls:
                     parsed_url = urlparse(url)
                     query_strings = parse_qs(html.unescape(parsed_url.query))
-                    query_strings_dict = {
-                        k: v[0] if isinstance(v, list) else v for k, v in query_strings.items()
-                    }
+                    query_strings_dict = {k: v[0] if isinstance(v, list) else v for k, v in query_strings.items()}
                     for parameter_name, original_value in query_strings_dict.items():
                         yield self.output_type, parameter_name, original_value.strip(), url, _exclude_key(
                             query_strings_dict, parameter_name
                         )
-
-
 
         class AjaxJquery(ParameterExtractorRule):
             name = "JQuery Extractor"

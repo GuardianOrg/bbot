@@ -641,7 +641,6 @@ class BaseEvent:
 
         # Re-assign a new UUID
         cloned_event.uuid = uuid.uuid4()
-
         return cloned_event
 
     def _host(self):
@@ -1314,6 +1313,14 @@ class URL_HINT(URL_UNVERIFIED):
 
 
 class WEB_PARAMETER(DictHostEvent):
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @uuid.setter
+    def uuid(self, value):
+        self._uuid = value
 
     class ParameterEnvelopes:
 
