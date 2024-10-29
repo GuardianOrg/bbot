@@ -5,8 +5,17 @@ flags:
 
 modules:
   - httpx
+  - reflected_parameters
 
 config:
   web:
     spider_distance: 1
     spider_depth: 4
+
+  omit_event_types:
+    - HTTP_RESPONSE
+    - RAW_TEXT
+    - URL_UNVERIFIED
+    - DNS_NAME_UNRESOLVED
+    - FILESYSTEM
+    - RAW_DNS_RECORD

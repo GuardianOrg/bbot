@@ -47,9 +47,12 @@ class XSSLightfuzz(BaseLightfuzz):
         # If this came from paramminer_getparams and didn't have a http_reflection tag, we don't need to check again
         if (
             lightfuzz_event.type == "WEB_PARAMETER"
-            and lightfuzz_event.parent.type == "paramminer_getparams"
-            and "http_reflection" not in lightfuzz_event.tags
+            and str(lightfuzz_event.module) == "paramminer_getparams"
+            and "http-reflection" not in lightfuzz_event.tags
         ):
+            self.lightfuzz.debug(
+                "Got WEB_PARAMETER from paramminer, with no reflection tag - xss is not possible, aborting"
+            )
             return
 
         reflection = None

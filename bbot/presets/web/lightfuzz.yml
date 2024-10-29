@@ -5,6 +5,7 @@ modules:
   - lightfuzz
   - badsecrets
   - hunt
+  - reflected_parameters
 
 config:
   url_querystring_remove: False

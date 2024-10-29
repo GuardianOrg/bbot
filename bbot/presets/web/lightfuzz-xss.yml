@@ -3,7 +3,8 @@ modules:
   - httpx
   - lightfuzz
   - paramminer_getparams
-
+  - reflected_parameters
+  
 config:
   url_querystring_remove: False
   url_querystring_collapse: False
