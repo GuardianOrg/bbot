@@ -362,7 +362,8 @@ class Scanner:
 
             # distribute seed events
             self.init_events_task = asyncio.create_task(
-                self.ingress_module.init_events(self.target.seeds.events), name=f"{self.name}.ingress_module.init_events()"
+                self.ingress_module.init_events(self.target.seeds.events),
+                name=f"{self.name}.ingress_module.init_events()",
             )
 
             # main scan loop

@@ -1,15 +1,11 @@
 import copy
 import logging
-import ipaddress
-import traceback
 import regex as re
 from hashlib import sha1
-from contextlib import suppress
 from radixtarget import RadixTarget
+from radixtarget.helpers import host_size_key
 
 from bbot.errors import *
-from bbot.modules.base import BaseModule
-from bbot.core.helpers.misc import make_ip_type
 from bbot.core.event import make_event, is_event
 
 log = logging.getLogger("bbot.core.target")
@@ -19,6 +15,7 @@ def special_target_type(regex_pattern):
     def decorator(func):
         func._regex = re.compile(regex_pattern, re.IGNORECASE)
         return func
+
     return decorator
 
 
@@ -36,20 +33,29 @@ class BaseTarget(RadixTarget):
 
     special_target_types = {
         # regex-callback pairs for handling special target types
+        # these aren't defined explicitly; instead they are decorated with @special_target_type
+        # the function must return a list of events
     }
     tags = []
 
     def __init__(self, *targets, scan=None, **kwargs):
         self.scan = scan
-        self.inputs = set()
         self.events = set()
         super().__init__(**kwargs)
-        self._make_events(targets)
+        # we preserve the raw inputs to ensure we don't lose any information
+        self.inputs, events = self._make_events(targets)
+        # sort by host size to ensure consistency
+        events = sorted(events, key=lambda e: (0 if not e.host else host_size_key(e.host)))
+        for event in events:
+            if event.host:
+                self._add(event.host, data=event)
+            else:
+                self.events.add(event)
         # Register decorated methods
         for method in dir(self):
             if callable(getattr(self, method)):
                 func = getattr(self, method)
-                if hasattr(func, '_regex'):
+                if hasattr(func, "_regex"):
                     self.special_target_types[func._regex] = func
 
     def get(self, event, single=True, **kwargs):
@@ -69,40 +75,49 @@ class BaseTarget(RadixTarget):
         kwargs["tags"].update(self.tags)
         return make_event(*args, dummy=True, scan=self.scan, **kwargs)
 
-    def _add(self, host, **kwargs):
-        event = self.make_event(host)
+    def _add(self, host, data=None):
+        """
+        Overrides the base method to enable having multiple events for the same host.
+
+        The "data" attribute of the node is now a set of events.
+        """
+        if data is None:
+            event = self.make_event(host)
+        else:
+            event = data
         self.events.add(event)
         if event.host:
-            event_set = self.get(event.host)
-            if event_set is None:
-                event_set = set()
-                if event.host:
-                    super()._add(event.host, data=event_set)
-            event_set.add(event)
+            try:
+                event_set = self.get(event.host, single=False, raise_error=True)
+                event_set.add(event)
+            except KeyError:
+                event_set = {event}
+                super()._add(event.host, data=event_set)
         return event
 
     def _make_events(self, targets):
+        inputs = set()
+        events = set()
         for target in targets:
-            event_type = None
-            special_target_type = self.check_special_target_types(str(target))
+            _events = []
+            special_target_type, _events = self.check_special_target_types(str(target))
             if special_target_type:
-                self.inputs.add(str(target))
+                inputs.add(str(target))
             else:
-                event = self.add(target)
+                event = self.make_event(target)
                 if event:
-                    self.inputs.add(event.data)
+                    _events = [event]
+            for event in _events:
+                inputs.add(event.data)
+                events.add(event)
+        return inputs, events
 
     def check_special_target_types(self, target):
         for regex, callback in self.special_target_types.items():
             match = regex.match(target)
             if match:
-                callback(match)
-                return True
-        return False
-
-    @property
-    def minimal(self):
-        return set(self.inputs)
+                return True, callback(match)
+        return False, []
 
     def __iter__(self):
         yield from self.events
@@ -114,29 +129,29 @@ class ScanSeeds(BaseTarget):
 
     These are the targets specified by the user, e.g. via `-t` on the CLI.
     """
+
     tags = ["target"]
 
     @special_target_type(r"^(?:ORG|ORG_STUB):(.*)")
     def handle_org_stub(self, match):
-        org_stub_event = self.make_event(
-            match.group(1),
-            event_type="ORG_STUB"
-        )
-        self.events.add(org_stub_event)
+        org_stub_event = self.make_event(match.group(1), event_type="ORG_STUB")
+        if org_stub_event:
+            return [org_stub_event]
+        return []
 
     @special_target_type(r"^(?:USER|USERNAME):(.*)")
     def handle_username(self, match):
-        username_event = self.make_event(
-            match.group(1),
-            event_type="USERNAME"
-        )
-        self.events.add(username_event)
+        username_event = self.make_event(match.group(1), event_type="USERNAME")
+        if username_event:
+            return [username_event]
+        return []
 
 
 class ScanWhitelist(BaseTarget):
     """
     A collection of BBOT events that represent a scan's whitelist.
     """
+
     def __init__(self, *args, **kwargs):
         kwargs["acl_mode"] = True
         super().__init__(*args, **kwargs)
@@ -146,6 +161,7 @@ class ScanBlacklist(BaseTarget):
     """
     A collection of BBOT events that represent a scan's blacklist.
     """
+
     def __init__(self, *args, **kwargs):
         self.blacklist_regexes = set()
         super().__init__(*args, **kwargs)
@@ -155,6 +171,7 @@ class ScanBlacklist(BaseTarget):
         pattern = match.group(1)
         blacklist_regex = re.compile(pattern, re.IGNORECASE)
         self.blacklist_regexes.add(blacklist_regex)
+        return []
 
     def get(self, event, **kwargs):
         """
@@ -291,7 +308,7 @@ class BBOTTarget:
         """
         return self.__class__(
             seeds=[],
-            whitelist=self.whitelist.minimal,
-            blacklist=self.blacklist.minimal,
+            whitelist=self.whitelist.inputs,
+            blacklist=self.blacklist.inputs,
             strict_scope=self.strict_scope,
         )

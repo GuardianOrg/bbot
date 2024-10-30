@@ -65,7 +65,7 @@ class speculate(BaseInternalModule):
         if not self.portscanner_enabled:
             self.info(f"No portscanner enabled. Assuming open ports: {', '.join(str(x) for x in self.ports)}")
 
-        target_len = len(self.scan.target)
+        target_len = len(self.scan.target.seeds)
         if target_len > self.config.get("max_hosts", 65536):
             if not self.portscanner_enabled:
                 self.hugewarning(
