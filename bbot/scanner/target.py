@@ -307,7 +307,6 @@ class BBOTTarget:
         This version doesn't have the events, only their hosts. This allows it to be passed across process boundaries.
         """
         return self.__class__(
-            seeds=[],
             whitelist=self.whitelist.inputs,
             blacklist=self.blacklist.inputs,
             strict_scope=self.strict_scope,
