@@ -23,24 +23,14 @@ jobs:
           poetry install
       - name: Generate docs
         run: |
-          poetry run bbot/scripts/docs.py
-      - name: Commit and Push Changes
-        run: |
           git branch -D update-docs || true
           git switch dev
-          git config user.name "BBOT Docs Autopublish"
-          git config user.email "info@blacklanternsecurity.com"
           git switch -c update-docs
-          git add "*.md" "docs/data/chord_graph/*.json"
-          git commit -m "Refresh module docs"
-          git push -u origin update-docs --force
-          git switch dev
-        env:
-          GITHUB_TOKEN: ${{ secrets.BBOT_DOCS_UPDATER_PAT }}
-      # - name: Create or Update Pull Request
-      #   uses: peter-evans/create-pull-request@v7
-      #   with:
-      #     token: ${{ secrets.BBOT_DOCS_UPDATER_PAT }}
-      #     branch: update-docs
-      #     title: "Daily Docs Update"
-      #     body: "This is an automated pull request to update the documentation."
+          poetry run bbot/scripts/docs.py
+      - name: Create or Update Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.BBOT_DOCS_UPDATER_PAT }}
+          branch: update-docs
+          title: "Daily Docs Update"
+          body: "This is an automated pull request to update the documentation."
