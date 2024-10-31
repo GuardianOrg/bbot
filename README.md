@@ -55,13 +55,13 @@ config:
     threads: 25
     brute_threads: 1000
   # put your API keys here
-  modules:
-    github:
-      api_key: ""
-    chaos:
-      api_key: ""
-    securitytrails:
-      api_key: ""
+  # modules:
+  #   github:
+  #     api_key: ""
+  #   chaos:
+  #     api_key: ""
+  #   securitytrails:
+  #     api_key: ""
 
 ```
 
@@ -215,6 +215,7 @@ include:
   - paramminer
   - dirbust-light
   - web-screenshots
+  - baddns-thorough
 
 config:
   modules:
