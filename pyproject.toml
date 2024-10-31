@@ -11,7 +11,7 @@ readme = "README.md"
 repository = "https://github.com/blacklanternsecurity/bbot"
 homepage = "https://github.com/blacklanternsecurity/bbot"
 documentation = "https://www.blacklanternsecurity.com/bbot/"
-keywords = ["python", "cli", "automation", "osint", "neo4j", "scanner", "python-library", "hacking", "recursion", "pentesting", "recon", "command-line-tool", "bugbounty", "subdomains", "security-tools", "subdomain-scanner", "osint-framework", "attack-surface", "subdomain-enumeration", "osint-tool"]
+keywords = ["python", "cli", "automation", "osint", "threat-intel", "intelligence", "neo4j", "scanner", "python-library", "hacking", "recursion", "pentesting", "recon", "command-line-tool", "bugbounty", "subdomains", "security-tools", "subdomain-scanner", "osint-framework", "attack-surface", "subdomain-enumeration", "osint-tool"]
 classifiers = [
     "Operating System :: POSIX :: Linux",
     "Topic :: Security",
