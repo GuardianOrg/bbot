@@ -26,6 +26,7 @@ jobs:
           poetry run bbot/scripts/docs.py
       - name: Commit and Push Changes
         run: |
+          git branch -D update-docs || true
           git config user.name "BBOT Docs Autopublish"
           git config user.email "info@blacklanternsecurity.com"
           git checkout -b update-docs
