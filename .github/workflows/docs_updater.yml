@@ -23,14 +23,6 @@ jobs:
           poetry install
       - name: Generate docs
         run: |
-          git fetch origin
-          if git show-ref --verify --quiet refs/remotes/origin/update-docs; then
-            git switch update-docs
-          else
-            git switch dev
-            git switch -c update-docs
-            git push origin update-docs --set-upstream
-          fi
           poetry run bbot/scripts/docs.py
       - name: Create or Update Pull Request
         uses: peter-evans/create-pull-request@v7
