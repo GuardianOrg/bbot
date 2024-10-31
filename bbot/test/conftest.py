@@ -238,7 +238,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):  # pragma: no
             terminalreporter.write(f"\n{RED}Failure details:\n{item.longreprtext}{RESET}")
 
 
-BELOW: debugging for frozen/hung tests
+# BELOW: debugging for frozen/hung tests
 import psutil
 import traceback
 import inspect
