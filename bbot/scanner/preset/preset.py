@@ -761,11 +761,11 @@ class Preset:
 
         # scope
         if include_target:
-            target = sorted(str(t.data) for t in self.target.seeds)
+            target = sorted(self.target.seeds.inputs)
             whitelist = []
             if self.target.whitelist is not None:
-                whitelist = sorted(str(t.data) for t in self.target.whitelist)
-            blacklist = sorted(str(t.data) for t in self.target.blacklist)
+                whitelist = sorted(self.target.whitelist.inputs)
+            blacklist = sorted(self.target.blacklist.inputs)
             if target:
                 preset_dict["target"] = target
             if whitelist and whitelist != target:
