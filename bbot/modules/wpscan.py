@@ -33,7 +33,7 @@ class wpscan(BaseModule):
     deps_apt = ["curl", "make", "gcc"]
     deps_ansible = [
         {
-            "name": "Install Ruby Deps (Debian/Ubuntu)",
+            "name": "Install Ruby Deps (Debian)",
             "package": {"name": ["ruby-rubygems", "ruby-dev"], "state": "present"},
             "become": True,
             "when": "ansible_facts['os_family'] == 'Debian'",
@@ -48,7 +48,13 @@ class wpscan(BaseModule):
             "name": "Install Ruby Deps (Fedora)",
             "package": {"name": ["rubygems", "ruby-devel"], "state": "present"},
             "become": True,
-            "when": "ansible_facts['os_family'] == 'Fedora'",
+            "when": "ansible_facts['os_family'] == 'RedHat'",
+        },
+        {
+            "name": "Install Ruby Deps (Alpine)",
+            "package": {"name": ["ruby-dev", "ruby-bundler"], "state": "present"},
+            "become": True,
+            "when": "ansible_facts['os_family'] == 'Alpine'",
         },
         {
             "name": "Install wpscan gem",
