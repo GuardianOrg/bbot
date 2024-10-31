@@ -178,10 +178,10 @@ class DepsInstaller:
 
         # if no custom constraints are provided, use the constraints of the currently installed version of bbot
         if constraints is not None:
-            import pkg_resources
+            from importlib.metadata import distribution
 
-            dist = pkg_resources.get_distribution("bbot")
-            constraints = [str(r) for r in dist.requires()]
+            dist = distribution("bbot")
+            constraints = [str(r) for r in dist.requires]
 
         constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
         command.append("--constraint")
