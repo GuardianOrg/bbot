@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 import multiprocessing as mp
 from functools import partial
-from radixtarget import RadixTarget
 from concurrent.futures import ProcessPoolExecutor
 
 from . import misc
@@ -15,6 +14,8 @@ from .wordcloud import WordCloud
 from .interactsh import Interactsh
 from .depsinstaller import DepsInstaller
 from .async_helpers import get_event_loop
+
+from bbot.scanner.target import BaseTarget
 
 log = logging.getLogger("bbot.core.helpers")
 
@@ -155,8 +156,8 @@ class ConfigAwareHelper:
         _filter = lambda x: x.is_dir() and self.regexes.scan_name_regex.match(x.name)
         self.clean_old(self.scans_dir, keep=self.keep_old_scans, filter=_filter)
 
-    def make_target(self, *events, **kwargs):
-        return RadixTarget(*events, **kwargs)
+    def make_target(self, *targets, **kwargs):
+        return BaseTarget(*targets, scan=self.scan, **kwargs)
 
     @property
     def config(self):
