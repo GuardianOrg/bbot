@@ -115,11 +115,10 @@ jobs:
     outputs:
       BBOT_VERSION: ${{ steps.version.outputs.BBOT_VERSION }}
   publish_docs:
-    needs: update_docs
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev')
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.BBOT_DOCS_UPDATER_PAT }}
       - uses: actions/setup-python@v4
