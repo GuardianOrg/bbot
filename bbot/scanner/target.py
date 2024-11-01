@@ -1,4 +1,3 @@
-import copy
 import logging
 import regex as re
 from hashlib import sha1
@@ -7,6 +6,8 @@ from radixtarget.helpers import host_size_key
 
 from bbot.errors import *
 from bbot.core.event import make_event, is_event
+from bbot.core.helpers.misc import is_dns_name, is_ip
+
 
 log = logging.getLogger("bbot.core.target")
 
@@ -59,8 +60,20 @@ class BaseTarget(RadixTarget):
                     self.special_target_types[func._regex] = func
 
     def get(self, event, single=True, **kwargs):
-        event = self.make_event(event)
-        results = super().get(event.host, **kwargs)
+        """
+        Override default .get() to accept events and optionally return multiple results
+        """
+        if is_event(event):
+            host = event.host
+        # save resources by checking if the event is an IP or DNS name
+        elif is_ip(event, include_network=True) or is_dns_name(event):
+            host = event
+        elif isinstance(event, str):
+            event = self.make_event(event)
+            host = event.host
+        else:
+            raise ValueError(f"Invalid host/event: {event} ({type(event)})")
+        results = super().get(host, **kwargs)
         if results and single:
             return next(iter(results))
         return results
@@ -146,18 +159,27 @@ class ScanSeeds(BaseTarget):
             return [username_event]
         return []
 
+    def _hash_value(self):
+        # seeds get hashed by event data
+        return sorted(str(e.data).encode() for e in self.events)
 
-class ScanWhitelist(BaseTarget):
-    """
-    A collection of BBOT events that represent a scan's whitelist.
-    """
 
+class ACLTarget(BaseTarget):
     def __init__(self, *args, **kwargs):
+        # ACL mode dedupes by host (and skips adding already-contained hosts) for efficiency
         kwargs["acl_mode"] = True
         super().__init__(*args, **kwargs)
 
 
-class ScanBlacklist(BaseTarget):
+class ScanWhitelist(ACLTarget):
+    """
+    A collection of BBOT events that represent a scan's whitelist.
+    """
+
+    pass
+
+
+class ScanBlacklist(ACLTarget):
     """
     A collection of BBOT events that represent a scan's blacklist.
     """
@@ -188,6 +210,12 @@ class ScanBlacklist(BaseTarget):
             if regex.match(host_or_url):
                 return event
         return None
+
+    def _hash_value(self):
+        # regexes are included in blacklist hash
+        regex_patterns = [str(r.pattern).encode() for r in self.blacklist_regexes]
+        hosts = [str(h).encode() for h in self.sorted_hosts]
+        return hosts + regex_patterns
 
 
 class BBOTTarget:
@@ -239,13 +267,6 @@ class BBOTTarget:
         for target_hash in [t.hash for t in (self.whitelist, self.blacklist)]:
             sha1_hash.update(target_hash)
         return sha1_hash.digest()
-
-    def copy(self):
-        self_copy = copy.copy(self)
-        self_copy.seeds = self.seeds.copy()
-        self_copy.whitelist = self.whitelist.copy()
-        self_copy.blacklist = self.blacklist.copy()
-        return self_copy
 
     def in_scope(self, host):
         """
@@ -311,3 +332,6 @@ class BBOTTarget:
             blacklist=self.blacklist.inputs,
             strict_scope=self.strict_scope,
         )
+
+    def __eq__(self, other):
+        return self.hash == other.hash

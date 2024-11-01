@@ -591,12 +591,13 @@ def is_dns_name(d, include_local=True):
     return False
 
 
-def is_ip(d, version=None):
+def is_ip(d, version=None, include_network=False):
     """
     Checks if the given string or object represents a valid IP address.
 
     Args:
         d (str or ipaddress.IPvXAddress): The IP address to check.
+        include_network (bool, optional): Whether to include network types (IPv4Network or IPv6Network). Defaults to False.
         version (int, optional): The IP version to validate (4 or 6). Default is None.
 
     Returns:
@@ -612,12 +613,17 @@ def is_ip(d, version=None):
         >>> is_ip('evilcorp.com')
         False
     """
+    ip = None
     try:
         ip = ipaddress.ip_address(d)
-        if version is None or ip.version == version:
-            return True
     except Exception:
-        pass
+        if include_network:
+            try:
+                ip = ipaddress.ip_network(d, strict=False)
+            except Exception:
+                pass
+    if ip is not None and (version is None or ip.version == version):
+        return True
     return False
 
 
