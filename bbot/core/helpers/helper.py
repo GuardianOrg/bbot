@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 import multiprocessing as mp
 from functools import partial
+from radixtarget import RadixTarget
 from concurrent.futures import ProcessPoolExecutor
 
 from . import misc
@@ -12,7 +13,6 @@ from .diff import HttpCompare
 from .regex import RegexHelper
 from .wordcloud import WordCloud
 from .interactsh import Interactsh
-from ...scanner.target import Target
 from .depsinstaller import DepsInstaller
 from .async_helpers import get_event_loop
 
@@ -156,7 +156,7 @@ class ConfigAwareHelper:
         self.clean_old(self.scans_dir, keep=self.keep_old_scans, filter=_filter)
 
     def make_target(self, *events, **kwargs):
-        return Target(*events, **kwargs)
+        return RadixTarget(*events, **kwargs)
 
     @property
     def config(self):

@@ -271,6 +271,12 @@ class Preset:
         return self._target
 
     @property
+    def seeds(self):
+        if self._seeds is None:
+            raise ValueError("Cannot access target before preset is baked (use ._seeds instead)")
+        return self.target.seeds
+
+    @property
     def whitelist(self):
         if self._target is None:
             raise ValueError("Cannot access whitelist before preset is baked (use ._whitelist instead)")

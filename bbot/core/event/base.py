@@ -342,6 +342,21 @@ class BaseEvent:
         return self._host_original
 
     @property
+    def host_filterable(self):
+        """
+        A string version of the event that's used for regex-based blacklisting.
+
+        For example, the user can specify "REGEX:.*.evilcorp.com" in their blacklist, and this regex
+        will be applied against this property.
+        """
+        parsed_url = getattr(self, "parsed_url", None)
+        if parsed_url is not None:
+            return parsed_url.geturl()
+        if self.host is not None:
+            return str(self.host)
+        return ""
+
+    @property
     def port(self):
         self.host
         if getattr(self, "parsed_url", None):
@@ -1114,8 +1129,7 @@ class DnsEvent(BaseEvent):
 class IP_RANGE(DnsEvent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        net = ipaddress.ip_network(self.data, strict=False)
-        self.add_tag(f"ipv{net.version}")
+        self.add_tag(f"ipv{self.host.version}")
 
     def sanitize_data(self, data):
         return str(ipaddress.ip_network(str(data), strict=False))
@@ -1689,6 +1703,13 @@ def make_event(
         if event_type == "USERNAME" and validators.soft_validate(data, "email"):
             event_type = "EMAIL_ADDRESS"
             tags.add("affiliate")
+        # Convert single-host IP_RANGE to IP_ADDRESS
+        if event_type == "IP_RANGE":
+            with suppress(Exception):
+                net = ipaddress.ip_network(data, strict=False)
+                if net.prefixlen == net.max_prefixlen:
+                    event_type = "IP_ADDRESS"
+                    data = net.network_address
 
         event_class = globals().get(event_type, DefaultEvent)
 
