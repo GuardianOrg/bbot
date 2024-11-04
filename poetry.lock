@@ -417,19 +417,19 @@ colorama = {version = "*", markers = "platform_system == \"Windows\""}
 
 [[package]]
 name = "cloudcheck"
-version = "5.0.1.595"
+version = "6.0.0.661"
 description = "Check whether an IP address belongs to a cloud provider"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "cloudcheck-5.0.1.595-py3-none-any.whl", hash = "sha256:68acec63b09400fa0409ae7f3ffa817cbc891bf8a2ac63f9610a3b049a4bf57d"},
-    {file = "cloudcheck-5.0.1.595.tar.gz", hash = "sha256:38456074332ed2ba928e7073e3928a5223a6005a64124b4b342d8b9599ca10e0"},
+    {file = "cloudcheck-6.0.0.661-py3-none-any.whl", hash = "sha256:b8c45061d76eea14aa493e9dfd087e1aefccb1632c3bb8d49c77d273f721188c"},
+    {file = "cloudcheck-6.0.0.661.tar.gz", hash = "sha256:98a7b88f4784fad91faa3d6ea5749c7fe215462dbad63c34df1afc671f915795"},
 ]
 
 [package.dependencies]
 httpx = ">=0.26,<0.28"
 pydantic = ">=2.4.2,<3.0.0"
-radixtarget = ">=1.0.0.14,<2.0.0.0"
+radixtarget = ">=2.0.0.32,<3.0.0.0"
 regex = ">=2024.4.16,<2025.0.0"
 
 [[package]]
@@ -2338,13 +2338,13 @@ cffi = {version = "*", markers = "implementation_name == \"pypy\""}
 
 [[package]]
 name = "radixtarget"
-version = "1.1.0.18"
+version = "2.0.0.50"
 description = "Check whether an IP address belongs to a cloud provider"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "radixtarget-1.1.0.18-py3-none-any.whl", hash = "sha256:05e95de6afb0ee4dfa31c53bd25a34a193ae5bb46dc7624e0424bbcfed2c4cea"},
-    {file = "radixtarget-1.1.0.18.tar.gz", hash = "sha256:1a3306891a22f7ff2c71d6cd42202af8852cdb4fb68e9a1e9a76a3f60aa98ab6"},
+    {file = "radixtarget-2.0.0.50-py3-none-any.whl", hash = "sha256:fe1670a382d1ddaebc2cba3b16607d32085987eb5d71074cc0535e19a02406b7"},
+    {file = "radixtarget-2.0.0.50.tar.gz", hash = "sha256:73519eebb0596a67d4e9347a5e4602c95c9ff9dc8be4c64e6ab0247bc69a13e8"},
 ]
 
 [[package]]
@@ -3136,4 +3136,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "3dae2f970494ad6b7716cd18ca02c76d53248aa5f7bad8e4ae22a7e4d885f79e"
+content-hash = "fa12c7a9f1cc6c3ff56a2a6b8d412c789d77ea8b39c9e6654f922c9a4293bc7b"
