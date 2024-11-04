@@ -106,7 +106,8 @@ async def test_dns_resolution(bbot_scanner):
     assert "2606:4700:4700::1111" in await dnsengine.resolve("one.one.one.one", type="AAAA")
     assert "one.one.one.one" in await dnsengine.resolve("1.1.1.1")
     for rdtype in ("NS", "SOA", "MX", "TXT"):
-        assert len(await dnsengine.resolve("google.com", type=rdtype)) > 0
+        results = await dnsengine.resolve("google.com", type=rdtype)
+        assert len(results) > 0
 
     # batch resolution
     batch_results = [r async for r in dnsengine.resolve_batch(["1.1.1.1", "one.one.one.one"])]

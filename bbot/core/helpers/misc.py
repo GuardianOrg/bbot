@@ -586,7 +586,7 @@ def is_dns_name(d, include_local=True):
     if include_local:
         if bbot_regexes.hostname_regex.match(d):
             return True
-    if bbot_regexes.dns_name_regex.match(d):
+    if bbot_regexes.dns_name_validation_regex.match(d):
         return True
     return False
 
