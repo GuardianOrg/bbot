@@ -484,7 +484,6 @@ async def test_events(events, helpers):
     json_event = db_event.json()
     assert isinstance(json_event["uuid"], str)
     assert json_event["uuid"] == str(db_event.uuid)
-    print(f"{json_event} / {db_event.uuid} / {db_event.parent_uuid} / {scan.root_event.uuid}")
     assert json_event["parent_uuid"] == str(scan.root_event.uuid)
     assert json_event["scope_distance"] == 1
     assert json_event["data"] == "evilcorp.com:80"

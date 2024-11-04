@@ -94,9 +94,21 @@ def bbot_httpserver_ssl():
     server.clear()
 
 
-@pytest.fixture
-def non_mocked_hosts() -> list:
-    return ["127.0.0.1", "localhost", "raw.githubusercontent.com"] + interactsh_servers
+def should_mock(request):
+    return not request.url.host in ["127.0.0.1", "localhost", "raw.githubusercontent.com"] + interactsh_servers
+
+
+def pytest_collection_modifyitems(config, items):
+    # make sure all tests have the httpx_mock marker
+    for item in items:
+        # if "httpx_mock" not in item.keywords:
+        item.add_marker(
+            pytest.mark.httpx_mock(
+                should_mock=should_mock,
+                assert_all_requests_were_expected=False,
+                can_send_already_matched_responses=True,
+            )
+        )
 
 
 @pytest.fixture
