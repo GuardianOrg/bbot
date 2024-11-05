@@ -73,6 +73,10 @@ class BaseTarget(RadixTarget):
             host = event.host
         else:
             raise ValueError(f"Invalid host/event: {event} ({type(event)})")
+        if not host:
+            if kwargs.get("raise_error", False):
+                raise KeyError(f"Host not found: '{event}'")
+            return None
         results = super().get(host, **kwargs)
         if results and single:
             return next(iter(results))
