@@ -269,7 +269,7 @@ class Scanner:
                 f.write(self.preset.to_yaml())
 
             # log scan overview
-            start_msg = f"Scan with {len(self.preset.scan_modules):,} modules seeded with {len(self.seeds):,} targets"
+            start_msg = f"Scan seeded with {len(self.seeds):,} targets"
             details = []
             if self.whitelist != self.target:
                 details.append(f"{len(self.whitelist):,} in whitelist")
