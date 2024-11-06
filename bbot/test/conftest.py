@@ -327,6 +327,14 @@ def _print_detailed_info():  # pragma: no cover
         traceback.print_exc()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def install_all_python_deps():
+    deps_pip = set()
+    for module in DEFAULT_PRESET.module_loader.preloaded().values():
+        deps_pip.update(set(module.get("deps", {}).get("pip", [])))
+    subprocess.run([sys.executable, "-m", "pip", "install"] + list(deps_pip))
+
+
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_sessionfinish(session, exitstatus):
     # Remove handlers from all loggers to prevent logging errors at exit

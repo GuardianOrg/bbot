@@ -42,22 +42,15 @@ class BaseTarget(RadixTarget):
     def __init__(self, *targets, scan=None, **kwargs):
         self.scan = scan
         self.events = set()
-        super().__init__(**kwargs)
-        # we preserve the raw inputs to ensure we don't lose any information
-        self.inputs, events = self._make_events(targets)
-        # sort by host size to ensure consistency
-        events = sorted(events, key=lambda e: (0 if not e.host else host_size_key(e.host)))
-        for event in events:
-            if event.host:
-                self._add(event.host, data=event)
-            else:
-                self.events.add(event)
+        self.inputs = set()
         # Register decorated methods
         for method in dir(self):
-            if callable(getattr(self, method)):
+            if callable(getattr(self, method, None)):
                 func = getattr(self, method)
                 if hasattr(func, "_regex"):
                     self.special_target_types[func._regex] = func
+
+        super().__init__(*targets, **kwargs)
 
     def get(self, event, single=True, **kwargs):
         """
@@ -92,42 +85,42 @@ class BaseTarget(RadixTarget):
         kwargs["tags"].update(self.tags)
         return make_event(*args, dummy=True, scan=self.scan, **kwargs)
 
-    def _add(self, host, data=None):
-        """
-        Overrides the base method to enable having multiple events for the same host.
-
-        The "data" attribute of the node is now a set of events.
-        """
-        if data is None:
-            event = self.make_event(host)
-        else:
-            event = data
-        self.events.add(event)
-        if event.host:
-            try:
-                event_set = self.get(event.host, single=False, raise_error=True)
-                event_set.add(event)
-            except KeyError:
-                event_set = {event}
-                super()._add(event.host, data=event_set)
-        return event
-
-    def _make_events(self, targets):
-        inputs = set()
+    def add(self, targets):
+        if not isinstance(targets, (list, set, tuple)):
+            targets = [targets]
         events = set()
         for target in targets:
             _events = []
             special_target_type, _events = self.check_special_target_types(str(target))
             if special_target_type:
-                inputs.add(str(target))
+                self.inputs.add(str(target))
             else:
                 event = self.make_event(target)
                 if event:
                     _events = [event]
             for event in _events:
-                inputs.add(event.data)
+                self.inputs.add(event.data)
                 events.add(event)
-        return inputs, events
+
+        # sort by host size to ensure consistency
+        events = sorted(events, key=lambda e: (0 if not e.host else host_size_key(e.host)))
+        for event in events:
+            self._add(event.host, data=event)
+
+    def _add(self, host, data):
+        """
+        Overrides the base method to enable having multiple events for the same host.
+
+        The "data" attribute of the node is now a set of events.
+        """
+        self.events.add(data)
+        if host:
+            try:
+                event_set = self.get(host, single=False, raise_error=True)
+                event_set.add(data)
+            except KeyError:
+                event_set = {data}
+                super()._add(host, data=event_set)
 
     def check_special_target_types(self, target):
         for regex, callback in self.special_target_types.items():
@@ -205,14 +198,20 @@ class ScanBlacklist(ACLTarget):
         """
         event = self.make_event(event)
         # first, check event's host against blacklist
-        event_result = super().get(event, **kwargs)
+        try:
+            event_result = super().get(event, raise_error=True)
+        except KeyError:
+            event_result = None
         if event_result is not None:
             return event_result
         # next, check event's host against regexes
         host_or_url = event.host_filterable
-        for regex in self.blacklist_regexes:
-            if regex.match(host_or_url):
-                return event
+        if host_or_url:
+            for regex in self.blacklist_regexes:
+                if regex.search(str(host_or_url)):
+                    return event
+        if kwargs.get("raise_error", False):
+            raise KeyError(f"Host not found: '{event.data}'")
         return None
 
     def _hash_value(self):

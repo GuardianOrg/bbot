@@ -333,3 +333,66 @@ async def test_target(bbot_scanner):
     events = target.get("www.evilcorp.com", single=False)
     assert len(events) == 2
     assert set([e.data for e in events]) == {"http://evilcorp.com/", "evilcorp.com:443"}
+
+
+@pytest.mark.asyncio
+async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
+
+    from bbot.scanner.target import ScanBlacklist
+
+    blacklist = ScanBlacklist("evilcorp.com")
+    assert blacklist.inputs == {"evilcorp.com"}
+    assert "www.evilcorp.com" in blacklist
+    assert "http://www.evilcorp.com" in blacklist
+    blacklist.add("RE:test")
+    assert "RE:test" in blacklist.inputs
+    assert set(blacklist.inputs) == {"evilcorp.com", "RE:test"}
+    assert blacklist.blacklist_regexes
+    assert next(iter(blacklist.blacklist_regexes)).pattern == "test"
+    result1 = blacklist.get("test.com")
+    assert result1.type == "DNS_NAME"
+    assert result1.data == "test.com"
+    result2 = blacklist.get("www.evilcorp.com")
+    assert result2.type == "DNS_NAME"
+    assert result2.data == "evilcorp.com"
+    result2 = blacklist.get("www.evil.com")
+    assert result2 is None
+    with pytest.raises(KeyError):
+        blacklist.get("www.evil.com", raise_error=True)
+    assert "test.com" in blacklist
+    assert "http://evilcorp.com/test.aspx" in blacklist
+    assert not "http://tes.com" in blacklist
+
+    blacklist = ScanBlacklist("evilcorp.com", r"RE:[0-9]{6}\.aspx$")
+    assert "http://evilcorp.com" in blacklist
+    assert not "http://test.com/123456" in blacklist
+    assert not "http://test.com/12345.aspx?a=asdf" in blacklist
+    assert not "http://test.com/asdf/123456.aspx/asdf" in blacklist
+    assert "http://test.com/asdf/123456.aspx?a=asdf" in blacklist
+    assert "http://test.com/asdf/123456.aspx" in blacklist
+
+    bbot_httpserver.expect_request(uri="/").respond_with_data("<a href='http://127.0.0.1:8888/asdfevil333asdf'/>")
+    bbot_httpserver.expect_request(uri="/asdfevilasdf").respond_with_data("")
+
+    # make sure URL is detected normally
+    scan = bbot_scanner("http://127.0.0.1:8888/", presets=["spider"], config={"excavate": True}, debug=True)
+    events = [e async for e in scan.async_start()]
+    urls = [e.data for e in events if e.type == "URL"]
+    assert len(urls) == 2
+    assert set(urls) == {"http://127.0.0.1:8888/", "http://127.0.0.1:8888/asdfevil333asdf"}
+
+    # same scan again but with blacklist regex
+    scan = bbot_scanner(
+        "http://127.0.0.1:8888/",
+        blacklist=[r"RE:evil[0-9]{3}"],
+        presets=["spider"],
+        config={"excavate": True},
+        debug=True,
+    )
+    print(scan.target.blacklist.blacklist_regexes)
+    assert scan.target.blacklist.blacklist_regexes
+    assert next(iter(scan.target.blacklist.blacklist_regexes)).pattern == "evil[0-9]{3}"
+    events = [e async for e in scan.async_start()]
+    urls = [e.data for e in events if e.type == "URL"]
+    assert len(urls) == 1
+    assert set(urls) == {"http://127.0.0.1:8888/"}

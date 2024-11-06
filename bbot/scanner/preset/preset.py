@@ -241,7 +241,7 @@ class Preset:
         # "presets" is alias to "include"
         if presets and include:
             raise ValueError(
-                'Cannot use both "presets" and "include" args at the same time (presets is only an alias to include). Please pick only one :)'
+                'Cannot use both "presets" and "include" args at the same time (presets is an alias to include). Please pick one or the other :)'
             )
         if presets and not include:
             include = presets
