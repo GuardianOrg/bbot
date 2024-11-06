@@ -51,6 +51,7 @@ class extract(BaseInternalModule):
                 "src": "https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip",
                 "include": "bin/jadx",
                 "dest": "#{BBOT_TOOLS}",
+                "extra_opts": "-j",
                 "remote_src": True,
             },
         },
