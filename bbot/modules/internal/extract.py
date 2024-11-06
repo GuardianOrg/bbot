@@ -46,12 +46,15 @@ class extract(BaseInternalModule):
             "when": "ansible_facts['os_family'] == 'Alpine'",
         },
         {
+            "name": "Create jadx directory",
+            "file": {"path": "#{BBOT_TOOLS}/jadx", "state": "directory", "mode": "0755"},
+        },
+        {
             "name": "Download jadx",
             "unarchive": {
                 "src": "https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip",
-                "include": "bin/jadx",
-                "dest": "#{BBOT_TOOLS}",
-                "extra_opts": "-j",
+                "include": ["lib/jadx-1.5.0-all.jar", "bin/jadx"],
+                "dest": "#{BBOT_TOOLS}/jadx",
                 "remote_src": True,
             },
         },
@@ -108,7 +111,14 @@ class extract(BaseInternalModule):
         return True
 
     async def decompile_apk(self, path, output_dir):
-        command = ["jadx", "--threads-count", self.threads, "--output-dir", str(output_dir), str(path)]
+        command = [
+            f"{self.scan.helpers.tools_dir}/jadx/bin/jadx",
+            "--threads-count",
+            self.threads,
+            "--output-dir",
+            str(output_dir),
+            str(path),
+        ]
         try:
             output = await self.run_process(command, check=True)
         except CalledProcessError as e:
