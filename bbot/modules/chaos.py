@@ -26,7 +26,7 @@ class chaos(subdomain_enum_apikey):
         url = f"{self.base_url}/{domain}/subdomains"
         return await self.api_request(url)
 
-    def parse_results(self, r, query):
+    async def parse_results(self, r, query):
         j = r.json()
         subdomains_set = set()
         if isinstance(j, dict):

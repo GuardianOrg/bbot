@@ -18,7 +18,7 @@ class hackertarget(subdomain_enum):
         response = await self.api_request(url)
         return response
 
-    def parse_results(self, r, query):
+    async def parse_results(self, r, query):
         for line in r.text.splitlines():
             host = line.split(",")[0]
             try:

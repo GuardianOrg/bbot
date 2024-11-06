@@ -106,7 +106,7 @@ class subdomain_enum(BaseModule):
                 break
         return ".".join([s for s in query.split(".") if s != "_wildcard"])
 
-    def parse_results(self, r, query=None):
+    async def parse_results(self, r, query=None):
         json = r.json()
         if json:
             for hostname in json:
@@ -123,7 +123,7 @@ class subdomain_enum(BaseModule):
                 self.info(f'Query "{query}" failed (no response)')
                 return []
             try:
-                results = list(parse_fn(response, query))
+                results = list(await parse_fn(response, query))
             except Exception as e:
                 if response:
                     self.info(

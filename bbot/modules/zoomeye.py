@@ -70,6 +70,6 @@ class zoomeye(subdomain_enum_apikey):
             agen.aclose()
         return results
 
-    def parse_results(self, r):
+    async def parse_results(self, r):
         for entry in r.get("list", []):
             yield entry["name"]
