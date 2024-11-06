@@ -116,11 +116,11 @@ class BaseTarget(RadixTarget):
         self.events.add(data)
         if host:
             try:
-                event_set = self.get(host, single=False, raise_error=True)
+                event_set = self.get(host, raise_error=True, single=False)
                 event_set.add(data)
             except KeyError:
                 event_set = {data}
-                super()._add(host, data=event_set)
+            super()._add(host, data=event_set)
 
     def check_special_target_types(self, target):
         for regex, callback in self.special_target_types.items():
@@ -193,14 +193,14 @@ class ScanBlacklist(ACLTarget):
         self.blacklist_regexes.add(blacklist_regex)
         return []
 
-    def get(self, event, **kwargs):
+    def get(self, event, single=True, **kwargs):
         """
         Here, for the blacklist, we modify this method to also consider any special regex patterns specified by the user
         """
         event = self.make_event(event)
         # first, check event's host against blacklist
         try:
-            event_result = super().get(event, raise_error=True)
+            event_result = super().get(event, raise_error=True, single=False)
         except KeyError:
             event_result = None
         if event_result is not None:

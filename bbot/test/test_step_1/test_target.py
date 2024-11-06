@@ -371,11 +371,16 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
     assert "http://test.com/asdf/123456.aspx?a=asdf" in blacklist
     assert "http://test.com/asdf/123456.aspx" in blacklist
 
-    bbot_httpserver.expect_request(uri="/").respond_with_data("<a href='http://127.0.0.1:8888/asdfevil333asdf'/>")
+    bbot_httpserver.expect_request(uri="/").respond_with_data("""
+        <a href='http://127.0.0.1:8888/asdfevil333asdf'/>
+        <a href='http://127.0.0.1:8888/logout.aspx'/>
+    """)
     bbot_httpserver.expect_request(uri="/asdfevilasdf").respond_with_data("")
+    bbot_httpserver.expect_request(uri="/logout.aspx").respond_with_data("")
 
     # make sure URL is detected normally
     scan = bbot_scanner("http://127.0.0.1:8888/", presets=["spider"], config={"excavate": True}, debug=True)
+    assert set([r.pattern for r in scan.target.blacklist.blacklist_regexes]) == {r"/.*(sign[_-]?out|log[_-]?out)"}
     events = [e async for e in scan.async_start()]
     urls = [e.data for e in events if e.type == "URL"]
     assert len(urls) == 2
@@ -391,7 +396,7 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
     )
     print(scan.target.blacklist.blacklist_regexes)
     assert scan.target.blacklist.blacklist_regexes
-    assert next(iter(scan.target.blacklist.blacklist_regexes)).pattern == "evil[0-9]{3}"
+    assert set([r.pattern for r in scan.target.blacklist.blacklist_regexes]) == {r"evil[0-9]{3}", r"/.*(sign[_-]?out|log[_-]?out)"}
     events = [e async for e in scan.async_start()]
     urls = [e.data for e in events if e.type == "URL"]
     assert len(urls) == 1
