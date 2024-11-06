@@ -19,6 +19,5 @@ class rapiddns(subdomain_enum):
         return response
 
     async def parse_results(self, r, query):
-        results = set()
         text = getattr(r, "text", "")
         return await self.scan.extract_in_scope_hostnames(text)
