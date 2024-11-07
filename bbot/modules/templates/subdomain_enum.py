@@ -144,7 +144,7 @@ class subdomain_enum(BaseModule):
         agen = self.api_page_iter(url, page_size=self.page_size, **self.api_page_iter_kwargs)
         try:
             async for response in agen:
-                subdomains = self.parse_results(response, query)
+                subdomains = await self.parse_results(response, query)
                 self.verbose(f'Got {len(subdomains):,} subdomains for "{query}"')
                 if not subdomains:
                     break

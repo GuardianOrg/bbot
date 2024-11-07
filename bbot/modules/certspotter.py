@@ -18,8 +18,10 @@ class certspotter(subdomain_enum):
         return self.api_request(url, timeout=self.http_timeout + 30)
 
     async def parse_results(self, r, query):
+        results = set()
         json = r.json()
         if json:
             for r in json:
                 for dns_name in r.get("dns_names", []):
-                    yield dns_name.lstrip(".*").rstrip(".")
+                    results.add(dns_name.lstrip(".*").rstrip("."))
+        return results

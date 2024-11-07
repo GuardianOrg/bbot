@@ -19,11 +19,13 @@ class hackertarget(subdomain_enum):
         return response
 
     async def parse_results(self, r, query):
+        results = set()
         for line in r.text.splitlines():
             host = line.split(",")[0]
             try:
                 self.helpers.validators.validate_host(host)
-                yield host
+                results.add(host)
             except ValueError:
                 self.debug(f"Error validating API result: {line}")
                 continue
+        return results

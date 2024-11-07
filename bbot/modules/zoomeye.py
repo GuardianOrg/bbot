@@ -60,7 +60,7 @@ class zoomeye(subdomain_enum_apikey):
         agen = self.api_page_iter(url)
         try:
             async for j in agen:
-                r = list(self.parse_results(j))
+                r = list(await self.parse_results(j))
                 if r:
                     results.update(set(r))
                 if not r or i >= (self.max_pages - 1):
@@ -71,5 +71,7 @@ class zoomeye(subdomain_enum_apikey):
         return results
 
     async def parse_results(self, r):
+        results = set()
         for entry in r.get("list", []):
-            yield entry["name"]
+            results.add(entry["name"])
+        return results

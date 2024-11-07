@@ -44,5 +44,4 @@ class BufferOverrun(subdomain_enum_apikey):
                     subdomain = parts[4].strip()
                     if subdomain and subdomain.endswith(f".{query}"):
                         subdomains_set.add(subdomain)
-            for subdomain in subdomains_set:
-                yield subdomain
+        return subdomains_set

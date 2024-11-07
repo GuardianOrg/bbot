@@ -27,7 +27,9 @@ class securitytrails(subdomain_enum_apikey):
         return response
 
     async def parse_results(self, r, query):
+        results = set()
         j = r.json()
         if isinstance(j, dict):
             for host in j.get("subdomains", []):
-                yield f"{host}.{query}"
+                results.add(f"{host}.{query}")
+        return results

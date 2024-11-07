@@ -24,6 +24,7 @@ class crt(subdomain_enum):
         return await self.api_request(url, timeout=self.http_timeout + 30)
 
     async def parse_results(self, r, query):
+        results = set()
         j = r.json()
         for cert_info in j:
             if not type(cert_info) == dict:
@@ -35,4 +36,5 @@ class crt(subdomain_enum):
                     domain = cert_info.get("name_value")
                     if domain:
                         for d in domain.splitlines():
-                            yield d.lower()
+                            results.add(d.lower())
+        return results

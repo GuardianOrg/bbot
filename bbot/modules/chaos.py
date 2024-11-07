@@ -27,6 +27,7 @@ class chaos(subdomain_enum_apikey):
         return await self.api_request(url)
 
     async def parse_results(self, r, query):
+        results = set()
         j = r.json()
         subdomains_set = set()
         if isinstance(j, dict):
@@ -39,4 +40,5 @@ class chaos(subdomain_enum_apikey):
                 for s in subdomains_set:
                     full_subdomain = f"{s}.{domain}"
                     if full_subdomain and full_subdomain.endswith(f".{query}"):
-                        yield full_subdomain
+                        results.add(full_subdomain)
+        return results
