@@ -5,7 +5,7 @@ modules:
 
 blacklist:
   # Prevent spider from invalidating sessions by logging out
-  - "RE:/.*(sign[_-]?out|log[_-]?out)"
+  - "RE:/.*(sign|log)[_-]?out"
 
 config:
   web:

@@ -217,6 +217,28 @@ If you only want to blacklist the URL, you could narrow the regex like so:
 bbot -t evilcorp.com --blacklist 'RE:signout\.aspx$'
 ```
 
+Similar to targets and whitelists, blacklists can be specified in your preset. The `spider` preset makes use of this to prevent the spider from following logout links:
+
+```yaml title="spider.yml"
+description: Recursive web spider
+
+modules:
+  - httpx
+
+blacklist:
+  # Prevent spider from invalidating sessions by logging out
+  - "RE:/.*(sign|log)[_-]?out"
+
+config:
+  web:
+    # how many links to follow in a row
+    spider_distance: 2
+    # don't follow links whose directory depth is higher than 4
+    spider_depth: 4
+    # maximum number of links to follow per page
+    spider_links_per_page: 25
+```
+
 ## DNS Wildcards
 
 BBOT has robust wildcard detection built-in. It can reliably detect wildcard domains, and will tag them accordingly:
