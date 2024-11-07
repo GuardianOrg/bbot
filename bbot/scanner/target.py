@@ -176,6 +176,7 @@ class ScanWhitelist(ACLTarget):
     """
     A collection of BBOT events that represent a scan's whitelist.
     """
+
     pass
 
 

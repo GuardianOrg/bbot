@@ -5,7 +5,7 @@ from ..bbot_fixtures import *  # noqa: F401
 async def test_target(bbot_scanner):
     from radixtarget import RadixTarget
     from ipaddress import ip_address, ip_network
-    from bbot.scanner.target import BBOTTarget, BaseTarget, ScanSeeds
+    from bbot.scanner.target import BBOTTarget, ScanSeeds
 
     scan1 = bbot_scanner("api.publicapis.org", "8.8.8.8/30", "2001:4860:4860::8888/126")
     scan2 = bbot_scanner("8.8.8.8/29", "publicapis.org", "2001:4860:4860::8888/125")
