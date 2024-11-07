@@ -641,7 +641,7 @@ class EngineServer(EngineBase):
             except BaseException as e:
                 if isinstance(e, (TimeoutError, asyncio.exceptions.TimeoutError)):
                     self.log.warning(f"{self.name}: Timeout after {timeout:,} seconds in finished_tasks({tasks})")
-                    for task in tasks:
+                    for task in list(tasks):
                         task.cancel()
                         self._await_cancelled_task(task)
                 else:
@@ -683,5 +683,5 @@ class EngineServer(EngineBase):
         for client_id in list(self.tasks):
             await self.cancel_task(client_id)
         for client_id, tasks in self.child_tasks.items():
-            for task in tasks:
+            for task in list(tasks):
                 await self._await_cancelled_task(task)
