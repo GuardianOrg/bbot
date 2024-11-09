@@ -112,7 +112,9 @@ class ModuleTestBase:
 
     @pytest.mark.asyncio
     async def test_module_run(self, module_test):
-        self.check(module_test, module_test.events)
+        from bbot.core.helpers.misc import execute_sync_or_async
+
+        await execute_sync_or_async(self.check, module_test, module_test.events)
         module_test.log.info(f"Finished {self.name} module test")
         current_task = asyncio.current_task()
         tasks = [t for t in asyncio.all_tasks() if t != current_task]
