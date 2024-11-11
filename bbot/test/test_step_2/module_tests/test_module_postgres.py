@@ -22,10 +22,7 @@ class TestPostgres(ModuleTestBase):
             "5432:5432",
             "-d",
             "postgres",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate()
 
         import asyncpg
 
@@ -35,7 +32,7 @@ class TestPostgres(ModuleTestBase):
             try:
                 # Connect to the default 'postgres' database to create 'bbot'
                 conn = await asyncpg.connect(
-                    user="postgres", password="bbotislife", database="postgres", host="localhost"
+                    user="postgres", password="bbotislife", database="postgres", host="127.0.0.1"
                 )
                 await conn.execute("CREATE DATABASE bbot")
                 await conn.close()
@@ -56,7 +53,7 @@ class TestPostgres(ModuleTestBase):
         import asyncpg
 
         # Connect to the PostgreSQL database
-        conn = await asyncpg.connect(user="postgres", password="bbotislife", database="bbot", host="localhost")
+        conn = await asyncpg.connect(user="postgres", password="bbotislife", database="bbot", host="127.0.0.1")
 
         try:
             events = await conn.fetch("SELECT * FROM event")
