@@ -45,16 +45,24 @@ jobs:
       - name: Install Docker
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get -y install docker.io
-          systemctl enable docker --now
+          # Kill any running apt processes
+          sudo killall -9 apt apt-get || true
+          # Remove lock files
+          sudo rm -f /var/lib/apt/lists/lock || true
+          sudo rm -f /var/cache/apt/archives/lock || true
+          sudo rm -f /var/lib/dpkg/lock* || true
+          # Reconfigure dpkg
+          sudo dpkg --configure -a || true
+          # Update and install Docker
+          sudo apt-get update
+          sudo apt-get -y install docker.io
       - name: Install dependencies
         run: |
           pip install poetry
           poetry install
       - name: Run tests
         run: |
-          poetry run pytest --exitfirst --reruns 2 -o timeout_func_only=true --timeout 1200 --disable-warnings --log-cli-level=INFO --cov-config=bbot/test/coverage.cfg --cov-report xml:cov.xml --cov=bbot .
+          poetry run pytest --exitfirst --reruns 2 -o timeout_func_only=true --timeout 1200 --pable-warnings --log-cli-level=INFO --cov-config=bbot/test/coverage.cfg --cov-report xml:cov.xml --cov=bbot .
       - name: Upload Debug Logs
         uses: actions/upload-artifact@v3
         with:
