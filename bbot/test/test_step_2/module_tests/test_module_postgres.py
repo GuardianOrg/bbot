@@ -41,13 +41,13 @@ class TestPostgres(ModuleTestBase):
                 # If the database already exists, break the loop
                 break
             except Exception as e:
-                if time.time() - start_time > 30:  # timeout after 30 seconds
+                if time.time() - start_time > 60:  # timeout after 60 seconds
                     self.log.error("PostgreSQL server did not start in time.")
                     raise e
                 await asyncio.sleep(1)
 
         if process.returncode != 0:
-            self.log.error(f"Failed to start PostgreSQL server: {stderr.decode()}")
+            self.log.error(f"Failed to start PostgreSQL server")
 
     async def check(self, module_test, events):
         import asyncpg
