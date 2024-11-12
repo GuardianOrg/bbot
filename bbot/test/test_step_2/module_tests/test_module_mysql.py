@@ -6,6 +6,7 @@ from .base import ModuleTestBase
 
 class TestMySQL(ModuleTestBase):
     targets = ["evilcorp.com"]
+    skip_distro_tests = True
 
     async def setup_before_prep(self, module_test):
         process = await asyncio.create_subprocess_exec(
