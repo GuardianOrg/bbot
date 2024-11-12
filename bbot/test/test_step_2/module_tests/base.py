@@ -20,6 +20,8 @@ class ModuleTestBase:
     config_overrides = {}
     modules_overrides = None
     log = logging.getLogger("bbot")
+    # if True, the test will be skipped (useful for tests that require docker)
+    skip_distro_tests = False
 
     class ModuleTest:
         def __init__(
@@ -90,7 +92,7 @@ class ModuleTestBase:
         self, httpx_mock, bbot_httpserver, bbot_httpserver_ssl, monkeypatch, request, caplog, capsys
     ):
         # Skip dastardly test if we're in the distro tests (because dastardly uses docker)
-        if os.getenv("BBOT_DISTRO_TESTS") and self.name == "dastardly":
+        if os.getenv("BBOT_DISTRO_TESTS") and self.skip_distro_tests:
             pytest.skip("Skipping module_test for dastardly module due to BBOT_DISTRO_TESTS environment variable")
 
         self.log.info(f"Starting {self.name} module test")
