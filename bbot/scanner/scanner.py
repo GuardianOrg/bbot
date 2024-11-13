@@ -10,11 +10,11 @@ from datetime import datetime
 from collections import OrderedDict
 
 from bbot import __version__
-
 from bbot.core.event import make_event
 from .manager import ScanIngress, ScanEgress
 from bbot.core.helpers.misc import sha1, rand_string
 from bbot.core.helpers.names_generator import random_name
+from bbot.core.multiprocess import SHARED_INTERPRETER_STATE
 from bbot.core.helpers.async_helpers import async_to_sync_gen
 from bbot.errors import BBOTError, ScanError, ValidationError
 
@@ -258,6 +258,9 @@ class Scanner:
         """
         Creates the scan's output folder, loads its modules, and calls their .setup() methods.
         """
+
+        # update the master PID
+        SHARED_INTERPRETER_STATE.update_scan_pid()
 
         self.helpers.mkdir(self.home)
         if not self._prepped:

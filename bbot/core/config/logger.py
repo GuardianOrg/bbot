@@ -9,6 +9,7 @@ from contextlib import suppress
 
 from ..helpers.misc import mkdir, error_and_exit
 from ...logger import colorize, loglevel_mapping
+from ..multiprocess import SHARED_INTERPRETER_STATE
 
 
 debug_format = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(filename)s:%(lineno)s %(message)s")
@@ -65,8 +66,8 @@ class BBOTLogger:
 
         self.listener = None
 
-        self.process_name = multiprocessing.current_process().name
-        if self.process_name == "MainProcess":
+        # if we're in the main process, set up the queue listener
+        if SHARED_INTERPRETER_STATE.is_main_process:
             self.queue = multiprocessing.Queue()
             self.setup_queue_handler()
             # Start the QueueListener
@@ -113,7 +114,7 @@ class BBOTLogger:
 
         self.core_logger.setLevel(log_level)
         # disable asyncio logging for child processes
-        if self.process_name != "MainProcess":
+        if not SHARED_INTERPRETER_STATE.is_main_process:
             logging.getLogger("asyncio").setLevel(logging.ERROR)
 
     def addLoggingLevel(self, levelName, levelNum, methodName=None):
