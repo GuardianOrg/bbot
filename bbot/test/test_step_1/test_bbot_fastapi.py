@@ -26,7 +26,7 @@ def test_bbot_fastapi():
                 continue
 
         # run a scan
-        response = httpx.get("http://127.0.0.1:8978/start", params={"targets": ["example.com"]})
+        response = httpx.get("http://127.0.0.1:8978/start", params={"targets": ["127.0.0.1"]}, timeout=100)
         events = response.json()
         assert len(events) >= 3
         scan_events = [e for e in events if e["type"] == "SCAN"]
