@@ -45,5 +45,7 @@ def start_fastapi_server():
     with suppress(KeyError):
         del env["BBOT_TESTING"]
     python_executable = str(sys.executable)
-    process = Popen([python_executable, "-m", "uvicorn", "bbot.test.fastapi_test:app", "--port", "8978"], cwd=cwd, env=env)
+    process = Popen(
+        [python_executable, "-m", "uvicorn", "bbot.test.fastapi_test:app", "--port", "8978"], cwd=cwd, env=env
+    )
     return process
