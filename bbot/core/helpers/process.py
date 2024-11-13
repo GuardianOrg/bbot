@@ -39,7 +39,6 @@ class BBOTProcess(SpawnProcess):
         A version of Process.run() with BBOT logging and better error handling
         """
         log = logging.getLogger("bbot.core.process")
-        print(f"RUNNING {self.custom_name}")
         try:
             if self.log_level is not None and self.log_queue is not None:
                 from bbot.core import CORE
