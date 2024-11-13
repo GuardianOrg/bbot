@@ -202,12 +202,14 @@ class BBOTCore:
         if os.environ.get("BBOT_TESTING", "") == "True":
             process = self.create_thread(*args, **kwargs)
         else:
-            if SHARED_INTERPRETER_STATE.is_main_process:
+            if SHARED_INTERPRETER_STATE.is_scan_process:
                 from .helpers.process import BBOTProcess
 
                 process = BBOTProcess(*args, **kwargs)
             else:
-                raise BBOTError(f"Tried to start server from process {self.process_name}")
+                import multiprocessing
+
+                raise BBOTError(f"Tried to start server from process {multiprocessing.current_process().name}")
         process.daemon = True
         return process
 
