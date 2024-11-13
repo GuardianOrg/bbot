@@ -101,11 +101,11 @@ def should_mock(request):
 def pytest_collection_modifyitems(config, items):
     # make sure all tests have the httpx_mock marker
     for item in items:
-        # if "httpx_mock" not in item.keywords:
         item.add_marker(
             pytest.mark.httpx_mock(
                 should_mock=should_mock,
                 assert_all_requests_were_expected=False,
+                assert_all_responses_were_requested=False,
                 can_send_already_matched_responses=True,
             )
         )
