@@ -81,6 +81,10 @@ class speculate(BaseInternalModule):
         # These features are required for smooth operation of bbot
         # I.e. they are not "osinty" or intended to discover anything, they only compliment other modules
 
+        # we speculate on distance-1 stuff too, because distance-1 open ports are needed by certain modules like sslcert
+        event_in_scope_distance = event.scope_distance <= (self.scan.scope_search_distance + 1)
+        speculate_open_ports = self.emit_open_ports and event_in_scope_distance
+
         # generate individual IP addresses from IP range
         if event.type == "IP_RANGE" and self.range_to_ip:
             net = ipaddress.ip_network(event.data)
@@ -124,10 +128,6 @@ class speculate(BaseInternalModule):
                 await self.emit_event(
                     parent, "DNS_NAME", parent=event, context=f"speculated parent {{event.type}}: {{event.data}}"
                 )
-
-        # we speculate on distance-1 stuff too, because distance-1 open ports are needed by certain modules like sslcert
-        event_in_scope_distance = event.scope_distance <= (self.scan.scope_search_distance + 1)
-        speculate_open_ports = self.emit_open_ports and event_in_scope_distance
 
         # URL --> OPEN_TCP_PORT
         event_is_url = event.type == "URL"
