@@ -15,20 +15,12 @@ class leakix(subdomain_enum_apikey):
     }
 
     base_url = "https://leakix.net"
-    ping_url = f"{base_url}/host/1.2.3.4.5"
-
-    async def setup(self):
-        ret = await super(subdomain_enum_apikey, self).setup()
-        self.headers = {"Accept": "application/json"}
-        self.api_key = self.config.get("api_key", "")
-        if self.api_key:
-            self.headers["api-key"] = self.api_key
-            return await self.require_api_key()
-        return ret
+    ping_url = f"{base_url}/host/1.1.1.1"
 
     def prepare_api_request(self, url, kwargs):
         if self.api_key:
             kwargs["headers"]["api-key"] = self.api_key
+            kwargs["headers"]["Accept"] = "application/json"
         return url, kwargs
 
     async def request_url(self, query):

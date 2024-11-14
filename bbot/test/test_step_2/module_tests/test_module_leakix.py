@@ -6,7 +6,7 @@ class TestLeakIX(ModuleTestBase):
 
     async def setup_before_prep(self, module_test):
         module_test.httpx_mock.add_response(
-            url="https://leakix.net/host/1.2.3.4.5",
+            url="https://leakix.net/host/1.1.1.1",
             match_headers={"api-key": "asdf"},
             json={"title": "Not Found", "description": "Host not found"},
         )
