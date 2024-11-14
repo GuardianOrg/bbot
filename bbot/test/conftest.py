@@ -16,7 +16,6 @@ from bbot.core.helpers.interactsh import server_list as interactsh_servers
 # silence stdout + trace
 root_logger = logging.getLogger()
 pytest_debug_file = Path(__file__).parent.parent.parent / "pytest_debug.log"
-print(f"pytest_debug_file: {pytest_debug_file}")
 debug_handler = logging.FileHandler(pytest_debug_file)
 debug_handler.setLevel(logging.DEBUG)
 debug_format = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(filename)s:%(lineno)s %(message)s")

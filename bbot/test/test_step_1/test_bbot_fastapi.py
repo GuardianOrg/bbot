@@ -1,5 +1,6 @@
 import time
 import httpx
+import multiprocessing
 from pathlib import Path
 from subprocess import Popen
 from contextlib import suppress
@@ -7,8 +8,33 @@ from contextlib import suppress
 cwd = Path(__file__).parent.parent.parent
 
 
-def test_bbot_fastapi():
-    process = start_fastapi_server()
+def run_bbot_multiprocess(queue):
+    from bbot import Scanner
+
+    scan = Scanner("http://127.0.0.1:8888", "blacklanternsecurity.com", modules=["httpx"])
+    events = [e.json() for e in scan.start()]
+    queue.put(events)
+
+
+def test_bbot_multiprocess(bbot_httpserver):
+
+    bbot_httpserver.expect_request("/").respond_with_data("test@blacklanternsecurity.com")
+
+    queue = multiprocessing.Queue()
+    events_process = multiprocessing.Process(target=run_bbot_multiprocess, args=(queue,))
+    events_process.start()
+    events_process.join()
+    events = queue.get()
+    assert len(events) >= 3
+    scan_events = [e for e in events if e["type"] == "SCAN"]
+    assert len(scan_events) == 2
+    assert any([e["data"] == "test@blacklanternsecurity.com" for e in events])
+
+
+def test_bbot_fastapi(bbot_httpserver):
+
+    bbot_httpserver.expect_request("/").respond_with_data("test@blacklanternsecurity.com")
+    fastapi_process = start_fastapi_server()
 
     try:
 
@@ -26,15 +52,20 @@ def test_bbot_fastapi():
                 continue
 
         # run a scan
-        response = httpx.get("http://127.0.0.1:8978/start", params={"targets": ["127.0.0.1"]}, timeout=100)
+        response = httpx.get(
+            "http://127.0.0.1:8978/start",
+            params={"targets": ["http://127.0.0.1:8888", "blacklanternsecurity.com"]},
+            timeout=100,
+        )
         events = response.json()
         assert len(events) >= 3
         scan_events = [e for e in events if e["type"] == "SCAN"]
         assert len(scan_events) == 2
+        assert any([e["data"] == "test@blacklanternsecurity.com" for e in events])
 
     finally:
         with suppress(Exception):
-            process.terminate()
+            fastapi_process.terminate()
 
 
 def start_fastapi_server():

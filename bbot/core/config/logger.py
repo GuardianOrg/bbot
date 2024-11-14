@@ -1,3 +1,4 @@
+import os
 import sys
 import atexit
 import logging
@@ -66,8 +67,9 @@ class BBOTLogger:
 
         self.listener = None
 
-        # if we're in the main process, set up the queue listener
-        if SHARED_INTERPRETER_STATE.is_main_process:
+        # if we haven't set up logging yet, do it now
+        if not "_BBOT_LOGGING_SETUP" in os.environ:
+            os.environ["_BBOT_LOGGING_SETUP"] = "1"
             self.queue = multiprocessing.Queue()
             self.setup_queue_handler()
             # Start the QueueListener
