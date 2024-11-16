@@ -6,6 +6,9 @@ from radixtarget import RadixTarget
 from bbot.modules.base import BaseModule
 
 
+# TODO: this module is getting big. It should probably be two modules: one for ping and one for SYN.
+
+
 class portscan(BaseModule):
     flags = ["active", "portscan", "safe"]
     watched_events = ["IP_ADDRESS", "IP_RANGE", "DNS_NAME"]
@@ -27,6 +30,7 @@ class portscan(BaseModule):
         "adapter_ip": "",
         "adapter_mac": "",
         "router_mac": "",
+        "allowed_cdn_ports": None,
     }
     options_desc = {
         "top_ports": "Top ports to scan (default 100) (to override, specify 'ports')",
@@ -39,6 +43,7 @@ class portscan(BaseModule):
         "adapter_ip": "Send packets using this IP address. Not needed unless masscan's autodetection fails",
         "adapter_mac": "Send packets using this as the source MAC address. Not needed unless masscan's autodetection fails",
         "router_mac": "Send packets to this MAC address as the destination. Not needed unless masscan's autodetection fails",
+        "allowed_cdn_ports": "Comma-separated list of ports that are allowed to be scanned for CDNs",
     }
     deps_common = ["masscan"]
     batch_size = 1000000
@@ -60,7 +65,14 @@ class portscan(BaseModule):
             try:
                 self.helpers.parse_port_string(self.ports)
             except ValueError as e:
-                return False, f"Error parsing ports: {e}"
+                return False, f"Error parsing ports '{self.ports}': {e}"
+        self.allowed_cdn_ports = self.config.get("allowed_cdn_ports", None)
+        if self.allowed_cdn_ports is not None:
+            try:
+                self.allowed_cdn_ports = [int(p.strip()) for p in self.allowed_cdn_ports.split(",")]
+            except Exception as e:
+                return False, f"Error parsing allowed CDN ports '{self.allowed_cdn_ports}': {e}"
+
         # whether we've finished scanning our original scan targets
         self.scanned_initial_targets = False
         # keeps track of individual scanned IPs and their open ports
@@ -227,8 +239,18 @@ class portscan(BaseModule):
             parent=parent_event,
             context=f"{{module}} executed a {scan_type} scan against {parent_event.data} and found: {{event.type}}: {{event.data}}",
         )
-        await self.emit_event(event)
+
+        await self.emit_event(event, abort_if=self.abort_if)
         return event
+
+    def abort_if(self, event):
+        if self.allowed_cdn_ports is not None:
+            # if the host is a CDN
+            if any(t.startswith("cdn-") for t in event.tags):
+                # and if its port isn't in the list of allowed CDN ports
+                if event.port not in self.allowed_cdn_ports:
+                    return True, "event is a CDN and port is not in the allowed list"
+        return False
 
     def parse_json_line(self, line):
         try:
