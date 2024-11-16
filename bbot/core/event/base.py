@@ -1657,7 +1657,7 @@ def make_event(
         if internal == True:
             event.internal = True
         if tags:
-            event.add_tags(tags)
+            event.tags = tags.union(event.tags)
         event_type = data.type
         return event
     else:
