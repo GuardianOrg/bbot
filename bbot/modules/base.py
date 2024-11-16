@@ -1628,7 +1628,7 @@ class BaseInterceptModule(BaseModule):
                                 forward_event, forward_event_reason = forward_event
 
                         if forward_event is False:
-                            self.debug(f"Not forwarding {event} because {forward_event_reason}")
+                            self.debug(f"Not forwarding {event.type}:{event.data} because {forward_event_reason}")
                             continue
 
                     self.debug(f"Forwarding {event}")
