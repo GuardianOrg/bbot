@@ -77,7 +77,15 @@ You can also pair the web spider with subdomain enumeration:
 bbot -t evilcorp.com -f subdomain-enum -c spider.yml
 ```
 
-### Ingesting BBOT Data Into SIEM (Elastic, Splunk)
+### Exclude CDNs from Port Scan
+
+If you want to exclude CDNs (e.g. Cloudflare) from port scanning, you can set the `allowed_cdn_ports` config option in the `portscan` module. For example, to allow only port 80 (HTTP) and 443 (HTTPS), you can do the following:
+
+```bash
+bbot -t evilcorp.com -m portscan -c modules.portscan.allowed_cdn_ports=80,443
+```
+
+### Ingest BBOT Data Into SIEM (Elastic, Splunk)
 
 If your goal is to feed BBOT data into a SIEM such as Elastic, be sure to enable this option when scanning:
 
