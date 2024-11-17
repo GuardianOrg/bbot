@@ -632,6 +632,42 @@ def custom_lookup(query, rdtype):
 
 
 @pytest.mark.asyncio
+async def test_wildcard_deduplication(bbot_scanner):
+
+    custom_lookup = """
+def custom_lookup(query, rdtype):
+    if rdtype == "TXT" and query.strip(".").endswith("evilcorp.com"):
+        return {""}
+"""
+
+    mock_data = {
+        "evilcorp.com": {"A": ["127.0.0.1"]},
+    }
+
+    from bbot.modules.base import BaseModule
+
+    class DummyModule(BaseModule):
+        watched_events = ["DNS_NAME"]
+        per_domain_only = True
+
+        async def handle_event(self, event):
+            for i in range(30):
+                await self.emit_event(f"www{i}.evilcorp.com", "DNS_NAME", parent=event)
+
+    # scan without omitted event type
+    scan = bbot_scanner(
+        "evilcorp.com", config={"dns": {"minimal": False, "wildcard_ignore": []}, "omit_event_types": []}
+    )
+    await scan.helpers.dns._mock_dns(mock_data, custom_lookup_fn=custom_lookup)
+    dummy_module = DummyModule(scan)
+    scan.modules["dummy_module"] = dummy_module
+    events = [e async for e in scan.async_start()]
+    dns_name_events = [e for e in events if e.type == "DNS_NAME"]
+    assert len(dns_name_events) == 2
+    assert 1 == len([e for e in dns_name_events if e.data == "_wildcard.evilcorp.com"])
+
+
+@pytest.mark.asyncio
 async def test_dns_raw_records(bbot_scanner):
 
     from bbot.modules.base import BaseModule
