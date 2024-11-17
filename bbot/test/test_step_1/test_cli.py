@@ -150,10 +150,22 @@ async def test_cli_args(monkeypatch, caplog, capsys, clean_default_config):
     out, err = capsys.readouterr()
     # internal modules
     assert "| excavate " in out
-    # output modules
-    assert "| csv " in out
+    # no output modules
+    assert not "| csv " in out
     # scan modules
     assert "| wayback " in out
+
+    # list output modules
+    monkeypatch.setattr("sys.argv", ["bbot", "--list-output-modules"])
+    result = await cli._main()
+    assert result == None
+    out, err = capsys.readouterr()
+    # no internal modules
+    assert not "| excavate " in out
+    # output modules
+    assert "| csv " in out
+    # no scan modules
+    assert not "| wayback " in out
 
     # output dir and scan name
     output_dir = bbot_test_dir / "bbot_cli_args_output"

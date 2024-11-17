@@ -154,6 +154,11 @@ class Nmap_XML(BaseOutputModule):
         # Pretty-format the XML
         rough_string = tostring(nmaprun, encoding="utf-8")
         reparsed = minidom.parseString(rough_string)
+
+        # Create a new document with the doctype
+        doctype = minidom.DocumentType("nmaprun")
+        reparsed.insertBefore(doctype, reparsed.documentElement)
+
         pretty_xml = reparsed.toprettyxml(indent="  ")
 
         with open(self.output_file, "w") as f:
