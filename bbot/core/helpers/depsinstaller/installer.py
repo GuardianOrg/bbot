@@ -44,6 +44,11 @@ class DepsInstaller:
         self.parent_helper.mkdir(self.command_status)
         self.setup_status = self.read_setup_status()
 
+        # make sure we're using a minimal git config
+        self.minimal_git_config = self.data_dir / "minimal_git.config"
+        self.minimal_git_config.touch()
+        os.environ["GIT_CONFIG_GLOBAL"] = str(self.minimal_git_config)
+
         self.deps_behavior = self.parent_helper.config.get("deps_behavior", "abort_on_failure").lower()
         self.ansible_debug = self.core.logger.log_level <= logging.DEBUG
         self.venv = ""
