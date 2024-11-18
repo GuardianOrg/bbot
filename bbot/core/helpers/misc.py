@@ -2807,3 +2807,21 @@ def safe_format(s, **kwargs):
     Format string while ignoring unused keys (prevents KeyError)
     """
     return s.format_map(SafeDict(kwargs))
+
+
+def get_python_constraints():
+    req_regex = re.compile(r"([^(]+)\s*\((.*)\)", re.IGNORECASE)
+
+    def clean_requirement(req_string):
+        # Extract package name and version constraints from format like "package (>=1.0,<2.0)"
+        match = req_regex.match(req_string)
+        if match:
+            name, constraints = match.groups()
+            return f"{name.strip()}{constraints}"
+
+        return req_string
+
+    from importlib.metadata import distribution
+
+    dist = distribution("bbot")
+    return [clean_requirement(r) for r in dist.requires]

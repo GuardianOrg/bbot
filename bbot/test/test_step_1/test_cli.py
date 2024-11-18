@@ -626,6 +626,35 @@ config:
     stdout_preset = yaml.safe_load(captured.out)
     assert stdout_preset["config"]["web"]["http_proxy"] == "http://proxy2"
 
+    # --fast-mode
+    monkeypatch.setattr("sys.argv", ["bbot", "--current-preset"])
+    cli.main()
+    captured = capsys.readouterr()
+    stdout_preset = yaml.safe_load(captured.out)
+    assert list(stdout_preset) == ["description"]
+
+    monkeypatch.setattr("sys.argv", ["bbot", "--fast", "--current-preset"])
+    cli.main()
+    captured = capsys.readouterr()
+    stdout_preset = yaml.safe_load(captured.out)
+    stdout_preset.pop("description")
+    assert stdout_preset == {
+        "config": {
+            "scope": {"strict": True},
+            "dns": {"minimal": True},
+            "modules": {"speculate": {"essential_only": True}},
+        },
+        "exclude_modules": ["excavate"],
+    }
+
+    # --proxy
+    monkeypatch.setattr("sys.argv", ["bbot", "--proxy", "http://127.0.0.1:8080", "--current-preset"])
+    cli.main()
+    captured = capsys.readouterr()
+    stdout_preset = yaml.safe_load(captured.out)
+    stdout_preset.pop("description")
+    assert stdout_preset == {"config": {"web": {"http_proxy": "http://127.0.0.1:8080"}}}
+
     # cli config overrides all presets
     monkeypatch.setattr(
         "sys.argv",

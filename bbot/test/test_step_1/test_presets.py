@@ -86,7 +86,6 @@ def test_preset_yaml(clean_default_config):
         debug=False,
         silent=True,
         config={"preset_test_asdf": 1},
-        strict_scope=False,
     )
     preset1 = preset1.bake()
     assert "evilcorp.com" in preset1.target
@@ -210,7 +209,7 @@ def test_preset_scope():
         "evilcorp.org",
         whitelist=["evilcorp.de"],
         blacklist=["test.www.evilcorp.de"],
-        strict_scope=True,
+        config={"scope": {"strict": True}},
     )
 
     preset1.merge(preset3)

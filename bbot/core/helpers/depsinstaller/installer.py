@@ -14,7 +14,7 @@ from secrets import token_bytes
 from ansible_runner.interface import run
 from subprocess import CalledProcessError
 
-from ..misc import can_sudo_without_password, os_platform, rm_at_exit
+from ..misc import can_sudo_without_password, os_platform, rm_at_exit, get_python_constraints
 
 log = logging.getLogger("bbot.core.helpers.depsinstaller")
 
@@ -176,10 +176,13 @@ class DepsInstaller:
 
         command = [sys.executable, "-m", "pip", "install", "--upgrade"] + packages
 
-        if constraints:
-            constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
-            command.append("--constraint")
-            command.append(constraints_tempfile)
+        # if no custom constraints are provided, use the constraints of the currently installed version of bbot
+        if constraints is not None:
+            constraints = get_python_constraints()
+
+        constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
+        command.append("--constraint")
+        command.append(constraints_tempfile)
 
         process = None
         try:
