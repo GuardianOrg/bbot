@@ -1003,13 +1003,15 @@ class ClosestHostEvent(DictHostEvent):
                     if parent_url is not None:
                         self.data["url"] = parent_url.geturl()
                 # inherit closest path
-                if not "path" in self.data and isinstance(parent.data, dict):
+                if not "path" in self.data and isinstance(parent.data, dict) and not parent.type == "HTTP_RESPONSE":
                     parent_path = parent.data.get("path", None)
                     if parent_path is not None:
                         self.data["path"] = parent_path
                 # inherit closest host
                 if parent.host:
                     self.data["host"] = str(parent.host)
+                    # we do this to refresh the hash
+                    self.data = self.data
                     break
         # die if we still haven't found a host
         if not self.host:
@@ -1559,6 +1561,8 @@ class FILESYSTEM(DictPathEvent):
                 self.add_tag("compressed")
                 self.add_tag(f"{compression}-archive")
                 self.data["compression"] = compression
+            # refresh hash
+            self.data = self.data
 
 
 class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
@@ -1639,23 +1643,23 @@ def make_event(
     tags = set(tags)
 
     if is_event(data):
-        data = copy(data)
-        if scan is not None and not data.scan:
-            data.scan = scan
-        if scans is not None and not data.scans:
-            data.scans = scans
+        event = copy(data)
+        if scan is not None and not event.scan:
+            event.scan = scan
+        if scans is not None and not event.scans:
+            event.scans = scans
         if module is not None:
-            data.module = module
+            event.module = module
         if parent is not None:
-            data.parent = parent
+            event.parent = parent
         if context is not None:
-            data.discovery_context = context
+            event.discovery_context = context
         if internal == True:
-            data.internal = True
+            event.internal = True
         if tags:
-            data.tags = tags.union(data.tags)
+            event.tags = tags.union(event.tags)
         event_type = data.type
-        return data
+        return event
     else:
         if event_type is None:
             event_type, data = get_event_type(data)

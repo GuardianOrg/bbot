@@ -966,3 +966,35 @@ def test_event_magic():
     assert event.tags == {"folder"}
 
     zip_file.unlink()
+
+
+def test_event_hashing():
+    scan = Scanner("example.com")
+    url_event = scan.make_event("https://api.example.com/", "URL_UNVERIFIED", parent=scan.root_event)
+    host_event_1 = scan.make_event("www.example.com", "DNS_NAME", parent=url_event)
+    host_event_2 = scan.make_event("test.example.com", "DNS_NAME", parent=url_event)
+    finding_data = {"description": "Custom Yara Rule [find_string] Matched via identifier [str1]"}
+    finding1 = scan.make_event(finding_data, "FINDING", parent=host_event_1)
+    finding2 = scan.make_event(finding_data, "FINDING", parent=host_event_2)
+    finding3 = scan.make_event(finding_data, "FINDING", parent=host_event_2)
+
+    assert finding1.data == {
+        "description": "Custom Yara Rule [find_string] Matched via identifier [str1]",
+        "host": "www.example.com",
+    }
+    assert finding2.data == {
+        "description": "Custom Yara Rule [find_string] Matched via identifier [str1]",
+        "host": "test.example.com",
+    }
+    assert finding3.data == {
+        "description": "Custom Yara Rule [find_string] Matched via identifier [str1]",
+        "host": "test.example.com",
+    }
+    assert finding1.id != finding2.id
+    assert finding2.id == finding3.id
+    assert finding1.data_id != finding2.data_id
+    assert finding2.data_id == finding3.data_id
+    assert finding1.data_hash != finding2.data_hash
+    assert finding2.data_hash == finding3.data_hash
+    assert hash(finding1) != hash(finding2)
+    assert hash(finding2) == hash(finding3)
