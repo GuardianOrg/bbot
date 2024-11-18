@@ -17,7 +17,7 @@ class NmapHost:
 
 
 class Nmap_XML(BaseOutputModule):
-    watched_events = ["OPEN_TCP_PORT", "DNS_NAME", "IP_ADDRESS", "PROTOCOL"]
+    watched_events = ["OPEN_TCP_PORT", "DNS_NAME", "IP_ADDRESS", "PROTOCOL", "HTTP_RESPONSE"]
     meta = {"description": "Output to Nmap XML", "created_date": "2024-11-16", "author": "@TheTechromancer"}
     output_filename = "output.nmap.xml"
     in_scope_only = True
@@ -28,6 +28,7 @@ class Nmap_XML(BaseOutputModule):
         return True
 
     async def handle_event(self, event):
+        self.hugesuccess(event)
         event_host = event.host
 
         # we always record by IP
@@ -51,16 +52,21 @@ class Nmap_XML(BaseOutputModule):
             if event.type == "OPEN_TCP_PORT":
                 if event_port not in nmap_host.open_ports:
                     nmap_host.open_ports[event.port] = {}
-            elif event.type == "PROTOCOL":
+            elif event.type in ("PROTOCOL", "HTTP_RESPONSE"):
                 if event_port is not None:
                     try:
                         existing_services = nmap_host.open_ports[event.port]
                     except KeyError:
                         existing_services = {}
                         nmap_host.open_ports[event.port] = existing_services
-                    protocol = event.data["protocol"].lower()
+                    if event.type == "PROTOCOL":
+                        protocol = event.data["protocol"].lower()
+                        banner = event.data.get("banner", None)
+                    elif event.type == "HTTP_RESPONSE":
+                        protocol = event.parsed_url.scheme.lower()
+                        banner = event.http_title
                     if protocol not in existing_services:
-                        existing_services[protocol] = event.data.get("banner", None)
+                        existing_services[protocol] = banner
 
             if self.helpers.is_ip(event_host):
                 if str(event.module) == "PTR":
