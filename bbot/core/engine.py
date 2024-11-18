@@ -10,6 +10,7 @@ import traceback
 import contextlib
 import contextvars
 import zmq.asyncio
+import multiprocessing
 from pathlib import Path
 from concurrent.futures import CancelledError
 from contextlib import asynccontextmanager, suppress
@@ -17,6 +18,7 @@ from contextlib import asynccontextmanager, suppress
 from bbot.core import CORE
 from bbot.errors import BBOTEngineError
 from bbot.core.helpers.async_helpers import get_event_loop
+from bbot.core.multiprocess import SHARED_INTERPRETER_STATE
 from bbot.core.helpers.misc import rand_string, in_exception_chain
 
 
@@ -264,10 +266,8 @@ class EngineClient(EngineBase):
         return [s for s in self.CMDS if isinstance(s, str)]
 
     def start_server(self):
-        import multiprocessing
-
         process_name = multiprocessing.current_process().name
-        if process_name == "MainProcess":
+        if SHARED_INTERPRETER_STATE.is_scan_process:
             kwargs = dict(self.server_kwargs)
             # if we're in tests, we use a single event loop to avoid weird race conditions
             # this allows us to more easily mock http, etc.
