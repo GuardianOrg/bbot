@@ -52,9 +52,9 @@ class BaseTarget(RadixTarget):
 
         super().__init__(*targets, **kwargs)
 
-    def get(self, event, single=True, **kwargs):
+    def get(self, event, **kwargs):
         """
-        Override default .get() to accept events and optionally return multiple results
+        Override default .get() to accept events
         """
         if is_event(event):
             host = event.host
@@ -71,8 +71,6 @@ class BaseTarget(RadixTarget):
                 raise KeyError(f"Host not found: '{event}'")
             return None
         results = super().get(host, **kwargs)
-        if results and single:
-            return next(iter(results))
         return results
 
     def make_event(self, *args, **kwargs):
@@ -105,22 +103,8 @@ class BaseTarget(RadixTarget):
         # sort by host size to ensure consistency
         events = sorted(events, key=lambda e: (0 if not e.host else host_size_key(e.host)))
         for event in events:
+            self.events.add(event)
             self._add(event.host, data=event)
-
-    def _add(self, host, data):
-        """
-        Overrides the base method to enable having multiple events for the same host.
-
-        The "data" attribute of the node is now a set of events.
-        """
-        self.events.add(data)
-        if host:
-            try:
-                event_set = self.get(host, raise_error=True, single=False)
-                event_set.add(data)
-            except KeyError:
-                event_set = {data}
-            super()._add(host, data=event_set)
 
     def check_special_target_types(self, target):
         for regex, callback in self.special_target_types.items():
@@ -156,6 +140,26 @@ class ScanSeeds(BaseTarget):
             return [username_event]
         return []
 
+    def get(self, event, single=True, **kwargs):
+        results = super().get(event, **kwargs)
+        if results and single:
+            return next(iter(results))
+        return results
+
+    def _add(self, host, data):
+        """
+        Overrides the base method to enable having multiple events for the same host.
+
+        The "data" attribute of the node is now a set of events.
+        """
+        if host:
+            try:
+                event_set = self.get(host, raise_error=True, single=False)
+                event_set.add(data)
+            except KeyError:
+                event_set = {data}
+            super()._add(host, data=event_set)
+
     def _hash_value(self):
         # seeds get hashed by event data
         return sorted(str(e.data).encode() for e in self.events)
@@ -172,7 +176,6 @@ class ScanWhitelist(ACLTarget):
     """
     A collection of BBOT events that represent a scan's whitelist.
     """
-
     pass
 
 
@@ -193,14 +196,14 @@ class ScanBlacklist(ACLTarget):
         self.blacklist_regexes.add(blacklist_regex)
         return []
 
-    def get(self, event, single=True, **kwargs):
+    def get(self, event, **kwargs):
         """
         Here, for the blacklist, we modify this method to also consider any special regex patterns specified by the user
         """
         event = self.make_event(event)
         # first, check event's host against blacklist
         try:
-            event_result = super().get(event, raise_error=True, single=False)
+            event_result = super().get(event, raise_error=True)
         except KeyError:
             event_result = None
         if event_result is not None:

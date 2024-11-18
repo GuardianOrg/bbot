@@ -5,7 +5,7 @@ from ..bbot_fixtures import *  # noqa: F401
 async def test_target(bbot_scanner):
     from radixtarget import RadixTarget
     from ipaddress import ip_address, ip_network
-    from bbot.scanner.target import BBOTTarget, BaseTarget
+    from bbot.scanner.target import BBOTTarget, BaseTarget, ScanSeeds
 
     scan1 = bbot_scanner("api.publicapis.org", "8.8.8.8/30", "2001:4860:4860::8888/126")
     scan2 = bbot_scanner("8.8.8.8/29", "publicapis.org", "2001:4860:4860::8888/125")
@@ -325,7 +325,7 @@ async def test_target(bbot_scanner):
     assert not "api.www.evilcorp.co.uk" in target
 
     # test 'single' boolean argument
-    target = BaseTarget("http://evilcorp.com", "evilcorp.com:443")
+    target = ScanSeeds("http://evilcorp.com", "evilcorp.com:443")
     assert "www.evilcorp.com" in target
     assert "bob@evilcorp.com" in target
     event = target.get("www.evilcorp.com")
@@ -396,7 +396,6 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
         config={"excavate": True},
         debug=True,
     )
-    print(scan.target.blacklist.blacklist_regexes)
     assert scan.target.blacklist.blacklist_regexes
     assert set([r.pattern for r in scan.target.blacklist.blacklist_regexes]) == {
         r"evil[0-9]{3}",
