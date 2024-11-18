@@ -54,6 +54,11 @@ class BBOTArgs:
             "bbot -l",
         ),
         (
+            "List output modules",
+            "",
+            "bbot -lo",
+        ),
+        (
             "List presets",
             "",
             "bbot -lp",
@@ -290,18 +295,19 @@ class BBOTArgs:
 
         output = p.add_argument_group(title="Output")
         output.add_argument(
-            "-o",
-            "--output-dir",
-            help="Directory to output scan results",
-            metavar="DIR",
-        )
-        output.add_argument(
             "-om",
             "--output-modules",
             nargs="+",
             default=[],
             help=f'Output module(s). Choices: {",".join(self.preset.module_loader.output_module_choices)}',
             metavar="MODULE",
+        )
+        output.add_argument("-lo", "--list-output-modules", action="store_true", help="List available output modules")
+        output.add_argument(
+            "-o",
+            "--output-dir",
+            help="Directory to output scan results",
+            metavar="DIR",
         )
         output.add_argument("--json", "-j", action="store_true", help="Output scan data in JSON format")
         output.add_argument("--brief", "-br", action="store_true", help="Output only the data itself")
