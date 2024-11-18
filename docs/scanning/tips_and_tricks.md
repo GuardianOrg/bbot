@@ -85,6 +85,29 @@ If you want to exclude CDNs (e.g. Cloudflare) from port scanning, you can set th
 bbot -t evilcorp.com -m portscan -c modules.portscan.allowed_cdn_ports=80,443
 ```
 
+By default, if you set `allowed_cdn_ports`, it will skip only providers marked as CDNs. If you want to skip cloud providers as well, you can set `cdn_tags`:
+
+```bash
+bbot -t evilcorp.com -m portscan -c modules.portscan.allowed_cdn_ports=80,443 modules.portscan.cdn_tags=cdn,cloud
+```
+
+...or via a preset:
+
+```yaml title="skip_cdns.yml"
+modules:
+  - portscan
+
+config:
+  modules:
+    portscan:
+      allowed_cdn_ports: 80,443
+      cdn_tags: cdn,cloud
+```
+
+```bash
+bbot -t evilcorp.com -p skip_cdns.yml
+```
+
 ### Ingest BBOT Data Into SIEM (Elastic, Splunk)
 
 If your goal is to feed BBOT data into a SIEM such as Elastic, be sure to enable this option when scanning:
