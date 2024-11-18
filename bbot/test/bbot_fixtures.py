@@ -229,4 +229,11 @@ def install_all_python_deps():
     deps_pip = set()
     for module in DEFAULT_PRESET.module_loader.preloaded().values():
         deps_pip.update(set(module.get("deps", {}).get("pip", [])))
-    subprocess.run([sys.executable, "-m", "pip", "install"] + list(deps_pip))
+
+    import pkg_resources
+
+    dist = pkg_resources.get_distribution("bbot")
+    constraints = [str(r) for r in dist.requires()]
+    constraint_file = tempwordlist(constraints)
+
+    subprocess.run([sys.executable, "-m", "pip", "install", "--constraint", constraint_file] + list(deps_pip))

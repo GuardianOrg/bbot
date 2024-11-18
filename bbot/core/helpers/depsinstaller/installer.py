@@ -176,10 +176,16 @@ class DepsInstaller:
 
         command = [sys.executable, "-m", "pip", "install", "--upgrade"] + packages
 
-        if constraints:
-            constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
-            command.append("--constraint")
-            command.append(constraints_tempfile)
+        # if no custom constraints are provided, use the constraints of the currently installed version of bbot
+        if constraints is not None:
+            import pkg_resources
+
+            dist = pkg_resources.get_distribution("bbot")
+            constraints = [str(r) for r in dist.requires()]
+
+        constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
+        command.append("--constraint")
+        command.append(constraints_tempfile)
 
         process = None
         try:
