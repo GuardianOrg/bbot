@@ -42,6 +42,7 @@ async def test_events(events, helpers):
     # ip tests
     assert events.ipv4 == scan.make_event("8.8.8.8", dummy=True)
     assert "8.8.8.8" in events.ipv4
+    assert events.ipv4.host_filterable == "8.8.8.8"
     assert "8.8.8.8" == events.ipv4
     assert "8.8.8.8" in events.netv4
     assert "8.8.8.9" not in events.ipv4
@@ -59,11 +60,19 @@ async def test_events(events, helpers):
     assert events.emoji not in events.ipv4
     assert events.emoji not in events.netv6
     assert events.netv6 not in events.emoji
-    assert "dead::c0de" == scan.make_event(" [DEaD::c0De]:88", "DNS_NAME", dummy=True)
+    ipv6_event = scan.make_event(" [DEaD::c0De]:88", "DNS_NAME", dummy=True)
+    assert "dead::c0de" == ipv6_event
+    assert ipv6_event.host_filterable == "dead::c0de"
+    range_to_ip = scan.make_event("1.2.3.4/32", dummy=True)
+    assert range_to_ip.type == "IP_ADDRESS"
+    range_to_ip = scan.make_event("dead::beef/128", dummy=True)
+    assert range_to_ip.type == "IP_ADDRESS"
 
     # hostname tests
     assert events.domain.host == "publicapis.org"
+    assert events.domain.host_filterable == "publicapis.org"
     assert events.subdomain.host == "api.publicapis.org"
+    assert events.subdomain.host_filterable == "api.publicapis.org"
     assert events.domain.host_stem == "publicapis"
     assert events.subdomain.host_stem == "api.publicapis"
     assert "api.publicapis.org" in events.domain
@@ -86,7 +95,11 @@ async def test_events(events, helpers):
         assert "port" not in e.json()
 
     # url tests
-    assert scan.make_event("http://evilcorp.com", dummy=True) == scan.make_event("http://evilcorp.com/", dummy=True)
+    url_no_trailing_slash = scan.make_event("http://evilcorp.com", dummy=True)
+    url_trailing_slash = scan.make_event("http://evilcorp.com/", dummy=True)
+    assert url_no_trailing_slash == url_trailing_slash
+    assert url_no_trailing_slash.host_filterable == "http://evilcorp.com/"
+    assert url_trailing_slash.host_filterable == "http://evilcorp.com/"
     assert events.url_unverified.host == "api.publicapis.org"
     assert events.url_unverified in events.domain
     assert events.url_unverified in events.subdomain
@@ -129,6 +142,7 @@ async def test_events(events, helpers):
     assert events.http_response.port == 80
     assert events.http_response.parsed_url.scheme == "http"
     assert events.http_response.with_port().geturl() == "http://example.com:80/"
+    assert events.http_response.host_filterable == "http://example.com/"
 
     http_response = scan.make_event(
         {
