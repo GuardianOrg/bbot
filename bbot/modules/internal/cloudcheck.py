@@ -1,3 +1,5 @@
+from contextlib import suppress
+
 from bbot.modules.base import BaseInterceptModule
 
 
@@ -29,12 +31,27 @@ class CloudCheck(BaseInterceptModule):
             self.make_dummy_modules()
         # cloud tagging by hosts
         hosts_to_check = set(str(s) for s in event.resolved_hosts)
-        # we use the original host, since storage buckets hostnames might be collapsed to _wildcard
-        hosts_to_check.add(str(event.host_original))
+        event_host = event.host_original
+        event_is_ip = self.helpers.is_ip(event_host)
+        with suppress(KeyError):
+            hosts_to_check.remove(event_host)
+        for provider, provider_type, subnet in self.helpers.cloudcheck(event_host):
+            if provider:
+                event.add_tag(f"{provider_type}-{provider}")
+                if event_is_ip:
+                    event.add_tag(f"{provider_type}-ip")
+                else:
+                    event.add_tag(f"{provider_type}-domain")
+
         for host in hosts_to_check:
+            host_is_ip = self.helpers.is_ip(host)
             for provider, provider_type, subnet in self.helpers.cloudcheck(host):
                 if provider:
                     event.add_tag(f"{provider_type}-{provider}")
+                    if host_is_ip:
+                        event.add_tag(f"{provider_type}-ip")
+                    elif not event_is_ip:
+                        event.add_tag(f"{provider_type}-cname")
 
         found = set()
         # look for cloud assets in hosts, http responses
@@ -54,7 +71,7 @@ class CloudCheck(BaseInterceptModule):
                     if event.type == "HTTP_RESPONSE":
                         matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
                     elif event.type.startswith("DNS_NAME"):
-                        for host in hosts_to_check:
+                        for host in hosts_to_check.union([event_host]):
                             match = sig.match(host)
                             if match:
                                 matches.append(match.groups())
