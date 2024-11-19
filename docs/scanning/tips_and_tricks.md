@@ -85,7 +85,7 @@ If you want to exclude CDNs (e.g. Cloudflare) from port scanning, you can set th
 bbot -t evilcorp.com -m portscan -c modules.portscan.allowed_cdn_ports=80,443
 ```
 
-By default, if you set `allowed_cdn_ports`, it will skip only providers marked as CDNs. If you want to skip cloud providers as well, you can set `cdn_tags`, which is a comma-separated list of tags to skip (matched against the beginning of each tag):
+By default, if you set `allowed_cdn_ports`, it will skip only providers marked as CDNs. If you want to skip cloud providers as well, you can set `cdn_tags`, which is a comma-separated list of tags to skip (matched against the beginning of each tag).
 
 ```bash
 bbot -t evilcorp.com -m portscan -c modules.portscan.allowed_cdn_ports=80,443 modules.portscan.cdn_tags=cdn-,cloud-
@@ -101,7 +101,7 @@ config:
   modules:
     portscan:
       allowed_cdn_ports: 80,443
-      cdn_tags: cdn,cloud
+      cdn_tags: cdn-,cloud-
 ```
 
 ```bash
