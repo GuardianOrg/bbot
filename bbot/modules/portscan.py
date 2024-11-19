@@ -30,7 +30,7 @@ class portscan(BaseModule):
         "adapter_ip": "",
         "adapter_mac": "",
         "router_mac": "",
-        "cdn_tags": "cdn",
+        "cdn_tags": "cdn-",
         "allowed_cdn_ports": None,
     }
     options_desc = {
@@ -250,7 +250,7 @@ class portscan(BaseModule):
         if self.allowed_cdn_ports is not None:
             # if the host is a CDN
             for cdn_tag in self.cdn_tags:
-                if any(t.startswith(f"{cdn_tag}-") for t in event.tags):
+                if any(t.startswith(str(cdn_tag)) for t in event.tags):
                     # and if its port isn't in the list of allowed CDN ports
                     if event.port not in self.allowed_cdn_ports:
                         return True, "event is a CDN and port is not in the allowed list"
