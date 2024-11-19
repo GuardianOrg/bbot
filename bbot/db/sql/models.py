@@ -3,9 +3,9 @@
 
 import json
 import logging
-from datetime import datetime
 from pydantic import ConfigDict
 from typing import List, Optional
+from datetime import datetime, timezone
 from typing_extensions import Annotated
 from pydantic.functional_validators import AfterValidator
 from sqlmodel import inspect, Column, Field, SQLModel, JSON, String, DateTime as SQLADateTime
@@ -114,6 +114,7 @@ class Event(BBOTBaseModel, table=True):
     discovery_context: str = ""
     discovery_path: List[str] = Field(default=[], sa_type=JSON)
     parent_chain: List[str] = Field(default=[], sa_type=JSON)
+    inserted_at: NaiveUTC = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 ### SCAN ###

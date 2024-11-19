@@ -217,6 +217,26 @@ The `sqlite` output module produces a SQLite database containing all events, sca
 bbot -t evilcorp.com -om sqlite -c modules.sqlite.database=/tmp/bbot.sqlite
 ```
 
+### Postgres
+
+The `postgres` output module allows you to ingest events, scans, and targets into a Postgres database. By default, it will connect to the server on `localhost` with a username of `postgres` and password of `bbotislife`. You can change this behavior in the config.
+
+```bash
+# specifying an alternate database
+bbot -t evilcorp.com -om postgres -c modules.postgres.database=custom_bbot_db
+```
+
+```yaml title="postgres_preset.yml"
+config:
+  modules:
+    postgres:
+      host: psq.fsociety.local
+      database: custom_bbot_db
+      port: 5432
+      username: postgres
+      password: bbotislife
+```
+
 ### Subdomains
 
 The `subdomains` output module produces simple text file containing only in-scope and resolved subdomains:

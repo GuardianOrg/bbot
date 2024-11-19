@@ -35,10 +35,12 @@ class leakix(subdomain_enum_apikey):
         response = await self.api_request(url)
         return response
 
-    def parse_results(self, r, query=None):
+    async def parse_results(self, r, query=None):
+        results = set()
         json = r.json()
         if json:
             for entry in json:
                 subdomain = entry.get("subdomain", "")
                 if subdomain:
-                    yield subdomain
+                    results.add(subdomain)
+        return results
