@@ -30,28 +30,25 @@ class CloudCheck(BaseInterceptModule):
         if self.dummy_modules is None:
             self.make_dummy_modules()
         # cloud tagging by hosts
-        hosts_to_check = set(str(s) for s in event.resolved_hosts)
-        event_host = event.host_original
-        event_is_ip = self.helpers.is_ip(event_host)
+        hosts_to_check = set(event.resolved_hosts)
         with suppress(KeyError):
-            hosts_to_check.remove(event_host)
-        for provider, provider_type, subnet in self.helpers.cloudcheck(event_host):
-            if provider:
-                event.add_tag(f"{provider_type}-{provider}")
-                if event_is_ip:
-                    event.add_tag(f"{provider_type}-ip")
-                else:
-                    event.add_tag(f"{provider_type}-domain")
+            hosts_to_check.remove(event.host_original)
+        hosts_to_check = [event.host_original] + list(hosts_to_check)
 
-        for host in hosts_to_check:
+        for i, host in enumerate(hosts_to_check):
             host_is_ip = self.helpers.is_ip(host)
             for provider, provider_type, subnet in self.helpers.cloudcheck(host):
                 if provider:
                     event.add_tag(f"{provider_type}-{provider}")
                     if host_is_ip:
                         event.add_tag(f"{provider_type}-ip")
-                    elif not event_is_ip:
-                        event.add_tag(f"{provider_type}-cname")
+                    else:
+                        # if the original hostname is a cloud domain, tag it as such
+                        if i == 0:
+                            event.add_tag(f"{provider_type}-domain")
+                        # any children are tagged as CNAMEs
+                        else:
+                            event.add_tag(f"{provider_type}-cname")
 
         found = set()
         # look for cloud assets in hosts, http responses
@@ -71,7 +68,7 @@ class CloudCheck(BaseInterceptModule):
                     if event.type == "HTTP_RESPONSE":
                         matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
                     elif event.type.startswith("DNS_NAME"):
-                        for host in hosts_to_check.union([event_host]):
+                        for host in hosts_to_check:
                             match = sig.match(host)
                             if match:
                                 matches.append(match.groups())
