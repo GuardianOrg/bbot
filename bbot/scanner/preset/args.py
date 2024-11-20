@@ -381,7 +381,6 @@ class BBOTArgs:
             custom_headers_dict[k] = v
         self.parsed.custom_headers = custom_headers_dict
 
-
         # Custom Cookie Parsing / Validation
         custom_cookies_dict = {}
         custom_cookie_example = "Example: --custom-cookies foo=bar foo2=bar2"
@@ -401,7 +400,6 @@ class BBOTArgs:
         # --fast-mode
         if self.parsed.fast_mode:
             self.parsed.preset += ["fast"]
-
 
     def validate(self):
         # validate config options

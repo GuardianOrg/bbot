@@ -1219,6 +1219,7 @@ A href <a href='/donot_detect.js'>Click me</a>"""
             "/donot_detect.js" not in url_events
         ), f"URL extracted from extractous text is incorrect, got {url_events}"
 
+
 from bbot.modules.base import BaseModule
 from .base import ModuleTestBase, tempwordlist
 from bbot.modules.internal.excavate import ExcavateRule
@@ -1355,4 +1356,3 @@ class TestExcavateHeaders_blacklist(ModuleTestBase):
         assert found_first_cookie == True
         assert found_second_cookie == False
         assert found_third_cookie == False
-
