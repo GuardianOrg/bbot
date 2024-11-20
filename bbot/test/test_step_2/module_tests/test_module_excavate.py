@@ -1082,7 +1082,7 @@ class TestExcavateHeaders(ModuleTestBase):
 
 class TestExcavateRAWTEXT(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/", "test.notreal"]
-    modules_overrides = ["excavate", "httpx", "filedownload", "unstructured"]
+    modules_overrides = ["excavate", "httpx", "filedownload", "extractous"]
     config_overrides = {"scope": {"report_distance": 1}, "web": {"spider_distance": 2, "spider_depth": 2}}
 
     pdf_data = r"""%PDF-1.3
@@ -1153,7 +1153,7 @@ trailer
 startxref
 1669
 %%EOF"""
-    unstructured_response = """This is an email example@blacklanternsecurity.notreal
+    extractous_response = """This is an email example@blacklanternsecurity.notreal
 
 An example JWT eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
 
@@ -1183,13 +1183,13 @@ A href <a href='/donot_detect.js'>Click me</a>"""
         raw_text_events = [e for e in events if e.type == "RAW_TEXT"]
         assert 1 == len(raw_text_events), "Failed to emit RAW_TEXT event"
         assert (
-            raw_text_events[0].data == self.unstructured_response
+            raw_text_events[0].data == self.extractous_response
         ), f"Text extracted from PDF is incorrect, got {raw_text_events[0].data}"
         email_events = [e for e in events if e.type == "EMAIL_ADDRESS"]
         assert 1 == len(email_events), "Failed to emit EMAIL_ADDRESS event"
         assert (
             email_events[0].data == "example@blacklanternsecurity.notreal"
-        ), f"Email extracted from unstructured text is incorrect, got {email_events[0].data}"
+        ), f"Email extracted from extractous text is incorrect, got {email_events[0].data}"
         finding_events = [e for e in events if e.type == "FINDING"]
         assert 2 == len(finding_events), "Failed to emit FINDING events"
         assert any(
@@ -1214,11 +1214,10 @@ A href <a href='/donot_detect.js'>Click me</a>"""
         url_events = [e.data for e in events if e.type == "URL_UNVERIFIED"]
         assert (
             "https://www.test.notreal/about" in url_events
-        ), f"URL extracted from unstructured text is incorrect, got {url_events}"
+        ), f"URL extracted from extractous text is incorrect, got {url_events}"
         assert (
             "/donot_detect.js" not in url_events
-        ), f"URL extracted from unstructured text is incorrect, got {url_events}"
-
+        ), f"URL extracted from extractous text is incorrect, got {url_events}"
 
 from bbot.modules.base import BaseModule
 from .base import ModuleTestBase, tempwordlist
@@ -1356,3 +1355,4 @@ class TestExcavateHeaders_blacklist(ModuleTestBase):
         assert found_first_cookie == True
         assert found_second_cookie == False
         assert found_third_cookie == False
+

@@ -92,7 +92,6 @@ MAPI=1
         dnn_installwizard_privesc_detection = False
 
         for e in events:
-
             if e.type == "TECHNOLOGY" and "DotNetNuke" in e.data["technology"]:
                 dnn_technology_detection = True
 
@@ -168,7 +167,6 @@ class TestDotnetnuke_blindssrf(ModuleTestBase):
         dnn_dnnimagehandler_blindssrf = False
 
         for e in events:
-
             if e.type == "TECHNOLOGY" and "DotNetNuke" in e.data["technology"]:
                 dnn_technology_detection = True
 

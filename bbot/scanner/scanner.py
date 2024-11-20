@@ -10,11 +10,11 @@ from datetime import datetime
 from collections import OrderedDict
 
 from bbot import __version__
-
 from bbot.core.event import make_event
 from .manager import ScanIngress, ScanEgress
 from bbot.core.helpers.misc import sha1, rand_string
 from bbot.core.helpers.names_generator import random_name
+from bbot.core.multiprocess import SHARED_INTERPRETER_STATE
 from bbot.core.helpers.async_helpers import async_to_sync_gen
 from bbot.errors import BBOTError, ScanError, ValidationError
 
@@ -161,7 +161,7 @@ class Scanner:
                 tries += 1
         else:
             scan_name = str(self.preset.scan_name)
-        self.name = scan_name
+        self.name = scan_name.replace("/", "_")
 
         # make sure the preset has a description
         if not self.preset.description:
@@ -265,6 +265,9 @@ class Scanner:
         Creates the scan's output folder, loads its modules, and calls their .setup() methods.
         """
 
+        # update the master PID
+        SHARED_INTERPRETER_STATE.update_scan_pid()
+
         self.helpers.mkdir(self.home)
         if not self._prepped:
             # save scan preset
@@ -272,7 +275,7 @@ class Scanner:
                 f.write(self.preset.to_yaml())
 
             # log scan overview
-            start_msg = f"Scan with {len(self.preset.scan_modules):,} modules seeded with {len(self.target):,} targets"
+            start_msg = f"Scan seeded with {len(self.seeds):,} targets"
             details = []
             if self.whitelist != self.target:
                 details.append(f"{len(self.whitelist):,} in whitelist")
@@ -365,7 +368,8 @@ class Scanner:
 
             # distribute seed events
             self.init_events_task = asyncio.create_task(
-                self.ingress_module.init_events(self.target.events), name=f"{self.name}.ingress_module.init_events()"
+                self.ingress_module.init_events(self.target.seeds.events),
+                name=f"{self.name}.ingress_module.init_events()",
             )
 
             # main scan loop
@@ -898,6 +902,10 @@ class Scanner:
     @property
     def target(self):
         return self.preset.target
+
+    @property
+    def seeds(self):
+        return self.preset.seeds
 
     @property
     def whitelist(self):
