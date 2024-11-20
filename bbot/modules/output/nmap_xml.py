@@ -28,7 +28,6 @@ class Nmap_XML(BaseOutputModule):
         return True
 
     async def handle_event(self, event):
-        self.hugesuccess(event)
         event_host = event.host
 
         # we always record by IP
