@@ -51,6 +51,7 @@ class CloudCheck(BaseInterceptModule):
                             event.add_tag(f"{provider_type}-cname")
 
         found = set()
+        str_hosts_to_check = [str(host) for host in hosts_to_check]
         # look for cloud assets in hosts, http responses
         # loop through each provider
         for provider in self.helpers.cloud.providers.values():
@@ -68,7 +69,7 @@ class CloudCheck(BaseInterceptModule):
                     if event.type == "HTTP_RESPONSE":
                         matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
                     elif event.type.startswith("DNS_NAME"):
-                        for host in hosts_to_check:
+                        for host in str_hosts_to_check:
                             match = sig.match(host)
                             if match:
                                 matches.append(match.groups())
