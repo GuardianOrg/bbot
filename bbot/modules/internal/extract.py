@@ -26,7 +26,7 @@ class extract(BaseInternalModule):
         "created_date": "2024-11-04",
         "author": "@domwhewell-sage",
     }
-    # deps_pip = ["rarfile", "py7zr", "zstandard", "lz4"]
+    deps_pip = ["py7zr", "zstandard", "lz4"]
 
     async def setup(self):
         self.compression_methods = {
