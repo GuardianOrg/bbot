@@ -748,7 +748,7 @@ class Test_Lightfuzz_sqli_headers(Test_Lightfuzz_sqli):
         }
         seed_event = module_test.scan.make_event(data, "WEB_PARAMETER", parent_event, tags=["distance-0"])
         seed_events.append(seed_event)
-        module_test.scan.target.seeds._events = set(seed_events)
+        module_test.scan.target.seeds.events = set(seed_events)
 
     def request_handler(self, request):
 
@@ -818,7 +818,7 @@ class Test_Lightfuzz_sqli_cookies(Test_Lightfuzz_sqli):
         }
         seed_event = module_test.scan.make_event(data, "WEB_PARAMETER", parent_event, tags=["distance-0"])
         seed_events.append(seed_event)
-        module_test.scan.target.seeds._events = set(seed_events)
+        module_test.scan.target.seeds.events = set(seed_events)
 
     def request_handler(self, request):
 
