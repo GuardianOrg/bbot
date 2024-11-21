@@ -1,13 +1,16 @@
 import zipfile
 
-# import bz2
-# import lzma
+import bz2
+import lzma
+
 # import expak
-# import tarfile
+import tarfile
+
 # import rarfile
-# import py7zr
-# import zstandard as zstd
-# import lz4.frame
+import py7zr
+import zstandard as zstd
+import lz4.frame
+
 # import shutil
 
 from pathlib import Path
@@ -28,15 +31,15 @@ class extract(BaseInternalModule):
     async def setup(self):
         self.compression_methods = {
             "zip": self.extract_zip_file,
-            #     "bz2": lambda path, output_dir: self.extract_bz2_file(path, output_dir / "content.txt"),
-            #     "xz": lambda path, output_dir: self.extract_xz_file(path, output_dir / "content.txt"),
-            #     "7z": self.extract_7z_file,
-            #     "rar": self.extract_rar_file,
-            #     "lzma": lambda path, output_dir: self.extract_lzma_file(path, output_dir / "content.txt"),
+            "bzip2": lambda path, output_dir: self.extract_bz2_file(path, output_dir / "content.txt"),
+            "xz": lambda path, output_dir: self.extract_xz_file(path, output_dir / "content.txt"),
+            "7z": self.extract_7z_file,
+            # "rar": self.extract_rar_file,
+            "lzma": lambda path, output_dir: self.extract_lzma_file(path, output_dir / "content.txt"),
             #     "compress": lambda path, output_dir: self.extract_compress_file(path, output_dir / "content.txt"),
-            #     "zstd": lambda path, output_dir: self.extract_zstd_file(path, output_dir / "content.txt"),
-            #     "lz4": lambda path, output_dir: self.extract_lz4_file(path, output_dir / "content.txt"),
-            #     "tar": self.extract_tar_file,
+            "zstd": lambda path, output_dir: self.extract_zstd_file(path, output_dir / "content.txt"),
+            "lz4": lambda path, output_dir: self.extract_lz4_file(path, output_dir / "content.txt"),
+            "tar": self.extract_tar_file,
             #     "pak": self.extract_pak_file,
             #     "lha": self.extract_lha_file,
             #     "arj": self.extract_arj_file,
@@ -45,8 +48,8 @@ class extract(BaseInternalModule):
             #     "binhex": lambda path, output_dir: self.extract_binhex_file(path, output_dir / "content.txt"),
             #     "lrzip": lambda path, output_dir: self.extract_lrzip_file(path, output_dir / "content.txt"),
             #     "alz": self.extract_alz_file,
-            #     "tgz": self.extract_tgz_file,
-            #     "gzip": lambda path, output_dir: self.extract_gzip_file(path, output_dir / "content.txt"),
+            "tgz": self.extract_gzip_file,
+            "gzip": self.extract_gzip_file,
             #     "lzip": lambda path, output_dir: self.extract_lzip_file(path, output_dir / "content.txt"),
             #     "palm": lambda path, output_dir: self.extract_palm_file(path, output_dir / "content.txt"),
             #     "cpio": self.extract_cpio_file,
@@ -64,7 +67,7 @@ class extract(BaseInternalModule):
     async def filter_event(self, event):
         if "file" in event.tags:
             if not event.data["compression"] in self.compression_methods:
-                return False, "Extract unable to handle file type"
+                return False, f"Extract unable to handle file type: {event.data['compression']}, {event.data['path']}"
         else:
             return False, "Event is not a file"
         return True
@@ -101,9 +104,61 @@ class extract(BaseInternalModule):
             return False
         return True
 
-    # def extract_bz2_file(self, path, output_file):
+    def extract_bz2_file(self, path, output_file):
+        try:
+            with bz2.BZ2File(path, "rb") as file:
+                content = file.read()
+                with open(output_file, "wb") as f:
+                    f.write(content)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    def extract_xz_file(self, path, output_file):
+        try:
+            with lzma.open(path, "rb") as file:
+                content = file.read()
+                with open(output_file, "wb") as f:
+                    f.write(content)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    def extract_7z_file(self, path, output_dir):
+        try:
+            with py7zr.SevenZipFile(path, mode="r") as z:
+                z.extractall(path=output_dir)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    # def extract_rar_file(self, path, output_dir):
     #     try:
-    #         with bz2.BZ2File(path, "rb") as file:
+    #         with rarfile.RarFile(path, "r") as rar_ref:
+    #             rar_ref.extractall(output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+
+    def extract_lzma_file(self, path, output_file):
+        try:
+            with lzma.open(path, "rb") as file:
+                content = file.read()
+                with open(output_file, "wb") as f:
+                    f.write(content)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    #
+    # def extract_compress_file(self, path, output_file):
+    #     try:
+    #         with open(path, "rb") as file:
     #             content = file.read()
     #             with open(output_file, "wb") as f:
     #                 f.write(content)
@@ -111,181 +166,120 @@ class extract(BaseInternalModule):
     #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
     #         return False
     #     return True
+    #
+    def extract_zstd_file(self, path, output_file):
+        try:
+            with open(path, "rb") as file:
+                dctx = zstd.ZstdDecompressor()
+                content = dctx.decompress(file.read())
+                with open(output_file, "wb") as f:
+                    f.write(content)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    def extract_lz4_file(self, path, output_file):
+        try:
+            with lz4.frame.open(path, "rb") as file:
+                content = file.read()
+                with open(output_file, "wb") as f:
+                    f.write(content)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    def extract_tar_file(self, path, output_dir):
+        try:
+            with tarfile.open(path, "r") as tar_ref:
+                tar_ref.extractall(output_dir)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
+
+    #
+    # def extract_pak_file(self, path, output_dir):
+    #     try:
+    #         expak.extract_resources(path, output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_lha_file(self, path, output_dir):
+    #     try:
+    #         shutil.unpack_archive(path, output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_arj_file(self, path, output_dir):
+    #     try:
+    #         shutil.unpack_archive(path, output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_cab_file(self, path, output_dir):
+    #     try:
+    #         shutil.unpack_archive(path, output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_sit_file(self, path, output_dir):
+    #     try:
+    #         shutil.unpack_archive(path, output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_binhex_file(self, path, output_file):
+    #     try:
+    #         with open(path, "rb") as file:
+    #             content = file.read()
+    #             with open(output_file, "wb") as f:
+    #                 f.write(content)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_lrzip_file(self, path, output_file):
+    #     try:
+    #         with open(path, "rb") as file:
+    #             content = file.read()
+    #             with open(output_file, "wb") as f:
+    #                 f.write(content)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    # def extract_alz_file(self, path, output_dir):
+    #     try:
+    #         shutil.unpack_archive(path, output_dir)
+    #     except Exception as e:
+    #         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+    #         return False
+    #     return True
+    #
+    def extract_gzip_file(self, path, output_dir):
+        try:
+            with tarfile.open(path, "r:gz") as tar_ref:
+                tar_ref.extractall(output_dir)
+        except Exception as e:
+            self.warning(f"Error extracting {path}. Exception: {repr(e)}")
+            return False
+        return True
 
 
-#
-# def extract_xz_file(self, path, output_file):
-#     try:
-#         with lzma.open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_7z_file(self, path, output_dir):
-#     try:
-#         with py7zr.SevenZipFile(path, mode="r") as z:
-#             z.extractall(path=output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_rar_file(self, path, output_dir):
-#     try:
-#         with rarfile.RarFile(path, "r") as rar_ref:
-#             rar_ref.extractall(output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_lzma_file(self, path, output_file):
-#     try:
-#         with lzma.open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_compress_file(self, path, output_file):
-#     try:
-#         with open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_zstd_file(self, path, output_file):
-#     try:
-#         with open(path, "rb") as file:
-#             dctx = zstd.ZstdDecompressor()
-#             content = dctx.decompress(file.read())
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_lz4_file(self, path, output_file):
-#     try:
-#         with lz4.frame.open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_tar_file(self, path, output_dir):
-#     try:
-#         with tarfile.open(path, "r") as tar_ref:
-#             tar_ref.extractall(output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_pak_file(self, path, output_dir):
-#     try:
-#         expak.extract_resources(path, output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_lha_file(self, path, output_dir):
-#     try:
-#         shutil.unpack_archive(path, output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_arj_file(self, path, output_dir):
-#     try:
-#         shutil.unpack_archive(path, output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_cab_file(self, path, output_dir):
-#     try:
-#         shutil.unpack_archive(path, output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_sit_file(self, path, output_dir):
-#     try:
-#         shutil.unpack_archive(path, output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_binhex_file(self, path, output_file):
-#     try:
-#         with open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_lrzip_file(self, path, output_file):
-#     try:
-#         with open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_alz_file(self, path, output_dir):
-#     try:
-#         shutil.unpack_archive(path, output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_tgz_file(self, path, output_dir):
-#     try:
-#         with tarfile.open(path, "r:gz") as tar_ref:
-#             tar_ref.extractall(output_dir)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
-#
-# def extract_gzip_file(self, path, output_file):
-#     try:
-#         with open(path, "rb") as file:
-#             content = file.read()
-#             with open(output_file, "wb") as f:
-#                 f.write(content)
-#     except Exception as e:
-#         self.warning(f"Error extracting {path}. Exception: {repr(e)}")
-#         return False
-#     return True
 #
 # def extract_lzip_file(self, path, output_file):
 #     try:

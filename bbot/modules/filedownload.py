@@ -63,6 +63,7 @@ class filedownload(BaseModule):
             "swp",  #  Swap File (temporary file, often Vim)
             "sxw",  #  OpenOffice.org Writer document
             "tar.gz",  # Gzip-Compressed Tar Archive
+            "tgz",  #  Gzip-Compressed Tar Archive
             "tar",  #  Tar Archive
             "txt",  #  Plain Text Document
             "vbs",  #  Visual Basic Script
@@ -74,6 +75,12 @@ class filedownload(BaseModule):
             "yaml",  #  YAML Ain't Markup Language
             "yml",  #  YAML Ain't Markup Language
             "zip",  #  Zip Archive
+            "bz2",  #  Bzip2 Compressed File
+            "xz",  #  XZ Compressed File
+            "7z",  #  7-Zip Compressed File
+            "lzma",  #  LZMA Compressed File
+            "zst",  #  Zstandard Compressed File
+            "lz4",  #  LZ4 Compressed File
         ],
         "max_filesize": "10MB",
         "base_64_encoded_file": "false",
