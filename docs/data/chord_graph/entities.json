@@ -23,11 +23,11 @@
         ]
     },
     {
-        "id": 125,
+        "id": 128,
         "name": "AZURE_TENANT",
         "parent": 88888888,
         "consumes": [
-            124
+            127
         ],
         "produces": []
     },
@@ -36,20 +36,20 @@
         "name": "CODE_REPOSITORY",
         "parent": 88888888,
         "consumes": [
-            59,
-            79,
-            82,
+            61,
+            81,
             84,
-            113,
-            132
+            86,
+            116,
+            135
         ],
         "produces": [
             42,
-            60,
-            80,
-            81,
+            62,
+            82,
             83,
-            112
+            85,
+            115
         ]
     },
     {
@@ -82,39 +82,40 @@
             52,
             53,
             54,
-            55,
             56,
             57,
             58,
-            64,
-            76,
-            80,
-            87,
-            91,
+            59,
+            60,
+            66,
+            78,
+            82,
+            89,
             93,
-            98,
-            99,
-            103,
-            104,
-            108,
-            109,
-            110,
-            114,
+            95,
+            101,
+            102,
+            106,
+            107,
+            111,
+            112,
+            113,
             117,
-            118,
-            119,
             120,
             121,
+            122,
+            123,
             124,
             127,
-            128,
-            129,
+            130,
             131,
+            132,
             134,
             137,
-            138,
+            140,
             141,
-            144
+            144,
+            147
         ],
         "produces": [
             6,
@@ -130,36 +131,36 @@
             44,
             50,
             53,
-            54,
-            55,
             56,
             57,
             58,
-            76,
-            87,
-            91,
+            59,
+            60,
+            78,
+            89,
             93,
-            98,
-            99,
+            95,
             101,
-            103,
+            102,
             104,
-            108,
-            114,
+            106,
+            107,
+            111,
             117,
-            119,
             120,
-            124,
-            126,
+            122,
+            123,
             127,
-            128,
+            129,
+            130,
             131,
             134,
-            135,
             137,
             138,
+            140,
             141,
-            144
+            144,
+            147
         ]
     },
     {
@@ -168,8 +169,8 @@
         "parent": 88888888,
         "consumes": [
             21,
-            124,
-            129
+            127,
+            132
         ],
         "produces": []
     },
@@ -178,18 +179,18 @@
         "name": "EMAIL_ADDRESS",
         "parent": 88888888,
         "consumes": [
-            65
+            67
         ],
         "produces": [
             45,
             52,
-            56,
-            64,
-            91,
-            109,
-            118,
+            58,
+            66,
+            93,
+            112,
             121,
-            126
+            124,
+            129
         ]
     },
     {
@@ -197,16 +198,18 @@
         "name": "FILESYSTEM",
         "parent": 88888888,
         "consumes": [
-            69,
-            132
+            71,
+            100,
+            135
         ],
         "produces": [
             8,
-            59,
-            73,
-            79,
-            82,
-            113
+            61,
+            75,
+            81,
+            84,
+            100,
+            116
         ]
     },
     {
@@ -215,7 +218,7 @@
         "parent": 88888888,
         "consumes": [
             14,
-            142
+            145
         ],
         "produces": [
             1,
@@ -230,33 +233,33 @@
             34,
             37,
             51,
-            78,
-            83,
-            88,
+            80,
+            85,
             90,
-            93,
-            100,
-            101,
-            102,
+            92,
+            95,
+            103,
+            104,
             105,
-            106,
-            116,
-            122,
-            124,
-            130,
-            132,
+            108,
+            109,
+            119,
+            125,
+            127,
             133,
-            143
+            135,
+            136,
+            146
         ]
     },
     {
-        "id": 95,
+        "id": 97,
         "name": "GEOLOCATION",
         "parent": 88888888,
         "consumes": [],
         "produces": [
-            94,
-            97
+            96,
+            99
         ]
     },
     {
@@ -278,24 +281,24 @@
             14,
             26,
             51,
-            63,
-            66,
-            73,
-            83,
-            88,
-            100,
-            101,
-            105,
-            106,
-            107,
-            116,
-            124,
-            130,
-            140,
-            143
+            65,
+            68,
+            75,
+            85,
+            90,
+            103,
+            104,
+            108,
+            109,
+            110,
+            119,
+            127,
+            133,
+            143,
+            146
         ],
         "produces": [
-            89
+            91
         ]
     },
     {
@@ -305,26 +308,26 @@
         "consumes": [
             11,
             14,
-            93,
-            94,
+            95,
             96,
-            97,
-            110,
-            124
+            98,
+            99,
+            113,
+            127
         ],
         "produces": [
             14,
-            96,
-            124
+            98,
+            127
         ]
     },
     {
-        "id": 111,
+        "id": 114,
         "name": "IP_RANGE",
         "parent": 88888888,
         "consumes": [
-            110,
-            124
+            113,
+            127
         ],
         "produces": []
     },
@@ -336,7 +339,7 @@
             8
         ],
         "produces": [
-            84
+            86
         ]
     },
     {
@@ -345,29 +348,29 @@
         "parent": 88888888,
         "consumes": [
             14,
-            74,
-            89,
-            126
+            76,
+            91,
+            129
         ],
         "produces": [
             14,
-            93,
-            110,
-            124
+            95,
+            113,
+            127
         ]
     },
     {
-        "id": 61,
+        "id": 63,
         "name": "ORG_STUB",
         "parent": 88888888,
         "consumes": [
-            60,
-            81,
-            84,
-            112
+            62,
+            83,
+            86,
+            115
         ],
         "produces": [
-            124
+            127
         ]
     },
     {
@@ -381,41 +384,50 @@
         ]
     },
     {
-        "id": 75,
+        "id": 77,
         "name": "PROTOCOL",
         "parent": 88888888,
         "consumes": [],
         "produces": [
-            74
+            76
         ]
     },
     {
-        "id": 67,
+        "id": 55,
+        "name": "RAW_DNS_RECORD",
+        "parent": 88888888,
+        "consumes": [],
+        "produces": [
+            54
+        ]
+    },
+    {
+        "id": 69,
         "name": "RAW_TEXT",
         "parent": 88888888,
         "consumes": [
-            66
+            68
         ],
         "produces": [
-            69
+            71
         ]
     },
     {
-        "id": 62,
+        "id": 64,
         "name": "SOCIAL",
         "parent": 88888888,
         "consumes": [
-            60,
-            81,
+            62,
             83,
             85,
-            112,
-            124
+            87,
+            115,
+            127
         ],
         "produces": [
-            60,
-            83,
-            123
+            62,
+            85,
+            126
         ]
     },
     {
@@ -430,7 +442,7 @@
             32,
             33,
             34,
-            124
+            127
         ],
         "produces": [
             29,
@@ -446,19 +458,19 @@
         "parent": 88888888,
         "consumes": [
             14,
-            83,
-            142,
-            143
+            85,
+            145,
+            146
         ],
         "produces": [
             26,
-            63,
-            83,
+            65,
             85,
-            93,
-            102,
-            140,
-            143
+            87,
+            95,
+            105,
+            143,
+            146
         ]
     },
     {
@@ -470,37 +482,37 @@
             14,
             23,
             37,
-            70,
-            77,
-            78,
-            85,
-            89,
-            92,
-            101,
-            102,
-            115,
-            122,
-            124,
-            130,
+            72,
+            79,
+            80,
+            87,
+            91,
+            94,
+            104,
+            105,
+            118,
+            125,
+            127,
             133,
-            135,
-            139,
-            142
+            136,
+            138,
+            142,
+            145
         ],
         "produces": [
-            85,
-            89
+            87,
+            91
         ]
     },
     {
-        "id": 72,
+        "id": 74,
         "name": "URL_HINT",
         "parent": 88888888,
         "consumes": [
-            71
+            73
         ],
         "produces": [
-            92
+            94
         ]
     },
     {
@@ -509,29 +521,30 @@
         "parent": 88888888,
         "consumes": [
             42,
-            73,
-            89,
-            103,
-            123,
-            124
+            75,
+            91,
+            106,
+            126,
+            127
         ],
         "produces": [
             18,
             27,
             32,
-            56,
-            60,
-            66,
-            70,
-            71,
-            80,
-            85,
-            91,
-            115,
+            54,
+            58,
+            62,
+            68,
+            72,
+            73,
+            82,
+            87,
+            93,
             118,
-            134,
-            141,
-            143
+            121,
+            137,
+            144,
+            146
         ]
     },
     {
@@ -539,7 +552,7 @@
         "name": "USERNAME",
         "parent": 88888888,
         "consumes": [
-            124
+            127
         ],
         "produces": [
             45,
@@ -547,14 +560,14 @@
         ]
     },
     {
-        "id": 136,
+        "id": 139,
         "name": "VHOST",
         "parent": 88888888,
         "consumes": [
-            142
+            145
         ],
         "produces": [
-            135
+            138
         ]
     },
     {
@@ -563,7 +576,7 @@
         "parent": 88888888,
         "consumes": [
             14,
-            142
+            145
         ],
         "produces": [
             1,
@@ -572,13 +585,13 @@
             25,
             26,
             51,
-            63,
-            77,
-            93,
-            102,
-            130,
-            132,
-            143
+            65,
+            79,
+            95,
+            105,
+            133,
+            135,
+            146
         ]
     },
     {
@@ -589,33 +602,33 @@
             14
         ],
         "produces": [
-            139
+            142
         ]
     },
     {
-        "id": 86,
+        "id": 88,
         "name": "WEBSCREENSHOT",
         "parent": 88888888,
         "consumes": [],
         "produces": [
-            85
+            87
         ]
     },
     {
-        "id": 68,
+        "id": 70,
         "name": "WEB_PARAMETER",
         "parent": 88888888,
         "consumes": [
-            90,
-            105,
-            106,
-            107
+            92,
+            108,
+            109,
+            110
         ],
         "produces": [
-            66,
-            105,
-            106,
-            107
+            68,
+            108,
+            109,
+            110
         ]
     },
     {
@@ -1019,6 +1032,18 @@
     },
     {
         "id": 54,
+        "name": "dnsbimi",
+        "parent": 99999999,
+        "consumes": [
+            7
+        ],
+        "produces": [
+            55,
+            19
+        ]
+    },
+    {
+        "id": 56,
         "name": "dnsbrute",
         "parent": 99999999,
         "consumes": [
@@ -1029,7 +1054,7 @@
         ]
     },
     {
-        "id": 55,
+        "id": 57,
         "name": "dnsbrute_mutations",
         "parent": 99999999,
         "consumes": [
@@ -1040,7 +1065,7 @@
         ]
     },
     {
-        "id": 56,
+        "id": 58,
         "name": "dnscaa",
         "parent": 99999999,
         "consumes": [
@@ -1053,7 +1078,7 @@
         ]
     },
     {
-        "id": 57,
+        "id": 59,
         "name": "dnscommonsrv",
         "parent": 99999999,
         "consumes": [
@@ -1064,7 +1089,7 @@
         ]
     },
     {
-        "id": 58,
+        "id": 60,
         "name": "dnsdumpster",
         "parent": 99999999,
         "consumes": [
@@ -1075,7 +1100,7 @@
         ]
     },
     {
-        "id": 59,
+        "id": 61,
         "name": "docker_pull",
         "parent": 99999999,
         "consumes": [
@@ -1086,21 +1111,21 @@
         ]
     },
     {
-        "id": 60,
+        "id": 62,
         "name": "dockerhub",
         "parent": 99999999,
         "consumes": [
-            61,
-            62
+            63,
+            64
         ],
         "produces": [
             43,
-            62,
+            64,
             19
         ]
     },
     {
-        "id": 63,
+        "id": 65,
         "name": "dotnetnuke",
         "parent": 99999999,
         "consumes": [
@@ -1112,7 +1137,7 @@
         ]
     },
     {
-        "id": 64,
+        "id": 66,
         "name": "emailformat",
         "parent": 99999999,
         "consumes": [
@@ -1123,7 +1148,7 @@
         ]
     },
     {
-        "id": 65,
+        "id": 67,
         "name": "emails",
         "parent": 99999999,
         "consumes": [
@@ -1132,31 +1157,31 @@
         "produces": []
     },
     {
-        "id": 66,
+        "id": 68,
         "name": "excavate",
         "parent": 99999999,
         "consumes": [
             2,
-            67
+            69
         ],
         "produces": [
             19,
-            68
+            70
         ]
     },
     {
-        "id": 69,
+        "id": 71,
         "name": "extractous",
         "parent": 99999999,
         "consumes": [
             10
         ],
         "produces": [
-            67
+            69
         ]
     },
     {
-        "id": 70,
+        "id": 72,
         "name": "ffuf",
         "parent": 99999999,
         "consumes": [
@@ -1167,18 +1192,18 @@
         ]
     },
     {
-        "id": 71,
+        "id": 73,
         "name": "ffuf_shortnames",
         "parent": 99999999,
         "consumes": [
-            72
+            74
         ],
         "produces": [
             19
         ]
     },
     {
-        "id": 73,
+        "id": 75,
         "name": "filedownload",
         "parent": 99999999,
         "consumes": [
@@ -1190,18 +1215,18 @@
         ]
     },
     {
-        "id": 74,
+        "id": 76,
         "name": "fingerprintx",
         "parent": 99999999,
         "consumes": [
             15
         ],
         "produces": [
-            75
+            77
         ]
     },
     {
-        "id": 76,
+        "id": 78,
         "name": "fullhunt",
         "parent": 99999999,
         "consumes": [
@@ -1212,7 +1237,7 @@
         ]
     },
     {
-        "id": 77,
+        "id": 79,
         "name": "generic_ssrf",
         "parent": 99999999,
         "consumes": [
@@ -1223,7 +1248,7 @@
         ]
     },
     {
-        "id": 78,
+        "id": 80,
         "name": "git",
         "parent": 99999999,
         "consumes": [
@@ -1234,7 +1259,7 @@
         ]
     },
     {
-        "id": 79,
+        "id": 81,
         "name": "git_clone",
         "parent": 99999999,
         "consumes": [
@@ -1245,7 +1270,7 @@
         ]
     },
     {
-        "id": 80,
+        "id": 82,
         "name": "github_codesearch",
         "parent": 99999999,
         "consumes": [
@@ -1257,19 +1282,19 @@
         ]
     },
     {
-        "id": 81,
+        "id": 83,
         "name": "github_org",
         "parent": 99999999,
         "consumes": [
-            61,
-            62
+            63,
+            64
         ],
         "produces": [
             43
         ]
     },
     {
-        "id": 82,
+        "id": 84,
         "name": "github_workflows",
         "parent": 99999999,
         "consumes": [
@@ -1280,50 +1305,50 @@
         ]
     },
     {
-        "id": 83,
+        "id": 85,
         "name": "gitlab",
         "parent": 99999999,
         "consumes": [
             2,
-            62,
+            64,
             16
         ],
         "produces": [
             43,
             4,
-            62,
+            64,
             16
         ]
     },
     {
-        "id": 84,
+        "id": 86,
         "name": "google_playstore",
         "parent": 99999999,
         "consumes": [
             43,
-            61
+            63
         ],
         "produces": [
             9
         ]
     },
     {
-        "id": 85,
+        "id": 87,
         "name": "gowitness",
         "parent": 99999999,
         "consumes": [
-            62,
+            64,
             3
         ],
         "produces": [
             16,
             3,
             19,
-            86
+            88
         ]
     },
     {
-        "id": 87,
+        "id": 89,
         "name": "hackertarget",
         "parent": 99999999,
         "consumes": [
@@ -1334,7 +1359,7 @@
         ]
     },
     {
-        "id": 88,
+        "id": 90,
         "name": "host_header",
         "parent": 99999999,
         "consumes": [
@@ -1345,7 +1370,7 @@
         ]
     },
     {
-        "id": 89,
+        "id": 91,
         "name": "httpx",
         "parent": 99999999,
         "consumes": [
@@ -1359,18 +1384,18 @@
         ]
     },
     {
-        "id": 90,
+        "id": 92,
         "name": "hunt",
         "parent": 99999999,
         "consumes": [
-            68
+            70
         ],
         "produces": [
             4
         ]
     },
     {
-        "id": 91,
+        "id": 93,
         "name": "hunterio",
         "parent": 99999999,
         "consumes": [
@@ -1383,18 +1408,18 @@
         ]
     },
     {
-        "id": 92,
+        "id": 94,
         "name": "iis_shortnames",
         "parent": 99999999,
         "consumes": [
             3
         ],
         "produces": [
-            72
+            74
         ]
     },
     {
-        "id": 93,
+        "id": 95,
         "name": "internetdb",
         "parent": 99999999,
         "consumes": [
@@ -1410,18 +1435,18 @@
         ]
     },
     {
-        "id": 94,
+        "id": 96,
         "name": "ip2location",
         "parent": 99999999,
         "consumes": [
             12
         ],
         "produces": [
-            95
+            97
         ]
     },
     {
-        "id": 96,
+        "id": 98,
         "name": "ipneighbor",
         "parent": 99999999,
         "consumes": [
@@ -1432,18 +1457,29 @@
         ]
     },
     {
-        "id": 97,
+        "id": 99,
         "name": "ipstack",
         "parent": 99999999,
         "consumes": [
             12
         ],
         "produces": [
-            95
+            97
         ]
     },
     {
-        "id": 98,
+        "id": 100,
+        "name": "jadx",
+        "parent": 99999999,
+        "consumes": [
+            10
+        ],
+        "produces": [
+            10
+        ]
+    },
+    {
+        "id": 101,
         "name": "leakix",
         "parent": 99999999,
         "consumes": [
@@ -1454,7 +1490,7 @@
         ]
     },
     {
-        "id": 99,
+        "id": 102,
         "name": "myssl",
         "parent": 99999999,
         "consumes": [
@@ -1465,7 +1501,7 @@
         ]
     },
     {
-        "id": 100,
+        "id": 103,
         "name": "newsletters",
         "parent": 99999999,
         "consumes": [
@@ -1476,7 +1512,7 @@
         ]
     },
     {
-        "id": 101,
+        "id": 104,
         "name": "ntlm",
         "parent": 99999999,
         "consumes": [
@@ -1489,7 +1525,7 @@
         ]
     },
     {
-        "id": 102,
+        "id": 105,
         "name": "nuclei",
         "parent": 99999999,
         "consumes": [
@@ -1502,7 +1538,7 @@
         ]
     },
     {
-        "id": 103,
+        "id": 106,
         "name": "oauth",
         "parent": 99999999,
         "consumes": [
@@ -1514,7 +1550,7 @@
         ]
     },
     {
-        "id": 104,
+        "id": 107,
         "name": "otx",
         "parent": 99999999,
         "consumes": [
@@ -1525,45 +1561,45 @@
         ]
     },
     {
-        "id": 105,
+        "id": 108,
         "name": "paramminer_cookies",
         "parent": 99999999,
         "consumes": [
             2,
-            68
+            70
         ],
         "produces": [
             4,
-            68
+            70
         ]
     },
     {
-        "id": 106,
+        "id": 109,
         "name": "paramminer_getparams",
         "parent": 99999999,
         "consumes": [
             2,
-            68
+            70
         ],
         "produces": [
             4,
-            68
+            70
         ]
     },
     {
-        "id": 107,
+        "id": 110,
         "name": "paramminer_headers",
         "parent": 99999999,
         "consumes": [
             2,
-            68
+            70
         ],
         "produces": [
-            68
+            70
         ]
     },
     {
-        "id": 108,
+        "id": 111,
         "name": "passivetotal",
         "parent": 99999999,
         "consumes": [
@@ -1574,7 +1610,7 @@
         ]
     },
     {
-        "id": 109,
+        "id": 112,
         "name": "pgp",
         "parent": 99999999,
         "consumes": [
@@ -1585,32 +1621,32 @@
         ]
     },
     {
-        "id": 110,
+        "id": 113,
         "name": "portscan",
         "parent": 99999999,
         "consumes": [
             7,
             12,
-            111
+            114
         ],
         "produces": [
             15
         ]
     },
     {
-        "id": 112,
+        "id": 115,
         "name": "postman",
         "parent": 99999999,
         "consumes": [
-            61,
-            62
+            63,
+            64
         ],
         "produces": [
             43
         ]
     },
     {
-        "id": 113,
+        "id": 116,
         "name": "postman_download",
         "parent": 99999999,
         "consumes": [
@@ -1621,7 +1657,7 @@
         ]
     },
     {
-        "id": 114,
+        "id": 117,
         "name": "rapiddns",
         "parent": 99999999,
         "consumes": [
@@ -1632,7 +1668,7 @@
         ]
     },
     {
-        "id": 115,
+        "id": 118,
         "name": "robots",
         "parent": 99999999,
         "consumes": [
@@ -1643,7 +1679,7 @@
         ]
     },
     {
-        "id": 116,
+        "id": 119,
         "name": "secretsdb",
         "parent": 99999999,
         "consumes": [
@@ -1654,7 +1690,7 @@
         ]
     },
     {
-        "id": 117,
+        "id": 120,
         "name": "securitytrails",
         "parent": 99999999,
         "consumes": [
@@ -1665,7 +1701,7 @@
         ]
     },
     {
-        "id": 118,
+        "id": 121,
         "name": "securitytxt",
         "parent": 99999999,
         "consumes": [
@@ -1677,7 +1713,7 @@
         ]
     },
     {
-        "id": 119,
+        "id": 122,
         "name": "shodan_dns",
         "parent": 99999999,
         "consumes": [
@@ -1688,7 +1724,7 @@
         ]
     },
     {
-        "id": 120,
+        "id": 123,
         "name": "sitedossier",
         "parent": 99999999,
         "consumes": [
@@ -1699,7 +1735,7 @@
         ]
     },
     {
-        "id": 121,
+        "id": 124,
         "name": "skymem",
         "parent": 99999999,
         "consumes": [
@@ -1710,7 +1746,7 @@
         ]
     },
     {
-        "id": 122,
+        "id": 125,
         "name": "smuggler",
         "parent": 99999999,
         "consumes": [
@@ -1721,28 +1757,28 @@
         ]
     },
     {
-        "id": 123,
+        "id": 126,
         "name": "social",
         "parent": 99999999,
         "consumes": [
             19
         ],
         "produces": [
-            62
+            64
         ]
     },
     {
-        "id": 124,
+        "id": 127,
         "name": "speculate",
         "parent": 99999999,
         "consumes": [
-            125,
+            128,
             7,
             22,
             2,
             12,
-            111,
-            62,
+            114,
+            64,
             24,
             3,
             19,
@@ -1753,11 +1789,11 @@
             4,
             12,
             15,
-            61
+            63
         ]
     },
     {
-        "id": 126,
+        "id": 129,
         "name": "sslcert",
         "parent": 99999999,
         "consumes": [
@@ -1769,7 +1805,7 @@
         ]
     },
     {
-        "id": 127,
+        "id": 130,
         "name": "subdomaincenter",
         "parent": 99999999,
         "consumes": [
@@ -1780,7 +1816,7 @@
         ]
     },
     {
-        "id": 128,
+        "id": 131,
         "name": "subdomainradar",
         "parent": 99999999,
         "consumes": [
@@ -1791,7 +1827,7 @@
         ]
     },
     {
-        "id": 129,
+        "id": 132,
         "name": "subdomains",
         "parent": 99999999,
         "consumes": [
@@ -1801,7 +1837,7 @@
         "produces": []
     },
     {
-        "id": 130,
+        "id": 133,
         "name": "telerik",
         "parent": 99999999,
         "consumes": [
@@ -1814,7 +1850,7 @@
         ]
     },
     {
-        "id": 131,
+        "id": 134,
         "name": "trickest",
         "parent": 99999999,
         "consumes": [
@@ -1825,7 +1861,7 @@
         ]
     },
     {
-        "id": 132,
+        "id": 135,
         "name": "trufflehog",
         "parent": 99999999,
         "consumes": [
@@ -1838,7 +1874,7 @@
         ]
     },
     {
-        "id": 133,
+        "id": 136,
         "name": "url_manipulation",
         "parent": 99999999,
         "consumes": [
@@ -1849,7 +1885,7 @@
         ]
     },
     {
-        "id": 134,
+        "id": 137,
         "name": "urlscan",
         "parent": 99999999,
         "consumes": [
@@ -1861,7 +1897,7 @@
         ]
     },
     {
-        "id": 135,
+        "id": 138,
         "name": "vhost",
         "parent": 99999999,
         "consumes": [
@@ -1869,11 +1905,11 @@
         ],
         "produces": [
             7,
-            136
+            139
         ]
     },
     {
-        "id": 137,
+        "id": 140,
         "name": "viewdns",
         "parent": 99999999,
         "consumes": [
@@ -1884,7 +1920,7 @@
         ]
     },
     {
-        "id": 138,
+        "id": 141,
         "name": "virustotal",
         "parent": 99999999,
         "consumes": [
@@ -1895,7 +1931,7 @@
         ]
     },
     {
-        "id": 139,
+        "id": 142,
         "name": "wafw00f",
         "parent": 99999999,
         "consumes": [
@@ -1906,7 +1942,7 @@
         ]
     },
     {
-        "id": 140,
+        "id": 143,
         "name": "wappalyzer",
         "parent": 99999999,
         "consumes": [
@@ -1917,7 +1953,7 @@
         ]
     },
     {
-        "id": 141,
+        "id": 144,
         "name": "wayback",
         "parent": 99999999,
         "consumes": [
@@ -1929,20 +1965,20 @@
         ]
     },
     {
-        "id": 142,
+        "id": 145,
         "name": "web_report",
         "parent": 99999999,
         "consumes": [
             4,
             16,
             3,
-            136,
+            139,
             5
         ],
         "produces": []
     },
     {
-        "id": 143,
+        "id": 146,
         "name": "wpscan",
         "parent": 99999999,
         "consumes": [
@@ -1957,7 +1993,7 @@
         ]
     },
     {
-        "id": 144,
+        "id": 147,
         "name": "zoomeye",
         "parent": 99999999,
         "consumes": [
