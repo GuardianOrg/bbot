@@ -178,7 +178,7 @@ class DNSHelper(EngineClient):
 
         host = clean_dns_record(host)
         # skip check if it's an IP or a plain hostname
-        if is_ip(host) or not "." in host:
+        if is_ip(host) or "." not in host:
             return False
 
         # skip if query isn't a dns name

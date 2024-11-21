@@ -111,7 +111,7 @@ class WordCloud(dict):
         results = set()
         for word in words:
             h = hash(word)
-            if not h in results:
+            if h not in results:
                 results.add(h)
                 yield (word,)
         if numbers > 0:
@@ -119,7 +119,7 @@ class WordCloud(dict):
                 for word in words:
                     for number_mutation in self.get_number_mutations(word, n=numbers, padding=number_padding):
                         h = hash(number_mutation)
-                        if not h in results:
+                        if h not in results:
                             results.add(h)
                             yield (number_mutation,)
         for word in words:
@@ -322,7 +322,7 @@ class WordCloud(dict):
 
     @property
     def default_filename(self):
-        return self.parent_helper.preset.scan.home / f"wordcloud.tsv"
+        return self.parent_helper.preset.scan.home / "wordcloud.tsv"
 
     def save(self, filename=None, limit=None):
         """
@@ -357,7 +357,7 @@ class WordCloud(dict):
                 log.debug(f"Saved word cloud ({len(self):,} words) to {filename}")
                 return True, filename
             else:
-                log.debug(f"No words to save")
+                log.debug("No words to save")
         except Exception as e:
             import traceback
 

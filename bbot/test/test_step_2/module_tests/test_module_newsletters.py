@@ -53,5 +53,5 @@ class TestNewsletters(ModuleTestBase):
                 # Verify Negative Result (should skip this statement if correct)
                 elif event.data["url"] == self.missing_tgt:
                     missing = False
-        assert found, f"NEWSLETTER 'Found' Error - Expect status of True but got False"
-        assert missing, f"NEWSLETTER 'Missing' Error - Expect status of True but got False"
+        assert found, "NEWSLETTER 'Found' Error - Expect status of True but got False"
+        assert missing, "NEWSLETTER 'Missing' Error - Expect status of True but got False"

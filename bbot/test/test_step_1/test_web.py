@@ -211,14 +211,14 @@ async def test_web_helpers(bbot_scanner, bbot_httpserver, httpx_mock):
     url = bbot_httpserver.url_for(path)
     bbot_httpserver.expect_request(uri=path).respond_with_data(download_content, status=200)
     webpage = await scan1.helpers.request(url)
-    assert webpage, f"Webpage is False"
+    assert webpage, "Webpage is False"
     soup = scan1.helpers.beautifulsoup(webpage, "html.parser")
-    assert soup, f"Soup is False"
+    assert soup, "Soup is False"
     # pretty_print = soup.prettify()
     # assert pretty_print, f"PrettyPrint is False"
     # scan1.helpers.log.info(f"{pretty_print}")
     html_text = soup.find(text="Example Domain")
-    assert html_text, f"Find HTML Text is False"
+    assert html_text, "Find HTML Text is False"
 
     # 404
     path = "/test_http_helpers_download_404"
@@ -389,7 +389,7 @@ async def test_web_http_compare(httpx_mock, bbot_scanner):
     await compare_helper.compare("http://www.example.com", check_reflection=True)
     compare_helper.compare_body({"asdf": "fdsa"}, {"fdsa": "asdf"})
     for mode in ("getparam", "header", "cookie"):
-        assert await compare_helper.canary_check("http://www.example.com", mode=mode) == True
+        assert await compare_helper.canary_check("http://www.example.com", mode=mode) is True
 
     await scan._cleanup()
 

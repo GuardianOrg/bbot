@@ -51,7 +51,7 @@ class trufflehog(BaseModule):
         self.github_token = ""
         if self.deleted_forks:
             self.warning(
-                f"Deleted forks is enabled. Scanning for deleted forks is slooooooowwwww. For a smaller repository, this process can take 20 minutes. For a larger repository, it could take hours."
+                "Deleted forks is enabled. Scanning for deleted forks is slooooooowwwww. For a smaller repository, this process can take 20 minutes. For a larger repository, it could take hours."
             )
             for module_name in ("github", "github_codesearch", "github_org", "git_clone"):
                 module_config = self.scan.config.get("modules", {}).get(module_name, {})

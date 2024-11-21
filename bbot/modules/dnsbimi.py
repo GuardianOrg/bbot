@@ -80,7 +80,7 @@ class dnsbimi(BaseModule):
             return False, "event is wildcard"
 
         # there's no value in inspecting service records
-        if service_record(event.host) == True:
+        if service_record(event.host) is True:
             return False, "service record detected"
 
         return True

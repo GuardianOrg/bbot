@@ -261,7 +261,7 @@ class WebHelper(EngineClient):
         """
         if not path:
             raise WordlistError(f"Invalid wordlist: {path}")
-        if not "cache_hrs" in kwargs:
+        if "cache_hrs" not in kwargs:
             kwargs["cache_hrs"] = 720
         if self.parent_helper.is_url(path):
             filename = await self.download(str(path), **kwargs)
@@ -350,7 +350,7 @@ class WebHelper(EngineClient):
                     headers[hk] = hv
 
             # add the timeout
-            if not "timeout" in kwargs:
+            if "timeout" not in kwargs:
                 timeout = http_timeout
 
             curl_command.append("-m")

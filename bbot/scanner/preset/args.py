@@ -214,7 +214,7 @@ class BBOTArgs:
             metavar="CONFIG",
             default=[],
         )
-        presets.add_argument("-lp", "--list-presets", action="store_true", help=f"List available presets.")
+        presets.add_argument("-lp", "--list-presets", action="store_true", help="List available presets.")
 
         modules = p.add_argument_group(title="Modules")
         modules.add_argument(
@@ -225,12 +225,12 @@ class BBOTArgs:
             help=f'Modules to enable. Choices: {",".join(sorted(self.preset.module_loader.scan_module_choices))}',
             metavar="MODULE",
         )
-        modules.add_argument("-l", "--list-modules", action="store_true", help=f"List available modules.")
+        modules.add_argument("-l", "--list-modules", action="store_true", help="List available modules.")
         modules.add_argument(
             "-lmo", "--list-module-options", action="store_true", help="Show all module config options"
         )
         modules.add_argument(
-            "-em", "--exclude-modules", nargs="+", default=[], help=f"Exclude these modules.", metavar="MODULE"
+            "-em", "--exclude-modules", nargs="+", default=[], help="Exclude these modules.", metavar="MODULE"
         )
         modules.add_argument(
             "-f",
@@ -240,13 +240,13 @@ class BBOTArgs:
             help=f'Enable modules by flag. Choices: {",".join(sorted(self.preset.module_loader.flag_choices))}',
             metavar="FLAG",
         )
-        modules.add_argument("-lf", "--list-flags", action="store_true", help=f"List available flags.")
+        modules.add_argument("-lf", "--list-flags", action="store_true", help="List available flags.")
         modules.add_argument(
             "-rf",
             "--require-flags",
             nargs="+",
             default=[],
-            help=f"Only enable modules with these flags (e.g. -rf passive)",
+            help="Only enable modules with these flags (e.g. -rf passive)",
             metavar="FLAG",
         )
         modules.add_argument(
@@ -254,7 +254,7 @@ class BBOTArgs:
             "--exclude-flags",
             nargs="+",
             default=[],
-            help=f"Disable modules with these flags. (e.g. -ef aggressive)",
+            help="Disable modules with these flags. (e.g. -ef aggressive)",
             metavar="FLAG",
         )
         modules.add_argument("--allow-deadly", action="store_true", help="Enable the use of highly aggressive modules")
@@ -275,7 +275,7 @@ class BBOTArgs:
             action="store_true",
             help="Scan only the provided targets as fast as possible, with no extra discovery",
         )
-        scan.add_argument("--dry-run", action="store_true", help=f"Abort before executing scan")
+        scan.add_argument("--dry-run", action="store_true", help="Abort before executing scan")
         scan.add_argument(
             "--current-preset",
             action="store_true",

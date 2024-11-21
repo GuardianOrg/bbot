@@ -44,7 +44,7 @@ class TestHTTPXBase(ModuleTestBase):
         for e in events:
             if e.type == "HTTP_RESPONSE":
                 if e.data["path"] == "/":
-                    assert not "login-page" in e.tags
+                    assert "login-page" not in e.tags
                     open_port = True
                 elif e.data["path"] == "/url":
                     assert "login-page" in e.tags

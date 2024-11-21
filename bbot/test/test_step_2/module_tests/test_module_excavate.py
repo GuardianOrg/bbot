@@ -60,8 +60,8 @@ class TestExcavate(ModuleTestBase):
         assert "www6.test.notreal" in event_data
         assert "www7.test.notreal" in event_data
         assert "www8.test.notreal" in event_data
-        assert not "http://127.0.0.1:8888/a_relative.js" in event_data
-        assert not "http://127.0.0.1:8888/link_relative.js" in event_data
+        assert "http://127.0.0.1:8888/a_relative.js" not in event_data
+        assert "http://127.0.0.1:8888/link_relative.js" not in event_data
         assert "http://127.0.0.1:8888/a_relative.txt" in event_data
         assert "http://127.0.0.1:8888/link_relative.txt" in event_data
 
@@ -220,7 +220,7 @@ class TestExcavateRedirect(TestExcavate):
             [e for e in events if e.type == "FINDING" and e.data["description"] == "Non-HTTP URI: smb://127.0.0.1"]
         )
         assert 1 == len(
-            [e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SMB" and not "port" in e.data]
+            [e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SMB" and "port" not in e.data]
         )
         assert 0 == len([e for e in events if e.type == "FINDING" and "ssh://127.0.0.1" in e.data["description"]])
         assert 0 == len([e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SSH"])
@@ -711,7 +711,7 @@ class TestExcavateSpiderDedupe(ModuleTestBase):
                     if (
                         str(e.module) == "dummy_module"
                         and "spider-danger" not in e.tags
-                        and not "spider-max" in e.tags
+                        and "spider-max" not in e.tags
                     ):
                         found_url_unverified_dummy = True
             if e.type == "URL" and e.data == "http://127.0.0.1:8888/spider":
@@ -868,8 +868,8 @@ class TestExcavateHeaders(ModuleTestBase):
                 if e.data["name"] == "COOKIE2":
                     found_second_cookie = True
 
-        assert found_first_cookie == True
-        assert found_second_cookie == True
+        assert found_first_cookie is True
+        assert found_second_cookie is True
 
 
 class TestExcavateRAWTEXT(ModuleTestBase):

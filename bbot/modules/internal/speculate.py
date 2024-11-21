@@ -71,7 +71,7 @@ class speculate(BaseInternalModule):
                 self.hugewarning(
                     f"Selected target ({target_len:,} hosts) is too large, skipping IP_RANGE --> IP_ADDRESS speculation"
                 )
-                self.hugewarning(f'Enabling the "portscan" module is highly recommended')
+                self.hugewarning('Enabling the "portscan" module is highly recommended')
             self.range_to_ip = False
 
         return True
@@ -126,7 +126,7 @@ class speculate(BaseInternalModule):
             parent = self.helpers.parent_domain(event.host_original)
             if parent != event.data:
                 await self.emit_event(
-                    parent, "DNS_NAME", parent=event, context=f"speculated parent {{event.type}}: {{event.data}}"
+                    parent, "DNS_NAME", parent=event, context="speculated parent {event.type}: {event.data}"
                 )
 
         # URL --> OPEN_TCP_PORT

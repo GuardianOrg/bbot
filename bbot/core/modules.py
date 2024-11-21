@@ -153,7 +153,7 @@ class ModuleLoader:
                 else:
                     log.debug(f"Preloading {module_name} from disk")
                     if module_dir.name == "modules":
-                        namespace = f"bbot.modules"
+                        namespace = "bbot.modules"
                     else:
                         namespace = f"bbot.modules.{module_dir.name}"
                     try:
@@ -400,10 +400,10 @@ class ModuleLoader:
                                     deps_common.append(dep_common.value)
 
         for task in ansible_tasks:
-            if not "become" in task:
+            if "become" not in task:
                 task["become"] = False
             # don't sudo brew
-            elif os_platform() == "darwin" and ("package" in task and task.get("become", False) == True):
+            elif os_platform() == "darwin" and ("package" in task and task.get("become", False) is True):
                 task["become"] = False
 
         preloaded_data = {
@@ -436,8 +436,8 @@ class ModuleLoader:
                     f'Error while preloading module "{module_file}": No shared dependency named "{dep_common}" (choices: {common_choices})'
                 )
         for ansible_task in ansible_task_list:
-            if any(x == True for x in search_dict_by_key("become", ansible_task)) or any(
-                x == True for x in search_dict_by_key("ansible_become", ansible_tasks)
+            if any(x is True for x in search_dict_by_key("become", ansible_task)) or any(
+                x is True for x in search_dict_by_key("ansible_become", ansible_tasks)
             ):
                 preloaded_data["sudo"] = True
         return preloaded_data
