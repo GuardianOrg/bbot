@@ -240,6 +240,24 @@ Click the graph below to explore the [inner workings](https://www.blacklanternse
 
 [![image](https://github.com/blacklanternsecurity/bbot/assets/20261699/e55ba6bd-6d97-48a6-96f0-e122acc23513)](https://www.blacklanternsecurity.com/bbot/Stable/how_it_works/)
 
+## Output Modules
+
+- [Neo4j](docs/scanning/output.md#neo4j)
+- [Teams](docs/scanning/output.md#teams)
+- [Discord](docs/scanning/output.md#discord)
+- [Slack](docs/scanning/output.md#slack)
+- [Postgres](docs/scanning/output.md#postgres)
+- [MySQL](docs/scanning/output.md#mysql)
+- [SQLite](docs/scanning/output.md#sqlite)
+- [Splunk](docs/scanning/output.md#splunk)
+- [Elasticsearch](docs/scanning/output.md#elasticsearch)
+- [CSV](docs/scanning/output.md#csv)
+- [JSON](docs/scanning/output.md#json)
+- [HTTP](docs/scanning/output.md#http)
+- [Websocket](docs/scanning/output.md#websocket)
+
+...and [more](docs/scanning/output.md)!
+
 ## BBOT as a Python Library
 
 #### Synchronous
