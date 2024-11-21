@@ -237,6 +237,26 @@ config:
       password: bbotislife
 ```
 
+### MySQL
+
+The `mysql` output module allows you to ingest events, scans, and targets into a MySQL database. By default, it will connect to the server on `localhost` with a username of `root` and password of `bbotislife`. You can change this behavior in the config.
+
+```bash
+# specifying an alternate database
+bbot -t evilcorp.com -om mysql -c modules.mysql.database=custom_bbot_db
+```
+
+```yaml title="mysql_preset.yml"
+config:
+  modules:
+    mysql:
+      host: mysql.fsociety.local
+      database: custom_bbot_db
+      port: 3306
+      username: root
+      password: bbotislife
+```
+
 ### Subdomains
 
 The `subdomains` output module produces simple text file containing only in-scope and resolved subdomains:

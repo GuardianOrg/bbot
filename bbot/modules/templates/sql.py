@@ -1,3 +1,4 @@
+from contextlib import suppress
 from sqlmodel import SQLModel
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -88,3 +89,7 @@ class SQLTemplate(BaseOutputModule):
         if self.database:
             connection_string += f"/{self.database}"
         return connection_string
+
+    async def cleanup(self):
+        with suppress(Exception):
+            await self.engine.dispose()
