@@ -91,6 +91,10 @@ description: Recursive web spider
 modules:
   - httpx
 
+blacklist:
+  # Prevent spider from invalidating sessions by logging out
+  - "RE:/.*(sign|log)[_-]?out"
+
 config:
   web:
     # how many links to follow in a row
@@ -191,10 +195,10 @@ flags:
 
 ```bash
 # everything everywhere all at once
-bbot -t evilcorp.com -p kitchen-sink
+bbot -t evilcorp.com -p kitchen-sink --allow-deadly
 
 # roughly equivalent to:
-bbot -t evilcorp.com -p subdomain-enum cloud-enum code-enum email-enum spider web-basic paramminer dirbust-light web-screenshots
+bbot -t evilcorp.com -p subdomain-enum cloud-enum code-enum email-enum spider web-basic paramminer dirbust-light web-screenshots --allow-deadly
 ```
 
 <!-- BBOT KITCHEN-SINK PRESET EXPANDABLE -->

@@ -38,12 +38,13 @@ usage: bbot [-h] [-t TARGET [TARGET ...]] [-w WHITELIST [WHITELIST ...]]
                [-m MODULE [MODULE ...]] [-l] [-lmo] [-em MODULE [MODULE ...]]
                [-f FLAG [FLAG ...]] [-lf] [-rf FLAG [FLAG ...]]
                [-ef FLAG [FLAG ...]] [--allow-deadly] [-n SCAN_NAME] [-v] [-d]
-               [-s] [--force] [-y] [--dry-run] [--current-preset]
-               [--current-preset-full] [-o DIR] [-om MODULE [MODULE ...]]
-               [--json] [--brief]
+               [-s] [--force] [-y] [--fast-mode] [--dry-run]
+               [--current-preset] [--current-preset-full] [-o DIR]
+               [-om MODULE [MODULE ...]] [--json] [--brief]
                [--event-types EVENT_TYPES [EVENT_TYPES ...]]
                [--no-deps | --force-deps | --retry-deps | --ignore-failed-deps | --install-all-deps]
-               [--version] [-H CUSTOM_HEADERS [CUSTOM_HEADERS ...]]
+               [--version] [--proxy HTTP_PROXY]
+               [-H CUSTOM_HEADERS [CUSTOM_HEADERS ...]]
                [--custom-yara-rules CUSTOM_YARA_RULES]
 
 Bighuge BLS OSINT Tool
@@ -69,14 +70,14 @@ Presets:
 
 Modules:
   -m MODULE [MODULE ...], --modules MODULE [MODULE ...]
-                        Modules to enable. Choices: wpscan,crt,c99,credshed,gitlab,ajaxpro,pgp,trickest,ntlm,robots,postman_download,skymem,otx,rapiddns,bucket_firebase,shodan_dns,fingerprintx,internetdb,ip2location,columbus,bucket_azure,censys,binaryedge,github_org,wappalyzer,nuclei,ipneighbor,baddns_zone,telerik,url_manipulation,zoomeye,virustotal,myssl,builtwith,dnscaa,emailformat,oauth,bucket_amazon,sslcert,git,iis_shortnames,bucket_google,filedownload,bevigil,social,paramminer_headers,paramminer_cookies,digitorus,wafw00f,portscan,bufferoverrun,github_codesearch,gowitness,google_playstore,ipstack,code_repository,github_workflows,baddns_direct,secretsdb,chaos,azure_realm,affiliates,viewdns,dockerhub,subdomainradar,hunterio,dnscommonsrv,ffuf_shortnames,trufflehog,dotnetnuke,hunt,baddns,host_header,dastardly,vhost,docker_pull,paramminer_getparams,dnsdumpster,postman,httpx,bucket_digitalocean,bypass403,leakix,securitytrails,extractous,dnsbrute,ffuf,smuggler,asn,passivetotal,subdomaincenter,dnsbrute_mutations,wayback,newsletters,hackertarget,sitedossier,securitytxt,generic_ssrf,urlscan,badsecrets,dehashed,certspotter,fullhunt,anubisdb,apkpure,azure_tenant,git_clone,bucket_file_enum
+                        Modules to enable. Choices: affiliates,ajaxpro,anubisdb,apkpure,asn,azure_realm,azure_tenant,baddns,baddns_direct,baddns_zone,badsecrets,bevigil,binaryedge,bucket_amazon,bucket_azure,bucket_digitalocean,bucket_file_enum,bucket_firebase,bucket_google,bufferoverrun,builtwith,bypass403,c99,censys,certspotter,chaos,code_repository,columbus,credshed,crt,dastardly,dehashed,digitorus,dnsbimi,dnsbrute,dnsbrute_mutations,dnscaa,dnscommonsrv,dnsdumpster,docker_pull,dockerhub,dotnetnuke,emailformat,extractous,ffuf,ffuf_shortnames,filedownload,fingerprintx,fullhunt,generic_ssrf,git,git_clone,github_codesearch,github_org,github_workflows,gitlab,google_playstore,gowitness,hackertarget,host_header,httpx,hunt,hunterio,iis_shortnames,internetdb,ip2location,ipneighbor,ipstack,jadx,leakix,myssl,newsletters,ntlm,nuclei,oauth,otx,paramminer_cookies,paramminer_getparams,paramminer_headers,passivetotal,pgp,portscan,postman,postman_download,rapiddns,robots,secretsdb,securitytrails,securitytxt,shodan_dns,sitedossier,skymem,smuggler,social,sslcert,subdomaincenter,subdomainradar,telerik,trickest,trufflehog,url_manipulation,urlscan,vhost,viewdns,virustotal,wafw00f,wappalyzer,wayback,wpscan,zoomeye
   -l, --list-modules    List available modules.
   -lmo, --list-module-options
                         Show all module config options
   -em MODULE [MODULE ...], --exclude-modules MODULE [MODULE ...]
                         Exclude these modules.
   -f FLAG [FLAG ...], --flags FLAG [FLAG ...]
-                        Enable modules by flag. Choices: web-screenshots,service-enum,deadly,portscan,code-enum,iis-shortnames,cloud-enum,web-thorough,safe,report,active,affiliates,web-paramminer,aggressive,baddns,subdomain-hijack,social-enum,subdomain-enum,email-enum,web-basic,slow,passive
+                        Enable modules by flag. Choices: active,affiliates,aggressive,baddns,cloud-enum,code-enum,deadly,email-enum,iis-shortnames,passive,portscan,report,safe,service-enum,slow,social-enum,subdomain-enum,subdomain-hijack,web-basic,web-paramminer,web-screenshots,web-thorough
   -lf, --list-flags     List available flags.
   -rf FLAG [FLAG ...], --require-flags FLAG [FLAG ...]
                         Only enable modules with these flags (e.g. -rf passive)
@@ -92,6 +93,7 @@ Scan:
   -s, --silent          Be quiet
   --force               Run scan even in the case of condition violations or failed module setups
   -y, --yes             Skip scan confirmation prompt
+  --fast-mode           Scan only the provided targets as fast as possible, with no extra discovery
   --dry-run             Abort before executing scan
   --current-preset      Show the current preset in YAML format
   --current-preset-full
@@ -101,7 +103,7 @@ Output:
   -o DIR, --output-dir DIR
                         Directory to output scan results
   -om MODULE [MODULE ...], --output-modules MODULE [MODULE ...]
-                        Output module(s). Choices: websocket,neo4j,discord,splunk,json,csv,sqlite,http,python,subdomains,stdout,teams,asset_inventory,slack,web_report,txt,emails
+                        Output module(s). Choices: asset_inventory,csv,discord,emails,http,json,neo4j,postgres,python,slack,splunk,sqlite,stdout,subdomains,teams,txt,web_report,websocket
   --json, -j            Output scan data in JSON format
   --brief, -br          Output only the data itself
   --event-types EVENT_TYPES [EVENT_TYPES ...]
@@ -118,6 +120,7 @@ Module dependencies:
 
 Misc:
   --version             show BBOT version and exit
+  --proxy HTTP_PROXY    Use this proxy for all HTTP requests
   -H CUSTOM_HEADERS [CUSTOM_HEADERS ...], --custom-headers CUSTOM_HEADERS [CUSTOM_HEADERS ...]
                         List of custom headers as key value pairs (header=value).
   --custom-yara-rules CUSTOM_YARA_RULES, -cy CUSTOM_YARA_RULES
