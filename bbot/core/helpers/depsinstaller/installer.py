@@ -49,7 +49,8 @@ class DepsInstaller:
         self.minimal_git_config.touch()
         os.environ["GIT_CONFIG_GLOBAL"] = str(self.minimal_git_config)
 
-        self.deps_behavior = self.parent_helper.config.get("deps_behavior", "abort_on_failure").lower()
+        self.deps_config = self.parent_helper.config.get("deps", {})
+        self.deps_behavior = self.deps_config.get("behavior", "abort_on_failure").lower()
         self.ansible_debug = self.core.logger.log_level <= logging.DEBUG
         self.venv = ""
         if sys.prefix != sys.base_prefix:
