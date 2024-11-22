@@ -36,7 +36,6 @@ class TestParamminer_Cookies(Paramminer_Headers):
         module_test.set_expect_requests(respond_args=respond_args)
 
     def check(self, module_test, events):
-
         found_reflected_cookie = False
         false_positive_match = False
 

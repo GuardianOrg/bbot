@@ -10,7 +10,6 @@ log = logging.getLogger("bbot.presets.args")
 
 
 class BBOTArgs:
-
     # module config options to exclude from validation
     exclude_from_validation = re.compile(r".*modules\.[a-z0-9_]+\.(?:batch_size|module_threads)$")
 

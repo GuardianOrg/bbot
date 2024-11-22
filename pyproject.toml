@@ -96,9 +96,10 @@ asyncio_default_fixture_loop_scope = "function"
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
 build-backend = "poetry_dynamic_versioning.backend"
 
-[tool.black]
+[tool.ruff]
 line-length = 119
-extend-exclude = "(test_step_1/test_manager_*)"
+format.exclude = ["bbot/test/test_step_1/test_manager_*"]
+lint.ignore = ["E402", "E711", "E712", "E713", "E721", "E731", "E741", "F401", "F403", "F405", "F541", "F601"]
 
 [tool.poetry-dynamic-versioning]
 enable = true

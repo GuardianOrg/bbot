@@ -1180,7 +1180,6 @@ class URL_UNVERIFIED(BaseEvent):
         self.num_redirects = getattr(self.parent, "num_redirects", 0)
 
     def _data_id(self):
-
         data = super()._data_id()
 
         # remove the querystring for URL/URL_UNVERIFIED events, because we will conditionally add it back in (based on settings)
@@ -1267,7 +1266,6 @@ class URL_UNVERIFIED(BaseEvent):
 
 
 class URL(URL_UNVERIFIED):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -1309,7 +1307,6 @@ class URL_HINT(URL_UNVERIFIED):
 
 
 class WEB_PARAMETER(DictHostEvent):
-
     def _data_id(self):
         # dedupe by url:name:param_type
         url = self.data.get("url", "")

@@ -21,7 +21,6 @@ class TestPortscan(ModuleTestBase):
     masscan_output_ping = """{   "ip": "8.8.8.8",   "timestamp": "1719862594", "ports": [ {"port": 0, "proto": "icmp", "status": "open", "reason": "none", "ttl": 54} ] }"""
 
     async def setup_after_prep(self, module_test):
-
         from bbot.modules.base import BaseModule
 
         class DummyModule(BaseModule):

@@ -299,7 +299,6 @@ def is_email(email):
 
 
 class Validators:
-
     def __init__(self, parent_helper):
         self.parent_helper = parent_helper
 
