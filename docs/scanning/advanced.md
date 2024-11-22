@@ -103,7 +103,7 @@ Output:
   -o DIR, --output-dir DIR
                         Directory to output scan results
   -om MODULE [MODULE ...], --output-modules MODULE [MODULE ...]
-                        Output module(s). Choices: asset_inventory,csv,discord,emails,http,json,neo4j,postgres,python,slack,splunk,sqlite,stdout,subdomains,teams,txt,web_report,websocket
+                        Output module(s). Choices: asset_inventory,csv,discord,emails,http,json,mysql,neo4j,postgres,python,slack,splunk,sqlite,stdout,subdomains,teams,txt,web_report,websocket
   --json, -j            Output scan data in JSON format
   --brief, -br          Output only the data itself
   --event-types EVENT_TYPES [EVENT_TYPES ...]
