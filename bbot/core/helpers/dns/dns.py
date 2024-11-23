@@ -16,7 +16,6 @@ log = logging.getLogger("bbot.core.helpers.dns")
 
 
 class DNSHelper(EngineClient):
-
     SERVER_CLASS = DNSEngine
     ERROR_CLASS = DNSError
 

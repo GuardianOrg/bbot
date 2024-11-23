@@ -19,7 +19,6 @@ log = logging.getLogger("bbot.core.helpers.web")
 
 
 class WebHelper(EngineClient):
-
     SERVER_CLASS = HTTPEngine
     ERROR_CLASS = WebError
 
