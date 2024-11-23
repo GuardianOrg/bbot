@@ -21,7 +21,6 @@ class TestPortscan(ModuleTestBase):
     masscan_output_ping = """{   "ip": "8.8.8.8",   "timestamp": "1719862594", "ports": [ {"port": 0, "proto": "icmp", "status": "open", "reason": "none", "ttl": 54} ] }"""
 
     async def setup_after_prep(self, module_test):
-
         from bbot.modules.base import BaseModule
 
         class DummyModule(BaseModule):
@@ -109,10 +108,12 @@ class TestPortscan(ModuleTestBase):
                 if e.type == "DNS_NAME" and e.data == "dummy.asdf.evilcorp.net" and str(e.module) == "dummy_module"
             ]
         )
-        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.8.8"]) <= 3
-        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.4.4"]) <= 3
-        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.4.5"]) <= 3
-        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.4.6"]) <= 3
+        # the reason these numbers aren't exactly predictable is because we can't predict which one arrives first
+        # to the portscan module. Sometimes, one that would normally be deduped is force-emitted because it led to a new open port.
+        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.8.8"]) <= 4
+        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.4.4"]) <= 4
+        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.4.5"]) <= 4
+        assert 2 <= len([e for e in events if e.type == "IP_ADDRESS" and e.data == "8.8.4.6"]) <= 4
         assert 1 == len([e for e in events if e.type == "OPEN_TCP_PORT" and e.data == "8.8.8.8:443"])
         assert 1 == len([e for e in events if e.type == "OPEN_TCP_PORT" and e.data == "8.8.4.5:80"])
         assert 1 == len([e for e in events if e.type == "OPEN_TCP_PORT" and e.data == "8.8.4.6:631"])

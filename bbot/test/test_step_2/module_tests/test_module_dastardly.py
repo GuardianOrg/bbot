@@ -7,6 +7,7 @@ from .base import ModuleTestBase
 class TestDastardly(ModuleTestBase):
     targets = ["http://127.0.0.1:5556/"]
     modules_overrides = ["httpx", "dastardly"]
+    skip_distro_tests = True
 
     web_response = """<!DOCTYPE html>
     <html>

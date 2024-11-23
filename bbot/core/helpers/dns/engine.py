@@ -24,7 +24,6 @@ all_rdtypes = ["A", "AAAA", "SRV", "MX", "NS", "SOA", "CNAME", "TXT"]
 
 
 class DNSEngine(EngineServer):
-
     CMDS = {
         0: "resolve",
         1: "resolve_raw",
@@ -476,7 +475,6 @@ class DNSEngine(EngineServer):
         # for every parent domain, starting with the shortest
         parents = list(domain_parents(query))
         for parent in parents[::-1]:
-
             # check if the parent domain is set up with wildcards
             wildcard_results = await self.is_wildcard_domain(parent, rdtypes_to_check)
 

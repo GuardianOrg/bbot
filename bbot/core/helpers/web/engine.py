@@ -14,7 +14,6 @@ log = logging.getLogger("bbot.core.helpers.web.engine")
 
 
 class HTTPEngine(EngineServer):
-
     CMDS = {
         0: "request",
         1: "request_batch",
