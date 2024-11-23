@@ -36,7 +36,7 @@ _ip_range_regexes = (
     _ipv4_regex + r"\/[0-9]{1,2}",
     _ipv6_regex + r"\/[0-9]{1,3}",
 )
-ip_range_regexes = list(re.compile(r, re.I) for r in _ip_range_regexes)
+ip_range_regexes = [re.compile(r, re.I) for r in _ip_range_regexes]
 
 # dns names with periods
 _dns_name_regex = r"(?:\w(?:[\w-]{0,100}\w)?\.)+(?:[xX][nN]--)?[^\W_]{1,63}\.?"
@@ -64,14 +64,14 @@ _open_port_regexes = (
     _hostname_regex + r":[0-9]{1,5}",
     r"\[" + _ipv6_regex + r"\]:[0-9]{1,5}",
 )
-open_port_regexes = list(re.compile(r, re.I) for r in _open_port_regexes)
+open_port_regexes = [re.compile(r, re.I) for r in _open_port_regexes]
 
 _url_regexes = (
     r"https?://" + _dns_name_regex + r"(?::[0-9]{1,5})?(?:(?:/|\?).*)?",
     r"https?://" + _hostname_regex + r"(?::[0-9]{1,5})?(?:(?:/|\?).*)?",
     r"https?://\[" + _ipv6_regex + r"\](?::[0-9]{1,5})?(?:(?:/|\?).*)?",
 )
-url_regexes = list(re.compile(r, re.I) for r in _url_regexes)
+url_regexes = [re.compile(r, re.I) for r in _url_regexes]
 
 _double_slash_regex = r"/{2,}"
 double_slash_regex = re.compile(_double_slash_regex)

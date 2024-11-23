@@ -88,7 +88,7 @@ class gowitness(BaseModule):
         self.screenshot_path = self.base_path / "screenshots"
         self.command = self.construct_command()
         self.prepped = False
-        self.screenshots_taken = dict()
+        self.screenshots_taken = {}
         self.connections_logged = set()
         self.technologies_found = set()
         return True
@@ -172,7 +172,7 @@ class gowitness(BaseModule):
 
         # emit technologies
         new_technologies = await self.get_new_technologies()
-        for _, row in new_technologies.items():
+        for row in new_technologies.values():
             parent_id = row["url_id"]
             parent_url = self.screenshots_taken[parent_id]
             parent_event = event_dict[parent_url]
@@ -227,7 +227,7 @@ class gowitness(BaseModule):
         return screenshots
 
     async def get_new_network_logs(self):
-        network_logs = dict()
+        network_logs = {}
         if self.db_path.is_file():
             async with aiosqlite.connect(str(self.db_path)) as con:
                 con.row_factory = aiosqlite.Row
@@ -241,7 +241,7 @@ class gowitness(BaseModule):
         return network_logs
 
     async def get_new_technologies(self):
-        technologies = dict()
+        technologies = {}
         if self.db_path.is_file():
             async with aiosqlite.connect(str(self.db_path)) as con:
                 con.row_factory = aiosqlite.Row

@@ -54,7 +54,7 @@ class DNSEngine(EngineServer):
         dns_omit_queries = self.dns_config.get("omit_queries", None)
         if not dns_omit_queries:
             dns_omit_queries = []
-        self.dns_omit_queries = dict()
+        self.dns_omit_queries = {}
         for d in dns_omit_queries:
             d = d.split(":")
             if len(d) == 2:
@@ -72,7 +72,7 @@ class DNSEngine(EngineServer):
             self.wildcard_ignore = []
         self.wildcard_ignore = tuple([str(d).strip().lower() for d in self.wildcard_ignore])
         self.wildcard_tests = self.dns_config.get("wildcard_tests", 5)
-        self._wildcard_cache = dict()
+        self._wildcard_cache = {}
         # since wildcard detection takes some time, This is to prevent multiple
         # modules from kicking off wildcard detection for the same domain at the same time
         self._wildcard_lock = NamedLock()
@@ -82,7 +82,7 @@ class DNSEngine(EngineServer):
         self._last_connectivity_warning = time.time()
         # keeps track of warnings issued for wildcard detection to prevent duplicate warnings
         self._dns_warnings = set()
-        self._errors = dict()
+        self._errors = {}
         self._debug = self.dns_config.get("debug", False)
         self._dns_cache = LRUCache(maxsize=10000)
 

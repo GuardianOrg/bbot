@@ -175,8 +175,8 @@ class BaseEvent:
         self._scope_distance = None
         self._module_priority = None
         self._resolved_hosts = set()
-        self.dns_children = dict()
-        self.raw_dns_records = dict()
+        self.dns_children = {}
+        self.raw_dns_records = {}
         self._discovery_context = ""
         self._discovery_context_regex = re.compile(r"\{(?:event|module)[^}]*\}")
         self.web_spider_distance = 0
@@ -769,7 +769,7 @@ class BaseEvent:
         Returns:
             dict: JSON-serializable dictionary representation of the event object.
         """
-        j = dict()
+        j = {}
         # type, ID, scope description
         for i in ("type", "id", "uuid", "scope_description", "netloc"):
             v = getattr(self, i, "")
@@ -1277,7 +1277,7 @@ class URL(URL_UNVERIFIED):
     @property
     def resolved_hosts(self):
         # TODO: remove this when we rip out httpx
-        return set(".".join(i.split("-")[1:]) for i in self.tags if i.startswith("ip-"))
+        return {".".join(i.split("-")[1:]) for i in self.tags if i.startswith("ip-")}
 
     @property
     def pretty_string(self):

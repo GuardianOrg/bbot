@@ -490,7 +490,7 @@ async def test_events(events, helpers):
     assert db_event.discovery_context == "test context"
     assert db_event.discovery_path == ["test context"]
     assert len(db_event.parent_chain) == 1
-    assert all([event_uuid_regex.match(u) for u in db_event.parent_chain])
+    assert all(event_uuid_regex.match(u) for u in db_event.parent_chain)
     assert db_event.parent_chain[0] == str(db_event.uuid)
     assert db_event.parent.uuid == scan.root_event.uuid
     assert db_event.parent_uuid == scan.root_event.uuid

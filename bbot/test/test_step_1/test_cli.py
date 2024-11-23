@@ -21,7 +21,7 @@ async def test_cli_scope(monkeypatch, capsys):
     lines = [json.loads(l) for l in out.splitlines()]
     dns_events = [l for l in lines if l["type"] == "DNS_NAME" and l["data"] == "one.one.one.one"]
     assert dns_events
-    assert all([l["scope_distance"] == 0 and "in-scope" in l["tags"] for l in dns_events])
+    assert all(l["scope_distance"] == 0 and "in-scope" in l["tags"] for l in dns_events)
     assert 1 == len(
         [
             l
@@ -34,10 +34,10 @@ async def test_cli_scope(monkeypatch, capsys):
     )
     ip_events = [l for l in lines if l["type"] == "IP_ADDRESS" and l["data"] == "1.1.1.1"]
     assert ip_events
-    assert all([l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in ip_events])
+    assert all(l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in ip_events)
     ip_events = [l for l in lines if l["type"] == "IP_ADDRESS" and l["data"] == "1.0.0.1"]
     assert ip_events
-    assert all([l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in ip_events])
+    assert all(l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in ip_events)
 
     # with whitelist
     monkeypatch.setattr(
@@ -61,10 +61,10 @@ async def test_cli_scope(monkeypatch, capsys):
     lines = [json.loads(l) for l in out.splitlines()]
     lines = [l for l in lines if l["type"] != "SCAN"]
     assert lines
-    assert not any([l["scope_distance"] == 0 for l in lines])
+    assert not any(l["scope_distance"] == 0 for l in lines)
     dns_events = [l for l in lines if l["type"] == "DNS_NAME" and l["data"] == "one.one.one.one"]
     assert dns_events
-    assert all([l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in dns_events])
+    assert all(l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in dns_events)
     assert 1 == len(
         [
             l
@@ -77,10 +77,10 @@ async def test_cli_scope(monkeypatch, capsys):
     )
     ip_events = [l for l in lines if l["type"] == "IP_ADDRESS" and l["data"] == "1.1.1.1"]
     assert ip_events
-    assert all([l["scope_distance"] == 2 and "distance-2" in l["tags"] for l in ip_events])
+    assert all(l["scope_distance"] == 2 and "distance-2" in l["tags"] for l in ip_events)
     ip_events = [l for l in lines if l["type"] == "IP_ADDRESS" and l["data"] == "1.0.0.1"]
     assert ip_events
-    assert all([l["scope_distance"] == 2 and "distance-2" in l["tags"] for l in ip_events])
+    assert all(l["scope_distance"] == 2 and "distance-2" in l["tags"] for l in ip_events)
 
 
 @pytest.mark.asyncio

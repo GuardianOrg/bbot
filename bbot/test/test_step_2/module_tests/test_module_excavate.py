@@ -957,12 +957,12 @@ A href <a href='/donot_detect.js'>Click me</a>"""
 
     async def setup_after_prep(self, module_test):
         module_test.set_expect_requests(
-            dict(uri="/"),
-            dict(response_data='<a href="/Test_PDF"/>'),
+            {"uri": "/"},
+            {"response_data": '<a href="/Test_PDF"/>'},
         )
         module_test.set_expect_requests(
-            dict(uri="/Test_PDF"),
-            dict(response_data=self.pdf_data, headers={"Content-Type": "application/pdf"}),
+            {"uri": "/Test_PDF"},
+            {"response_data": self.pdf_data, "headers": {"Content-Type": "application/pdf"}},
         )
 
     def check(self, module_test, events):

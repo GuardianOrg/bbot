@@ -179,10 +179,10 @@ async def test_modules_basic_checks(events, httpx_mock):
         assert type(watched_events) == list, f"{module_name}.watched_events must be of type list"
         assert type(produced_events) == list, f"{module_name}.produced_events must be of type list"
         assert all(
-            [type(t) == str for t in watched_events]
+            type(t) == str for t in watched_events
         ), f"{module_name}.watched_events entries must be of type string"
         assert all(
-            [type(t) == str for t in produced_events]
+            type(t) == str for t in produced_events
         ), f"{module_name}.produced_events entries must be of type string"
 
         assert type(preloaded.get("deps_pip", [])) == list, f"{module_name}.deps_pip must be of type list"

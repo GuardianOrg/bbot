@@ -113,7 +113,7 @@ async def test_dns_resolution(bbot_scanner):
     batch_results = [r async for r in dnsengine.resolve_batch(["1.1.1.1", "one.one.one.one"])]
     assert len(batch_results) == 2
     batch_results = dict(batch_results)
-    assert any([x in batch_results["one.one.one.one"] for x in ("1.1.1.1", "1.0.0.1")])
+    assert any(x in batch_results["one.one.one.one"] for x in ("1.1.1.1", "1.0.0.1"))
     assert "one.one.one.one" in batch_results["1.1.1.1"]
 
     # custom batch resolution

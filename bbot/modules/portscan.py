@@ -109,7 +109,7 @@ class portscan(BaseModule):
             self.scanned_initial_targets = True
             events = set(events)
             events.update(
-                set([e for e in self.scan.target.seeds.events if e.type in ("DNS_NAME", "IP_ADDRESS", "IP_RANGE")])
+                {e for e in self.scan.target.seeds.events if e.type in ("DNS_NAME", "IP_ADDRESS", "IP_RANGE")}
             )
 
         # ping scan

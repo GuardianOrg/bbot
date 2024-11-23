@@ -89,11 +89,11 @@ class paramminer_headers(BaseModule):
         if not wordlist:
             wordlist = f"{self.helpers.wordlist_dir}/{self.default_wordlist}"
         self.debug(f"Using wordlist: [{wordlist}]")
-        self.wl = set(
+        self.wl = {
             h.strip().lower()
             for h in self.helpers.read_file(await self.helpers.wordlist(wordlist))
             if len(h) > 0 and "%" not in h
-        )
+        }
 
         # check against the boring list (if the option is set)
         if self.config.get("skip_boring_words", True):
@@ -238,7 +238,7 @@ class paramminer_headers(BaseModule):
         return await compare_helper.compare(url, headers=test_headers, check_reflection=(len(header_list) == 1))
 
     async def finish(self):
-        untested_matches = sorted(list(self.extracted_words_master.copy()))
+        untested_matches = sorted(self.extracted_words_master.copy())
         for url, (event, batch_size) in list(self.event_dict.items()):
             try:
                 compare_helper = self.helpers.http_compare(url)

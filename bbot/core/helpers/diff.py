@@ -101,7 +101,7 @@ class HttpCompare:
             ddiff = DeepDiff(baseline_1_json, baseline_2_json, ignore_order=True, view="tree")
             self.ddiff_filters = []
 
-            for k, v in ddiff.items():
+            for k in ddiff.keys():
                 for x in list(ddiff[k]):
                     log.debug(f"Added {k} filter for path: {x.path()}")
                     self.ddiff_filters.append(x.path())
@@ -140,7 +140,7 @@ class HttpCompare:
 
         ddiff = DeepDiff(headers_1, headers_2, ignore_order=True, view="tree")
 
-        for k, v in ddiff.items():
+        for k in ddiff.keys():
             for x in list(ddiff[k]):
                 try:
                     header_value = str(x).split("'")[1]

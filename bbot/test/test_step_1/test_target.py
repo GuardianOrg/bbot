@@ -164,8 +164,8 @@ async def test_target(bbot_scanner):
     bbottarget = BBOTTarget("http://1.2.3.4:8443", "bob@evilcorp.com")
     assert bbottarget.seeds.hosts == {ip_network("1.2.3.4"), "evilcorp.com"}
     assert bbottarget.whitelist.hosts == {ip_network("1.2.3.4"), "evilcorp.com"}
-    assert set([e.data for e in bbottarget.seeds.events]) == {"http://1.2.3.4:8443/", "bob@evilcorp.com"}
-    assert set([e.data for e in bbottarget.whitelist.events]) == {"1.2.3.4", "evilcorp.com"}
+    assert {e.data for e in bbottarget.seeds.events} == {"http://1.2.3.4:8443/", "bob@evilcorp.com"}
+    assert {e.data for e in bbottarget.whitelist.events} == {"1.2.3.4", "evilcorp.com"}
 
     bbottarget1 = BBOTTarget("evilcorp.com", "evilcorp.net", whitelist=["1.2.3.4/24"], blacklist=["1.2.3.4"])
     bbottarget2 = BBOTTarget("evilcorp.com", "evilcorp.net", whitelist=["1.2.3.0/24"], blacklist=["1.2.3.4"])
@@ -228,22 +228,22 @@ async def test_target(bbot_scanner):
     with pytest.raises(TypeError):
         assert list(bbottarget) == ["http://evilcorp.com:8080"]
     assert list(bbottarget.seeds) == ["http://evilcorp.com:8080"]
-    assert set([e.data for e in bbottarget.whitelist]) == {"evilcorp.net:443", "http://evilcorp.net:8080/"}
-    assert set([e.data for e in bbottarget.blacklist]) == {"http://evilcorp.org:8080/", "evilcorp.org:443"}
+    assert {e.data for e in bbottarget.whitelist} == {"evilcorp.net:443", "http://evilcorp.net:8080/"}
+    assert {e.data for e in bbottarget.blacklist} == {"http://evilcorp.org:8080/", "evilcorp.org:443"}
 
     # test org stub as target
     for org_target in ("ORG:evilcorp", "ORG_STUB:evilcorp"):
         scan = bbot_scanner(org_target)
         events = [e async for e in scan.async_start()]
         assert len(events) == 3
-        assert set([e.type for e in events]) == {"SCAN", "ORG_STUB"}
+        assert {e.type for e in events} == {"SCAN", "ORG_STUB"}
 
     # test username as target
     for user_target in ("USER:vancerefrigeration", "USERNAME:vancerefrigeration"):
         scan = bbot_scanner(user_target)
         events = [e async for e in scan.async_start()]
         assert len(events) == 3
-        assert set([e.type for e in events]) == {"SCAN", "USERNAME"}
+        assert {e.type for e in events} == {"SCAN", "USERNAME"}
 
     # verify hash values
     bbottarget = BBOTTarget(
@@ -253,17 +253,17 @@ async def test_target(bbot_scanner):
         whitelist=["evilcorp.com", "bob@www.evilcorp.com", "evilcorp.net"],
         blacklist=["1.2.3.4", "4.3.2.1/24", "http://1.2.3.4", "bob@asdf.evilcorp.net"],
     )
-    assert set([e.data for e in bbottarget.seeds.events]) == {
+    assert {e.data for e in bbottarget.seeds.events} == {
         "1.2.3.0/24",
         "http://www.evilcorp.net/",
         "bob@fdsa.evilcorp.net",
     }
-    assert set([e.data for e in bbottarget.whitelist.events]) == {
+    assert {e.data for e in bbottarget.whitelist.events} == {
         "evilcorp.com",
         "evilcorp.net",
         "bob@www.evilcorp.com",
     }
-    assert set([e.data for e in bbottarget.blacklist.events]) == {
+    assert {e.data for e in bbottarget.blacklist.events} == {
         "1.2.3.4",
         "4.3.2.0/24",
         "http://1.2.3.4/",
@@ -332,7 +332,7 @@ async def test_target(bbot_scanner):
     assert event.host == "evilcorp.com"
     events = target.get("www.evilcorp.com", single=False)
     assert len(events) == 2
-    assert set([e.data for e in events]) == {"http://evilcorp.com/", "evilcorp.com:443"}
+    assert {e.data for e in events} == {"http://evilcorp.com/", "evilcorp.com:443"}
 
 
 @pytest.mark.asyncio
@@ -382,7 +382,7 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
 
     # make sure URL is detected normally
     scan = bbot_scanner("http://127.0.0.1:8888/", presets=["spider"], config={"excavate": True}, debug=True)
-    assert set([r.pattern for r in scan.target.blacklist.blacklist_regexes]) == {r"/.*(sign|log)[_-]?out"}
+    assert {r.pattern for r in scan.target.blacklist.blacklist_regexes} == {r"/.*(sign|log)[_-]?out"}
     events = [e async for e in scan.async_start()]
     urls = [e.data for e in events if e.type == "URL"]
     assert len(urls) == 2
@@ -397,7 +397,7 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
         debug=True,
     )
     assert scan.target.blacklist.blacklist_regexes
-    assert set([r.pattern for r in scan.target.blacklist.blacklist_regexes]) == {
+    assert {r.pattern for r in scan.target.blacklist.blacklist_regexes} == {
         r"evil[0-9]{3}",
         r"/.*(sign|log)[_-]?out",
     }
