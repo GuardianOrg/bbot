@@ -99,7 +99,7 @@ class asset_inventory(CSV):
                 totals[stat] += 1
             except KeyError:
                 totals[stat] = 1
-            if not stat in stats:
+            if stat not in stats:
                 stats[stat] = {}
             try:
                 stats[stat][value] += 1

@@ -51,7 +51,7 @@ class TestC99AbortThreshold1(TestC99):
 
     def check(self, module_test, events):
         assert module_test.module.api_failure_abort_threshold == 13
-        assert module_test.module.errored == False
+        assert module_test.module.errored is False
         # assert module_test.module._api_request_failures == 4
         assert module_test.module.api_retries == 4
         assert set([e.data for e in events if e.type == "DNS_NAME"]) == {"blacklanternsecurity.com"}
@@ -82,7 +82,7 @@ class TestC99AbortThreshold2(TestC99AbortThreshold1):
 
     def check(self, module_test, events):
         assert module_test.module.api_failure_abort_threshold == 13
-        assert module_test.module.errored == False
+        assert module_test.module.errored is False
         assert module_test.module._api_request_failures == 8
         assert module_test.module.api_retries == 4
         assert set([e.data for e in events if e.type == "DNS_NAME"]) == {"blacklanternsecurity.com", "evilcorp.com"}
@@ -106,7 +106,7 @@ class TestC99AbortThreshold3(TestC99AbortThreshold2):
 
     def check(self, module_test, events):
         assert module_test.module.api_failure_abort_threshold == 13
-        assert module_test.module.errored == False
+        assert module_test.module.errored is False
         assert module_test.module._api_request_failures == 12
         assert module_test.module.api_retries == 4
         assert set([e.data for e in events if e.type == "DNS_NAME"]) == {
@@ -138,7 +138,7 @@ class TestC99AbortThreshold4(TestC99AbortThreshold3):
 
     def check(self, module_test, events):
         assert module_test.module.api_failure_abort_threshold == 13
-        assert module_test.module.errored == True
+        assert module_test.module.errored is True
         assert module_test.module._api_request_failures == 13
         assert module_test.module.api_retries == 4
         assert set([e.data for e in events if e.type == "DNS_NAME"]) == {

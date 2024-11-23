@@ -106,24 +106,24 @@ async def test_target(bbot_scanner):
     assert scan1.target.whitelist.get("publicapis.org") is None
 
     target = RadixTarget("evilcorp.com")
-    assert not "com" in target
+    assert "com" not in target
     assert "evilcorp.com" in target
     assert "www.evilcorp.com" in target
     strict_target = RadixTarget("evilcorp.com", strict_dns_scope=True)
-    assert not "com" in strict_target
+    assert "com" not in strict_target
     assert "evilcorp.com" in strict_target
-    assert not "www.evilcorp.com" in strict_target
+    assert "www.evilcorp.com" not in strict_target
 
     target = RadixTarget()
     target.add("evilcorp.com")
-    assert not "com" in target
+    assert "com" not in target
     assert "evilcorp.com" in target
     assert "www.evilcorp.com" in target
     strict_target = RadixTarget(strict_dns_scope=True)
     strict_target.add("evilcorp.com")
-    assert not "com" in strict_target
+    assert "com" not in strict_target
     assert "evilcorp.com" in strict_target
-    assert not "www.evilcorp.com" in strict_target
+    assert "www.evilcorp.com" not in strict_target
 
     # test target hashing
 
@@ -293,7 +293,7 @@ async def test_target(bbot_scanner):
     assert target_dict["seeds"] == ["1.2.3.0/24", "bob@fdsa.evilcorp.net", "http://www.evilcorp.net/"]
     assert target_dict["whitelist"] == ["bob@www.evilcorp.com", "evilcorp.com", "evilcorp.net"]
     assert target_dict["blacklist"] == ["1.2.3.4", "4.3.2.0/24", "bob@asdf.evilcorp.net", "http://1.2.3.4/"]
-    assert target_dict["strict_scope"] == False
+    assert target_dict["strict_scope"] is False
     assert target_dict["hash"] == "b36955a8238a71842fc5f23b11110c26ea07d451"
     assert target_dict["seed_hash"] == "560af51d1f3d69bc5c156fc270b28497fe52dec1"
     assert target_dict["whitelist_hash"] == "8ed0a7368e6d34630e1cfd419d2a73767debc4c4"
@@ -321,8 +321,8 @@ async def test_target(bbot_scanner):
     assert set(target.hosts) == {"evilcorp.co.uk", "www.evilcorp.co.uk"}
     assert "evilcorp.co.uk" in target
     assert "www.evilcorp.co.uk" in target
-    assert not "api.evilcorp.co.uk" in target
-    assert not "api.www.evilcorp.co.uk" in target
+    assert "api.evilcorp.co.uk" not in target
+    assert "api.www.evilcorp.co.uk" not in target
 
     # test 'single' boolean argument
     target = ScanSeeds("http://evilcorp.com", "evilcorp.com:443")
@@ -361,13 +361,13 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
         blacklist.get("www.evil.com", raise_error=True)
     assert "test.com" in blacklist
     assert "http://evilcorp.com/test.aspx" in blacklist
-    assert not "http://tes.com" in blacklist
+    assert "http://tes.com" not in blacklist
 
     blacklist = ScanBlacklist("evilcorp.com", r"RE:[0-9]{6}\.aspx$")
     assert "http://evilcorp.com" in blacklist
-    assert not "http://test.com/123456" in blacklist
-    assert not "http://test.com/12345.aspx?a=asdf" in blacklist
-    assert not "http://test.com/asdf/123456.aspx/asdf" in blacklist
+    assert "http://test.com/123456" not in blacklist
+    assert "http://test.com/12345.aspx?a=asdf" not in blacklist
+    assert "http://test.com/asdf/123456.aspx/asdf" not in blacklist
     assert "http://test.com/asdf/123456.aspx?a=asdf" in blacklist
     assert "http://test.com/asdf/123456.aspx" in blacklist
 

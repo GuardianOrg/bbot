@@ -226,7 +226,7 @@ class nuclei(BaseModule):
                 command.append(f"-{cli_option}")
                 command.append(option)
 
-        if self.scan.config.get("interactsh_disable") == True:
+        if self.scan.config.get("interactsh_disable") is True:
             self.info("Disbling interactsh in accordance with global settings")
             command.append("-no-interactsh")
 

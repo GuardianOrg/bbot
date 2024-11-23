@@ -160,7 +160,7 @@ class iis_shortnames(BaseModule):
         url_hint_list = []
         found_results = False
 
-        cl = ext_char_list if extension_mode == True else char_list
+        cl = ext_char_list if extension_mode is True else char_list
 
         urls_and_kwargs = []
 
@@ -209,7 +209,7 @@ class iis_shortnames(BaseModule):
                         extension_mode,
                         node_count=node_count,
                     )
-        if len(prefix) > 0 and found_results == False:
+        if len(prefix) > 0 and found_results is False:
             url_hint_list.append(f"{prefix}")
             self.verbose(f"Found new (possibly partial) URL_HINT: {prefix} from node {target}")
         return url_hint_list
@@ -234,7 +234,7 @@ class iis_shortnames(BaseModule):
                 {"severity": "LOW", "host": str(event.host), "url": normalized_url, "description": description},
                 "VULNERABILITY",
                 event,
-                context=f"{{module}} detected low {{event.type}}: IIS shortname enumeration",
+                context="{module} detected low {event.type}: IIS shortname enumeration",
             )
             if not self.config.get("detect_only"):
                 for detection in detections:

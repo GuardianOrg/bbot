@@ -183,7 +183,7 @@ class HttpCompare:
 
         await self._baseline()
 
-        if timeout == None:
+        if timeout is None:
             timeout = self.timeout
 
         reflection = False
@@ -238,11 +238,11 @@ class HttpCompare:
 
         different_headers = self.compare_headers(self.baseline.headers, subject_response.headers)
         if different_headers:
-            log.debug(f"headers were different, no match")
+            log.debug("headers were different, no match")
             diff_reasons.append("header")
 
-        if self.compare_body(self.baseline_json, subject_json) == False:
-            log.debug(f"difference in HTML body, no match")
+        if self.compare_body(self.baseline_json, subject_json) is False:
+            log.debug("difference in HTML body, no match")
 
             diff_reasons.append("body")
 
@@ -275,6 +275,6 @@ class HttpCompare:
             )
 
             # if a nonsense header "caused" a difference, we need to abort. We also need to abort if our canary was reflected
-            if match == False or reflection == True:
+            if match is False or reflection is True:
                 return False
         return True

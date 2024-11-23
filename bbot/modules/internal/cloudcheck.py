@@ -74,7 +74,7 @@ class CloudCheck(BaseInterceptModule):
                             if match:
                                 matches.append(match.groups())
                     for match in matches:
-                        if not match in found:
+                        if match not in found:
                             found.add(match)
 
                             _kwargs = dict(base_kwargs)

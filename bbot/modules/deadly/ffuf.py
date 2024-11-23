@@ -52,7 +52,7 @@ class ffuf(BaseModule):
 
     async def handle_event(self, event):
         if self.helpers.url_depth(event.data) > self.config.get("max_depth"):
-            self.debug(f"Exceeded max depth, aborting event")
+            self.debug("Exceeded max depth, aborting event")
             return
 
         # only FFUF against a directory
@@ -252,7 +252,7 @@ class ffuf(BaseModule):
                         self.warning(f"Exiting from FFUF run early, received an ABORT filter: [{filters[ext][1]}]")
                         continue
 
-                    elif filters[ext] == None:
+                    elif filters[ext] is None:
                         pass
 
                     else:
@@ -282,7 +282,7 @@ class ffuf(BaseModule):
                         else:
                             if mode == "normal":
                                 # before emitting, we are going to send another baseline. This will immediately catch things like a WAF flipping blocking on us mid-scan
-                                if baseline == False:
+                                if baseline is False:
                                     pre_emit_temp_canary = [
                                         f
                                         async for f in self.execute_ffuf(

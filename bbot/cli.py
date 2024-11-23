@@ -130,8 +130,8 @@ async def _main():
         ]
         if deadly_modules and not options.allow_deadly:
             log.hugewarning(f"You enabled the following deadly modules: {','.join(deadly_modules)}")
-            log.hugewarning(f"Deadly modules are highly intrusive")
-            log.hugewarning(f"Please specify --allow-deadly to continue")
+            log.hugewarning("Deadly modules are highly intrusive")
+            log.hugewarning("Please specify --allow-deadly to continue")
             return False
 
         # --current-preset

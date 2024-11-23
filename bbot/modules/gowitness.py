@@ -264,8 +264,8 @@ class gowitness(BaseModule):
     async def report(self):
         if self.screenshots_taken:
             self.success(f"{len(self.screenshots_taken):,} web screenshots captured. To view:")
-            self.success(f"    - Start gowitness")
+            self.success("    - Start gowitness")
             self.success(f"        - cd {self.base_path} && ./gowitness server")
-            self.success(f"    - Browse to http://localhost:7171")
+            self.success("    - Browse to http://localhost:7171")
         else:
-            self.info(f"No web screenshots captured")
+            self.info("No web screenshots captured")

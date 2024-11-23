@@ -638,7 +638,7 @@ class DNSEngine(EngineServer):
                     self._last_dns_success = time.time()
                     return True
         if time.time() - self._last_connectivity_warning > interval:
-            self.log.warning(f"DNS queries are failing, please check your internet connection")
+            self.log.warning("DNS queries are failing, please check your internet connection")
             self._last_connectivity_warning = time.time()
         self._errors.clear()
         return False
