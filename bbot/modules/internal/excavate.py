@@ -153,7 +153,7 @@ class ExcavateRule:
         yara_results = {}
         for h in r.strings:
             yara_results[h.identifier.lstrip("$")] = sorted(
-                set([i.matched_data.decode("utf-8", errors="ignore") for i in h.instances])
+                {i.matched_data.decode("utf-8", errors="ignore") for i in h.instances}
             )
         await self.process(yara_results, event, yara_rule_settings, discovery_context)
 
@@ -180,7 +180,7 @@ class ExcavateRule:
         Returns:
         None
         """
-        for identifier, results in yara_results.items():
+        for results in yara_results.values():
             for result in results:
                 event_data = {"description": f"{discovery_context} {yara_rule_settings.description}"}
                 if yara_rule_settings.emit_match:
@@ -314,7 +314,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
     _module_threads = 8
 
-    parameter_blacklist = set(
+    parameter_blacklist = {
         p.lower()
         for p in [
             "__VIEWSTATE",
@@ -329,7 +329,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             "JSESSIONID",
             "PHPSESSID",
         ]
-    )
+    }
 
     yara_rule_name_regex = re.compile(r"rule\s(\w+)\s{")
     yara_rule_regex = re.compile(r"(?s)((?:rule\s+\w+\s*{[^{}]*(?:{[^{}]*}[^{}]*)*[^{}]*(?:/\S*?}[^/]*?/)*)*})")
@@ -634,7 +634,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         scheme_blacklist = ["javascript", "mailto", "tel", "data", "vbscript", "about", "file"]
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
-            for identifier, results in yara_results.items():
+            for results in yara_results.values():
                 for url_str in results:
                     scheme = url_str.split("://")[0]
                     if scheme in self.scheme_blacklist:

@@ -214,8 +214,8 @@ class Scanner:
             )
 
         # url file extensions
-        self.url_extension_blacklist = set(e.lower() for e in self.config.get("url_extension_blacklist", []))
-        self.url_extension_httpx_only = set(e.lower() for e in self.config.get("url_extension_httpx_only", []))
+        self.url_extension_blacklist = {e.lower() for e in self.config.get("url_extension_blacklist", [])}
+        self.url_extension_httpx_only = {e.lower() for e in self.config.get("url_extension_httpx_only", [])}
 
         # url querystring behavior
         self.url_querystring_remove = self.config.get("url_querystring_remove", True)
@@ -451,7 +451,7 @@ class Scanner:
             await m.queue_event(scan_finish_event)
         # wait until output modules are flushed
         while 1:
-            modules_finished = all([m.finished for m in output_modules])
+            modules_finished = all(m.finished for m in output_modules)
             if modules_finished:
                 break
             await asyncio.sleep(0.05)
@@ -685,7 +685,7 @@ class Scanner:
 
             if modules_errored:
                 self.verbose(
-                    f'{self.name}: Modules errored: {len(modules_errored):,} ({", ".join([m for m in modules_errored])})'
+                    f'{self.name}: Modules errored: {len(modules_errored):,} ({", ".join(list(modules_errored))})'
                 )
 
             num_queued_events = self.num_queued_events
@@ -1024,7 +1024,7 @@ class Scanner:
         A list of DNS hostname strings generated from the scan target
         """
         if self._dns_strings is None:
-            dns_whitelist = set(t.host for t in self.whitelist if t.host and isinstance(t.host, str))
+            dns_whitelist = {t.host for t in self.whitelist if t.host and isinstance(t.host, str)}
             dns_whitelist = sorted(dns_whitelist, key=len)
             dns_whitelist_set = set()
             dns_strings = []
@@ -1121,7 +1121,7 @@ class Scanner:
         """
         A dictionary representation of the scan including its name, ID, targets, whitelist, blacklist, and modules
         """
-        j = dict()
+        j = {}
         for i in ("id", "name"):
             v = getattr(self, i, "")
             if v:

@@ -421,7 +421,7 @@ class Mutator(dict):
     def mutate(self, word, max_mutations=None, mutations=None):
         if mutations is None:
             mutations = self.top_mutations(max_mutations)
-        for mutation, count in mutations.items():
+        for mutation in mutations.keys():
             ret = []
             for s in mutation:
                 if s is not None:

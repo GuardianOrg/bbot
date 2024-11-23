@@ -174,9 +174,9 @@ class BBOTArgs:
 
     def create_parser(self, *args, **kwargs):
         kwargs.update(
-            dict(
-                description="Bighuge BLS OSINT Tool", formatter_class=argparse.RawTextHelpFormatter, epilog=self.epilog
-            )
+            {
+                "description": "Bighuge BLS OSINT Tool", "formatter_class": argparse.RawTextHelpFormatter, "epilog": self.epilog
+            }
         )
         p = argparse.ArgumentParser(*args, **kwargs)
 

@@ -310,7 +310,7 @@ class DepsInstaller:
         return success, err
 
     def read_setup_status(self):
-        setup_status = dict()
+        setup_status = {}
         if self.setup_status_cache.is_file():
             with open(self.setup_status_cache) as f:
                 with suppress(Exception):

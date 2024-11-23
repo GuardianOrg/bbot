@@ -84,7 +84,7 @@ class host_header(BaseModule):
 
         added_cookies = {}
 
-        for header, header_values in event.data["header-dict"].items():
+        for header_values in event.data["header-dict"].values():
             for header_value in header_values:
                 if header_value.lower() == "set-cookie":
                     header_split = header_value.split("=")

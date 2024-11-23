@@ -428,7 +428,7 @@ async def test_helpers_misc(helpers, scan, bbot_scanner, bbot_httpserver):
     assert top_tcp_ports[-10:] == [65526, 65527, 65528, 65529, 65530, 65531, 65532, 65533, 65534, 65535]
     assert len(top_tcp_ports) == 65535
     assert len(set(top_tcp_ports)) == 65535
-    assert all([isinstance(i, int) for i in top_tcp_ports])
+    assert all(isinstance(i, int) for i in top_tcp_ports)
     top_tcp_ports = helpers.top_tcp_ports(10, as_string=True)
     assert top_tcp_ports == "80,23,443,21,22,25,3389,110,445,139"
     # urls

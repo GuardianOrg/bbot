@@ -48,7 +48,7 @@ class TestRapidDNSAbortThreshold1(TestRapidDNS):
         assert module_test.module.errored == False
         assert module_test.module._api_request_failures == 3
         assert module_test.module.api_retries == 3
-        assert set([e.data for e in events if e.type == "DNS_NAME"]) == {"blacklanternsecurity.com"}
+        assert {e.data for e in events if e.type == "DNS_NAME"} == {"blacklanternsecurity.com"}
         assert self.url_count == {
             "https://rapiddns.io/subdomain/blacklanternsecurity.com?full=1#result": 3,
         }
@@ -62,7 +62,7 @@ class TestRapidDNSAbortThreshold2(TestRapidDNSAbortThreshold1):
         assert module_test.module.errored == False
         assert module_test.module._api_request_failures == 6
         assert module_test.module.api_retries == 3
-        assert set([e.data for e in events if e.type == "DNS_NAME"]) == {"blacklanternsecurity.com", "evilcorp.com"}
+        assert {e.data for e in events if e.type == "DNS_NAME"} == {"blacklanternsecurity.com", "evilcorp.com"}
         assert self.url_count == {
             "https://rapiddns.io/subdomain/blacklanternsecurity.com?full=1#result": 3,
             "https://rapiddns.io/subdomain/evilcorp.com?full=1#result": 3,
@@ -77,7 +77,7 @@ class TestRapidDNSAbortThreshold3(TestRapidDNSAbortThreshold1):
         assert module_test.module.errored == False
         assert module_test.module._api_request_failures == 9
         assert module_test.module.api_retries == 3
-        assert set([e.data for e in events if e.type == "DNS_NAME"]) == {
+        assert {e.data for e in events if e.type == "DNS_NAME"} == {
             "blacklanternsecurity.com",
             "evilcorp.com",
             "evilcorp.net",
@@ -97,7 +97,7 @@ class TestRapidDNSAbortThreshold4(TestRapidDNSAbortThreshold1):
         assert module_test.module.errored == True
         assert module_test.module._api_request_failures == 10
         assert module_test.module.api_retries == 3
-        assert set([e.data for e in events if e.type == "DNS_NAME"]) == {
+        assert {e.data for e in events if e.type == "DNS_NAME"} == {
             "blacklanternsecurity.com",
             "evilcorp.com",
             "evilcorp.net",

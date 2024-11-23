@@ -29,7 +29,7 @@ async def test_web_engine(bbot_scanner, bbot_httpserver, httpx_mock):
     urls = [f"{base_url}{i}" for i in range(num_urls)]
     responses = [r async for r in scan.helpers.request_batch(urls)]
     assert len(responses) == 100
-    assert all([r[1].status_code == 200 and r[1].text.startswith(f"{r[0]}: ") for r in responses])
+    assert all(r[1].status_code == 200 and r[1].text.startswith(f"{r[0]}: ") for r in responses)
 
     # request_batch w/ cancellation
     agen = scan.helpers.request_batch(urls)
