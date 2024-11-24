@@ -95,6 +95,10 @@ asyncio_default_fixture_loop_scope = "function"
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
 build-backend = "poetry_dynamic_versioning.backend"
 
+[tool.codespell]
+ignore-words-list = "bu,cna,couldn,dialin,nd,ned,thirdparty"
+skip = "./docs/javascripts/vega*.js,./bbot/wordlists/*"
+
 [tool.ruff]
 line-length = 119
 format.exclude = ["bbot/test/test_step_1/test_manager_*"]
