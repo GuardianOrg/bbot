@@ -73,6 +73,7 @@ class DNSResolve(BaseInterceptModule):
         if blacklisted:
             return False, "it has a blacklisted DNS record"
 
+        # DNS resolution for hosts that aren't IPs
         if not event_is_ip:
             # if the event is within our dns search distance, resolve the rest of our records
             if main_host_event.scope_distance < self._dns_search_distance:
@@ -82,13 +83,14 @@ class DNSResolve(BaseInterceptModule):
                     event_data_changed = await self.handle_wildcard_event(main_host_event)
                     if event_data_changed:
                         # since data has changed, we check again whether it's a duplicate
-                        if self.scan.ingress_module.is_incoming_duplicate(event, add=True):
-                            if not event._graph_important:
-                                return False, "event was already emitted by its module"
-                            else:
-                                self.debug(
-                                    f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
-                                )
+                        if self.scan.ingress_module.is_incoming_duplicate(main_host_event):
+                            if new_event:
+                                if not event._graph_important:
+                                    return False, "event was already emitted by its module"
+                                else:
+                                    self.debug(
+                                        f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
+                                    )
 
         # if there weren't any DNS children and it's not an IP address, tag as unresolved
         if not main_host_event.raw_dns_records and not event_is_ip:
