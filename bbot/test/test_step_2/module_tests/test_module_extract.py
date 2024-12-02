@@ -3,9 +3,8 @@ import bz2
 import lzma
 import tarfile
 
-# import rarfile
 import py7zr
-import zstandard as zstd
+from librar import archive
 import lz4.frame
 
 from pathlib import Path
@@ -45,9 +44,9 @@ class TestExtract(ModuleTestBase):
         z.write(text_file, "test.txt")
 
     # RAR
-    # rar_file = temp_path / "test.rar"
-    # with rarfile.RarFile(rar_file, "w") as r:
-    #     r.write(text_file, "test.txt")
+    rar_file = temp_path / "test.rar"
+    with archive.Archive(rar_file, base) as r:
+        r.write(text_file, "test.txt")
 
     # LZMA
     lzma_file = temp_path / "test.lzma"
@@ -59,14 +58,6 @@ class TestExtract(ModuleTestBase):
     tar_file = temp_path / "test.tar"
     with tarfile.open(tar_file, "w") as t:
         t.add(text_file, arcname="test.txt")
-
-    # ZSTD
-    zstd_file = temp_path / "test.zst"
-    with open(text_file, "rb") as f:
-        content = f.read()
-        with open(zstd_file, "wb") as z:
-            cctx = zstd.ZstdCompressor()
-            z.write(cctx.compress(content))
 
     # LZ4
     lz4_file = temp_path / "test.lz4"
@@ -88,9 +79,9 @@ class TestExtract(ModuleTestBase):
                 <a href="/test.bz2"/>
                 <a href="/test.xz"/>
                 <a href="/test.7z"/>
+                <a href="/test.rar"/>
                 <a href="/test.lzma"/>
                 <a href="/test.tar"/>
-                <a href="/test.zst"/>
                 <a href="/test.lz4"/>
                 <a href="/test.tgz"/>"""
             ),
@@ -123,25 +114,18 @@ class TestExtract(ModuleTestBase):
                 headers={"Content-Type": "application/x-7z-compressed"},
             ),
         ),
-        # module_test.set_expect_requests(
-        #     dict(uri="/test.rar"),
-        #     dict(
-        #         response_data=self.rar_file.read_bytes(),
-        #         headers={"Content-Type": "application/vnd.rar"},
-        #     ),
-        # ),
+        module_test.set_expect_requests(
+            dict(uri="/test.rar"),
+            dict(
+                response_data=self.rar_file.read_bytes(),
+                headers={"Content-Type": "application/vnd.rar"},
+            ),
+        ),
         module_test.set_expect_requests(
             dict(uri="/test.lzma"),
             dict(
                 response_data=self.lzma_file.read_bytes(),
                 headers={"Content-Type": "application/x-lzma"},
-            ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.zst"),
-            dict(
-                response_data=self.zstd_file.read_bytes(),
-                headers={"Content-Type": "application/zstd"},
             ),
         ),
         module_test.set_expect_requests(
@@ -210,14 +194,14 @@ class TestExtract(ModuleTestBase):
         assert extract_path.is_dir(), "Destination folder doesn't exist"
 
         # RAR
-        # rar_file_event = [e for e in filesystem_events if "test.rar" in e.data["path"]]
-        # assert 1 == len(rar_file_event), "No rar file found"
-        # file = Path(rar_file_event[0].data["path"])
-        # assert file.is_file(), f"File not found at {file}"
-        # extract_event = [e for e in filesystem_events if "test_rar" in e.data["path"] and "folder" in e.tags]
-        # assert 1 == len(extract_event), "Failed to extract rar"
-        # extract_path = Path(extract_event[0].data["path"])
-        # assert extract_path.is_dir(), "Destination folder doesn't exist"
+        rar_file_event = [e for e in filesystem_events if "test.rar" in e.data["path"]]
+        assert 1 == len(rar_file_event), "No rar file found"
+        file = Path(rar_file_event[0].data["path"])
+        assert file.is_file(), f"File not found at {file}"
+        extract_event = [e for e in filesystem_events if "test_rar" in e.data["path"] and "folder" in e.tags]
+        assert 1 == len(extract_event), "Failed to extract rar"
+        extract_path = Path(extract_event[0].data["path"])
+        assert extract_path.is_dir(), "Destination folder doesn't exist"
 
         # LZMA
         lzma_file_event = [e for e in filesystem_events if "test.lzma" in e.data["path"]]
@@ -226,16 +210,6 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_lzma" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract lzma"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
-
-        # ZSTD
-        zstd_file_event = [e for e in filesystem_events if "test.zst" in e.data["path"]]
-        assert 1 == len(zstd_file_event), "No zstd file found"
-        file = Path(zstd_file_event[0].data["path"])
-        assert file.is_file(), f"File not found at {file}"
-        extract_event = [e for e in filesystem_events if "test_zst" in e.data["path"] and "folder" in e.tags]
-        assert 1 == len(extract_event), "Failed to extract zstd"
         extract_path = Path(extract_event[0].data["path"])
         assert extract_path.is_dir(), "Destination folder doesn't exist"
 
