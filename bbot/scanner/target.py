@@ -224,6 +224,12 @@ class ScanBlacklist(ACLTarget):
         hosts = [str(h).encode() for h in self.sorted_hosts]
         return hosts + regex_patterns
 
+    def __len__(self):
+        return super().__len__() + len(self.blacklist_regexes)
+
+    def __bool__(self):
+        return bool(len(self))
+
 
 class BBOTTarget:
     """
