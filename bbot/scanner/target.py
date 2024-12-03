@@ -192,7 +192,6 @@ class ScanBlacklist(ACLTarget):
     @special_target_type(r"^(?:RE|REGEX):(.*)")
     def handle_regex(self, match):
         pattern = match.group(1)
-        log.info(f"Blacklisting by custom regex: {pattern}")
         blacklist_regex = re.compile(pattern, re.IGNORECASE)
         self.blacklist_regexes.add(blacklist_regex)
         return []
