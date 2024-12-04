@@ -1,3 +1,5 @@
+from contextlib import suppress
+
 from bbot.modules.base import BaseInterceptModule
 
 
@@ -17,7 +19,7 @@ class CloudCheck(BaseInterceptModule):
 
     def make_dummy_modules(self):
         self.dummy_modules = {}
-        for provider_name, provider in self.helpers.cloud.providers.items():
+        for provider_name in self.helpers.cloud.providers.keys():
             module = self.scan._make_dummy_module(f"cloud_{provider_name}", _type="scan")
             module.default_discovery_context = "{module} derived {event.type}: {event.host}"
             self.dummy_modules[provider_name] = module
@@ -32,22 +34,37 @@ class CloudCheck(BaseInterceptModule):
         if self.dummy_modules is None:
             self.make_dummy_modules()
         # cloud tagging by hosts
-        hosts_to_check = set(str(s) for s in event.resolved_hosts)
-        # we use the original host, since storage buckets hostnames might be collapsed to _wildcard
-        hosts_to_check.add(str(event.host_original))
-        for host in hosts_to_check:
+        hosts_to_check = set(event.resolved_hosts)
+        with suppress(KeyError):
+            hosts_to_check.remove(event.host_original)
+        hosts_to_check = [event.host_original] + list(hosts_to_check)
+
+        for i, host in enumerate(hosts_to_check):
+            host_is_ip = self.helpers.is_ip(host)
             for provider, provider_type, subnet in self.helpers.cloudcheck(host):
                 if provider:
                     event.add_tag(f"{provider_type}-{provider}")
+                    if host_is_ip:
+                        event.add_tag(f"{provider_type}-ip")
+                    else:
+                        # if the original hostname is a cloud domain, tag it as such
+                        if i == 0:
+                            event.add_tag(f"{provider_type}-domain")
+                        # any children are tagged as CNAMEs
+                        else:
+                            event.add_tag(f"{provider_type}-cname")
 
         found = set()
+        str_hosts_to_check = [str(host) for host in hosts_to_check]
         # look for cloud assets in hosts, http responses
         # loop through each provider
         for provider in self.helpers.cloud.providers.values():
             provider_name = provider.name.lower()
-            base_kwargs = dict(
-                parent=event, tags=[f"{provider.provider_type}-{provider_name}"], _provider=provider_name
-            )
+            base_kwargs = {
+                "parent": event,
+                "tags": [f"{provider.provider_type}-{provider_name}"],
+                "_provider": provider_name,
+            }
             # loop through the provider's regex signatures, if any
             for event_type, sigs in provider.signatures.items():
                 if event_type != "STORAGE_BUCKET":
@@ -58,12 +75,12 @@ class CloudCheck(BaseInterceptModule):
                     if event.type == "HTTP_RESPONSE":
                         matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
                     elif event.type.startswith("DNS_NAME"):
-                        for host in hosts_to_check:
+                        for host in str_hosts_to_check:
                             match = sig.match(host)
                             if match:
                                 matches.append(match.groups())
                     for match in matches:
-                        if not match in found:
+                        if match not in found:
                             found.add(match)
 
                             _kwargs = dict(base_kwargs)

@@ -17,7 +17,6 @@ def run_bbot_multiprocess(queue):
 
 
 def test_bbot_multiprocess(bbot_httpserver):
-
     bbot_httpserver.expect_request("/").respond_with_data("test@blacklanternsecurity.com")
 
     queue = multiprocessing.Queue()
@@ -28,16 +27,14 @@ def test_bbot_multiprocess(bbot_httpserver):
     assert len(events) >= 3
     scan_events = [e for e in events if e["type"] == "SCAN"]
     assert len(scan_events) == 2
-    assert any([e["data"] == "test@blacklanternsecurity.com" for e in events])
+    assert any(e["data"] == "test@blacklanternsecurity.com" for e in events)
 
 
 def test_bbot_fastapi(bbot_httpserver):
-
     bbot_httpserver.expect_request("/").respond_with_data("test@blacklanternsecurity.com")
     fastapi_process = start_fastapi_server()
 
     try:
-
         # wait for the server to start with a timeout of 60 seconds
         start_time = time.time()
         while True:
@@ -61,7 +58,7 @@ def test_bbot_fastapi(bbot_httpserver):
         assert len(events) >= 3
         scan_events = [e for e in events if e["type"] == "SCAN"]
         assert len(scan_events) == 2
-        assert any([e["data"] == "test@blacklanternsecurity.com" for e in events])
+        assert any(e["data"] == "test@blacklanternsecurity.com" for e in events)
 
     finally:
         with suppress(Exception):
