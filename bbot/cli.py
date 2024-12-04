@@ -79,7 +79,6 @@ async def _main():
 
         # if we're listing modules or their options
         if options.list_modules or options.list_output_modules or options.list_module_options:
-
             # if no modules or flags are specified, enable everything
             if not (options.modules or options.output_modules or options.flags):
                 for module, preloaded in preset.module_loader.preloaded().items():
