@@ -395,6 +395,7 @@ async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
         config={"excavate": True},
         debug=True,
     )
+    assert len(scan.target.blacklist) == 2
     assert scan.target.blacklist.blacklist_regexes
     assert {r.pattern for r in scan.target.blacklist.blacklist_regexes} == {
         r"evil[0-9]{3}",

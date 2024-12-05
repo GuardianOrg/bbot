@@ -192,7 +192,6 @@ class ScanBlacklist(ACLTarget):
     @special_target_type(r"^(?:RE|REGEX):(.*)")
     def handle_regex(self, match):
         pattern = match.group(1)
-        log.info(f"Blacklisting by custom regex: {pattern}")
         blacklist_regex = re.compile(pattern, re.IGNORECASE)
         self.blacklist_regexes.add(blacklist_regex)
         return []
@@ -224,6 +223,12 @@ class ScanBlacklist(ACLTarget):
         regex_patterns = [str(r.pattern).encode() for r in self.blacklist_regexes]
         hosts = [str(h).encode() for h in self.sorted_hosts]
         return hosts + regex_patterns
+
+    def __len__(self):
+        return super().__len__() + len(self.blacklist_regexes)
+
+    def __bool__(self):
+        return bool(len(self))
 
 
 class BBOTTarget:
