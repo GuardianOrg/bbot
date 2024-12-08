@@ -9,10 +9,10 @@ class extract(BaseInternalModule):
     flags = ["passive"]
     meta = {
         "description": "Extract different types of files into folders on the filesystem",
-        "created_date": "2024-11-04",
+        "created_date": "2024-12-08",
         "author": "@domwhewell-sage",
     }
-    deps_apt = ["7zip", "tar", "unrar", "gunzip", "zstd", "lz4"]
+    deps_apt = ["7zip", "tar", "rar", "unrar", "gunzip"]
 
     async def setup(self):
         self.compression_methods = {
@@ -22,10 +22,8 @@ class extract(BaseInternalModule):
             "7z": ["7z", "x", '-p""', "-aoa", "{filename}", "-o{extract_dir}/"],
             "rar": ["unrar", "x", "-o+", "-p-", "{filename}", "{extract_dir}/"],
             "lzma": ["tar", "--overwrite", "--lzma", "-xvf", "{filename}", "-C", "{extract_dir}/"],
-            "lz4": ["lz4", "-d", "--force", "{filename}", "{extract_dir}/"],
             "tar": ["tar", "--overwrite", "-xvf", "{filename}", "-C", "{extract_dir}/"],
-            "tgz": ["tar", "--overwrite", "-xvzf", "{filename}", "-C", "{extract_dir}/"],
-            "gzip": ["gunzip", "--force", "--keep", "{filename}"],
+            "gzip": ["tar", "--overwrite", "-xvzf", "{filename}", "-C", "{extract_dir}/"],
         }
         return True
 
@@ -66,12 +64,11 @@ class extract(BaseInternalModule):
         if cmd_list:
             command = [s.format(filename=path, extract_dir=output_dir) for s in cmd_list]
             try:
-                output = await self.run_process(command, check=True)
+                await self.run_process(command, check=True)
                 for item in output_dir.iterdir():
                     if item.is_file():
                         await self.extract_file(item, output_dir / item.stem)
             except Exception as e:
                 self.warning(f"Error extracting {path}. Error: {e}")
-                self.warning(output)
                 return False
             return True

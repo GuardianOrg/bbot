@@ -1,11 +1,4 @@
-import zipfile
-import bz2
-import lzma
-import tarfile
-
-import py7zr
-from librar import archive
-import lz4.frame
+import subprocess
 
 from pathlib import Path
 from .base import ModuleTestBase
@@ -20,76 +13,56 @@ class TestExtract(ModuleTestBase):
     text_file = temp_path / "test.txt"
     with open(text_file, "w") as f:
         f.write("This is a test file")
-
-    # ZIP
     zip_file = temp_path / "test.zip"
-    with zipfile.ZipFile(zip_file, "w") as z:
-        z.write(text_file, "test.txt")
-
-    # BZ2
+    zip_zip_file = temp_path / "test_zip.zip"
     bz2_file = temp_path / "test.bz2"
-    with bz2.BZ2File(bz2_file, "wb") as b:
-        with open(text_file, "rb") as f:
-            b.write(f.read())
-
-    # XZ
     xz_file = temp_path / "test.xz"
-    with lzma.open(xz_file, "wb") as x:
-        with open(text_file, "rb") as f:
-            x.write(f.read())
-
-    # 7Z
-    seven_z_file = temp_path / "test.7z"
-    with py7zr.SevenZipFile(seven_z_file, "w") as z:
-        z.write(text_file, "test.txt")
-
-    # RAR
+    zip7_file = temp_path / "test.7z"
     rar_file = temp_path / "test.rar"
-    with archive.Archive(rar_file, base) as r:
-        r.write(text_file, "test.txt")
-
-    # LZMA
     lzma_file = temp_path / "test.lzma"
-    with lzma.open(lzma_file, "wb") as l:
-        with open(text_file, "rb") as f:
-            l.write(f.read())
-
-    # TAR
     tar_file = temp_path / "test.tar"
-    with tarfile.open(tar_file, "w") as t:
-        t.add(text_file, arcname="test.txt")
-
-    # LZ4
-    lz4_file = temp_path / "test.lz4"
-    with open(text_file, "rb") as f:
-        content = f.read()
-        with lz4.frame.open(lz4_file, "wb") as l:
-            l.write(content)
-
-    # TAR.GZ
     tgz_file = temp_path / "test.tgz"
-    with tarfile.open(tgz_file, "w:gz") as t:
-        t.add(text_file, arcname="test.txt")
+    commands = [
+        ("7z", "a", '-p""', "-aoa", f"{zip_file}", f"{text_file}"),
+        ("7z", "a", '-p""', "-aoa", f"{zip_zip_file}", f"{zip_file}"),
+        ("tar", "-C", f"{temp_path}", "-cvjf", f"{bz2_file}", f"{text_file.name}"),
+        ("tar", "-C", f"{temp_path}", "-cvJf", f"{xz_file}", f"{text_file.name}"),
+        ("7z", "a", '-p""', "-aoa", f"{zip7_file}", f"{text_file}"),
+        ("rar", "a", f"{rar_file}", f"{text_file}"),
+        ("tar", "-C", f"{temp_path}", "--lzma", "-cvf", f"{lzma_file}", f"{text_file.name}"),
+        ("tar", "-C", f"{temp_path}", "-cvf", f"{tar_file}", f"{text_file.name}"),
+        ("tar", "-C", f"{temp_path}", "-cvzf", f"{tgz_file}", f"{text_file.name}"),
+    ]
+
+    for command in commands:
+        subprocess.run(command, check=True)
 
     async def setup_after_prep(self, module_test):
         module_test.set_expect_requests(
             dict(uri="/"),
             dict(
-                response_data="""<a href="/test.zip"/>
-                <a href="/test.bz2"/>
-                <a href="/test.xz"/>
-                <a href="/test.7z"/>
-                <a href="/test.rar"/>
-                <a href="/test.lzma"/>
-                <a href="/test.tar"/>
-                <a href="/test.lz4"/>
-                <a href="/test.tgz"/>"""
+                response_data="""<a href="/test.zip">
+                <a href="/test-zip.zip">
+                <a href="/test.bz2">
+                <a href="/test.xz">
+                <a href="/test.7z">
+                <a href="/test.rar">
+                <a href="/test.lzma">
+                <a href="/test.tar">
+                <a href="/test.tgz">""",
             ),
         )
         module_test.set_expect_requests(
             dict(uri="/test.zip"),
             dict(
                 response_data=self.zip_file.read_bytes(),
+                headers={"Content-Type": "application/zip"},
+            ),
+        ),
+        module_test.set_expect_requests(
+            dict(uri="/test-zip.zip"),
+            dict(
+                response_data=self.zip_zip_file.read_bytes(),
                 headers={"Content-Type": "application/zip"},
             ),
         ),
@@ -110,14 +83,14 @@ class TestExtract(ModuleTestBase):
         module_test.set_expect_requests(
             dict(uri="/test.7z"),
             dict(
-                response_data=self.seven_z_file.read_bytes(),
+                response_data=self.zip7_file.read_bytes(),
                 headers={"Content-Type": "application/x-7z-compressed"},
             ),
         ),
         module_test.set_expect_requests(
             dict(uri="/test.rar"),
             dict(
-                response_data=self.rar_file.read_bytes(),
+                response_data=self.zip7_file.read_bytes(),
                 headers={"Content-Type": "application/vnd.rar"},
             ),
         ),
@@ -126,13 +99,6 @@ class TestExtract(ModuleTestBase):
             dict(
                 response_data=self.lzma_file.read_bytes(),
                 headers={"Content-Type": "application/x-lzma"},
-            ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.lz4"),
-            dict(
-                response_data=self.lz4_file.read_bytes(),
-                headers={"Content-Type": "application/x-lz4"},
             ),
         ),
         module_test.set_expect_requests(
@@ -160,8 +126,18 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_zip" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract zip"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
+
+        # Recursive ZIP
+        zip_zip_file_event = [e for e in filesystem_events if "test-zip.zip" in e.data["path"]]
+        assert 1 == len(zip_zip_file_event), "No recursive file found"
+        file = Path(zip_zip_file_event[0].data["path"])
+        assert file.is_file(), f"File not found at {file}"
+        extract_event = [e for e in filesystem_events if "test-zip_zip" in e.data["path"] and "folder" in e.tags]
+        assert 1 == len(extract_event), "Failed to extract zip"
+        extract_path = Path(extract_event[0].data["path"]) / "test" / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
         # BZ2
         bz2_file_event = [e for e in filesystem_events if "test.bz2" in e.data["path"]]
@@ -170,8 +146,8 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_bz2" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract bz2"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
         # XZ
         xz_file_event = [e for e in filesystem_events if "test.xz" in e.data["path"]]
@@ -180,18 +156,18 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_xz" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract xz"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
-        # 7Z
-        seven_z_file_event = [e for e in filesystem_events if "test.7z" in e.data["path"]]
-        assert 1 == len(seven_z_file_event), "No 7z file found"
-        file = Path(seven_z_file_event[0].data["path"])
+        # 7z
+        zip7_file_event = [e for e in filesystem_events if "test.7z" in e.data["path"]]
+        assert 1 == len(zip7_file_event), "No 7z file found"
+        file = Path(zip7_file_event[0].data["path"])
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_7z" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract 7z"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
         # RAR
         rar_file_event = [e for e in filesystem_events if "test.rar" in e.data["path"]]
@@ -200,8 +176,8 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_rar" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract rar"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
         # LZMA
         lzma_file_event = [e for e in filesystem_events if "test.lzma" in e.data["path"]]
@@ -210,18 +186,8 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_lzma" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract lzma"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
-
-        # LZ4
-        lz4_file_event = [e for e in filesystem_events if "test.lz4" in e.data["path"]]
-        assert 1 == len(lz4_file_event), "No lz4 file found"
-        file = Path(lz4_file_event[0].data["path"])
-        assert file.is_file(), f"File not found at {file}"
-        extract_event = [e for e in filesystem_events if "test_lz4" in e.data["path"] and "folder" in e.tags]
-        assert 1 == len(extract_event), "Failed to extract lz4"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
         # TAR
         tar_file_event = [e for e in filesystem_events if "test.tar" in e.data["path"]]
@@ -230,15 +196,15 @@ class TestExtract(ModuleTestBase):
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_tar" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract tar"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
 
-        # TAR.GZ
+        # TGZ
         tgz_file_event = [e for e in filesystem_events if "test.tgz" in e.data["path"]]
         assert 1 == len(tgz_file_event), "No tgz file found"
         file = Path(tgz_file_event[0].data["path"])
         assert file.is_file(), f"File not found at {file}"
         extract_event = [e for e in filesystem_events if "test_tgz" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract tgz"
-        extract_path = Path(extract_event[0].data["path"])
-        assert extract_path.is_dir(), "Destination folder doesn't exist"
+        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        assert extract_path.is_file(), "Failed to extract the test file"
