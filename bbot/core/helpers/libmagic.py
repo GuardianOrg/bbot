@@ -21,9 +21,7 @@ def get_compression(mime_type):
         "application/fictionbook2+zip": "zip",  # FictionBook 2.0 (Zip)
         "application/fictionbook3+zip": "zip",  # FictionBook 3.0 (Zip)
         "application/gzip": "gzip",  # Gzip compressed file
-        "application/java-archive": "zip",  # Java Archive (JAR)
         "application/pak": "pak",  # PAK archive
-        "application/vnd.android.package-archive": "zip",  # Android package (APK)
         "application/vnd.comicbook-rar": "rar",  # Comic book archive (RAR)
         "application/vnd.comicbook+zip": "zip",  # Comic book archive (Zip)
         "application/vnd.ms-cab-compressed": "cab",  # Microsoft Cabinet archive
