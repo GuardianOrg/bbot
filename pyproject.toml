@@ -56,6 +56,7 @@ httpx = "^0.27.0"
 puremagic = "^1.28"
 cloudcheck = "^6.0.0.602"
 radixtarget = "^2.0.0.50"
+orjson = "^3.10.12"
 
 [tool.poetry.group.dev.dependencies]
 poetry-dynamic-versioning = ">=0.21.4,<1.5.0"

@@ -1,5 +1,5 @@
 import re
-import json
+import orjson
 import tempfile
 import subprocess
 from pathlib import Path
@@ -142,10 +142,10 @@ class httpx(BaseModule):
         proxy = self.scan.http_proxy
         if proxy:
             command += ["-http-proxy", proxy]
-        async for line in self.run_process_live(command, input=list(stdin), stderr=subprocess.DEVNULL):
+        async for line in self.run_process_live(command, text=False, input=list(stdin), stderr=subprocess.DEVNULL):
             try:
-                j = json.loads(line)
-            except json.decoder.JSONDecodeError:
+                j = orjson.loads(line)
+            except orjson.JSONDecodeError:
                 self.debug(f"Failed to decode line: {line}")
                 continue
 
