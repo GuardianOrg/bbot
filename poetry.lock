@@ -2324,13 +2324,13 @@ cffi = {version = "*", markers = "implementation_name == \"pypy\""}
 
 [[package]]
 name = "radixtarget"
-version = "2.0.0.50"
+version = "2.0.0.58"
 description = "Check whether an IP address belongs to a cloud provider"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "radixtarget-2.0.0.50-py3-none-any.whl", hash = "sha256:fe1670a382d1ddaebc2cba3b16607d32085987eb5d71074cc0535e19a02406b7"},
-    {file = "radixtarget-2.0.0.50.tar.gz", hash = "sha256:73519eebb0596a67d4e9347a5e4602c95c9ff9dc8be4c64e6ab0247bc69a13e8"},
+    {file = "radixtarget-2.0.0.58-py3-none-any.whl", hash = "sha256:da1feb277012a115c26b370f5e2102dd31ff8745294fddc75f2d2664cc8820ad"},
+    {file = "radixtarget-2.0.0.58.tar.gz", hash = "sha256:2d909608503698495b135cf1c2446c23c1d6f9dc4dfc6e6ed5517fcb5f7ee46e"},
 ]
 
 [[package]]
