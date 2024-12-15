@@ -4,9 +4,9 @@ from pathlib import Path
 from .base import ModuleTestBase
 
 
-class TestExtract(ModuleTestBase):
+class TestUnarchive(ModuleTestBase):
     targets = ["http://127.0.0.1:8888"]
-    modules_overrides = ["filedownload", "httpx", "excavate", "speculate", "extract"]
+    modules_overrides = ["filedownload", "httpx", "excavate", "speculate", "unarchive"]
     temp_path = Path("/tmp/.bbot_test")
 
     # Create a text file to compress
@@ -52,69 +52,87 @@ class TestExtract(ModuleTestBase):
                 <a href="/test.tgz">""",
             ),
         )
-        module_test.set_expect_requests(
-            dict(uri="/test.zip"),
-            dict(
-                response_data=self.zip_file.read_bytes(),
-                headers={"Content-Type": "application/zip"},
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.zip"),
+                dict(
+                    response_data=self.zip_file.read_bytes(),
+                    headers={"Content-Type": "application/zip"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test-zip.zip"),
-            dict(
-                response_data=self.zip_zip_file.read_bytes(),
-                headers={"Content-Type": "application/zip"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test-zip.zip"),
+                dict(
+                    response_data=self.zip_zip_file.read_bytes(),
+                    headers={"Content-Type": "application/zip"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.bz2"),
-            dict(
-                response_data=self.bz2_file.read_bytes(),
-                headers={"Content-Type": "application/x-bzip2"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.bz2"),
+                dict(
+                    response_data=self.bz2_file.read_bytes(),
+                    headers={"Content-Type": "application/x-bzip2"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.xz"),
-            dict(
-                response_data=self.xz_file.read_bytes(),
-                headers={"Content-Type": "application/x-xz"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.xz"),
+                dict(
+                    response_data=self.xz_file.read_bytes(),
+                    headers={"Content-Type": "application/x-xz"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.7z"),
-            dict(
-                response_data=self.zip7_file.read_bytes(),
-                headers={"Content-Type": "application/x-7z-compressed"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.7z"),
+                dict(
+                    response_data=self.zip7_file.read_bytes(),
+                    headers={"Content-Type": "application/x-7z-compressed"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.rar"),
-            dict(
-                response_data=self.zip7_file.read_bytes(),
-                headers={"Content-Type": "application/vnd.rar"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.rar"),
+                dict(
+                    response_data=self.zip7_file.read_bytes(),
+                    headers={"Content-Type": "application/vnd.rar"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.lzma"),
-            dict(
-                response_data=self.lzma_file.read_bytes(),
-                headers={"Content-Type": "application/x-lzma"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.lzma"),
+                dict(
+                    response_data=self.lzma_file.read_bytes(),
+                    headers={"Content-Type": "application/x-lzma"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.tar"),
-            dict(
-                response_data=self.tar_file.read_bytes(),
-                headers={"Content-Type": "application/x-tar"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.tar"),
+                dict(
+                    response_data=self.tar_file.read_bytes(),
+                    headers={"Content-Type": "application/x-tar"},
+                ),
             ),
-        ),
-        module_test.set_expect_requests(
-            dict(uri="/test.tgz"),
-            dict(
-                response_data=self.tgz_file.read_bytes(),
-                headers={"Content-Type": "application/x-tgz"},
+        )
+        (
+            module_test.set_expect_requests(
+                dict(uri="/test.tgz"),
+                dict(
+                    response_data=self.tgz_file.read_bytes(),
+                    headers={"Content-Type": "application/x-tgz"},
+                ),
             ),
-        ),
+        )
 
     def check(self, module_test, events):
         filesystem_events = [e for e in events if e.type == "FILESYSTEM"]

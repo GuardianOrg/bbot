@@ -496,7 +496,7 @@ def test_preset_module_resolution(clean_default_config):
     assert set(preset.internal_modules) == {
         "aggregate",
         "excavate",
-        "extract",
+        "unarchive",
         "speculate",
         "cloudcheck",
         "dnsresolve",
@@ -560,7 +560,7 @@ def test_preset_module_resolution(clean_default_config):
         "dnsresolve",
         "aggregate",
         "excavate",
-        "extract",
+        "unarchive",
         "txt",
         "httpx",
         "csv",

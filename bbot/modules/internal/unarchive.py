@@ -3,10 +3,10 @@ from bbot.modules.internal.base import BaseInternalModule
 from bbot.core.helpers.libmagic import get_magic_info, get_compression
 
 
-class extract(BaseInternalModule):
+class unarchive(BaseInternalModule):
     watched_events = ["FILESYSTEM"]
     produced_events = ["FILESYSTEM"]
-    flags = ["passive"]
+    flags = ["passive", "safe"]
     meta = {
         "description": "Extract different types of files into folders on the filesystem",
         "created_date": "2024-12-08",
@@ -15,6 +15,7 @@ class extract(BaseInternalModule):
     deps_apt = ["7zip", "tar", "rar", "unrar", "gunzip"]
 
     async def setup(self):
+        self.ignore_compressions = ["application/java-archive", "application/vnd.android.package-archive"]
         self.compression_methods = {
             "zip": ["7z", "x", '-p""', "-aoa", "{filename}", "-o{extract_dir}/"],
             "bzip2": ["tar", "--overwrite", "-xvjf", "{filename}", "-C", "{extract_dir}/"],
@@ -29,6 +30,8 @@ class extract(BaseInternalModule):
 
     async def filter_event(self, event):
         if "file" in event.tags:
+            if event.data["magic_mime_type"] in self.ignore_compressions:
+                return False, f"Ignoring file type: {event.data['magic_mime_type']}, {event.data['path']}"
             if not event.data["compression"] in self.compression_methods:
                 return False, f"Extract unable to handle file type: {event.data['compression']}, {event.data['path']}"
         else:
