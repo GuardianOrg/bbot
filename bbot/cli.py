@@ -260,9 +260,7 @@ async def _main():
     finally:
         # save word cloud
         with suppress(BaseException):
-            save_success, filename = scan.helpers.word_cloud.save()
-            if save_success:
-                log_to_stderr(f"Saved word cloud ({len(scan.helpers.word_cloud):,} words) to {filename}")
+            scan.helpers.word_cloud.save()
         # remove output directory if empty
         with suppress(BaseException):
             scan.home.rmdir()
