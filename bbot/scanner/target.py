@@ -101,7 +101,7 @@ class BaseTarget(RadixTarget):
                 events.add(event)
 
         # sort by host size to ensure consistency
-        events = sorted(events, key=lambda e: (0 if not e.host else host_size_key(e.host)))
+        events = sorted(events, key=lambda e: ((0, 0) if not e.host else host_size_key(e.host)))
         for event in events:
             self.events.add(event)
             self._add(event.host, data=event)
