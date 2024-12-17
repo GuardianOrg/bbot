@@ -144,7 +144,8 @@ class BBOTArgs:
             deps_config["behavior"] = "disable"
         elif self.parsed.ignore_failed_deps:
             deps_config["behavior"] = "ignore_failed"
-        args_preset.core.merge_custom({"deps": deps_config})
+        if deps_config:
+            args_preset.core.merge_custom({"deps": deps_config})
 
         # other scan options
         if self.parsed.name is not None:
