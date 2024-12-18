@@ -1193,7 +1193,7 @@ class TestTrufflehog_NonVerified(TestTrufflehog):
                 or e.data["host"] == "github.com"
                 or e.data["host"] == "www.postman.com"
             )
-            and "Potential Secret Found." in e.data["description"]
+            and "Possible Secret Found." in e.data["description"]
             and "Raw result: [https://admin:admin@internal.host.com]" in e.data["description"]
         ]
         # Trufflehog should find 4 unverifiable secrets, 1 from the github, 1 from the workflow log, 1 from the docker image and 1 from the postman.
