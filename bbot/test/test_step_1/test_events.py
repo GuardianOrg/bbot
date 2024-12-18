@@ -1012,8 +1012,10 @@ async def test_filesystem():
     scan = Scanner("FILESYSTEM:/tmp/asdf")
     events = [e async for e in scan.async_start()]
     assert len(events) == 3
-    assert events[1].type == "FILESYSTEM"
-    assert events[1].data == {"path": "/tmp/asdf"}
+    filesystem_events = [e for e in events if e.type == "FILESYSTEM"]
+    assert len(filesystem_events) == 1
+    assert filesystem_events[0].type == "FILESYSTEM"
+    assert filesystem_events[0].data == {"path": "/tmp/asdf"}
 
 
 def test_event_hashing():
