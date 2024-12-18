@@ -327,8 +327,8 @@ class DepsInstaller:
             },
             module=module,
             module_args=module_args,
-            quiet=not self.ansible_debug,
-            verbosity=(3 if self.ansible_debug else 0),
+            quiet=True,
+            verbosity=0,
             cancel_callback=lambda: None,
         )
 
@@ -338,7 +338,7 @@ class DepsInstaller:
         err = ""
         for e in res.events:
             if self.ansible_debug and not success:
-                log.debug(json.dumps(e, indent=4))
+                log.debug(json.dumps(e, indent=2))
             if e["event"] == "runner_on_failed":
                 err = e["event_data"]["res"]["msg"]
                 break
