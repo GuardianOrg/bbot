@@ -3,7 +3,7 @@ from bbot.modules.base import BaseModule
 
 
 class trufflehog(BaseModule):
-    watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
+    watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
@@ -86,7 +86,7 @@ class trufflehog(BaseModule):
             path = event.data["url"]
             if "git" in event.tags:
                 module = "github-experimental"
-        else:
+        elif event.type == "FILESYSTEM":
             path = event.data["path"]
             if "git" in event.tags:
                 module = "git"
@@ -96,6 +96,10 @@ class trufflehog(BaseModule):
                 module = "postman"
             else:
                 module = "filesystem"
+        elif event.type == "HTTP_RESPONSE":
+            module = "filesystem"
+            path = self.helpers.tempfile(event.raw_response, pipe=False)
+
         if event.type == "CODE_REPOSITORY":
             host = event.host
         else:
@@ -108,41 +112,31 @@ class trufflehog(BaseModule):
             verified,
             source_metadata,
         ) in self.execute_trufflehog(module, path):
-            if verified:
-                data = {
-                    "severity": "High",
-                    "description": f"Verified Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
-                    "host": host,
-                }
-                if description:
-                    data["description"] += f" Description: [{description}]"
-                data["description"] += f" Raw result: [{raw_result}]"
-                if rawv2_result:
-                    data["description"] += f" RawV2 result: [{rawv2_result}]"
-                await self.emit_event(
-                    data,
-                    "VULNERABILITY",
-                    event,
-                    context=f'{{module}} searched {event.type} using "{module}" method and found verified secret ({{event.type}}): {raw_result}',
-                )
-            else:
-                data = {
-                    "description": f"Potential Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
-                    "host": host,
-                }
-                if description:
-                    data["description"] += f" Description: [{description}]"
-                data["description"] += f" Raw result: [{raw_result}]"
-                if rawv2_result:
-                    data["description"] += f" RawV2 result: [{rawv2_result}]"
-                await self.emit_event(
-                    data,
-                    "FINDING",
-                    event,
-                    context=f'{{module}} searched {event.type} using "{module}" method and found possible secret ({{event.type}}): {raw_result}',
-                )
+            verified_str = "Verified" if verified else "Possible"
+            finding_type = "VULNERABILITY" if verified else "FINDING"
+            data = {
+                "description": f"{verified_str} Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
+                "host": host,
+            }
+            if finding_type == "VULNERABILITY":
+                data["severity"] = "High"
+            if description:
+                data["description"] += f" Description: [{description}]"
+            data["description"] += f" Raw result: [{raw_result}]"
+            if rawv2_result:
+                data["description"] += f" RawV2 result: [{rawv2_result}]"
+            await self.emit_event(
+                data,
+                finding_type,
+                event,
+                context=f'{{module}} searched {event.type} using "{module}" method and found {verified_str.lower()} secret ({{event.type}}): {raw_result}',
+            )
 
-    async def execute_trufflehog(self, module, path):
+        # clean up the tempfile when we're done with it
+        if event.type == "HTTP_RESPONSE":
+            path.unlink(missing_ok=True)
+
+    async def execute_trufflehog(self, module, path=None, string=None):
         command = [
             "trufflehog",
             "--json",

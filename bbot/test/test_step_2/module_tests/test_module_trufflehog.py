@@ -1240,3 +1240,17 @@ class TestTrufflehog_NonVerified(TestTrufflehog):
                 and Path(e.data["path"]).is_file()
             ]
         ), "Failed to find blacklanternsecurity postman workspace"
+
+
+class TestTrufflehog_HTTPResponse(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888"]
+    modules_overrides = ["httpx", "trufflehog"]
+    config_overrides = {"modules": {"trufflehog": {"only_verified": False}}}
+
+    async def setup_before_prep(self, module_test):
+        expect_args = {"method": "GET", "uri": "/"}
+        respond_args = {"response_data": "https://admin:admin@internal.host.com"}
+        module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
+
+    def check(self, module_test, events):
+        assert any(e.type == "FINDING" for e in events)
