@@ -24,7 +24,7 @@ class TestWebReport(ModuleTestBase):
 <li><strong>http://127.0.0.1:8888/</strong>"""
             in report_content
         )
-        assert """Possible secret (Asymmetric Private Key)""" in report_content
+        assert """Possible Secret Found. Detector Type: [PrivateKey]""" in report_content
         assert "<h3>TECHNOLOGY</h3>" in report_content
         assert "<p>flask</p>" in report_content
 
