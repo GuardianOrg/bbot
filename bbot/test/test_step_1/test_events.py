@@ -999,8 +999,9 @@ async def test_mobile_app():
     scan = Scanner("MOBILE_APP:https://play.google.com/store/apps/details?id=com.evilcorp.app")
     events = [e async for e in scan.async_start()]
     assert len(events) == 3
-    assert events[1].type == "MOBILE_APP"
-    assert sorted(events[1].data.items()) == [
+    mobile_app_event = [e for e in events if e.type == "MOBILE_APP"][0]
+    assert mobile_app_event.type == "MOBILE_APP"
+    assert sorted(mobile_app_event.data.items()) == [
         ("id", "com.evilcorp.app"),
         ("url", "https://play.google.com/store/apps/details?id=com.evilcorp.app"),
     ]
