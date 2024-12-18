@@ -3,7 +3,7 @@ from bbot.modules.base import BaseModule
 
 
 class trufflehog(BaseModule):
-    watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE"]
+    watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE", "RAW_TEXT"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
@@ -81,7 +81,10 @@ class trufflehog(BaseModule):
         return True
 
     async def handle_event(self, event):
-        description = event.data.get("description", "")
+        description = ""
+        if isinstance(event.data, dict):
+            description = event.data.get("description", "")
+
         if event.type == "CODE_REPOSITORY":
             path = event.data["url"]
             if "git" in event.tags:
@@ -96,12 +99,13 @@ class trufflehog(BaseModule):
                 module = "postman"
             else:
                 module = "filesystem"
-        elif event.type == "HTTP_RESPONSE":
+        elif event.type in ("HTTP_RESPONSE", "RAW_TEXT"):
             module = "filesystem"
+            file_data = event.raw_response if event.type == "HTTP_RESPONSE" else event.data
             # write the response to a tempfile
             # this is necessary because trufflehog doesn't yet support reading from stdin
             # https://github.com/trufflesecurity/trufflehog/issues/162
-            path = self.helpers.tempfile(event.raw_response, pipe=False)
+            path = self.helpers.tempfile(file_data, pipe=False)
 
         if event.type == "CODE_REPOSITORY":
             host = event.host
@@ -119,8 +123,9 @@ class trufflehog(BaseModule):
             finding_type = "VULNERABILITY" if verified else "FINDING"
             data = {
                 "description": f"{verified_str} Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
-                "host": host,
             }
+            if host:
+                data["host"] = host
             if finding_type == "VULNERABILITY":
                 data["severity"] = "High"
             if description:
@@ -136,7 +141,7 @@ class trufflehog(BaseModule):
             )
 
         # clean up the tempfile when we're done with it
-        if event.type == "HTTP_RESPONSE":
+        if event.type in ("HTTP_RESPONSE", "RAW_TEXT"):
             path.unlink(missing_ok=True)
 
     async def execute_trufflehog(self, module, path=None, string=None):
