@@ -98,6 +98,9 @@ class trufflehog(BaseModule):
                 module = "filesystem"
         elif event.type == "HTTP_RESPONSE":
             module = "filesystem"
+            # write the response to a tempfile
+            # this is necessary because trufflehog doesn't yet support reading from stdin
+            # https://github.com/trufflesecurity/trufflehog/issues/162
             path = self.helpers.tempfile(event.raw_response, pipe=False)
 
         if event.type == "CODE_REPOSITORY":

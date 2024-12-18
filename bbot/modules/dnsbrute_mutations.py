@@ -129,7 +129,7 @@ class dnsbrute_mutations(BaseModule):
                             self._mutation_run_counter[domain] = mutation_run = 1
                         self._mutation_run_counter[domain] += 1
                         for hostname in results:
-                            parent_event = self.get_parent_event(hostname)
+                            parent_event = await self.get_parent_event(hostname)
                             mutation_run_ordinal = self.helpers.integer_to_ordinal(mutation_run)
                             await self.emit_event(
                                 hostname,
