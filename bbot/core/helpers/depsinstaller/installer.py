@@ -403,7 +403,7 @@ class DepsInstaller:
                 }
             )
         if playbook:
-            self.log.info(f"Installing core BBOT dependencies: {",".join(sorted(to_install_friendly))}")
+            log.info(f"Installing core BBOT dependencies: {','.join(sorted(to_install_friendly))}")
             self.ensure_root()
             self.ansible_run(tasks=playbook)
 
