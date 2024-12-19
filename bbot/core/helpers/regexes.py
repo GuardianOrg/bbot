@@ -39,7 +39,7 @@ _ip_range_regexes = (
 ip_range_regexes = [re.compile(r, re.I) for r in _ip_range_regexes]
 
 # dns names with periods
-_dns_name_regex = r"(?:\w(?:[\w-]{0,100}\w)?\.)+(?:[xX][nN]--)?[^\W_]{1,63}\.?"
+_dns_name_regex = r"(?:\w(?:[\w-]{0,100}\w)?\.?)+(?:[xX][nN]--)?[^\W_]{1,63}\.?"
 dns_name_extraction_regex = re.compile(_dns_name_regex, re.I)
 dns_name_validation_regex = re.compile(r"^" + _dns_name_regex + r"$", re.I)
 
