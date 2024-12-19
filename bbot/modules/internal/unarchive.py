@@ -22,7 +22,7 @@ class unarchive(BaseInternalModule):
             "xz": ["tar", "--overwrite", "-xvJf", "{filename}", "-C", "{extract_dir}/"],
             "7z": ["7z", "x", '-p""', "-aoa", "{filename}", "-o{extract_dir}/"],
             "rar": ["unrar", "x", "-o+", "-p-", "{filename}", "{extract_dir}/"],
-            "lzma": ["tar", "--overwrite", "--lzma", "-xvf", "{filename}", "-C", "{extract_dir}/"],
+            "lzma": ["7z", "x", '-p""', "-aoa", "{filename}", "-o{extract_dir}/"],
             "tar": ["tar", "--overwrite", "-xvf", "{filename}", "-C", "{extract_dir}/"],
             "gzip": ["tar", "--overwrite", "-xvzf", "{filename}", "-C", "{extract_dir}/"],
         }
