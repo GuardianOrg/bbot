@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .base import ModuleTestBase
 
 
@@ -108,11 +110,16 @@ class TestGoWitnessLongFilename(TestGowitness):
     """
     Make sure long filenames are truncated properly
     """
-    targets = ["http://127.0.0.1:8888/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity"]
+
+    targets = [
+        "http://127.0.0.1:8888/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity"
+    ]
     config_overrides = {"file_blobs": True}
 
     async def setup_after_prep(self, module_test):
-        request_args = {"uri": "/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity"}
+        request_args = {
+            "uri": "/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity"
+        }
         respond_args = {
             "response_data": "<html><head><title>BBOT is life</title></head><body>BBOT is life</body></html>",
             "headers": {"Server": "Apache/2.4.41 (Ubuntu)"},
@@ -122,3 +129,7 @@ class TestGoWitnessLongFilename(TestGowitness):
     def check(self, module_test, events):
         webscreenshots = [e for e in events if e.type == "WEBSCREENSHOT"]
         assert webscreenshots, "failed to raise WEBSCREENSHOT events"
+        assert len(webscreenshots) == 1
+        webscreenshot = webscreenshots[0]
+        filename = Path(webscreenshot.data["path"])
+        assert filename.exists()
