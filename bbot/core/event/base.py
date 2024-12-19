@@ -587,7 +587,7 @@ class BaseEvent:
                         if t in ("spider-danger", "spider-max"):
                             self.add_tag(t)
         elif not self._dummy:
-            log.warning(f"Tried to set invalid parent on {self}: (got: {parent})")
+            log.warning(f"Tried to set invalid parent on {self}: (got: {repr(parent)} ({type(parent)}))")
 
     @property
     def parent_id(self):
