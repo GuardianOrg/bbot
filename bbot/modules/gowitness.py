@@ -142,6 +142,8 @@ class gowitness(BaseModule):
             url = screenshot["url"]
             final_url = screenshot["final_url"]
             filename = self.screenshot_path / screenshot["filename"]
+            filename = filename.relative_to(self.scan.home)
+            filename = self.helpers.truncate_filename(filename)
             webscreenshot_data = {"path": str(filename), "url": final_url}
             parent_event = event_dict[url]
             await self.emit_event(
