@@ -31,8 +31,9 @@ class DepsInstaller:
         "gcc": "gcc",
         "bash": "bash",
         "which": "which",
-        "unrar": "unrar",
+        "unrar": "unrar-free",
         "tar": "tar",
+        # debian why are you like this
         "7z": [
             {
                 "name": "Install 7zip (Debian)",
