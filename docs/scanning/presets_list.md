@@ -163,7 +163,6 @@ Comprehensive scan for all IIS/.NET specific modules and module settings
           extensions: asp,aspx,ashx,asmx,ascx
         telerik:
           exploit_RAU_crypto: True
-    
     ```
 
 Category: web
@@ -263,8 +262,6 @@ Everything everywhere all at once
       modules:
         baddns:
           enable_references: True
-    
-    
     ```
 
 

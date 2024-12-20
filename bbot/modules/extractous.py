@@ -67,7 +67,7 @@ class extractous(BaseModule):
     scope_distance_modifier = 1
 
     async def setup(self):
-        self.extensions = list(set([e.lower().strip(".") for e in self.config.get("extensions", [])]))
+        self.extensions = list({e.lower().strip(".") for e in self.config.get("extensions", [])})
         return True
 
     async def filter_event(self, event):
@@ -112,7 +112,7 @@ def extract_text(file_path):
         result = ""
         buffer = reader.read(4096)
         while len(buffer) > 0:
-            result += buffer.decode("utf-8")
+            result += buffer.decode("utf-8", errors="ignore")
             buffer = reader.read(4096)
 
         return result.strip()

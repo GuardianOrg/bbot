@@ -53,6 +53,11 @@ class BBOTArgs:
             "bbot -l",
         ),
         (
+            "List output modules",
+            "",
+            "bbot -lo",
+        ),
+        (
             "List presets",
             "",
             "bbot -lp",
@@ -130,14 +135,17 @@ class BBOTArgs:
             args_preset.core.merge_custom({"modules": {"stdout": {"event_types": self.parsed.event_types}}})
 
         # dependencies
+        deps_config = args_preset.core.custom_config.get("deps", {})
         if self.parsed.retry_deps:
-            args_preset.core.custom_config["deps_behavior"] = "retry_failed"
+            deps_config["behavior"] = "retry_failed"
         elif self.parsed.force_deps:
-            args_preset.core.custom_config["deps_behavior"] = "force_install"
+            deps_config["behavior"] = "force_install"
         elif self.parsed.no_deps:
-            args_preset.core.custom_config["deps_behavior"] = "disable"
+            deps_config["behavior"] = "disable"
         elif self.parsed.ignore_failed_deps:
-            args_preset.core.custom_config["deps_behavior"] = "ignore_failed"
+            deps_config["behavior"] = "ignore_failed"
+        if deps_config:
+            args_preset.core.merge_custom({"deps": deps_config})
 
         # other scan options
         if self.parsed.name is not None:
@@ -174,9 +182,11 @@ class BBOTArgs:
 
     def create_parser(self, *args, **kwargs):
         kwargs.update(
-            dict(
-                description="Bighuge BLS OSINT Tool", formatter_class=argparse.RawTextHelpFormatter, epilog=self.epilog
-            )
+            {
+                "description": "Bighuge BLS OSINT Tool",
+                "formatter_class": argparse.RawTextHelpFormatter,
+                "epilog": self.epilog,
+            }
         )
         p = argparse.ArgumentParser(*args, **kwargs)
 
@@ -214,7 +224,7 @@ class BBOTArgs:
             metavar="CONFIG",
             default=[],
         )
-        presets.add_argument("-lp", "--list-presets", action="store_true", help=f"List available presets.")
+        presets.add_argument("-lp", "--list-presets", action="store_true", help="List available presets.")
 
         modules = p.add_argument_group(title="Modules")
         modules.add_argument(
@@ -225,12 +235,12 @@ class BBOTArgs:
             help=f'Modules to enable. Choices: {",".join(sorted(self.preset.module_loader.scan_module_choices))}',
             metavar="MODULE",
         )
-        modules.add_argument("-l", "--list-modules", action="store_true", help=f"List available modules.")
+        modules.add_argument("-l", "--list-modules", action="store_true", help="List available modules.")
         modules.add_argument(
             "-lmo", "--list-module-options", action="store_true", help="Show all module config options"
         )
         modules.add_argument(
-            "-em", "--exclude-modules", nargs="+", default=[], help=f"Exclude these modules.", metavar="MODULE"
+            "-em", "--exclude-modules", nargs="+", default=[], help="Exclude these modules.", metavar="MODULE"
         )
         modules.add_argument(
             "-f",
@@ -240,13 +250,13 @@ class BBOTArgs:
             help=f'Enable modules by flag. Choices: {",".join(sorted(self.preset.module_loader.flag_choices))}',
             metavar="FLAG",
         )
-        modules.add_argument("-lf", "--list-flags", action="store_true", help=f"List available flags.")
+        modules.add_argument("-lf", "--list-flags", action="store_true", help="List available flags.")
         modules.add_argument(
             "-rf",
             "--require-flags",
             nargs="+",
             default=[],
-            help=f"Only enable modules with these flags (e.g. -rf passive)",
+            help="Only enable modules with these flags (e.g. -rf passive)",
             metavar="FLAG",
         )
         modules.add_argument(
@@ -254,7 +264,7 @@ class BBOTArgs:
             "--exclude-flags",
             nargs="+",
             default=[],
-            help=f"Disable modules with these flags. (e.g. -ef aggressive)",
+            help="Disable modules with these flags. (e.g. -ef aggressive)",
             metavar="FLAG",
         )
         modules.add_argument("--allow-deadly", action="store_true", help="Enable the use of highly aggressive modules")
@@ -275,7 +285,7 @@ class BBOTArgs:
             action="store_true",
             help="Scan only the provided targets as fast as possible, with no extra discovery",
         )
-        scan.add_argument("--dry-run", action="store_true", help=f"Abort before executing scan")
+        scan.add_argument("--dry-run", action="store_true", help="Abort before executing scan")
         scan.add_argument(
             "--current-preset",
             action="store_true",
@@ -302,6 +312,7 @@ class BBOTArgs:
             help=f'Output module(s). Choices: {",".join(sorted(self.preset.module_loader.output_module_choices))}',
             metavar="MODULE",
         )
+        output.add_argument("-lo", "--list-output-modules", action="store_true", help="List available output modules")
         output.add_argument("--json", "-j", action="store_true", help="Output scan data in JSON format")
         output.add_argument("--brief", "-br", action="store_true", help="Output only the data itself")
         output.add_argument("--event-types", nargs="+", default=[], help="Choose which event types to display")

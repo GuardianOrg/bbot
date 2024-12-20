@@ -60,8 +60,8 @@ class TestExcavate(ModuleTestBase):
         assert "www6.test.notreal" in event_data
         assert "www7.test.notreal" in event_data
         assert "www8.test.notreal" in event_data
-        assert not "http://127.0.0.1:8888/a_relative.js" in event_data
-        assert not "http://127.0.0.1:8888/link_relative.js" in event_data
+        assert "http://127.0.0.1:8888/a_relative.js" not in event_data
+        assert "http://127.0.0.1:8888/link_relative.js" not in event_data
         assert "http://127.0.0.1:8888/a_relative.txt" in event_data
         assert "http://127.0.0.1:8888/link_relative.txt" in event_data
 
@@ -220,7 +220,7 @@ class TestExcavateRedirect(TestExcavate):
             [e for e in events if e.type == "FINDING" and e.data["description"] == "Non-HTTP URI: smb://127.0.0.1"]
         )
         assert 1 == len(
-            [e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SMB" and not "port" in e.data]
+            [e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SMB" and "port" not in e.data]
         )
         assert 0 == len([e for e in events if e.type == "FINDING" and "ssh://127.0.0.1" in e.data["description"]])
         assert 0 == len([e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SSH"])
@@ -711,7 +711,7 @@ class TestExcavateSpiderDedupe(ModuleTestBase):
                     if (
                         str(e.module) == "dummy_module"
                         and "spider-danger" not in e.tags
-                        and not "spider-max" in e.tags
+                        and "spider-max" not in e.tags
                     ):
                         found_url_unverified_dummy = True
             if e.type == "URL" and e.data == "http://127.0.0.1:8888/spider":
@@ -868,8 +868,8 @@ class TestExcavateHeaders(ModuleTestBase):
                 if e.data["name"] == "COOKIE2":
                     found_second_cookie = True
 
-        assert found_first_cookie == True
-        assert found_second_cookie == True
+        assert found_first_cookie is True
+        assert found_second_cookie is True
 
 
 class TestExcavateRAWTEXT(ModuleTestBase):
@@ -895,7 +895,7 @@ endobj
 /Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
 >> /Rotate 0 /Trans <<
 
->> 
+>>
   /Type /Page
 >>
 endobj
@@ -906,7 +906,7 @@ endobj
 endobj
 5 0 obj
 <<
-/Author (anonymous) /CreationDate (D:20240807182842+00'00') /Creator (ReportLab PDF Library - www.reportlab.com) /Keywords () /ModDate (D:20240807182842+00'00') /Producer (ReportLab PDF Library - www.reportlab.com) 
+/Author (anonymous) /CreationDate (D:20240807182842+00'00') /Creator (ReportLab PDF Library - www.reportlab.com) /Keywords () /ModDate (D:20240807182842+00'00') /Producer (ReportLab PDF Library - www.reportlab.com)
   /Subject (unspecified) /Title (untitled) /Trapped /False
 >>
 endobj
@@ -924,17 +924,17 @@ Gas2F;0/Hc'SYHA/+V9II1V!>b>-epMEjN4$Udfu3WXha!?H`crq_UNGP5IS$'WT'SF]Hm/eEhd_JY>@
 endobj
 xref
 0 8
-0000000000 65535 f 
-0000000073 00000 n 
-0000000104 00000 n 
-0000000211 00000 n 
-0000000414 00000 n 
-0000000482 00000 n 
-0000000778 00000 n 
-0000000837 00000 n 
+0000000000 65535 f
+0000000073 00000 n
+0000000104 00000 n
+0000000211 00000 n
+0000000414 00000 n
+0000000482 00000 n
+0000000778 00000 n
+0000000837 00000 n
 trailer
 <<
-/ID 
+/ID
 [<3c7340500fa2fe72523c5e6f07511599><3c7340500fa2fe72523c5e6f07511599>]
 % ReportLab generated PDF document -- digest (http://www.reportlab.com)
 
@@ -957,12 +957,12 @@ A href <a href='/donot_detect.js'>Click me</a>"""
 
     async def setup_after_prep(self, module_test):
         module_test.set_expect_requests(
-            dict(uri="/"),
-            dict(response_data='<a href="/Test_PDF"/>'),
+            {"uri": "/"},
+            {"response_data": '<a href="/Test_PDF"/>'},
         )
         module_test.set_expect_requests(
-            dict(uri="/Test_PDF"),
-            dict(response_data=self.pdf_data, headers={"Content-Type": "application/pdf"}),
+            {"uri": "/Test_PDF"},
+            {"response_data": self.pdf_data, "headers": {"Content-Type": "application/pdf"}},
         )
 
     def check(self, module_test, events):

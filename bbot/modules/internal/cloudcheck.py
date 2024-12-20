@@ -5,7 +5,11 @@ from bbot.modules.base import BaseInterceptModule
 
 class CloudCheck(BaseInterceptModule):
     watched_events = ["*"]
-    meta = {"description": "Tag events by cloud provider, identify cloud resources like storage buckets"}
+    meta = {
+        "description": "Tag events by cloud provider, identify cloud resources like storage buckets",
+        "created_date": "2024-07-07",
+        "author": "@TheTechromancer",
+    }
     scope_distance_modifier = 1
     _priority = 3
 
@@ -15,7 +19,7 @@ class CloudCheck(BaseInterceptModule):
 
     def make_dummy_modules(self):
         self.dummy_modules = {}
-        for provider_name, provider in self.helpers.cloud.providers.items():
+        for provider_name in self.helpers.cloud.providers.keys():
             module = self.scan._make_dummy_module(f"cloud_{provider_name}", _type="scan")
             module.default_discovery_context = "{module} derived {event.type}: {event.host}"
             self.dummy_modules[provider_name] = module
@@ -56,9 +60,11 @@ class CloudCheck(BaseInterceptModule):
         # loop through each provider
         for provider in self.helpers.cloud.providers.values():
             provider_name = provider.name.lower()
-            base_kwargs = dict(
-                parent=event, tags=[f"{provider.provider_type}-{provider_name}"], _provider=provider_name
-            )
+            base_kwargs = {
+                "parent": event,
+                "tags": [f"{provider.provider_type}-{provider_name}"],
+                "_provider": provider_name,
+            }
             # loop through the provider's regex signatures, if any
             for event_type, sigs in provider.signatures.items():
                 if event_type != "STORAGE_BUCKET":
@@ -66,15 +72,16 @@ class CloudCheck(BaseInterceptModule):
                 base_kwargs["event_type"] = event_type
                 for sig in sigs:
                     matches = []
-                    if event.type == "HTTP_RESPONSE":
-                        matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
-                    elif event.type.startswith("DNS_NAME"):
+                    # TODO: convert this to an excavate YARA hook
+                    # if event.type == "HTTP_RESPONSE":
+                    #     matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
+                    if event.type.startswith("DNS_NAME"):
                         for host in str_hosts_to_check:
                             match = sig.match(host)
                             if match:
                                 matches.append(match.groups())
                     for match in matches:
-                        if not match in found:
+                        if match not in found:
                             found.add(match)
 
                             _kwargs = dict(base_kwargs)

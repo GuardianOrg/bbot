@@ -9,6 +9,8 @@ from bbot.modules.base import BaseInterceptModule, BaseModule
 
 class DNSResolve(BaseInterceptModule):
     watched_events = ["*"]
+    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD"]
+    meta = {"description": "Perform DNS resolution", "created_date": "2022-04-08", "author": "@TheTechromancer"}
     _priority = 1
     scope_distance_modifier = None
 
@@ -73,6 +75,7 @@ class DNSResolve(BaseInterceptModule):
         if blacklisted:
             return False, "it has a blacklisted DNS record"
 
+        # DNS resolution for hosts that aren't IPs
         if not event_is_ip:
             # if the event is within our dns search distance, resolve the rest of our records
             if main_host_event.scope_distance < self._dns_search_distance:
@@ -82,9 +85,14 @@ class DNSResolve(BaseInterceptModule):
                     event_data_changed = await self.handle_wildcard_event(main_host_event)
                     if event_data_changed:
                         # since data has changed, we check again whether it's a duplicate
-                        if self.scan.ingress_module.is_incoming_duplicate(event, add=True):
+                        if event.type == "DNS_NAME" and self.scan.ingress_module.is_incoming_duplicate(
+                            event, add=True
+                        ):
                             if not event._graph_important:
-                                return False, "event was already emitted by its module"
+                                return (
+                                    False,
+                                    "it's a DNS wildcard, and its module already emitted a similar wildcard event",
+                                )
                             else:
                                 self.debug(
                                     f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
@@ -131,9 +139,9 @@ class DNSResolve(BaseInterceptModule):
             event.host, rdtypes=rdtypes, raw_dns_records=event.raw_dns_records
         )
         for rdtype, (is_wildcard, wildcard_host) in wildcard_rdtypes.items():
-            if is_wildcard == False:
+            if is_wildcard is False:
                 continue
-            elif is_wildcard == True:
+            elif is_wildcard is True:
                 event.add_tag("wildcard")
                 wildcard_tag = "wildcard"
             else:
@@ -142,16 +150,16 @@ class DNSResolve(BaseInterceptModule):
             event.add_tag(f"{rdtype}-{wildcard_tag}")
 
         # wildcard event modification (www.evilcorp.com --> _wildcard.evilcorp.com)
-        if wildcard_rdtypes and not "target" in event.tags:
+        if wildcard_rdtypes and "target" not in event.tags:
             # these are the rdtypes that have wildcards
             wildcard_rdtypes_set = set(wildcard_rdtypes)
             # consider the event a full wildcard if all its records are wildcards
             event_is_wildcard = False
             if wildcard_rdtypes_set:
-                event_is_wildcard = all(r[0] == True for r in wildcard_rdtypes.values())
+                event_is_wildcard = all(r[0] is True for r in wildcard_rdtypes.values())
 
             if event_is_wildcard:
-                if event.type in ("DNS_NAME",) and not "_wildcard" in event.data.split("."):
+                if event.type in ("DNS_NAME",) and "_wildcard" not in event.data.split("."):
                     wildcard_parent = self.helpers.parent_domain(event.host)
                     for rdtype, (_is_wildcard, _parent_domain) in wildcard_rdtypes.items():
                         if _is_wildcard:
@@ -273,7 +281,7 @@ class DNSResolve(BaseInterceptModule):
         # tag event with errors
         for rdtype, errors in dns_errors.items():
             # only consider it an error if there weren't any results for that rdtype
-            if errors and not rdtype in event.dns_children:
+            if errors and rdtype not in event.dns_children:
                 event.add_tag(f"{rdtype}-error")
 
     def get_dns_parent(self, event):
@@ -306,9 +314,7 @@ class DNSResolve(BaseInterceptModule):
     @property
     def emit_raw_records(self):
         if self._emit_raw_records is None:
-            watching_raw_records = any(
-                ["RAW_DNS_RECORD" in m.get_watched_events() for m in self.scan.modules.values()]
-            )
+            watching_raw_records = any("RAW_DNS_RECORD" in m.get_watched_events() for m in self.scan.modules.values())
             omitted_event_types = self.scan.config.get("omit_event_types", [])
             omit_raw_records = "RAW_DNS_RECORD" in omitted_event_types
             self._emit_raw_records = watching_raw_records or not omit_raw_records

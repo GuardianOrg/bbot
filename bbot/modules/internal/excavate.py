@@ -153,7 +153,7 @@ class ExcavateRule:
         yara_results = {}
         for h in r.strings:
             yara_results[h.identifier.lstrip("$")] = sorted(
-                set([i.matched_data.decode("utf-8", errors="ignore") for i in h.instances])
+                {i.matched_data.decode("utf-8", errors="ignore") for i in h.instances}
             )
         await self.process(yara_results, event, yara_rule_settings, discovery_context)
 
@@ -180,7 +180,7 @@ class ExcavateRule:
         Returns:
         None
         """
-        for identifier, results in yara_results.items():
+        for results in yara_results.values():
             for result in results:
                 event_data = {"description": f"{discovery_context} {yara_rule_settings.description}"}
                 if yara_rule_settings.emit_match:
@@ -314,7 +314,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
     _module_threads = 8
 
-    parameter_blacklist = set(
+    parameter_blacklist = {
         p.lower()
         for p in [
             "__VIEWSTATE",
@@ -329,7 +329,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             "JSESSIONID",
             "PHPSESSID",
         ]
-    )
+    }
 
     yara_rule_name_regex = re.compile(r"rule\s(\w+)\s{")
     yara_rule_regex = re.compile(r"(?s)((?:rule\s+\w+\s*{[^{}]*(?:{[^{}]*}[^{}]*)*[^{}]*(?:/\S*?}[^/]*?/)*)*})")
@@ -471,7 +471,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 self.parameterExtractorCallbackDict[r.__name__] = r
                 regexes_component_list.append(f"${r.__name__} = {r.discovery_regex}")
             regexes_component = " ".join(regexes_component_list)
-            self.yara_rules[f"parameter_extraction"] = (
+            self.yara_rules["parameter_extraction"] = (
                 rf'rule parameter_extraction {{meta: description = "contains POST form" strings: {regexes_component} condition: any of them}}'
             )
 
@@ -503,7 +503,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                             )
 
                             if self.excavate.helpers.validate_parameter(parameter_name, parameter_type):
-                                if self.excavate.in_bl(parameter_name) == False:
+                                if self.excavate.in_bl(parameter_name) is False:
                                     parsed_url = urlparse(url)
                                     description = f"HTTP Extracted Parameter [{parameter_name}] ({parameterExtractorSubModule.name} Submodule)"
                                     data = {
@@ -579,7 +579,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             for signature_name, signature in self.signatures.items():
                 signature_component_list.append(rf"${signature_name} = {signature}")
             signature_component = " ".join(signature_component_list)
-            self.yara_rules[f"error_detection"] = (
+            self.yara_rules["error_detection"] = (
                 f'rule error_detection {{meta: description = "contains a verbose error message" strings: {signature_component} condition: any of them}}'
             )
 
@@ -608,7 +608,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             for regex_name, regex in self.regexes.items():
                 regexes_component_list.append(rf"${regex_name} = /\b{regex.pattern}/ nocase")
             regexes_component = " ".join(regexes_component_list)
-            self.yara_rules[f"serialization_detection"] = (
+            self.yara_rules["serialization_detection"] = (
                 f'rule serialization_detection {{meta: description = "contains a possible serialized object" strings: {regexes_component} condition: any of them}}'
             )
 
@@ -634,7 +634,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         scheme_blacklist = ["javascript", "mailto", "tel", "data", "vbscript", "about", "file"]
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
-            for identifier, results in yara_results.items():
+            for results in yara_results.values():
                 for url_str in results:
                     scheme = url_str.split("://")[0]
                     if scheme in self.scheme_blacklist:
@@ -656,7 +656,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         continue
                     if parsed_url.scheme in ["http", "https"]:
                         continue
-                    abort_if = lambda e: e.scope_distance > 0
+
+                    def abort_if(e):
+                        return e.scope_distance > 0
+
                     finding_data = {"host": str(host), "description": f"Non-HTTP URI: {parsed_url.geturl()}"}
                     await self.report(finding_data, event, yara_rule_settings, discovery_context, abort_if=abort_if)
                     protocol_data = {"protocol": parsed_url.scheme, "host": str(host)}
@@ -769,7 +772,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         def __init__(self, excavate):
             super().__init__(excavate)
             if excavate.scan.dns_yara_rules_uncompiled:
-                self.yara_rules[f"hostname_extraction"] = excavate.scan.dns_yara_rules_uncompiled
+                self.yara_rules["hostname_extraction"] = excavate.scan.dns_yara_rules_uncompiled
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
             for identifier in yara_results.keys():
@@ -817,7 +820,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         self.parameter_extraction = bool(modules_WEB_PARAMETER)
 
         self.retain_querystring = False
-        if self.config.get("retain_querystring", False) == True:
+        if self.config.get("retain_querystring", False) is True:
             self.retain_querystring = True
 
         for module in self.scan.modules.values():
@@ -847,7 +850,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     rules_content = f.read()
                 self.debug(f"Successfully loaded custom yara rules file [{self.custom_yara_rules}]")
             else:
-                self.debug(f"Custom yara rules file is NOT a file. Will attempt to treat it as rule content")
+                self.debug("Custom yara rules file is NOT a file. Will attempt to treat it as rule content")
                 rules_content = self.custom_yara_rules
 
             self.debug(f"Final combined yara rule contents: {rules_content}")
@@ -860,7 +863,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
                 rule_match = await self.helpers.re.search(self.yara_rule_name_regex, rule_content)
                 if not rule_match:
-                    return False, f"Custom Yara formatted incorrectly: could not find rule name"
+                    return False, "Custom Yara formatted incorrectly: could not find rule name"
 
                 rule_name = rule_match.groups(1)[0]
                 c = CustomExtractor(self)
@@ -936,8 +939,8 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         if event.type == "HTTP_RESPONSE":
             # Harvest GET parameters from URL, if it came directly from the target, and parameter extraction is enabled
             if (
-                self.parameter_extraction == True
-                and self.url_querystring_remove == False
+                self.parameter_extraction is True
+                and self.url_querystring_remove is False
                 and str(event.parent.parent.module) == "TARGET"
             ):
                 self.debug(f"Processing target URL [{urlunparse(event.parsed_url)}] for GET parameters")
@@ -949,7 +952,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     regex_name,
                     additional_params,
                 ) in extract_params_url(event.parsed_url):
-                    if self.in_bl(parameter_name) == False:
+                    if self.in_bl(parameter_name) is False:
                         description = f"HTTP Extracted Parameter [{parameter_name}] (Target URL)"
                         data = {
                             "host": parsed_url.hostname,
@@ -985,7 +988,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                             cookie_name = header_value.split("=")[0]
                             cookie_value = header_value.split("=")[1].split(";")[0]
 
-                            if self.in_bl(cookie_value) == False:
+                            if self.in_bl(cookie_value) is False:
                                 self.assigned_cookies[cookie_name] = cookie_value
                                 description = f"Set-Cookie Assigned Cookie [{cookie_name}]"
                                 data = {
@@ -1029,7 +1032,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                     regex_name,
                                     additional_params,
                                 ) in extract_params_location(header_value, event.parsed_url):
-                                    if self.in_bl(parameter_name) == False:
+                                    if self.in_bl(parameter_name) is False:
                                         description = f"HTTP Extracted Parameter [{parameter_name}] (Location Header)"
                                         data = {
                                             "host": parsed_url.hostname,

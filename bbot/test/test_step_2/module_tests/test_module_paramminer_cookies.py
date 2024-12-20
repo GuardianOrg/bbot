@@ -28,7 +28,7 @@ class TestParamminer_Cookies(Paramminer_Headers):
         module_test.monkeypatch.setattr(
             helper.HttpCompare, "gen_cache_buster", lambda *args, **kwargs: {"AAAAAA": "1"}
         )
-        expect_args = dict(headers={"Cookie": "admincookie=AAAAAAAAAAAAAA"})
+        expect_args = {"headers": {"Cookie": "admincookie=AAAAAAAAAAAAAA"}}
         respond_args = {"response_data": self.cookies_body_match}
         module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
 
