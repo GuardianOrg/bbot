@@ -1,4 +1,4 @@
-import subprocess
+import asyncio
 
 from pathlib import Path
 from .base import ModuleTestBase
@@ -7,37 +7,42 @@ from .base import ModuleTestBase
 class TestUnarchive(ModuleTestBase):
     targets = ["http://127.0.0.1:8888"]
     modules_overrides = ["filedownload", "httpx", "excavate", "speculate", "unarchive"]
-    temp_path = Path("/tmp/.bbot_test")
-
-    # Create a text file to compress
-    text_file = temp_path / "test.txt"
-    with open(text_file, "w") as f:
-        f.write("This is a test file")
-    zip_file = temp_path / "test.zip"
-    zip_zip_file = temp_path / "test_zip.zip"
-    bz2_file = temp_path / "test.bz2"
-    xz_file = temp_path / "test.xz"
-    zip7_file = temp_path / "test.7z"
-    rar_file = temp_path / "test.rar"
-    lzma_file = temp_path / "test.lzma"
-    tar_file = temp_path / "test.tar"
-    tgz_file = temp_path / "test.tgz"
-    commands = [
-        ("7z", "a", '-p""', "-aoa", f"{zip_file}", f"{text_file}"),
-        ("7z", "a", '-p""', "-aoa", f"{zip_zip_file}", f"{zip_file}"),
-        ("tar", "-C", f"{temp_path}", "-cvjf", f"{bz2_file}", f"{text_file.name}"),
-        ("tar", "-C", f"{temp_path}", "-cvJf", f"{xz_file}", f"{text_file.name}"),
-        ("7z", "a", '-p""', "-aoa", f"{zip7_file}", f"{text_file}"),
-        ("rar", "a", f"{rar_file}", f"{text_file}"),
-        ("tar", "-C", f"{temp_path}", "--lzma", "-cvf", f"{lzma_file}", f"{text_file.name}"),
-        ("tar", "-C", f"{temp_path}", "-cvf", f"{tar_file}", f"{text_file.name}"),
-        ("tar", "-C", f"{temp_path}", "-cvzf", f"{tgz_file}", f"{text_file.name}"),
-    ]
-
-    for command in commands:
-        subprocess.run(command, check=True)
 
     async def setup_after_prep(self, module_test):
+        temp_path = Path("/tmp/.bbot_test")
+
+        # Create a text file to compress
+        text_file = temp_path / "test.txt"
+        with open(text_file, "w") as f:
+            f.write("This is a test file")
+        zip_file = temp_path / "test.zip"
+        zip_zip_file = temp_path / "test_zip.zip"
+        bz2_file = temp_path / "test.bz2"
+        xz_file = temp_path / "test.xz"
+        zip7_file = temp_path / "test.7z"
+        rar_file = temp_path / "test.rar"
+        lzma_file = temp_path / "test.lzma"
+        tar_file = temp_path / "test.tar"
+        tgz_file = temp_path / "test.tgz"
+        commands = [
+            ("7z", "a", '-p""', "-aoa", f"{zip_file}", f"{text_file}"),
+            ("7z", "a", '-p""', "-aoa", f"{zip_zip_file}", f"{zip_file}"),
+            ("tar", "-C", f"{temp_path}", "-cvjf", f"{bz2_file}", f"{text_file.name}"),
+            ("tar", "-C", f"{temp_path}", "-cvJf", f"{xz_file}", f"{text_file.name}"),
+            ("7z", "a", '-p""', "-aoa", f"{zip7_file}", f"{text_file}"),
+            ("rar", "a", f"{rar_file}", f"{text_file}"),
+            ("tar", "-C", f"{temp_path}", "--lzma", "-cvf", f"{lzma_file}", f"{text_file.name}"),
+            ("tar", "-C", f"{temp_path}", "-cvf", f"{tar_file}", f"{text_file.name}"),
+            ("tar", "-C", f"{temp_path}", "-cvzf", f"{tgz_file}", f"{text_file.name}"),
+        ]
+
+        for command in commands:
+            process = await asyncio.create_subprocess_exec(
+                *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            assert process.returncode == 0, f"Command {command} failed with error: {stderr.decode()}"
+
         module_test.set_expect_requests(
             dict(uri="/"),
             dict(
@@ -56,7 +61,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.zip"),
                 dict(
-                    response_data=self.zip_file.read_bytes(),
+                    response_data=zip_file.read_bytes(),
                     headers={"Content-Type": "application/zip"},
                 ),
             ),
@@ -65,7 +70,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test-zip.zip"),
                 dict(
-                    response_data=self.zip_zip_file.read_bytes(),
+                    response_data=zip_zip_file.read_bytes(),
                     headers={"Content-Type": "application/zip"},
                 ),
             ),
@@ -74,7 +79,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.bz2"),
                 dict(
-                    response_data=self.bz2_file.read_bytes(),
+                    response_data=bz2_file.read_bytes(),
                     headers={"Content-Type": "application/x-bzip2"},
                 ),
             ),
@@ -83,7 +88,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.xz"),
                 dict(
-                    response_data=self.xz_file.read_bytes(),
+                    response_data=xz_file.read_bytes(),
                     headers={"Content-Type": "application/x-xz"},
                 ),
             ),
@@ -92,7 +97,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.7z"),
                 dict(
-                    response_data=self.zip7_file.read_bytes(),
+                    response_data=zip7_file.read_bytes(),
                     headers={"Content-Type": "application/x-7z-compressed"},
                 ),
             ),
@@ -101,7 +106,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.rar"),
                 dict(
-                    response_data=self.zip7_file.read_bytes(),
+                    response_data=zip7_file.read_bytes(),
                     headers={"Content-Type": "application/vnd.rar"},
                 ),
             ),
@@ -110,7 +115,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.lzma"),
                 dict(
-                    response_data=self.lzma_file.read_bytes(),
+                    response_data=lzma_file.read_bytes(),
                     headers={"Content-Type": "application/x-lzma"},
                 ),
             ),
@@ -119,7 +124,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.tar"),
                 dict(
-                    response_data=self.tar_file.read_bytes(),
+                    response_data=tar_file.read_bytes(),
                     headers={"Content-Type": "application/x-tar"},
                 ),
             ),
@@ -128,7 +133,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.tgz"),
                 dict(
-                    response_data=self.tgz_file.read_bytes(),
+                    response_data=tgz_file.read_bytes(),
                     headers={"Content-Type": "application/x-tgz"},
                 ),
             ),
