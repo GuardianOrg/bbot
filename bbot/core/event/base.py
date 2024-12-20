@@ -1683,6 +1683,8 @@ def make_event(
         When working within a module's `handle_event()`, use the instance method
         `self.make_event()` instead of calling this function directly.
     """
+    if not data:
+        raise ValidationError("No data provided")
 
     # allow tags to be either a string or an array
     if not tags:
