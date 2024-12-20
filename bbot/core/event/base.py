@@ -515,21 +515,24 @@ class BaseEvent:
             new_scope_distance = min(self.scope_distance, scope_distance)
         if self._scope_distance != new_scope_distance:
             # remove old scope distance tags
-            for t in list(self.tags):
-                if t.startswith("distance-"):
-                    self.remove_tag(t)
-            if self.host:
-                if scope_distance == 0:
-                    self.add_tag("in-scope")
-                    self.remove_tag("affiliate")
-                else:
-                    self.remove_tag("in-scope")
-                    self.add_tag(f"distance-{new_scope_distance}")
             self._scope_distance = new_scope_distance
+            self.refresh_scope_tags()
             # apply recursively to parent events
             parent_scope_distance = getattr(self.parent, "scope_distance", None)
             if parent_scope_distance is not None and self.parent is not self:
                 self.parent.scope_distance = new_scope_distance + 1
+
+    def refresh_scope_tags(self):
+        for t in list(self.tags):
+            if t.startswith("distance-"):
+                self.remove_tag(t)
+        if self.host:
+            if self.scope_distance == 0:
+                self.add_tag("in-scope")
+                self.remove_tag("affiliate")
+            else:
+                self.remove_tag("in-scope")
+                self.add_tag(f"distance-{self.scope_distance}")
 
     @property
     def scope_description(self):
@@ -1352,18 +1355,22 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
         self.parsed_url = self.validators.validate_url_parsed(url)
         data["url"] = self.parsed_url.geturl()
 
-        header_dict = {}
-        for i in data.get("raw_header", "").splitlines():
-            if len(i) > 0 and ":" in i:
-                k, v = i.split(":", 1)
-                k = k.strip().lower()
-                v = v.lstrip()
-                if k in header_dict:
-                    header_dict[k].append(v)
-                else:
-                    header_dict[k] = [v]
+        if not "raw_header" in data:
+            raise ValueError("raw_header is required for HTTP_RESPONSE events")
 
-        data["header-dict"] = header_dict
+        if "header-dict" not in data:
+            header_dict = {}
+            for i in data.get("raw_header", "").splitlines():
+                if len(i) > 0 and ":" in i:
+                    k, v = i.split(":", 1)
+                    k = k.strip().lower()
+                    v = v.lstrip()
+                    if k in header_dict:
+                        header_dict[k].append(v)
+                    else:
+                        header_dict[k] = [v]
+            data["header-dict"] = header_dict
+
         # move URL to the front of the dictionary for visibility
         data = dict(data)
         new_data = {"url": data.pop("url")}
@@ -1376,6 +1383,13 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
 
     def _pretty_string(self):
         return f'{self.data["hash"]["header_mmh3"]}:{self.data["hash"]["body_mmh3"]}'
+
+    @property
+    def raw_response(self):
+        """
+        Formats the status code, headers, and body into a single string formatted as an HTTP/1.1 response.
+        """
+        return f'{self.data["raw_header"]}{self.data["body"]}'
 
     @property
     def http_status(self):
