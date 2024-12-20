@@ -179,7 +179,9 @@ class filedownload(BaseModule):
         if extension:
             filename = f"{filename}.{extension}"
             orig_filename = f"{orig_filename}.{extension}"
-        return orig_filename, self.download_dir / filename, base_url
+        file_destination = self.download_dir / filename
+        file_destination = self.helpers.truncate_filename(file_destination)
+        return orig_filename, file_destination, base_url
 
     async def report(self):
         if self.files_downloaded > 0:

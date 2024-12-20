@@ -590,7 +590,7 @@ class BaseEvent:
                         if t in ("spider-danger", "spider-max"):
                             self.add_tag(t)
         elif not self._dummy:
-            log.warning(f"Tried to set invalid parent on {self}: (got: {parent})")
+            log.warning(f"Tried to set invalid parent on {self}: (got: {repr(parent)} ({type(parent)}))")
 
     @property
     def parent_id(self):
@@ -1045,6 +1045,9 @@ class DictPathEvent(DictEvent):
         blob = None
         try:
             self._data_path = Path(data["path"])
+            # prepend the scan's home dir if the path is relative
+            if not self._data_path.is_absolute():
+                self._data_path = self.scan.home / self._data_path
             if self._data_path.is_file():
                 self.add_tag("file")
                 if file_blobs:
