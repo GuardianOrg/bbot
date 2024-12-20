@@ -72,9 +72,10 @@ class CloudCheck(BaseInterceptModule):
                 base_kwargs["event_type"] = event_type
                 for sig in sigs:
                     matches = []
-                    if event.type == "HTTP_RESPONSE":
-                        matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
-                    elif event.type.startswith("DNS_NAME"):
+                    # TODO: convert this to an excavate YARA hook
+                    # if event.type == "HTTP_RESPONSE":
+                    #     matches = await self.helpers.re.findall(sig, event.data.get("body", ""))
+                    if event.type.startswith("DNS_NAME"):
                         for host in str_hosts_to_check:
                             match = sig.match(host)
                             if match:

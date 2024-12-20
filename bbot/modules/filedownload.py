@@ -38,6 +38,7 @@ class filedownload(BaseModule):
             "indd",  #  Adobe InDesign Document
             "ini",  #  Initialization File
             "jar",  #  Java Archive
+            "json",  #  JSON File
             "key",  #  Private Key File
             "log",  #  Log File
             "markdown",  #  Markdown File
@@ -57,6 +58,7 @@ class filedownload(BaseModule):
             "pub",  #  Public Key File
             "raw",  #  Raw Image File Format
             "rdp",  #  Remote Desktop Protocol File
+            "rsa",  #  RSA Private Key File
             "sh",  #  Shell Script
             "sql",  #  SQL Database Dump
             "sqlite",  #  SQLite Database File
