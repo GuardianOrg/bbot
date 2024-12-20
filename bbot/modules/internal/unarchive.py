@@ -12,7 +12,6 @@ class unarchive(BaseInternalModule):
         "created_date": "2024-12-08",
         "author": "@domwhewell-sage",
     }
-    deps_apt = ["7zip", "tar", "rar", "unrar", "gunzip"]
 
     async def setup(self):
         self.ignore_compressions = ["application/java-archive", "application/vnd.android.package-archive"]
