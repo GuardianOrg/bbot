@@ -146,7 +146,8 @@ class filedownload(BaseModule):
                 file_event = self.make_event(
                     {"path": str(file_destination)}, "FILESYSTEM", tags=["filedownload", "file"], parent=source_event
                 )
-                await self.emit_event(file_event)
+                if file_event is not None:
+                    await self.emit_event(file_event)
         self.urls_downloaded.add(hash(url))
 
     def make_filename(self, url, content_type=None):
