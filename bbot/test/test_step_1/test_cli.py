@@ -342,7 +342,7 @@ async def test_cli_args(monkeypatch, caplog, capsys, clean_default_config):
     monkeypatch.setattr("sys.argv", ["bbot", "-y"])
     result = await cli._main()
     assert result is True
-    assert "Loaded 6/6 internal modules (aggregate,cloudcheck,dnsresolve,excavate,unarchive,speculate)" in caplog.text
+    assert "Loaded 6/6 internal modules (aggregate,cloudcheck,dnsresolve,excavate,speculate,unarchive)" in caplog.text
     caplog.clear()
     monkeypatch.setattr("sys.argv", ["bbot", "-em", "excavate", "speculate", "-y"])
     result = await cli._main()
