@@ -22,10 +22,11 @@ class iis_shortnames(BaseModule):
         "created_date": "2022-04-15",
         "author": "@liquidsec",
     }
-    options = {"detect_only": True, "max_node_count": 50}
+    options = {"detect_only": True, "max_node_count": 50, "speculate_magic_urls": True}
     options_desc = {
         "detect_only": "Only detect the vulnerability and do not run the shortname scanner",
         "max_node_count": "Limit how many nodes to attempt to resolve on any given recursion branch",
+        "speculate_magic_urls": "Attempt to discover iis 'magic' special folders"
     }
     in_scope_only = True
 
@@ -235,7 +236,17 @@ class iis_shortnames(BaseModule):
                 "VULNERABILITY",
                 event,
                 context="{module} detected low {event.type}: IIS shortname enumeration",
+                tags=["iis-magic-url"]
             )
+
+
+            if self.config.get("speculate_magic_urls") and "iis-magic-url" not in event.tags:
+
+                magic_url_bin = f"{normalized_url}bin::$INDEX_ALLOCATION/"
+                self.debug(f"making IIS magic URL: {magic_url_bin}")
+                magic_url_event = self.make_event(magic_url_bin, "URL", parent=event, tags=["iis-magic-url","status-403"])
+                await self.scan.modules["iis_shortnames"].incoming_event_queue.put(magic_url_event)
+
             if not self.config.get("detect_only"):
                 for detection in detections:
                     safety_counter = safety_counter_obj()
@@ -324,11 +335,15 @@ class iis_shortnames(BaseModule):
                             hint_type = "shortname-file"
                         else:
                             hint_type = "shortname-directory"
+
+                        tags = [hint_type]
+                        if "iis-magic-url" in event.tags:
+                            tags.append("iis-magic-url")
                         await self.emit_event(
                             f"{normalized_url}/{url_hint}",
                             "URL_HINT",
                             event,
-                            tags=[hint_type],
+                            tags=tags,
                             context=f"{{module}} enumerated shortnames at {normalized_url} and found {{event.type}}: {url_hint}",
                         )
 
