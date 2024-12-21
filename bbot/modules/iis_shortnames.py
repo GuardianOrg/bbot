@@ -132,7 +132,10 @@ class iis_shortnames(BaseModule):
         kwargs = {"method": method, "allow_redirects": False, "retries": 2, "timeout": 10}
         for c in valid_chars:
             for file_part in ("stem", "ext"):
-                payload = encode_all(f"*{c}*~1*")
+                if file_part == "stem":
+                    payload = encode_all(f"*{c}*~1*")
+                elif file_part == "ext":
+                    payload = encode_all(f"*~1*{c}*")
                 url = f"{target}{payload}{suffix}"
                 urls_and_kwargs.append((url, kwargs, (c, file_part)))
 
@@ -256,7 +259,6 @@ class iis_shortnames(BaseModule):
 
                     if valid_method_confirmed:
                         break
-
                     confirmed_chars, confirmed_exts = await self.solve_valid_chars(
                         method, normalized_url, affirmative_status_code
                     )
@@ -272,8 +274,8 @@ class iis_shortnames(BaseModule):
                     else:
                         continue
 
-                    self.debug(f"Confirmed character list: {','.join(confirmed_chars)}")
-                    self.debug(f"Confirmed character list: {','.join(confirmed_exts)}")
+                    self.verbose(f"Confirmed character list: {','.join(confirmed_chars)}")
+                    self.verbose(f"Confirmed ext character list: {','.join(confirmed_exts)}")
                     try:
                         file_name_hints = list(
                             set(
