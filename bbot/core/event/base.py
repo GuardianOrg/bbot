@@ -1578,19 +1578,22 @@ class FILESYSTEM(DictPathEvent):
             # detect type of file content using magic
             from bbot.core.helpers.libmagic import get_magic_info, get_compression
 
-            extension, mime_type, description, confidence = get_magic_info(self.data["path"])
-            self.data["magic_extension"] = extension
-            self.data["magic_mime_type"] = mime_type
-            self.data["magic_description"] = description
-            self.data["magic_confidence"] = confidence
-            # detection compression
-            compression = get_compression(mime_type)
-            if compression:
-                self.add_tag("compressed")
-                self.add_tag(f"{compression}-archive")
-                self.data["compression"] = compression
-            # refresh hash
-            self.data = self.data
+            try:
+                extension, mime_type, description, confidence = get_magic_info(self.data["path"])
+                self.data["magic_extension"] = extension
+                self.data["magic_mime_type"] = mime_type
+                self.data["magic_description"] = description
+                self.data["magic_confidence"] = confidence
+                # detection compression
+                compression = get_compression(mime_type)
+                if compression:
+                    self.add_tag("compressed")
+                    self.add_tag(f"{compression}-archive")
+                    self.data["compression"] = compression
+                # refresh hash
+                self.data = self.data
+            except Exception as e:
+                log.debug(f"Error detecting file type: {type(e).__name__}: {e}")
 
 
 class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
@@ -1683,6 +1686,8 @@ def make_event(
         When working within a module's `handle_event()`, use the instance method
         `self.make_event()` instead of calling this function directly.
     """
+    if not data:
+        raise ValidationError("No data provided")
 
     # allow tags to be either a string or an array
     if not tags:

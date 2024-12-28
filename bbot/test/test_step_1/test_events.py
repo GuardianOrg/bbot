@@ -622,6 +622,10 @@ async def test_events(events, helpers):
     assert str(parent_event_3.module) == "mymodule"
     assert str(parent_event_3.module_sequence) == "mymodule->mymodule->mymodule"
 
+    # event with no data
+    with pytest.raises(ValidationError):
+        event = scan.make_event(None, "DNS_NAME", parent=scan.root_event)
+
     await scan._cleanup()
 
 
