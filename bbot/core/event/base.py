@@ -1232,16 +1232,27 @@ class URL_UNVERIFIED(BaseEvent):
         return data
 
     def add_tag(self, tag):
-        if tag == "spider-danger":
-            # if there's a URL anywhere in our parent chain that shares our host, we're in dAnGeR
-            host_in_parents = any(p.type == "URL" and (p.host == self.host) for p in self.get_parents())
-            log.hugeinfo(f"{self}: host_in_parents: {host_in_parents}")
-            if host_in_parents and "spider-danger" not in self.tags:
+        self_url = getattr(self, "parsed_url", "")
+        self_host = getattr(self, "host", "")
+        # autoincrement web spider distance if the "spider-danger" tag is added
+        if tag == "spider-danger" and "spider-danger" not in self.tags and self_url and self_host:
+            parent_hosts_and_urls = set()
+            for p in self.get_parents():
+                # URL_UNVERIFIED events don't count because they haven't been visited yet
+                if p.type == "URL_UNVERIFIED":
+                    continue
+                url = getattr(p, "parsed_url", "")
+                parent_hosts_and_urls.add((p.host, url))
+            # if there's a URL anywhere in our parent chain that's different from ours but shares our host, we're in dAnGeR
+            dangerous_parent = any(
+                p_host == self.host and p_url != self_url for p_host, p_url in parent_hosts_and_urls
+            )
+            if dangerous_parent:
                 # increment the web spider distance
                 if self.type == "URL_UNVERIFIED":
                     self.web_spider_distance += 1
-            if self.is_spider_max:
-                self.add_tag("spider-max")
+                if self.is_spider_max:
+                    self.add_tag("spider-max")
         super().add_tag(tag)
 
     @property
