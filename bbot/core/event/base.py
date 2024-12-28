@@ -1232,8 +1232,8 @@ class URL_UNVERIFIED(BaseEvent):
         return data
 
     def add_tag(self, tag):
-        host_same_as_parent = self.parent and self.host == self.parent.host
-        if tag == "spider-danger" and host_same_as_parent and "spider-danger" not in self.tags:
+        host_in_parents = any(p.host and (self.host == p.host) for p in self.get_parents())
+        if tag == "spider-danger" and host_in_parents and "spider-danger" not in self.tags:
             # increment the web spider distance
             if self.type == "URL_UNVERIFIED":
                 self.web_spider_distance += 1
