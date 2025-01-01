@@ -58,6 +58,10 @@ class postman(postman):
                     in_scope = await self.validate_workspace(workspace, environments, collections)
                     if in_scope:
                         return {"url": repo_url, "repo_name": slug}
+                    else:
+                        self.verbose(
+                            f"Failed to validate {repo_url} is in our scope as it does not contain any in-scope dns_names / emails"
+                        )
         return None
 
     async def query(self, query):

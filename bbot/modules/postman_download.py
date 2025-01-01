@@ -24,11 +24,7 @@ class postman_download(postman):
         else:
             self.output_dir = self.scan.home / "postman_workspaces"
         self.helpers.mkdir(self.output_dir)
-        return await self.require_api_key()
-
-    def prepare_api_request(self, url, kwargs):
-        kwargs["headers"]["X-Api-Key"] = self.api_key
-        return url, kwargs
+        return await super().setup()
 
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":
@@ -45,21 +41,15 @@ class postman_download(postman):
             workspace = data["workspace"]
             environments = data["environments"]
             collections = data["collections"]
-            in_scope = await self.validate_workspace(workspace, environments, collections)
-            if in_scope:
-                workspace_path = self.save_workspace(workspace, environments, collections)
-                if workspace_path:
-                    self.verbose(f"Downloaded workspace from {repo_url} to {workspace_path}")
-                    codebase_event = self.make_event(
-                        {"path": str(workspace_path)}, "FILESYSTEM", tags=["postman", "workspace"], parent=event
-                    )
-                    await self.emit_event(
-                        codebase_event,
-                        context=f"{{module}} downloaded postman workspace at {repo_url} to {{event.type}}: {workspace_path}",
-                    )
-            else:
-                self.verbose(
-                    f"Failed to validate {repo_url} is in our scope as it does not contain any in-scope dns_names / emails, skipping download"
+            workspace_path = self.save_workspace(workspace, environments, collections)
+            if workspace_path:
+                self.verbose(f"Downloaded workspace from {repo_url} to {workspace_path}")
+                codebase_event = self.make_event(
+                    {"path": str(workspace_path)}, "FILESYSTEM", tags=["postman", "workspace"], parent=event
+                )
+                await self.emit_event(
+                    codebase_event,
+                    context=f"{{module}} downloaded postman workspace at {repo_url} to {{event.type}}: {workspace_path}",
                 )
 
     def save_workspace(self, workspace, environments, collections):
