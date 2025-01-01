@@ -18,28 +18,28 @@ class postman(postman):
         # Handle postman profile
         if event.type == "SOCIAL":
             owner = event.data.get("profile_name", "")
-            data = await self.process_workspaces(user=owner)
-            repo_url = data["url"]
-            repo_name = data["repo_name"]
-            context = f'{{module}} searched postman.com for workspaces belonging to "{owner}" and found "{repo_name}" at {{event.type}}: {repo_url}'
+            in_scope_workspaces = await self.process_workspaces(user=owner)
         elif event.type == "ORG_STUB":
             owner = event.data
-            data = await self.process_workspaces(org=owner)
-            repo_url = data["url"]
-            repo_name = data["repo_name"]
-            context = f'{{module}} searched postman.com for "{owner}" and found matching workspace "{repo_name}" at {{event.type}}: {repo_url}'
-        if data:
-            repo_url = data["url"]
-            repo_name = data["repo_name"]
-            await self.emit_event(
-                {"url": repo_url},
-                "CODE_REPOSITORY",
-                tags="postman",
-                parent=event,
-                context=context,
-            )
+            in_scope_workspaces = await self.process_workspaces(org=owner)
+        if in_scope_workspaces:
+            for workspace in in_scope_workspaces:
+                repo_url = workspace["url"]
+                repo_name = workspace["repo_name"]
+                if event.type == "SOCIAL":
+                    context = f'{{module}} searched postman.com for workspaces belonging to "{owner}" and found "{repo_name}" at {{event.type}}: {repo_url}'
+                elif event.type == "ORG_STUB":
+                    context = f'{{module}} searched postman.com for "{owner}" and found matching workspace "{repo_name}" at {{event.type}}: {repo_url}'
+                await self.emit_event(
+                    {"url": repo_url},
+                    "CODE_REPOSITORY",
+                    tags="postman",
+                    parent=event,
+                    context=context,
+                )
 
     async def process_workspaces(self, user=None, org=None):
+        in_scope_workspaces = []
         owner = user or org
         if owner:
             self.verbose(f"Searching for postman workspaces, collections, requests for {owner}")
@@ -52,17 +52,16 @@ class postman(postman):
                 if (org and workspace_id) or (user and owner.lower() == profile.lower()):
                     self.verbose(f"Found workspace ID {workspace_id} for {repo_url}")
                     data = await self.request_workspace(workspace_id)
-                    workspace = data["workspace"]
-                    environments = data["environments"]
-                    collections = data["collections"]
-                    in_scope = await self.validate_workspace(workspace, environments, collections)
+                    in_scope = await self.validate_workspace(
+                        data["workspace"], data["environments"], data["collections"]
+                    )
                     if in_scope:
-                        return {"url": repo_url, "repo_name": slug}
+                        in_scope_workspaces.append({"url": repo_url, "repo_name": slug})
                     else:
                         self.verbose(
                             f"Failed to validate {repo_url} is in our scope as it does not contain any in-scope dns_names / emails"
                         )
-        return None
+        return in_scope_workspaces
 
     async def query(self, query):
         data = []
