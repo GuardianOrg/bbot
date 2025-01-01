@@ -1,7 +1,7 @@
 import asyncio
 
 from pathlib import Path
-from .base import ModuleTestBase
+from .base import ModuleTestBase, temprarfile
 
 
 class TestUnarchive(ModuleTestBase):
@@ -20,7 +20,6 @@ class TestUnarchive(ModuleTestBase):
         bz2_file = temp_path / "test.bz2"
         xz_file = temp_path / "test.xz"
         zip7_file = temp_path / "test.7z"
-        rar_file = temp_path / "test.rar"
         lzma_file = temp_path / "test.lzma"
         tar_file = temp_path / "test.tar"
         tgz_file = temp_path / "test.tgz"
@@ -30,7 +29,6 @@ class TestUnarchive(ModuleTestBase):
             ("tar", "-C", f"{temp_path}", "-cvjf", f"{bz2_file}", f"{text_file.name}"),
             ("tar", "-C", f"{temp_path}", "-cvJf", f"{xz_file}", f"{text_file.name}"),
             ("7z", "a", '-p""', "-aoa", f"{zip7_file}", f"{text_file}"),
-            ("rar", "a", f"{rar_file}", f"{text_file}"),
             ("tar", "-C", f"{temp_path}", "--lzma", "-cvf", f"{lzma_file}", f"{text_file.name}"),
             ("tar", "-C", f"{temp_path}", "-cvf", f"{tar_file}", f"{text_file.name}"),
             ("tar", "-C", f"{temp_path}", "-cvzf", f"{tgz_file}", f"{text_file.name}"),
@@ -42,6 +40,7 @@ class TestUnarchive(ModuleTestBase):
             )
             stdout, stderr = await process.communicate()
             assert process.returncode == 0, f"Command {command} failed with error: {stderr.decode()}"
+        rar_file = temprarfile()
 
         module_test.set_expect_requests(
             dict(uri="/"),
@@ -106,7 +105,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.rar"),
                 dict(
-                    response_data=zip7_file.read_bytes(),
+                    response_data=rar_file,
                     headers={"Content-Type": "application/vnd.rar"},
                 ),
             ),
