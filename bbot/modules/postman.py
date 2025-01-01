@@ -10,50 +10,55 @@ class postman(postman):
         "created_date": "2024-09-07",
         "author": "@domwhewell-sage",
     }
-
+    options = {"api_key": ""}
+    options_desc = {"api_key": "Postman API Key"}
     reject_wildcards = False
 
     async def handle_event(self, event):
         # Handle postman profile
         if event.type == "SOCIAL":
-            await self.handle_profile(event)
+            owner = event.data.get("profile_name", "")
+            data = await self.process_workspaces(user=owner)
+            repo_url = data["url"]
+            repo_name = data["repo_name"]
+            context = f'{{module}} searched postman.com for workspaces belonging to "{owner}" and found "{repo_name}" at {{event.type}}: {repo_url}'
         elif event.type == "ORG_STUB":
-            await self.handle_org_stub(event)
-
-    async def handle_profile(self, event):
-        profile_name = event.data.get("profile_name", "")
-        self.verbose(f"Searching for postman workspaces, collections, requests belonging to {profile_name}")
-        for item in await self.query(profile_name):
-            workspace = item["document"]
-            name = workspace["slug"]
-            profile = workspace["publisherHandle"]
-            if profile_name.lower() == profile.lower():
-                self.verbose(f"Got {name}")
-                workspace_url = f"{self.html_url}/{profile}/{name}"
-                await self.emit_event(
-                    {"url": workspace_url},
-                    "CODE_REPOSITORY",
-                    tags="postman",
-                    parent=event,
-                    context=f'{{module}} searched postman.com for workspaces belonging to "{profile_name}" and found "{name}" at {{event.type}}: {workspace_url}',
-                )
-
-    async def handle_org_stub(self, event):
-        org_name = event.data
-        self.verbose(f"Searching for any postman workspaces, collections, requests for {org_name}")
-        for item in await self.query(org_name):
-            workspace = item["document"]
-            name = workspace["slug"]
-            profile = workspace["publisherHandle"]
-            self.verbose(f"Got {name}")
-            workspace_url = f"{self.html_url}/{profile}/{name}"
+            owner = event.data
+            data = await self.process_workspaces(org=owner)
+            repo_url = data["url"]
+            repo_name = data["repo_name"]
+            context = f'{{module}} searched postman.com for "{owner}" and found matching workspace "{repo_name}" at {{event.type}}: {repo_url}'
+        if data:
+            repo_url = data["url"]
+            repo_name = data["repo_name"]
             await self.emit_event(
-                {"url": workspace_url},
+                {"url": repo_url},
                 "CODE_REPOSITORY",
                 tags="postman",
                 parent=event,
-                context=f'{{module}} searched postman.com for "{org_name}" and found matching workspace "{name}" at {{event.type}}: {workspace_url}',
+                context=context,
             )
+
+    async def process_workspaces(self, user=None, org=None):
+        owner = user or org
+        if owner:
+            self.verbose(f"Searching for postman workspaces, collections, requests for {owner}")
+            for item in await self.query(owner):
+                workspace = item["document"]
+                slug = workspace["slug"]
+                profile = workspace["publisherHandle"]
+                repo_url = f"{self.html_url}/{profile}/{slug}"
+                workspace_id = await self.get_workspace_id(repo_url)
+                if (org and workspace_id) or (user and owner.lower() == profile.lower()):
+                    self.verbose(f"Found workspace ID {workspace_id} for {repo_url}")
+                    data = await self.request_workspace(workspace_id)
+                    workspace = data["workspace"]
+                    environments = data["environments"]
+                    collections = data["collections"]
+                    in_scope = await self.validate_workspace(workspace, environments, collections)
+                    if in_scope:
+                        return {"url": repo_url, "repo_name": slug}
+        return None
 
     async def query(self, query):
         data = []
