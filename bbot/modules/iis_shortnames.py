@@ -334,7 +334,7 @@ class iis_shortnames(BaseModule):
 
                     for url_hint in url_hint_list:
                         if "." in url_hint:
-                            hint_type = "shortname-file"
+                            hint_type = "shortname-endpoint"
                         else:
                             hint_type = "shortname-directory"
 
