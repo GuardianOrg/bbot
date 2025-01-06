@@ -783,7 +783,9 @@ async def test_hostname_extraction(bbot_scanner):
         {
             "evilcorp.com": {
                 "A": ["127.0.0.1"],
-                "TXT": ["v=spf1 include:spf-a.evilcorp.com include:spf-b.evilcorp.com include:icpbounce.com include:shops.shopify.com include:_spf.qemailserver.com include:spf.mandrillapp.com include:spf.protection.office365.us include:spf-003ea501.gpphosted.com 127.0.0.1 -all"]
+                "TXT": [
+                    "v=spf1 include:spf-a.evilcorp.com include:spf-b.evilcorp.com include:icpbounce.com include:shops.shopify.com include:_spf.qemailserver.com include:spf.mandrillapp.com include:spf.protection.office365.us include:spf-003ea501.gpphosted.com 127.0.0.1 -all"
+                ],
             }
         }
     )
