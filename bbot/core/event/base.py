@@ -1232,11 +1232,25 @@ class URL_UNVERIFIED(BaseEvent):
         return data
 
     def add_tag(self, tag):
-        host_same_as_parent = self.parent and self.host == self.parent.host
-        if tag == "spider-danger" and host_same_as_parent and "spider-danger" not in self.tags:
-            # increment the web spider distance
-            if self.type == "URL_UNVERIFIED":
-                self.web_spider_distance += 1
+        self_url = getattr(self, "parsed_url", "")
+        self_host = getattr(self, "host", "")
+        # autoincrement web spider distance if the "spider-danger" tag is added
+        if tag == "spider-danger" and "spider-danger" not in self.tags and self_url and self_host:
+            parent_hosts_and_urls = set()
+            for p in self.get_parents():
+                # URL_UNVERIFIED events don't count because they haven't been visited yet
+                if p.type == "URL_UNVERIFIED":
+                    continue
+                url = getattr(p, "parsed_url", "")
+                parent_hosts_and_urls.add((p.host, url))
+            # if there's a URL anywhere in our parent chain that's different from ours but shares our host, we're in dAnGeR
+            dangerous_parent = any(
+                p_host == self.host and p_url != self_url for p_host, p_url in parent_hosts_and_urls
+            )
+            if dangerous_parent:
+                # increment the web spider distance
+                if self.type == "URL_UNVERIFIED":
+                    self.web_spider_distance += 1
                 if self.is_spider_max:
                     self.add_tag("spider-max")
         super().add_tag(tag)
