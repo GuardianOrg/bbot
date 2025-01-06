@@ -190,6 +190,12 @@ class generic_ssrf(BaseModule):
 
     async def interactsh_callback(self, r):
         full_id = r.get("full-id", None)
+        dns_request = r.get("dns-request", "")
+        
+        # Debug logging to see what we're receiving
+        self.debug(f"Interactsh callback received: {r}")
+        self.debug(f"Full DNS request: {dns_request}")
+        
         if full_id:
             if "." in full_id:
                 match = self.interactsh_subdomain_tags.get(full_id.split(".")[0])
@@ -200,12 +206,27 @@ class generic_ssrf(BaseModule):
                 matched_severity = match[2]
                 matched_read_response = str(match[3])
 
+                # Check if any SSRF parameter is in the DNS request
+                triggered_param = None
+                for param in ssrf_params:
+                    if param.lower() in str(r).lower():  # Check entire response object
+                        triggered_param = param
+                        self.debug(f"Found triggering parameter: {param}")
+                        break
+
+                description = f"Out-of-band interaction: [{matched_technique}]"
+                if triggered_param:
+                    description += f" [Parameter: {triggered_param}]"
+                description += f" [{r.get('protocol').upper()}] Read Response: {matched_read_response}"
+
+                self.debug(f"Emitting event with description: {description}")  # Debug the final description
+
                 await self.emit_event(
                     {
                         "severity": matched_severity,
                         "host": str(matched_event.host),
                         "url": matched_event.data,
-                        "description": f"Out-of-band interaction: [{matched_technique}] [{r.get('protocol').upper()}] Read Response: {matched_read_response}",
+                        "description": description,
                     },
                     "VULNERABILITY",
                     matched_event,
