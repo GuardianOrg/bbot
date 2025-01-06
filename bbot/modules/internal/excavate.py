@@ -1,6 +1,7 @@
 import yara
 import json
 import html
+import time
 import inspect
 import regex as re
 from pathlib import Path
@@ -881,16 +882,12 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         yara.set_config(max_match_data=yara_max_match_data)
         yara_rules_combined = "\n".join(self.yara_rules_dict.values())
         try:
-            import time
-
             start = time.time()
-            self.info(f"Compiling {len(self.yara_rules_dict):,} YARA rules")
+            self.debug(f"Compiling {len(self.yara_rules_dict):,} YARA rules")
             for rule_name, rule_content in self.yara_rules_dict.items():
                 self.debug(f"  - {rule_name}")
             self.yara_rules = yara.compile(source=yara_rules_combined)
-            self.info(f"{len(self.yara_rules_dict):,} YARA rules compiled in {time.time() - start:.2f} seconds")
-            for rule_name in self.yara_rules_dict:
-                self.info(f"  - {rule_name}")
+            self.debug(f"{len(self.yara_rules_dict):,} YARA rules compiled in {time.time() - start:.2f} seconds")
         except yara.SyntaxError as e:
             self.debug(yara_rules_combined)
             return False, f"Yara Rules failed to compile with error: [{e}]"
