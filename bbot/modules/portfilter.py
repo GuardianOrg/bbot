@@ -20,8 +20,8 @@ class portfilter(BaseInterceptModule):
 
     async def setup(self):
         self.cdn_tags = [t.strip() for t in self.config.get("cdn_tags", "").split(",")]
-        self.allowed_cdn_ports = self.config.get("allowed_cdn_ports", None)
-        if self.allowed_cdn_ports is not None:
+        self.allowed_cdn_ports = self.config.get("allowed_cdn_ports", "").strip()
+        if self.allowed_cdn_ports:
             try:
                 self.allowed_cdn_ports = [int(p.strip()) for p in self.allowed_cdn_ports.split(",")]
             except Exception as e:
@@ -29,14 +29,14 @@ class portfilter(BaseInterceptModule):
         return True
 
     async def handle_event(self, event):
-        if self.allowed_cdn_ports is not None:
+        # if the port isn't in our list of allowed CDN ports
+        if event.port not in self.allowed_cdn_ports:
             for cdn_tag in self.cdn_tags:
-                # if any of the event's tags match our CDN filter
+                # and if any of the event's tags match our CDN filter
                 if any(t.startswith(str(cdn_tag)) for t in event.tags):
-                    # and if its port isn't in the list of allowed CDN ports
-                    if event.port not in self.allowed_cdn_ports:
-                        return (
-                            False,
-                            f"one of the event's tags matches the tag '{cdn_tag}' and the port is not in the allowed list",
-                        )
+                    return (
+                        False,
+                        f"one of the event's tags matches the tag '{cdn_tag}' and the port is not in the allowed list",
+                    )
         return True
+

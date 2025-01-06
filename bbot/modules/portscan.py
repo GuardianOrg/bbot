@@ -232,7 +232,7 @@ class portscan(BaseModule):
             context=f"{{module}} executed a {scan_type} scan against {parent_event.data} and found: {{event.type}}: {{event.data}}",
         )
 
-        await self.emit_event(event, abort_if=self.abort_if)
+        await self.emit_event(event)
         return event
 
     def parse_json_line(self, line):
