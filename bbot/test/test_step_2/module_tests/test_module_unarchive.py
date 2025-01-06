@@ -1,7 +1,7 @@
 import asyncio
 
 from pathlib import Path
-from .base import ModuleTestBase, temprarfile
+from .base import ModuleTestBase
 
 
 class TestUnarchive(ModuleTestBase):
@@ -40,7 +40,6 @@ class TestUnarchive(ModuleTestBase):
             )
             stdout, stderr = await process.communicate()
             assert process.returncode == 0, f"Command {command} failed with error: {stderr.decode()}"
-        rar_file = temprarfile()
 
         module_test.set_expect_requests(
             dict(uri="/"),
@@ -105,7 +104,7 @@ class TestUnarchive(ModuleTestBase):
             module_test.set_expect_requests(
                 dict(uri="/test.rar"),
                 dict(
-                    response_data=rar_file,
+                    response_data=b"Rar!\x1a\x07\x01\x003\x92\xb5\xe5\n\x01\x05\x06\x00\x05\x01\x01\x80\x80\x00\xa2N\x8ec&\x02\x03\x0b\x93\x00\x04\x93\x00\xa4\x83\x02\xc9\x11f\x06\x80\x00\x01\x08test.txt\n\x03\x13S\x96ug\x96\xf3\x1b\x06This is a test file\x1dwVQ\x03\x05\x04\x00",
                     headers={"Content-Type": "application/vnd.rar"},
                 ),
             ),

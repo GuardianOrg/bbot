@@ -49,13 +49,6 @@ def tempapkfile():
     return apk_file
 
 
-def temprarfile():
-    current_dir = Path(__file__).parent
-    with open(current_dir / "test.rar", "rb") as f:
-        rar_file = f.read()
-    return rar_file
-
-
 @pytest.fixture
 def clean_default_config(monkeypatch):
     clean_config = OmegaConf.merge(
