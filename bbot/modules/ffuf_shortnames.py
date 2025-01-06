@@ -8,6 +8,7 @@ from bbot.modules.deadly.ffuf import ffuf
 class ffuf_shortnames(ffuf):
     watched_events = ["URL_HINT"]
     produced_events = ["URL_UNVERIFIED"]
+    deps_pip = ["numpy"]
     flags = ["aggressive", "active", "iis-shortnames", "web-thorough"]
     meta = {
         "description": "Use ffuf in combination IIS shortnames",
