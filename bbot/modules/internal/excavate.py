@@ -776,8 +776,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
         def __init__(self, excavate):
             super().__init__(excavate)
-            if excavate.scan.dns_yara_rules_uncompiled:
-                self.yara_rules["hostname_extraction"] = excavate.scan.dns_yara_rules_uncompiled
+            self.yara_rules.update(excavate.scan.dns_yara_rules_uncompiled)
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
             for identifier in yara_results.keys():
@@ -882,10 +881,16 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         yara.set_config(max_match_data=yara_max_match_data)
         yara_rules_combined = "\n".join(self.yara_rules_dict.values())
         try:
+            import time
+
+            start = time.time()
             self.info(f"Compiling {len(self.yara_rules_dict):,} YARA rules")
             for rule_name, rule_content in self.yara_rules_dict.items():
                 self.debug(f"  - {rule_name}")
             self.yara_rules = yara.compile(source=yara_rules_combined)
+            self.info(f"{len(self.yara_rules_dict):,} YARA rules compiled in {time.time() - start:.2f} seconds")
+            for rule_name in self.yara_rules_dict:
+                self.info(f"  - {rule_name}")
         except yara.SyntaxError as e:
             self.debug(yara_rules_combined)
             return False, f"Yara Rules failed to compile with error: [{e}]"

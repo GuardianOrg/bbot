@@ -153,9 +153,17 @@ async def test_python_output_matches_json(bbot_scanner):
 
 @pytest.mark.asyncio
 async def test_huge_target_list(bbot_scanner):
+    # single target should only have one rule
+    scan = bbot_scanner("evilcorp.com", config={"excavate": True})
+    await scan._prep()
+    assert "hostname_extraction_0" in scan.modules["excavate"].yara_rules_dict
+    assert "hostname_extraction_1" not in scan.modules["excavate"].yara_rules_dict
+
+    # over 10000 targets should be broken into two rules
     num_targets = 10005
     targets = [f"evil{i}.com" for i in range(num_targets)]
     scan = bbot_scanner(*targets, config={"excavate": True})
-    events = [e async for e in scan.async_start()]
-    for rule in await scan.dns_yara_rules():
-        print(rule)
+    await scan._prep()
+    assert "hostname_extraction_0" in scan.modules["excavate"].yara_rules_dict
+    assert "hostname_extraction_1" in scan.modules["excavate"].yara_rules_dict
+    assert "hostname_extraction_2" not in scan.modules["excavate"].yara_rules_dict
