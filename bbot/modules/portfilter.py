@@ -39,4 +39,3 @@ class portfilter(BaseInterceptModule):
                         f"one of the event's tags matches the tag '{cdn_tag}' and the port is not in the allowed list",
                     )
         return True
-
