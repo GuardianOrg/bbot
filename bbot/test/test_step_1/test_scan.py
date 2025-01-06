@@ -149,3 +149,13 @@ async def test_python_output_matches_json(bbot_scanner):
     assert len([e for e in events if e["type"] == "ORG_STUB"]) == 1
     assert len([e for e in events if e["type"] == "IP_ADDRESS"]) == 1
     assert events == json_events
+
+
+@pytest.mark.asyncio
+async def test_huge_target_list(bbot_scanner):
+    num_targets = 10005
+    targets = [f"evil{i}.com" for i in range(num_targets)]
+    scan = bbot_scanner(*targets, config={"excavate": True})
+    events = [e async for e in scan.async_start()]
+    for rule in await scan.dns_yara_rules():
+        print(rule)
