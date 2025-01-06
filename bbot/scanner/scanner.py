@@ -1110,7 +1110,7 @@ class Scanner:
                 import yara
 
                 self._dns_yara_rules = await self.helpers.run_in_executor(
-                    yara.compile, source=self.dns_yara_rules_uncompiled
+                    yara.compile, source="\n".join(self.dns_yara_rules_uncompiled.values())
                 )
         return self._dns_yara_rules
 
