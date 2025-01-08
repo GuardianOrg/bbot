@@ -91,9 +91,7 @@ class ffuf_shortnames(ffuf):
         self.wordlist_extensions = await self.helpers.wordlist(wordlist_extensions)
         self.ignore_redirects = self.config.get("ignore_redirects")
         self.max_predictions = self.config.get("max_predictions")
-    
-        endpoint_model = f"{self.helpers.wordlist_dir}/endpoints.pred"
-        directory_model = f"{self.helpers.wordlist_dir}/directories.pred"
+
 
         class MinimalWordPredictor:
             def __init__(self):
@@ -118,6 +116,9 @@ class ffuf_shortnames(ffuf):
                 if name == 'MinimalWordPredictor':
                     return MinimalWordPredictor
                 return super().find_class(module, name)
+
+        endpoint_model = await self.helpers.download("https://github.com/blacklanternsecurity/wordpredictor/raw/refs/heads/main/trained_models/endpoints.bin")
+        directory_model = await self.helpers.download("https://github.com/blacklanternsecurity/wordpredictor/raw/refs/heads/main/trained_models/directories.bin")
 
         self.debug(f"Loading endpoint model from: {endpoint_model}")
         with open(endpoint_model, 'rb') as f:
