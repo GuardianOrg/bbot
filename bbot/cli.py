@@ -29,7 +29,6 @@ scan_name = ""
 
 
 async def _main():
-
     import asyncio
     import traceback
     from contextlib import suppress
@@ -45,7 +44,6 @@ async def _main():
     global scan_name
 
     try:
-
         # start by creating a default scan preset
         preset = Preset(_log=True, name="bbot_cli_main")
         # parse command line arguments and merge into preset
@@ -80,8 +78,7 @@ async def _main():
             return
 
         # if we're listing modules or their options
-        if options.list_modules or options.list_module_options:
-
+        if options.list_modules or options.list_output_modules or options.list_module_options:
             # if no modules or flags are specified, enable everything
             if not (options.modules or options.output_modules or options.flags):
                 for module, preloaded in preset.module_loader.preloaded().items():
@@ -99,7 +96,17 @@ async def _main():
                 print("")
                 print("### MODULES ###")
                 print("")
-                for row in preset.module_loader.modules_table(preset.modules).splitlines():
+                modules = sorted(set(preset.scan_modules + preset.internal_modules))
+                for row in preset.module_loader.modules_table(modules).splitlines():
+                    print(row)
+                return
+
+            # --list-output-modules
+            if options.list_output_modules:
+                print("")
+                print("### OUTPUT MODULES ###")
+                print("")
+                for row in preset.module_loader.modules_table(preset.output_modules).splitlines():
                     print(row)
                 return
 
@@ -133,8 +140,8 @@ async def _main():
         ]
         if deadly_modules and not options.allow_deadly:
             log.hugewarning(f"You enabled the following deadly modules: {','.join(deadly_modules)}")
-            log.hugewarning(f"Deadly modules are highly intrusive")
-            log.hugewarning(f"Please specify --allow-deadly to continue")
+            log.hugewarning("Deadly modules are highly intrusive")
+            log.hugewarning("Please specify --allow-deadly to continue")
             return False
 
         # --current-preset
@@ -172,9 +179,8 @@ async def _main():
             log.trace(f"Command: {' '.join(sys.argv)}")
 
             if sys.stdin.isatty():
-
                 # warn if any targets belong directly to a cloud provider
-                for event in scan.target.events:
+                for event in scan.target.seeds.events:
                     if event.type == "DNS_NAME":
                         cloudcheck_result = scan.helpers.cloudcheck(event.host)
                         if cloudcheck_result:
@@ -241,7 +247,7 @@ async def _main():
                         log_to_stderr(f"Error in keyboard listen task: {e}", level="ERROR")
                         log_to_stderr(traceback.format_exc(), level="TRACE")
 
-                asyncio.create_task(akeyboard_listen())
+                keyboard_listen_task = asyncio.create_task(akeyboard_listen())  # noqa F841
 
             await scan.async_start_without_generator()
 
@@ -254,9 +260,7 @@ async def _main():
     finally:
         # save word cloud
         with suppress(BaseException):
-            save_success, filename = scan.helpers.word_cloud.save()
-            if save_success:
-                log_to_stderr(f"Saved word cloud ({len(scan.helpers.word_cloud):,} words) to {filename}")
+            scan.helpers.word_cloud.save()
         # remove output directory if empty
         with suppress(BaseException):
             scan.home.rmdir()

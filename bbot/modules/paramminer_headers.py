@@ -82,7 +82,6 @@ class paramminer_headers(BaseModule):
     header_regex = re.compile(r"^[!#$%&\'*+\-.^_`|~0-9a-zA-Z]+: [^\r\n]+$")
 
     async def setup(self):
-
         self.recycle_words = self.config.get("recycle_words", True)
         self.event_dict = {}
         self.already_checked = set()
@@ -90,11 +89,11 @@ class paramminer_headers(BaseModule):
         if not wordlist:
             wordlist = f"{self.helpers.wordlist_dir}/{self.default_wordlist}"
         self.debug(f"Using wordlist: [{wordlist}]")
-        self.wl = set(
+        self.wl = {
             h.strip().lower()
             for h in self.helpers.read_file(await self.helpers.wordlist(wordlist))
             if len(h) > 0 and "%" not in h
-        )
+        }
 
         # check against the boring list (if the option is set)
         if self.config.get("skip_boring_words", True):
@@ -157,7 +156,6 @@ class paramminer_headers(BaseModule):
             )
 
     async def handle_event(self, event):
-
         # If recycle words is enabled, we will collect WEB_PARAMETERS we find to build our list in finish()
         # We also collect any parameters of type "SPECULATIVE"
         if event.type == "WEB_PARAMETER":
@@ -174,7 +172,7 @@ class paramminer_headers(BaseModule):
                 self.debug(f"Error initializing compare helper: {e}")
                 return
             batch_size = await self.count_test(url)
-            if batch_size == None or batch_size <= 0:
+            if batch_size is None or batch_size <= 0:
                 self.debug(f"Failed to get baseline max {self.compare_mode} count, aborting")
                 return
             self.debug(f"Resolved batch_size at {str(batch_size)}")
@@ -197,11 +195,11 @@ class paramminer_headers(BaseModule):
         baseline = await self.helpers.request(url)
         if baseline is None:
             return
-        if str(baseline.status_code)[0] in ("4", "5"):
+        if str(baseline.status_code)[0] in {"4", "5"}:
             return
         for count, args, kwargs in self.gen_count_args(url):
             r = await self.helpers.request(*args, **kwargs)
-            if r is not None and not ((str(r.status_code)[0] in ("4", "5"))):
+            if r is not None and str(r.status_code)[0] not in {"4", "5"}:
                 return count
 
     def gen_count_args(self, url):
@@ -224,7 +222,7 @@ class paramminer_headers(BaseModule):
         elif len(group) > 1 or (len(group) == 1 and len(reasons) == 0):
             for group_slice in self.helpers.split_list(group):
                 match, reasons, reflection, subject_response = await self.check_batch(compare_helper, url, group_slice)
-                if match == False:
+                if match is False:
                     async for r in self.binary_search(compare_helper, url, group_slice, reasons, reflection):
                         yield r
         else:
@@ -240,8 +238,7 @@ class paramminer_headers(BaseModule):
         return await compare_helper.compare(url, headers=test_headers, check_reflection=(len(header_list) == 1))
 
     async def finish(self):
-
-        untested_matches = sorted(list(self.extracted_words_master.copy()))
+        untested_matches = sorted(self.extracted_words_master.copy())
         for url, (event, batch_size) in list(self.event_dict.items()):
             try:
                 compare_helper = self.helpers.http_compare(url)

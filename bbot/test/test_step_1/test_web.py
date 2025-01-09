@@ -6,7 +6,6 @@ from ..bbot_fixtures import *
 
 @pytest.mark.asyncio
 async def test_web_engine(bbot_scanner, bbot_httpserver, httpx_mock):
-
     from werkzeug.wrappers import Response
 
     def server_handler(request):
@@ -29,7 +28,7 @@ async def test_web_engine(bbot_scanner, bbot_httpserver, httpx_mock):
     urls = [f"{base_url}{i}" for i in range(num_urls)]
     responses = [r async for r in scan.helpers.request_batch(urls)]
     assert len(responses) == 100
-    assert all([r[1].status_code == 200 and r[1].text.startswith(f"{r[0]}: ") for r in responses])
+    assert all(r[1].status_code == 200 and r[1].text.startswith(f"{r[0]}: ") for r in responses)
 
     # request_batch w/ cancellation
     agen = scan.helpers.request_batch(urls)
@@ -134,7 +133,6 @@ async def test_request_batch_cancellation(bbot_scanner, bbot_httpserver, httpx_m
 
 @pytest.mark.asyncio
 async def test_web_helpers(bbot_scanner, bbot_httpserver, httpx_mock):
-
     # json conversion
     scan = bbot_scanner("evilcorp.com")
     url = "http://www.evilcorp.com/json_test?a=b"
@@ -211,14 +209,14 @@ async def test_web_helpers(bbot_scanner, bbot_httpserver, httpx_mock):
     url = bbot_httpserver.url_for(path)
     bbot_httpserver.expect_request(uri=path).respond_with_data(download_content, status=200)
     webpage = await scan1.helpers.request(url)
-    assert webpage, f"Webpage is False"
+    assert webpage, "Webpage is False"
     soup = scan1.helpers.beautifulsoup(webpage, "html.parser")
-    assert soup, f"Soup is False"
+    assert soup, "Soup is False"
     # pretty_print = soup.prettify()
     # assert pretty_print, f"PrettyPrint is False"
     # scan1.helpers.log.info(f"{pretty_print}")
     html_text = soup.find(text="Example Domain")
-    assert html_text, f"Find HTML Text is False"
+    assert html_text, "Find HTML Text is False"
 
     # 404
     path = "/test_http_helpers_download_404"
@@ -389,7 +387,7 @@ async def test_web_http_compare(httpx_mock, bbot_scanner):
     await compare_helper.compare("http://www.example.com", check_reflection=True)
     compare_helper.compare_body({"asdf": "fdsa"}, {"fdsa": "asdf"})
     for mode in ("getparam", "header", "cookie"):
-        assert await compare_helper.canary_check("http://www.example.com", mode=mode) == True
+        assert await compare_helper.canary_check("http://www.example.com", mode=mode) is True
 
     await scan._cleanup()
 
@@ -471,6 +469,9 @@ async def test_web_cookies(bbot_scanner, httpx_mock):
     # but that they're not sent in the response
     with pytest.raises(httpx.TimeoutException):
         r = await client2.get(url="http://www2.evilcorp.com/cookies/test")
+    # make sure cookies are sent
+    r = await client2.get(url="http://www2.evilcorp.com/cookies/test", cookies={"wats": "fdsa"})
+    assert r.status_code == 200
     # make sure we can manually send cookies
     httpx_mock.add_response(url="http://www2.evilcorp.com/cookies/test2", match_headers={"Cookie": "fdsa=wats"})
     r = await client2.get(url="http://www2.evilcorp.com/cookies/test2", cookies={"fdsa": "wats"})

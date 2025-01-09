@@ -23,7 +23,7 @@ async def test_dns_engine(bbot_scanner):
     )
     result = await scan.helpers.resolve("one.one.one.one")
     assert "1.1.1.1" in result
-    assert not "2606:4700:4700::1111" in result
+    assert "2606:4700:4700::1111" not in result
 
     results = [_ async for _ in scan.helpers.resolve_batch(("one.one.one.one", "1.1.1.1"))]
     pass_1 = False
@@ -85,12 +85,12 @@ async def test_dns_resolution(bbot_scanner):
     for answer in answers:
         responses += list(extract_targets(answer))
     assert ("A", "1.1.1.1") in responses
-    assert not ("AAAA", "2606:4700:4700::1111") in responses
+    assert ("AAAA", "2606:4700:4700::1111") not in responses
     answers, errors = await dnsengine.resolve_raw("one.one.one.one", type="AAAA")
     responses = []
     for answer in answers:
         responses += list(extract_targets(answer))
-    assert not ("A", "1.1.1.1") in responses
+    assert ("A", "1.1.1.1") not in responses
     assert ("AAAA", "2606:4700:4700::1111") in responses
     answers, errors = await dnsengine.resolve_raw("1.1.1.1")
     responses = []
@@ -106,13 +106,14 @@ async def test_dns_resolution(bbot_scanner):
     assert "2606:4700:4700::1111" in await dnsengine.resolve("one.one.one.one", type="AAAA")
     assert "one.one.one.one" in await dnsengine.resolve("1.1.1.1")
     for rdtype in ("NS", "SOA", "MX", "TXT"):
-        assert len(await dnsengine.resolve("google.com", type=rdtype)) > 0
+        results = await dnsengine.resolve("google.com", type=rdtype)
+        assert len(results) > 0
 
     # batch resolution
     batch_results = [r async for r in dnsengine.resolve_batch(["1.1.1.1", "one.one.one.one"])]
     assert len(batch_results) == 2
     batch_results = dict(batch_results)
-    assert any([x in batch_results["one.one.one.one"] for x in ("1.1.1.1", "1.0.0.1")])
+    assert any(x in batch_results["one.one.one.one"] for x in ("1.1.1.1", "1.0.0.1"))
     assert "one.one.one.one" in batch_results["1.1.1.1"]
 
     # custom batch resolution
@@ -140,11 +141,11 @@ async def test_dns_resolution(bbot_scanner):
     assert hash(("1.1.1.1", "PTR")) in dnsengine._dns_cache
     await dnsengine.resolve("one.one.one.one", type="A")
     assert hash(("one.one.one.one", "A")) in dnsengine._dns_cache
-    assert not hash(("one.one.one.one", "AAAA")) in dnsengine._dns_cache
+    assert hash(("one.one.one.one", "AAAA")) not in dnsengine._dns_cache
     dnsengine._dns_cache.clear()
     await dnsengine.resolve("one.one.one.one", type="AAAA")
     assert hash(("one.one.one.one", "AAAA")) in dnsengine._dns_cache
-    assert not hash(("one.one.one.one", "A")) in dnsengine._dns_cache
+    assert hash(("one.one.one.one", "A")) not in dnsengine._dns_cache
 
     await dnsengine._shutdown()
 
@@ -164,7 +165,7 @@ async def test_dns_resolution(bbot_scanner):
     assert "A" in resolved_hosts_event1.raw_dns_records
     assert "AAAA" in resolved_hosts_event1.raw_dns_records
     assert "a-record" in resolved_hosts_event1.tags
-    assert not "a-record" in resolved_hosts_event2.tags
+    assert "a-record" not in resolved_hosts_event2.tags
 
     scan2 = bbot_scanner("evilcorp.com", config={"dns": {"minimal": False}})
     await scan2.helpers.dns._mock_dns(
@@ -184,7 +185,6 @@ async def test_dns_resolution(bbot_scanner):
 
 @pytest.mark.asyncio
 async def test_wildcards(bbot_scanner):
-
     scan = bbot_scanner("1.1.1.1")
     helpers = scan.helpers
 
@@ -197,7 +197,7 @@ async def test_wildcards(bbot_scanner):
     assert len(dnsengine._wildcard_cache) == len(all_rdtypes) + (len(all_rdtypes) - 2)
     for rdtype in all_rdtypes:
         assert hash(("github.io", rdtype)) in dnsengine._wildcard_cache
-        if not rdtype in ("A", "AAAA"):
+        if rdtype not in ("A", "AAAA"):
             assert hash(("asdf.github.io", rdtype)) in dnsengine._wildcard_cache
     assert "github.io" in wildcard_domains
     assert "A" in wildcard_domains["github.io"]
@@ -632,8 +632,42 @@ def custom_lookup(query, rdtype):
 
 
 @pytest.mark.asyncio
-async def test_dns_raw_records(bbot_scanner):
+async def test_wildcard_deduplication(bbot_scanner):
+    custom_lookup = """
+def custom_lookup(query, rdtype):
+    if rdtype == "TXT" and query.strip(".").endswith("evilcorp.com"):
+        return {""}
+"""
 
+    mock_data = {
+        "evilcorp.com": {"A": ["127.0.0.1"]},
+    }
+
+    from bbot.modules.base import BaseModule
+
+    class DummyModule(BaseModule):
+        watched_events = ["DNS_NAME"]
+        per_domain_only = True
+
+        async def handle_event(self, event):
+            for i in range(30):
+                await self.emit_event(f"www{i}.evilcorp.com", "DNS_NAME", parent=event)
+
+    # scan without omitted event type
+    scan = bbot_scanner(
+        "evilcorp.com", config={"dns": {"minimal": False, "wildcard_ignore": []}, "omit_event_types": []}
+    )
+    await scan.helpers.dns._mock_dns(mock_data, custom_lookup_fn=custom_lookup)
+    dummy_module = DummyModule(scan)
+    scan.modules["dummy_module"] = dummy_module
+    events = [e async for e in scan.async_start()]
+    dns_name_events = [e for e in events if e.type == "DNS_NAME"]
+    assert len(dns_name_events) == 2
+    assert 1 == len([e for e in dns_name_events if e.data == "_wildcard.evilcorp.com"])
+
+
+@pytest.mark.asyncio
+async def test_dns_raw_records(bbot_scanner):
     from bbot.modules.base import BaseModule
 
     class DummyModule(BaseModule):
@@ -696,7 +730,7 @@ async def test_dns_raw_records(bbot_scanner):
     dummy_module = DummyModule(scan)
     scan.modules["dummy_module"] = dummy_module
     events = [e async for e in scan.async_start()]
-    # no raw records should be ouptut
+    # no raw records should be output
     assert 0 == len([e for e in events if e.type == "RAW_DNS_RECORD"])
     # but they should still make it to the module
     assert 1 == len(
@@ -743,17 +777,50 @@ async def test_dns_graph_structure(bbot_scanner):
 
 
 @pytest.mark.asyncio
+async def test_hostname_extraction(bbot_scanner):
+    scan = bbot_scanner("evilcorp.com", config={"dns": {"minimal": False}})
+    await scan.helpers.dns._mock_dns(
+        {
+            "evilcorp.com": {
+                "A": ["127.0.0.1"],
+                "TXT": [
+                    "v=spf1 include:spf-a.evilcorp.com include:spf-b.evilcorp.com include:icpbounce.com include:shops.shopify.com include:_spf.qemailserver.com include:spf.mandrillapp.com include:spf.protection.office365.us include:spf-003ea501.gpphosted.com 127.0.0.1 -all"
+                ],
+            }
+        }
+    )
+    events = [e async for e in scan.async_start()]
+    dns_name_events = [e for e in events if e.type == "DNS_NAME"]
+    main_dns_event = [e for e in dns_name_events if e.data == "evilcorp.com"]
+    assert len(main_dns_event) == 1
+    main_dns_event = main_dns_event[0]
+    dns_children = main_dns_event.dns_children
+    assert dns_children["A"] == {"127.0.0.1"}
+    assert dns_children["TXT"] == {
+        "spf-a.evilcorp.com",
+        "spf-b.evilcorp.com",
+        "icpbounce.com",
+        "shops.shopify.com",
+        "_spf.qemailserver.com",
+        "spf.mandrillapp.com",
+        "spf.protection.office365.us",
+        "spf-003ea501.gpphosted.com",
+        "127.0.0.1",
+    }
+
+
+@pytest.mark.asyncio
 async def test_dns_helpers(bbot_scanner):
-    assert service_record("") == False
-    assert service_record("localhost") == False
-    assert service_record("www.example.com") == False
-    assert service_record("www.example.com", "SRV") == True
-    assert service_record("_custom._service.example.com", "SRV") == True
-    assert service_record("_custom._service.example.com", "A") == False
+    assert service_record("") is False
+    assert service_record("localhost") is False
+    assert service_record("www.example.com") is False
+    assert service_record("www.example.com", "SRV") is True
+    assert service_record("_custom._service.example.com", "SRV") is True
+    assert service_record("_custom._service.example.com", "A") is False
     # top 100 most common SRV records
     for srv_record in common_srvs[:100]:
         hostname = f"{srv_record}.example.com"
-        assert service_record(hostname) == True
+        assert service_record(hostname) is True
 
     # make sure system nameservers are excluded from use by DNS brute force
     brute_nameservers = tempwordlist(["1.2.3.4", "8.8.4.4", "4.3.2.1", "8.8.8.8"])

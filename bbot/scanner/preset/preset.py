@@ -17,7 +17,7 @@ from bbot.core.helpers.misc import make_table, mkdir, get_closest_match
 log = logging.getLogger("bbot.presets")
 
 
-_preset_cache = dict()
+_preset_cache = {}
 
 
 # cache default presets to prevent having to reload from disk
@@ -47,7 +47,6 @@ class Preset:
         target (Target): Target(s) of scan.
         whitelist (Target): Scan whitelist (by default this is the same as `target`).
         blacklist (Target): Scan blacklist (this takes ultimate precedence).
-        strict_scope (bool): If True, subdomains of targets are not considered to be in-scope.
         helpers (ConfigAwareHelper): Helper containing various reusable functions, regexes, etc.
         output_dir (pathlib.Path): Output directory for scan.
         scan_name (str): Name of scan. Defaults to random value, e.g. "demonic_jimmy".
@@ -87,7 +86,6 @@ class Preset:
         *targets,
         whitelist=None,
         blacklist=None,
-        strict_scope=False,
         modules=None,
         output_modules=None,
         exclude_modules=None,
@@ -117,7 +115,6 @@ class Preset:
             *targets (str): Target(s) to scan. Types supported: hostnames, IPs, CIDRs, emails, open ports.
             whitelist (list, optional): Whitelisted target(s) to scan. Defaults to the same as `targets`.
             blacklist (list, optional): Blacklisted target(s). Takes ultimate precedence. Defaults to empty.
-            strict_scope (bool, optional): If True, subdomains of targets are not in-scope.
             modules (list[str], optional): List of scan modules to enable for the scan. Defaults to empty list.
             output_modules (list[str], optional): List of output modules to use. Defaults to csv, human, and json.
             exclude_modules (list[str], optional): List of modules to exclude from the scan.
@@ -234,7 +231,6 @@ class Preset:
         self.module_dirs = module_dirs
 
         # target / whitelist / blacklist
-        self.strict_scope = strict_scope
         # these are temporary receptacles until they all get .baked() together
         self._seeds = set(targets if targets else [])
         self._whitelist = set(whitelist) if whitelist else whitelist
@@ -245,7 +241,7 @@ class Preset:
         # "presets" is alias to "include"
         if presets and include:
             raise ValueError(
-                'Cannot use both "presets" and "include" args at the same time (presets is only an alias to include). Please pick only one :)'
+                'Cannot use both "presets" and "include" args at the same time (presets is an alias to include). Please pick one or the other :)'
             )
         if presets and not include:
             include = presets
@@ -273,6 +269,12 @@ class Preset:
         if self._target is None:
             raise ValueError("Cannot access target before preset is baked (use ._seeds instead)")
         return self._target
+
+    @property
+    def seeds(self):
+        if self._seeds is None:
+            raise ValueError("Cannot access target before preset is baked (use ._seeds instead)")
+        return self.target.seeds
 
     @property
     def whitelist(self):
@@ -353,7 +355,6 @@ class Preset:
             else:
                 self._whitelist.update(other._whitelist)
         self._blacklist.update(other._blacklist)
-        self.strict_scope = self.strict_scope or other.strict_scope
 
         # module dirs
         self.module_dirs = self.module_dirs.union(other.module_dirs)
@@ -442,7 +443,7 @@ class Preset:
 
         # disable internal modules if requested
         for internal_module in baked_preset.internal_modules:
-            if baked_preset.config.get(internal_module, True) == False:
+            if baked_preset.config.get(internal_module, True) is False:
                 baked_preset.exclude_modules.add(internal_module)
 
         # enable modules by flag
@@ -536,6 +537,14 @@ class Preset:
     @property
     def web_config(self):
         return self.core.config.get("web", {})
+
+    @property
+    def scope_config(self):
+        return self.config.get("scope", {})
+
+    @property
+    def strict_scope(self):
+        return self.scope_config.get("strict", False)
 
     def apply_log_level(self, apply_core=False):
         # silent takes precedence
@@ -635,7 +644,6 @@ class Preset:
             debug=preset_dict.get("debug", False),
             silent=preset_dict.get("silent", False),
             config=preset_dict.get("config"),
-            strict_scope=preset_dict.get("strict_scope", False),
             module_dirs=preset_dict.get("module_dirs", []),
             include=list(preset_dict.get("include", [])),
             scan_name=preset_dict.get("scan_name"),
@@ -705,7 +713,7 @@ class Preset:
     @classmethod
     def from_yaml_string(cls, yaml_preset):
         """
-        Create a preset from a YAML file. If the full path is not specified, BBOT will look in all the usual places for it.
+        Create a preset from a YAML string.
 
         The file extension is optional.
 
@@ -753,19 +761,17 @@ class Preset:
 
         # scope
         if include_target:
-            target = sorted(str(t.data) for t in self.target.seeds)
+            target = sorted(self.target.seeds.inputs)
             whitelist = []
             if self.target.whitelist is not None:
-                whitelist = sorted(str(t.data) for t in self.target.whitelist)
-            blacklist = sorted(str(t.data) for t in self.target.blacklist)
+                whitelist = sorted(self.target.whitelist.inputs)
+            blacklist = sorted(self.target.blacklist.inputs)
             if target:
                 preset_dict["target"] = target
             if whitelist and whitelist != target:
                 preset_dict["whitelist"] = whitelist
             if blacklist:
                 preset_dict["blacklist"] = blacklist
-        if self.strict_scope:
-            preset_dict["strict_scope"] = True
 
         # flags + modules
         if self.require_flags:
@@ -792,7 +798,7 @@ class Preset:
         # misc scan options
         if self.scan_name:
             preset_dict["scan_name"] = self.scan_name
-        if self.scan_name:
+        if self.scan_name and self.output_dir is not None:
             preset_dict["output_dir"] = self.output_dir
 
         # conditions
@@ -834,7 +840,7 @@ class Preset:
         else:
             raise ValidationError(f'Unknown module type "{module}"')
 
-        if not module in module_choices:
+        if module not in module_choices:
             raise ValidationError(get_closest_match(module, module_choices, msg=f"{module_type} module"))
 
         try:
@@ -877,21 +883,21 @@ class Preset:
 
         # validate excluded modules
         for excluded_module in self.exclude_modules:
-            if not excluded_module in self.module_loader.all_module_choices:
+            if excluded_module not in self.module_loader.all_module_choices:
                 raise ValidationError(
                     get_closest_match(excluded_module, self.module_loader.all_module_choices, msg="module")
                 )
         # validate excluded flags
         for excluded_flag in self.exclude_flags:
-            if not excluded_flag in self.module_loader.flag_choices:
+            if excluded_flag not in self.module_loader.flag_choices:
                 raise ValidationError(get_closest_match(excluded_flag, self.module_loader.flag_choices, msg="flag"))
         # validate required flags
         for required_flag in self.require_flags:
-            if not required_flag in self.module_loader.flag_choices:
+            if required_flag not in self.module_loader.flag_choices:
                 raise ValidationError(get_closest_match(required_flag, self.module_loader.flag_choices, msg="flag"))
         # validate flags
         for flag in self.flags:
-            if not flag in self.module_loader.flag_choices:
+            if flag not in self.module_loader.flag_choices:
                 raise ValidationError(get_closest_match(flag, self.module_loader.flag_choices, msg="flag"))
 
     @property
@@ -910,7 +916,7 @@ class Preset:
 
         global DEFAULT_PRESETS
         if DEFAULT_PRESETS is None:
-            presets = dict()
+            presets = {}
             for ext in ("yml", "yaml"):
                 for preset_path in PRESET_PATH:
                     # for every yaml file
@@ -961,7 +967,7 @@ class Preset:
         header = ["Preset", "Category", "Description", "# Modules"]
         if include_modules:
             header.append("Modules")
-        for yaml_file, (loaded_preset, category, preset_path, original_file) in self.all_presets.items():
+        for loaded_preset, category, preset_path, original_file in self.all_presets.values():
             loaded_preset = loaded_preset.bake()
             num_modules = f"{len(loaded_preset.scan_modules):,}"
             row = [loaded_preset.name, category, loaded_preset.description, num_modules]

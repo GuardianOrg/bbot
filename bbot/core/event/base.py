@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Optional
 from contextlib import suppress
 from radixtarget import RadixTarget
-from urllib.parse import urljoin, parse_qs
 from pydantic import BaseModel, field_validator
+from urllib.parse import urlparse, urljoin, parse_qs
 
 
 from .helpers import *
@@ -175,8 +175,8 @@ class BaseEvent:
         self._scope_distance = None
         self._module_priority = None
         self._resolved_hosts = set()
-        self.dns_children = dict()
-        self.raw_dns_records = dict()
+        self.dns_children = {}
+        self.raw_dns_records = {}
         self._discovery_context = ""
         self._discovery_context_regex = re.compile(r"\{(?:event|module)[^}]*\}")
         self.web_spider_distance = 0
@@ -203,7 +203,7 @@ class BaseEvent:
         # self.scan holds the instantiated scan object (for helpers, etc.)
         self.scan = scan
         if (not self.scan) and (not self._dummy):
-            raise ValidationError(f"Must specify scan")
+            raise ValidationError("Must specify scan")
         # self.scans holds a list of scan IDs from scans that encountered this event
         self.scans = []
         if scans is not None:
@@ -222,7 +222,7 @@ class BaseEvent:
 
         self.parent = parent
         if (not self.parent) and (not self._dummy):
-            raise ValidationError(f"Must specify event parent")
+            raise ValidationError("Must specify event parent")
 
         if tags is not None:
             for tag in tags:
@@ -301,9 +301,9 @@ class BaseEvent:
         The purpose of internal events is to enable speculative/explorative discovery without cluttering
         the console with irrelevant or uninteresting events.
         """
-        if not value in (True, False):
+        if value not in (True, False):
             raise ValueError(f'"internal" must be boolean, not {type(value)}')
-        if value == True:
+        if value is True:
             self.add_tag("internal")
         else:
             self.remove_tag("internal")
@@ -340,6 +340,21 @@ class BaseEvent:
         if self._host_original is None:
             return self.host
         return self._host_original
+
+    @property
+    def host_filterable(self):
+        """
+        A string version of the event that's used for regex-based blacklisting.
+
+        For example, the user can specify "REGEX:.*.evilcorp.com" in their blacklist, and this regex
+        will be applied against this property.
+        """
+        parsed_url = getattr(self, "parsed_url", None)
+        if parsed_url is not None:
+            return parsed_url.geturl()
+        if self.host is not None:
+            return str(self.host)
+        return ""
 
     @property
     def port(self):
@@ -500,21 +515,24 @@ class BaseEvent:
             new_scope_distance = min(self.scope_distance, scope_distance)
         if self._scope_distance != new_scope_distance:
             # remove old scope distance tags
-            for t in list(self.tags):
-                if t.startswith("distance-"):
-                    self.remove_tag(t)
-            if self.host:
-                if scope_distance == 0:
-                    self.add_tag("in-scope")
-                    self.remove_tag("affiliate")
-                else:
-                    self.remove_tag("in-scope")
-                    self.add_tag(f"distance-{new_scope_distance}")
             self._scope_distance = new_scope_distance
+            self.refresh_scope_tags()
             # apply recursively to parent events
             parent_scope_distance = getattr(self.parent, "scope_distance", None)
             if parent_scope_distance is not None and self.parent is not self:
                 self.parent.scope_distance = new_scope_distance + 1
+
+    def refresh_scope_tags(self):
+        for t in list(self.tags):
+            if t.startswith("distance-"):
+                self.remove_tag(t)
+        if self.host:
+            if self.scope_distance == 0:
+                self.add_tag("in-scope")
+                self.remove_tag("affiliate")
+            else:
+                self.remove_tag("in-scope")
+                self.add_tag(f"distance-{self.scope_distance}")
 
     @property
     def scope_description(self):
@@ -572,7 +590,7 @@ class BaseEvent:
                         if t in ("spider-danger", "spider-max"):
                             self.add_tag(t)
         elif not self._dummy:
-            log.warning(f"Tried to set invalid parent on {self}: (got: {parent})")
+            log.warning(f"Tried to set invalid parent on {self}: (got: {repr(parent)} ({type(parent)}))")
 
     @property
     def parent_id(self):
@@ -754,7 +772,7 @@ class BaseEvent:
         Returns:
             dict: JSON-serializable dictionary representation of the event object.
         """
-        j = dict()
+        j = {}
         # type, ID, scope description
         for i in ("type", "id", "uuid", "scope_description", "netloc"):
             v = getattr(self, i, "")
@@ -998,18 +1016,20 @@ class ClosestHostEvent(DictHostEvent):
         if not self.host:
             for parent in self.get_parents(include_self=True):
                 # inherit closest URL
-                if not "url" in self.data:
+                if "url" not in self.data:
                     parent_url = getattr(parent, "parsed_url", None)
                     if parent_url is not None:
                         self.data["url"] = parent_url.geturl()
                 # inherit closest path
-                if not "path" in self.data and isinstance(parent.data, dict):
+                if "path" not in self.data and isinstance(parent.data, dict) and not parent.type == "HTTP_RESPONSE":
                     parent_path = parent.data.get("path", None)
                     if parent_path is not None:
                         self.data["path"] = parent_path
                 # inherit closest host
                 if parent.host:
                     self.data["host"] = str(parent.host)
+                    # we do this to refresh the hash
+                    self.data = self.data
                     break
         # die if we still haven't found a host
         if not self.host:
@@ -1025,6 +1045,9 @@ class DictPathEvent(DictEvent):
         blob = None
         try:
             self._data_path = Path(data["path"])
+            # prepend the scan's home dir if the path is relative
+            if not self._data_path.is_absolute():
+                self._data_path = self.scan.home / self._data_path
             if self._data_path.is_file():
                 self.add_tag("file")
                 if file_blobs:
@@ -1112,8 +1135,7 @@ class DnsEvent(BaseEvent):
 class IP_RANGE(DnsEvent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        net = ipaddress.ip_network(self.data, strict=False)
-        self.add_tag(f"ipv{net.version}")
+        self.add_tag(f"ipv{self.host.version}")
 
     def sanitize_data(self, data):
         return str(ipaddress.ip_network(str(data), strict=False))
@@ -1164,7 +1186,6 @@ class URL_UNVERIFIED(BaseEvent):
         self.num_redirects = getattr(self.parent, "num_redirects", 0)
 
     def _data_id(self):
-
         data = super()._data_id()
 
         # remove the querystring for URL/URL_UNVERIFIED events, because we will conditionally add it back in (based on settings)
@@ -1211,11 +1232,25 @@ class URL_UNVERIFIED(BaseEvent):
         return data
 
     def add_tag(self, tag):
-        host_same_as_parent = self.parent and self.host == self.parent.host
-        if tag == "spider-danger" and host_same_as_parent and not "spider-danger" in self.tags:
-            # increment the web spider distance
-            if self.type == "URL_UNVERIFIED":
-                self.web_spider_distance += 1
+        self_url = getattr(self, "parsed_url", "")
+        self_host = getattr(self, "host", "")
+        # autoincrement web spider distance if the "spider-danger" tag is added
+        if tag == "spider-danger" and "spider-danger" not in self.tags and self_url and self_host:
+            parent_hosts_and_urls = set()
+            for p in self.get_parents():
+                # URL_UNVERIFIED events don't count because they haven't been visited yet
+                if p.type == "URL_UNVERIFIED":
+                    continue
+                url = getattr(p, "parsed_url", "")
+                parent_hosts_and_urls.add((p.host, url))
+            # if there's a URL anywhere in our parent chain that's different from ours but shares our host, we're in dAnGeR
+            dangerous_parent = any(
+                p_host == self.host and p_url != self_url for p_host, p_url in parent_hosts_and_urls
+            )
+            if dangerous_parent:
+                # increment the web spider distance
+                if self.type == "URL_UNVERIFIED":
+                    self.web_spider_distance += 1
                 if self.is_spider_max:
                     self.add_tag("spider-max")
         super().add_tag(tag)
@@ -1234,7 +1269,7 @@ class URL_UNVERIFIED(BaseEvent):
 
     def _words(self):
         first_elem = self.parsed_url.path.lstrip("/").split("/")[0]
-        if not "." in first_elem:
+        if "." not in first_elem:
             return extract_words(first_elem)
         return set()
 
@@ -1251,7 +1286,6 @@ class URL_UNVERIFIED(BaseEvent):
 
 
 class URL(URL_UNVERIFIED):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -1263,7 +1297,7 @@ class URL(URL_UNVERIFIED):
     @property
     def resolved_hosts(self):
         # TODO: remove this when we rip out httpx
-        return set(".".join(i.split("-")[1:]) for i in self.tags if i.startswith("ip-"))
+        return {".".join(i.split("-")[1:]) for i in self.tags if i.startswith("ip-")}
 
     @property
     def pretty_string(self):
@@ -1293,7 +1327,6 @@ class URL_HINT(URL_UNVERIFIED):
 
 
 class WEB_PARAMETER(DictHostEvent):
-
     def _data_id(self):
         # dedupe by url:name:param_type
         url = self.data.get("url", "")
@@ -1339,18 +1372,22 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
         self.parsed_url = self.validators.validate_url_parsed(url)
         data["url"] = self.parsed_url.geturl()
 
-        header_dict = {}
-        for i in data.get("raw_header", "").splitlines():
-            if len(i) > 0 and ":" in i:
-                k, v = i.split(":", 1)
-                k = k.strip().lower()
-                v = v.lstrip()
-                if k in header_dict:
-                    header_dict[k].append(v)
-                else:
-                    header_dict[k] = [v]
+        if not "raw_header" in data:
+            raise ValueError("raw_header is required for HTTP_RESPONSE events")
 
-        data["header-dict"] = header_dict
+        if "header-dict" not in data:
+            header_dict = {}
+            for i in data.get("raw_header", "").splitlines():
+                if len(i) > 0 and ":" in i:
+                    k, v = i.split(":", 1)
+                    k = k.strip().lower()
+                    v = v.lstrip()
+                    if k in header_dict:
+                        header_dict[k].append(v)
+                    else:
+                        header_dict[k] = [v]
+            data["header-dict"] = header_dict
+
         # move URL to the front of the dictionary for visibility
         data = dict(data)
         new_data = {"url": data.pop("url")}
@@ -1363,6 +1400,13 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
 
     def _pretty_string(self):
         return f'{self.data["hash"]["header_mmh3"]}:{self.data["hash"]["body_mmh3"]}'
+
+    @property
+    def raw_response(self):
+        """
+        Formats the status code, headers, and body into a single string formatted as an HTTP/1.1 response.
+        """
+        return f'{self.data["raw_header"]}{self.data["body"]}'
 
     @property
     def http_status(self):
@@ -1548,17 +1592,22 @@ class FILESYSTEM(DictPathEvent):
             # detect type of file content using magic
             from bbot.core.helpers.libmagic import get_magic_info, get_compression
 
-            extension, mime_type, description, confidence = get_magic_info(self.data["path"])
-            self.data["magic_extension"] = extension
-            self.data["magic_mime_type"] = mime_type
-            self.data["magic_description"] = description
-            self.data["magic_confidence"] = confidence
-            # detection compression
-            compression = get_compression(mime_type)
-            if compression:
-                self.add_tag("compressed")
-                self.add_tag(f"{compression}-archive")
-                self.data["compression"] = compression
+            try:
+                extension, mime_type, description, confidence = get_magic_info(self.data["path"])
+                self.data["magic_extension"] = extension
+                self.data["magic_mime_type"] = mime_type
+                self.data["magic_description"] = description
+                self.data["magic_confidence"] = confidence
+                # detection compression
+                compression = get_compression(mime_type)
+                if compression:
+                    self.add_tag("compressed")
+                    self.add_tag(f"{compression}-archive")
+                    self.data["compression"] = compression
+                # refresh hash
+                self.data = self.data
+            except Exception as e:
+                log.debug(f"Error detecting file type: {type(e).__name__}: {e}")
 
 
 class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
@@ -1568,6 +1617,27 @@ class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
 
 class MOBILE_APP(DictEvent):
     _always_emit = True
+
+    def _sanitize_data(self, data):
+        if isinstance(data, str):
+            data = {"url": data}
+        if "url" not in data:
+            raise ValidationError("url is required for MOBILE_APP events")
+        url = data["url"]
+        # parse URL
+        try:
+            self.parsed_url = urlparse(url)
+        except Exception as e:
+            raise ValidationError(f"Error parsing URL {url}: {e}")
+        if not "id" in data:
+            # extract "id" getparam
+            params = parse_qs(self.parsed_url.query)
+            try:
+                _id = params["id"][0]
+            except Exception:
+                raise ValidationError("id is required for MOBILE_APP events")
+            data["id"] = _id
+        return data
 
     def _pretty_string(self):
         return self.data["url"]
@@ -1630,6 +1700,8 @@ def make_event(
         When working within a module's `handle_event()`, use the instance method
         `self.make_event()` instead of calling this function directly.
     """
+    if not data:
+        raise ValidationError("No data provided")
 
     # allow tags to be either a string or an array
     if not tags:
@@ -1639,23 +1711,23 @@ def make_event(
     tags = set(tags)
 
     if is_event(data):
-        data = copy(data)
-        if scan is not None and not data.scan:
-            data.scan = scan
-        if scans is not None and not data.scans:
-            data.scans = scans
+        event = copy(data)
+        if scan is not None and not event.scan:
+            event.scan = scan
+        if scans is not None and not event.scans:
+            event.scans = scans
         if module is not None:
-            data.module = module
+            event.module = module
         if parent is not None:
-            data.parent = parent
+            event.parent = parent
         if context is not None:
-            data.discovery_context = context
-        if internal == True:
-            data.internal = True
+            event.discovery_context = context
+        if internal is True:
+            event.internal = True
         if tags:
-            data.tags = tags.union(data.tags)
+            event.tags = tags.union(event.tags)
         event_type = data.type
-        return data
+        return event
     else:
         if event_type is None:
             event_type, data = get_event_type(data)
@@ -1685,6 +1757,13 @@ def make_event(
         if event_type == "USERNAME" and validators.soft_validate(data, "email"):
             event_type = "EMAIL_ADDRESS"
             tags.add("affiliate")
+        # Convert single-host IP_RANGE to IP_ADDRESS
+        if event_type == "IP_RANGE":
+            with suppress(Exception):
+                net = ipaddress.ip_network(data, strict=False)
+                if net.prefixlen == net.max_prefixlen:
+                    event_type = "IP_ADDRESS"
+                    data = net.network_address
 
         event_class = globals().get(event_type, DefaultEvent)
 

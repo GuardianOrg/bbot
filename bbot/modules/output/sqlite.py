@@ -5,14 +5,18 @@ from bbot.modules.templates.sql import SQLTemplate
 
 class SQLite(SQLTemplate):
     watched_events = ["*"]
-    meta = {"description": "Output scan data to a SQLite database"}
+    meta = {
+        "description": "Output scan data to a SQLite database",
+        "created_date": "2024-11-07",
+        "author": "@TheTechromancer",
+    }
     options = {
         "database": "",
     }
     options_desc = {
         "database": "The path to the sqlite database file",
     }
-    deps_pip = ["sqlmodel", "sqlalchemy-utils", "aiosqlite"]
+    deps_pip = ["sqlmodel", "aiosqlite"]
 
     async def setup(self):
         db_file = self.config.get("database", "")

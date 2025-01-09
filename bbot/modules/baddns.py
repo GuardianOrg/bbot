@@ -55,7 +55,6 @@ class baddns(BaseModule):
         return True
 
     async def handle_event(self, event):
-
         tasks = []
         for ModuleClass in self.select_modules():
             kwargs = {
@@ -75,7 +74,6 @@ class baddns(BaseModule):
             tasks.append((module_instance, task))
 
         async for completed_task in self.helpers.as_completed([task for _, task in tasks]):
-
             module_instance = next((m for m, t in tasks if t == completed_task), None)
             try:
                 task_result = await completed_task
@@ -116,7 +114,7 @@ class baddns(BaseModule):
                                 context=f'{{module}}\'s "{r_dict["module"]}" module found {{event.type}}: {r_dict["description"]}',
                             )
                         else:
-                            self.warning(f"Got unrecognized confidence level: {r['confidence']}")
+                            self.warning(f"Got unrecognized confidence level: {r_dict['confidence']}")
 
                         found_domains = r_dict.get("found_domains", None)
                         if found_domains:

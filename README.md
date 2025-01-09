@@ -1,6 +1,6 @@
 [![bbot_banner](https://github.com/user-attachments/assets/f02804ce-9478-4f1e-ac4d-9cf5620a3214)](https://github.com/blacklanternsecurity/bbot)
 
-[![Python Version](https://img.shields.io/badge/python-3.9+-FF8400)](https://www.python.org) [![License](https://img.shields.io/badge/license-GPLv3-FF8400.svg)](https://github.com/blacklanternsecurity/bbot/blob/dev/LICENSE) [![DEF CON Recon Village 2024](https://img.shields.io/badge/DEF%20CON%20Demo%20Labs-2023-FF8400.svg)](https://www.reconvillage.org/talks) [![PyPi Downloads](https://static.pepy.tech/personalized-badge/bbot?right_color=orange&left_color=grey)](https://pepy.tech/project/bbot) [![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![Tests](https://github.com/blacklanternsecurity/bbot/actions/workflows/tests.yml/badge.svg?branch=stable)](https://github.com/blacklanternsecurity/bbot/actions?query=workflow%3A"tests") [![Codecov](https://codecov.io/gh/blacklanternsecurity/bbot/branch/dev/graph/badge.svg?token=IR5AZBDM5K)](https://codecov.io/gh/blacklanternsecurity/bbot) [![Discord](https://img.shields.io/discord/859164869970362439)](https://discord.com/invite/PZqkgxu5SA)
+[![Python Version](https://img.shields.io/badge/python-3.9+-FF8400)](https://www.python.org) [![License](https://img.shields.io/badge/license-GPLv3-FF8400.svg)](https://github.com/blacklanternsecurity/bbot/blob/dev/LICENSE) [![DEF CON Recon Village 2024](https://img.shields.io/badge/DEF%20CON%20Demo%20Labs-2023-FF8400.svg)](https://www.reconvillage.org/talks) [![PyPi Downloads](https://static.pepy.tech/personalized-badge/bbot?right_color=orange&left_color=grey)](https://pepy.tech/project/bbot) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![Tests](https://github.com/blacklanternsecurity/bbot/actions/workflows/tests.yml/badge.svg?branch=stable)](https://github.com/blacklanternsecurity/bbot/actions?query=workflow%3A"tests") [![Codecov](https://codecov.io/gh/blacklanternsecurity/bbot/branch/dev/graph/badge.svg?token=IR5AZBDM5K)](https://codecov.io/gh/blacklanternsecurity/bbot) [![Discord](https://img.shields.io/discord/859164869970362439)](https://discord.com/invite/PZqkgxu5SA)
 
 ### **BEE·bot** is a multipurpose scanner inspired by [Spiderfoot](https://github.com/smicallef/spiderfoot), built to automate your **Recon**, **Bug Bounties**, and **ASM**!
 
@@ -90,6 +90,10 @@ description: Recursive web spider
 
 modules:
   - httpx
+
+blacklist:
+  # Prevent spider from invalidating sessions by logging out
+  - "RE:/.*(sign|log)[_-]?out"
 
 config:
   web:
@@ -191,10 +195,10 @@ flags:
 
 ```bash
 # everything everywhere all at once
-bbot -t evilcorp.com -p kitchen-sink
+bbot -t evilcorp.com -p kitchen-sink --allow-deadly
 
 # roughly equivalent to:
-bbot -t evilcorp.com -p subdomain-enum cloud-enum code-enum email-enum spider web-basic paramminer dirbust-light web-screenshots
+bbot -t evilcorp.com -p subdomain-enum cloud-enum code-enum email-enum spider web-basic paramminer dirbust-light web-screenshots --allow-deadly
 ```
 
 <!-- BBOT KITCHEN-SINK PRESET EXPANDABLE -->
@@ -222,8 +226,6 @@ config:
     baddns:
       enable_references: True
 
-
-
 ```
 
 </details>
@@ -235,6 +237,24 @@ config:
 Click the graph below to explore the [inner workings](https://www.blacklanternsecurity.com/bbot/Stable/how_it_works/) of BBOT.
 
 [![image](https://github.com/blacklanternsecurity/bbot/assets/20261699/e55ba6bd-6d97-48a6-96f0-e122acc23513)](https://www.blacklanternsecurity.com/bbot/Stable/how_it_works/)
+
+## Output Modules
+
+- [Neo4j](docs/scanning/output.md#neo4j)
+- [Teams](docs/scanning/output.md#teams)
+- [Discord](docs/scanning/output.md#discord)
+- [Slack](docs/scanning/output.md#slack)
+- [Postgres](docs/scanning/output.md#postgres)
+- [MySQL](docs/scanning/output.md#mysql)
+- [SQLite](docs/scanning/output.md#sqlite)
+- [Splunk](docs/scanning/output.md#splunk)
+- [Elasticsearch](docs/scanning/output.md#elasticsearch)
+- [CSV](docs/scanning/output.md#csv)
+- [JSON](docs/scanning/output.md#json)
+- [HTTP](docs/scanning/output.md#http)
+- [Websocket](docs/scanning/output.md#websocket)
+
+...and [more](docs/scanning/output.md)!
 
 ## BBOT as a Python Library
 
@@ -297,6 +317,11 @@ Targets can be any of the following:
 - `IP_RANGE` (`1.2.3.0/24`)
 - `OPEN_TCP_PORT` (`192.168.0.1:80`)
 - `URL` (`https://www.evilcorp.com`)
+- `EMAIL_ADDRESS` (`bob@evilcorp.com`)
+- `ORG_STUB` (`ORG:evilcorp`)
+- `USER_STUB` (`USER:bobsmith`)
+- `FILESYSTEM` (`FILESYSTEM:/tmp/asdf`)
+- `MOBILE_APP` (`MOBILE_APP:https://play.google.com/store/apps/details?id=com.evilcorp.app`)
 
 For more information, see [Targets](https://www.blacklanternsecurity.com/bbot/Stable/scanning/#targets-t). To learn how BBOT handles scope, see [Scope](https://www.blacklanternsecurity.com/bbot/Stable/scanning/#scope).
 

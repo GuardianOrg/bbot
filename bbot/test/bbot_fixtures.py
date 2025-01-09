@@ -15,11 +15,11 @@ from werkzeug.wrappers import Request
 from bbot.errors import *  # noqa: F401
 from bbot.core import CORE
 from bbot.scanner import Preset
-from bbot.core.helpers.misc import mkdir, rand_string
 from bbot.core.helpers.async_helpers import get_event_loop
+from bbot.core.helpers.misc import mkdir, rand_string, get_python_constraints
 
 
-log = logging.getLogger(f"bbot.test.fixtures")
+log = logging.getLogger("bbot.test.fixtures")
 
 
 bbot_test_dir = Path("/tmp/.bbot_test")
@@ -224,9 +224,12 @@ def events(scan):
     return bbot_events
 
 
-@pytest.fixture(scope="session", autouse=True)
-def install_all_python_deps():
-    deps_pip = set()
-    for module in DEFAULT_PRESET.module_loader.preloaded().values():
-        deps_pip.update(set(module.get("deps", {}).get("pip", [])))
-    subprocess.run([sys.executable, "-m", "pip", "install"] + list(deps_pip))
+# @pytest.fixture(scope="session", autouse=True)
+# def install_all_python_deps():
+#     deps_pip = set()
+#     for module in DEFAULT_PRESET.module_loader.preloaded().values():
+#         deps_pip.update(set(module.get("deps", {}).get("pip", [])))
+
+#     constraint_file = tempwordlist(get_python_constraints())
+
+#     subprocess.run([sys.executable, "-m", "pip", "install", "--constraint", constraint_file] + list(deps_pip))

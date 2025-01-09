@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from .base import ModuleTestBase
 
 
@@ -27,8 +29,8 @@ class TestGowitness(ModuleTestBase):
             "headers": {"Server": "Apache/2.4.41 (Ubuntu)"},
         }
         module_test.set_expect_requests(respond_args=respond_args)
-        request_args = dict(uri="/blacklanternsecurity")
-        respond_args = dict(response_data="""blacklanternsecurity github <a data-bem""")
+        request_args = {"uri": "/blacklanternsecurity"}
+        respond_args = {"response_data": """blacklanternsecurity github <a data-bem"""}
         module_test.set_expect_requests(request_args, respond_args)
 
         # monkeypatch social
@@ -45,7 +47,7 @@ class TestGowitness(ModuleTestBase):
         webscreenshots = [e for e in events if e.type == "WEBSCREENSHOT"]
         assert webscreenshots, "failed to raise WEBSCREENSHOT events"
         assert not any(
-            ["blob" in e.data for e in webscreenshots]
+            "blob" in e.data for e in webscreenshots
         ), "blob was included in WEBSCREENSHOT data when it shouldn't have been"
 
         screenshots_path = self.home_dir / "scans" / module_test.scan.name / "gowitness" / "screenshots"
@@ -101,6 +103,34 @@ class TestGoWitnessWithBlob(TestGowitness):
     def check(self, module_test, events):
         webscreenshots = [e for e in events if e.type == "WEBSCREENSHOT"]
         assert webscreenshots, "failed to raise WEBSCREENSHOT events"
-        assert all(
-            ["blob" in e.data and e.data["blob"] for e in webscreenshots]
-        ), "blob not found in WEBSCREENSHOT data"
+        assert all("blob" in e.data and e.data["blob"] for e in webscreenshots), "blob not found in WEBSCREENSHOT data"
+
+
+class TestGoWitnessLongFilename(TestGowitness):
+    """
+    Make sure long filenames are truncated properly
+    """
+
+    targets = [
+        "http://127.0.0.1:8888/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity"
+    ]
+    config_overrides = {"file_blobs": True}
+
+    async def setup_after_prep(self, module_test):
+        request_args = {
+            "uri": "/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity/blacklanternsecurity"
+        }
+        respond_args = {
+            "response_data": "<html><head><title>BBOT is life</title></head><body>BBOT is life</body></html>",
+            "headers": {"Server": "Apache/2.4.41 (Ubuntu)"},
+        }
+        module_test.set_expect_requests(request_args, respond_args)
+
+    def check(self, module_test, events):
+        webscreenshots = [e for e in events if e.type == "WEBSCREENSHOT"]
+        assert webscreenshots, "failed to raise WEBSCREENSHOT events"
+        assert len(webscreenshots) == 1
+        webscreenshot = webscreenshots[0]
+        filename = Path(webscreenshot.data["path"])
+        # sadly this file doesn't exist because gowitness doesn't truncate properly
+        assert not filename.exists()

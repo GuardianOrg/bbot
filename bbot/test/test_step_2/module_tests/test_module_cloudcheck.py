@@ -8,7 +8,7 @@ class TestCloudCheck(ModuleTestBase):
     modules_overrides = ["httpx", "excavate", "cloudcheck"]
 
     async def setup_after_prep(self, module_test):
-        module_test.set_expect_requests({"uri": "/"}, {"response_data": "<a href='asdf.s3.amazonaws.com'/>"})
+        module_test.set_expect_requests({"uri": "/"}, {"response_data": "<a href='http://asdf.s3.amazonaws.com'/>"})
 
         scan = Scanner(config={"cloudcheck": True})
         await scan._prep()
@@ -50,6 +50,10 @@ class TestCloudCheck(ModuleTestBase):
         for event in (ip_event, aws_event1, aws_event2, aws_event4, other_event2, other_event3):
             await module.handle_event(event)
             assert "cloud-amazon" in event.tags, f"{event} was not properly cloud-tagged"
+
+        assert "cloud-domain" in aws_event1.tags
+        assert "cloud-ip" in other_event2.tags
+        assert "cloud-cname" in other_event3.tags
 
         for event in (aws_event3, other_event1):
             await module.handle_event(event)

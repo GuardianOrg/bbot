@@ -14,16 +14,48 @@ from secrets import token_bytes
 from ansible_runner.interface import run
 from subprocess import CalledProcessError
 
-from ..misc import can_sudo_without_password, os_platform, rm_at_exit
+from ..misc import can_sudo_without_password, os_platform, rm_at_exit, get_python_constraints
 
 log = logging.getLogger("bbot.core.helpers.depsinstaller")
 
 
 class DepsInstaller:
+    CORE_DEPS = {
+        # core BBOT dependencies in the format of binary: package_name
+        # each one will only be installed if the binary is not found
+        "unzip": "unzip",
+        "zipinfo": "unzip",
+        "curl": "curl",
+        "git": "git",
+        "make": "make",
+        "gcc": "gcc",
+        "bash": "bash",
+        "which": "which",
+        "unrar": "unrar-free",
+        "tar": "tar",
+        # debian why are you like this
+        "7z": [
+            {
+                "name": "Install 7zip (Debian)",
+                "package": {"name": ["p7zip-full"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'Debian'",
+            },
+            {
+                "name": "Install 7zip (Non-Debian)",
+                "package": {"name": ["p7zip"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] != 'Debian'",
+            },
+        ],
+    }
+
     def __init__(self, parent_helper):
         self.parent_helper = parent_helper
         self.preset = self.parent_helper.preset
         self.core = self.preset.core
+
+        self.os_platform = os_platform()
 
         # respect BBOT's http timeout
         self.web_config = self.parent_helper.config.get("web", {})
@@ -44,7 +76,13 @@ class DepsInstaller:
         self.parent_helper.mkdir(self.command_status)
         self.setup_status = self.read_setup_status()
 
-        self.deps_behavior = self.parent_helper.config.get("deps_behavior", "abort_on_failure").lower()
+        # make sure we're using a minimal git config
+        self.minimal_git_config = self.data_dir / "minimal_git.config"
+        self.minimal_git_config.touch()
+        os.environ["GIT_CONFIG_GLOBAL"] = str(self.minimal_git_config)
+
+        self.deps_config = self.parent_helper.config.get("deps", {})
+        self.deps_behavior = self.deps_config.get("behavior", "abort_on_failure").lower()
         self.ansible_debug = self.core.logger.log_level <= logging.DEBUG
         self.venv = ""
         if sys.prefix != sys.base_prefix:
@@ -91,11 +129,11 @@ class DepsInstaller:
                         or self.deps_behavior == "force_install"
                     ):
                         if not notified:
-                            log.hugeinfo(f"Installing module dependencies. Please be patient, this may take a while.")
+                            log.hugeinfo("Installing module dependencies. Please be patient, this may take a while.")
                             notified = True
                         log.verbose(f'Installing dependencies for module "{m}"')
                         # get sudo access if we need it
-                        if preloaded.get("sudo", False) == True:
+                        if preloaded.get("sudo", False) is True:
                             self.ensure_root(f'Module "{m}" needs root privileges to install its dependencies.')
                         success = await self.install_module(m)
                         self.setup_status[module_hash] = success
@@ -153,7 +191,7 @@ class DepsInstaller:
         deps_common = preloaded["deps"]["common"]
         if deps_common:
             for dep_common in deps_common:
-                if self.setup_status.get(dep_common, False) == True:
+                if self.setup_status.get(dep_common, False) is True:
                     log.debug(
                         f'Skipping installation of dependency "{dep_common}" for module "{module}" since it is already installed'
                     )
@@ -171,10 +209,13 @@ class DepsInstaller:
 
         command = [sys.executable, "-m", "pip", "install", "--upgrade"] + packages
 
-        if constraints:
-            constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
-            command.append("--constraint")
-            command.append(constraints_tempfile)
+        # if no custom constraints are provided, use the constraints of the currently installed version of bbot
+        if constraints is not None:
+            constraints = get_python_constraints()
+
+        constraints_tempfile = self.parent_helper.tempfile(constraints, pipe=False)
+        command.append("--constraint")
+        command.append(constraints_tempfile)
 
         process = None
         try:
@@ -193,21 +234,10 @@ class DepsInstaller:
         """
         Install packages with the OS's default package manager (apt, pacman, dnf, etc.)
         """
-        packages_str = ",".join(packages)
-        log.info(f"Installing the following OS packages: {packages_str}")
-        args = {"name": packages_str, "state": "present"}  # , "update_cache": True, "cache_valid_time": 86400}
-        kwargs = {}
-        # don't sudo brew
-        if os_platform() != "darwin":
-            kwargs = {
-                "ansible_args": {
-                    "ansible_become": True,
-                    "ansible_become_method": "sudo",
-                }
-            }
+        args, kwargs = self._make_apt_ansible_args(packages)
         success, err = self.ansible_run(module="package", args=args, **kwargs)
         if success:
-            log.info(f'Successfully installed OS packages "{packages_str}"')
+            log.info(f'Successfully installed OS packages "{",".join(sorted(packages))}"')
         else:
             log.warning(
                 f"Failed to install OS packages ({err}). Recommend installing the following packages manually:"
@@ -215,6 +245,21 @@ class DepsInstaller:
             for p in packages:
                 log.warning(f" - {p}")
         return success
+
+    def _make_apt_ansible_args(self, packages):
+        packages_str = ",".join(sorted(packages))
+        log.info(f"Installing the following OS packages: {packages_str}")
+        args = {"name": packages_str, "state": "present"}  # , "update_cache": True, "cache_valid_time": 86400}
+        kwargs = {}
+        # don't sudo brew
+        if self.os_platform != "darwin":
+            kwargs = {
+                "ansible_args": {
+                    "ansible_become": True,
+                    "ansible_become_method": "sudo",
+                }
+            }
+        return args, kwargs
 
     def shell(self, module, commands):
         tasks = []
@@ -235,7 +280,7 @@ class DepsInstaller:
         if success:
             log.info(f"Successfully ran {len(commands):,} shell commands")
         else:
-            log.warning(f"Failed to run shell dependencies")
+            log.warning("Failed to run shell dependencies")
         return success
 
     def tasks(self, module, tasks):
@@ -260,7 +305,7 @@ class DepsInstaller:
             for task in tasks:
                 if "package" in task:
                     # special case for macos
-                    if os_platform() == "darwin":
+                    if self.os_platform == "darwin":
                         # don't sudo brew
                         task["become"] = False
                         # brew doesn't support update_cache
@@ -283,8 +328,8 @@ class DepsInstaller:
             },
             module=module,
             module_args=module_args,
-            quiet=not self.ansible_debug,
-            verbosity=(3 if self.ansible_debug else 0),
+            quiet=True,
+            verbosity=0,
             cancel_callback=lambda: None,
         )
 
@@ -294,14 +339,14 @@ class DepsInstaller:
         err = ""
         for e in res.events:
             if self.ansible_debug and not success:
-                log.debug(json.dumps(e, indent=4))
+                log.debug(json.dumps(e, indent=2))
             if e["event"] == "runner_on_failed":
                 err = e["event_data"]["res"]["msg"]
                 break
         return success, err
 
     def read_setup_status(self):
-        setup_status = dict()
+        setup_status = {}
         if self.setup_status_cache.is_file():
             with open(self.setup_status_cache) as f:
                 with suppress(Exception):
@@ -338,26 +383,30 @@ class DepsInstaller:
 
     def install_core_deps(self):
         to_install = set()
+        to_install_friendly = set()
+        playbook = []
         self._install_sudo_askpass()
         # ensure tldextract data is cached
         self.parent_helper.tldextract("evilcorp.co.uk")
-        # command: package_name
-        core_deps = {
-            "unzip": "unzip",
-            "zipinfo": "unzip",
-            "curl": "curl",
-            "git": "git",
-            "make": "make",
-            "gcc": "gcc",
-            "bash": "bash",
-            "which": "which",
-        }
-        for command, package_name in core_deps.items():
+        for command, package_name_or_playbook in self.CORE_DEPS.items():
             if not self.parent_helper.which(command):
-                to_install.add(package_name)
+                to_install_friendly.add(command)
+                if isinstance(package_name_or_playbook, str):
+                    to_install.add(package_name_or_playbook)
+                else:
+                    playbook.extend(package_name_or_playbook)
         if to_install:
+            playbook.append(
+                {
+                    "name": "Install Core BBOT Dependencies",
+                    "package": {"name": list(to_install), "state": "present"},
+                    "become": True,
+                }
+            )
+        if playbook:
+            log.info(f"Installing core BBOT dependencies: {','.join(sorted(to_install_friendly))}")
             self.ensure_root()
-            self.apt_install(list(to_install))
+            self.ansible_run(tasks=playbook)
 
     def _setup_sudo_cache(self):
         if not self._sudo_cache_setup:

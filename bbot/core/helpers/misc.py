@@ -391,7 +391,7 @@ def url_parents(u):
     parent_list = []
     while 1:
         parent = parent_url(u)
-        if parent == None:
+        if parent is None:
             return parent_list
         elif parent not in parent_list:
             parent_list.append(parent)
@@ -512,7 +512,7 @@ def domain_stem(domain):
         - Utilizes the `tldextract` function for domain parsing.
     """
     parsed = tldextract(str(domain))
-    return f".".join(parsed.subdomain.split(".") + parsed.domain.split(".")).strip(".")
+    return ".".join(parsed.subdomain.split(".") + parsed.domain.split(".")).strip(".")
 
 
 def ip_network_parents(i, include_self=False):
@@ -559,13 +559,12 @@ def is_port(p):
     return p and p.isdigit() and 0 <= int(p) <= 65535
 
 
-def is_dns_name(d, include_local=True):
+def is_dns_name(d):
     """
     Determines if the given string is a valid DNS name.
 
     Args:
         d (str): The string to be checked.
-        include_local (bool): Consider local hostnames to be valid (hostnames without periods)
 
     Returns:
         bool: True if the string is a valid DNS name, False otherwise.
@@ -575,28 +574,24 @@ def is_dns_name(d, include_local=True):
         True
         >>> is_dns_name('localhost')
         True
-        >>> is_dns_name('localhost', include_local=False)
-        False
         >>> is_dns_name('192.168.1.1')
         False
     """
     if is_ip(d):
         return False
     d = smart_decode(d)
-    if include_local:
-        if bbot_regexes.hostname_regex.match(d):
-            return True
-    if bbot_regexes.dns_name_regex.match(d):
+    if bbot_regexes.dns_name_validation_regex.match(d):
         return True
     return False
 
 
-def is_ip(d, version=None):
+def is_ip(d, version=None, include_network=False):
     """
     Checks if the given string or object represents a valid IP address.
 
     Args:
         d (str or ipaddress.IPvXAddress): The IP address to check.
+        include_network (bool, optional): Whether to include network types (IPv4Network or IPv6Network). Defaults to False.
         version (int, optional): The IP version to validate (4 or 6). Default is None.
 
     Returns:
@@ -612,12 +607,17 @@ def is_ip(d, version=None):
         >>> is_ip('evilcorp.com')
         False
     """
+    ip = None
     try:
         ip = ipaddress.ip_address(d)
-        if version is None or ip.version == version:
-            return True
     except Exception:
-        pass
+        if include_network:
+            try:
+                ip = ipaddress.ip_network(d, strict=False)
+            except Exception:
+                pass
+    if ip is not None and (version is None or ip.version == version):
+        return True
     return False
 
 
@@ -915,12 +915,12 @@ def extract_params_xml(xml_data, compare_mode="getparam"):
 
 # Define valid characters for each mode based on RFCs
 valid_chars_dict = {
-    "header": set(
+    "header": {
         chr(c) for c in range(33, 127) if chr(c) in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-    ),
-    "getparam": set(chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="),
-    "postparam": set(chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="),
-    "cookie": set(chr(c) for c in range(33, 127) if chr(c) not in '()<>@,;:"/[]?={} \t'),
+    },
+    "getparam": {chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="},
+    "postparam": {chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="},
+    "cookie": {chr(c) for c in range(33, 127) if chr(c) not in '()<>@,;:"/[]?={} \t'},
 }
 
 
@@ -1142,7 +1142,7 @@ def chain_lists(
     """
     if isinstance(l, str):
         l = [l]
-    final_list = dict()
+    final_list = {}
     for entry in l:
         for s in split_regex.split(entry):
             f = s.strip()
@@ -1339,7 +1339,7 @@ def search_dict_by_key(key, d):
     if isinstance(d, dict):
         if key in d:
             yield d[key]
-        for k, v in d.items():
+        for v in d.values():
             yield from search_dict_by_key(key, v)
     elif isinstance(d, list):
         for v in d:
@@ -1406,7 +1406,7 @@ def search_dict_values(d, *regexes):
                     results.add(h)
                     yield result
     elif isinstance(d, dict):
-        for _, v in d.items():
+        for v in d.values():
             yield from search_dict_values(v, *regexes)
     elif isinstance(d, list):
         for v in d:
@@ -2391,7 +2391,7 @@ def in_exception_chain(e, exc_types):
         ...     if not in_exception_chain(e, (KeyboardInterrupt, asyncio.CancelledError)):
         ...         raise
     """
-    return any([isinstance(_, exc_types) for _ in get_exception_chain(e)])
+    return any(isinstance(_, exc_types) for _ in get_exception_chain(e))
 
 
 def get_traceback_details(e):
@@ -2807,3 +2807,21 @@ def safe_format(s, **kwargs):
     Format string while ignoring unused keys (prevents KeyError)
     """
     return s.format_map(SafeDict(kwargs))
+
+
+def get_python_constraints():
+    req_regex = re.compile(r"([^(]+)\s*\((.*)\)", re.IGNORECASE)
+
+    def clean_requirement(req_string):
+        # Extract package name and version constraints from format like "package (>=1.0,<2.0)"
+        match = req_regex.match(req_string)
+        if match:
+            name, constraints = match.groups()
+            return f"{name.strip()}{constraints}"
+
+        return req_string
+
+    from importlib.metadata import distribution
+
+    dist = distribution("bbot")
+    return [clean_requirement(r) for r in dist.requires]

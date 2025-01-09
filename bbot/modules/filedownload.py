@@ -38,6 +38,7 @@ class filedownload(BaseModule):
             "indd",  #  Adobe InDesign Document
             "ini",  #  Initialization File
             "jar",  #  Java Archive
+            "json",  #  JSON File
             "key",  #  Private Key File
             "log",  #  Log File
             "markdown",  #  Markdown File
@@ -57,6 +58,7 @@ class filedownload(BaseModule):
             "pub",  #  Public Key File
             "raw",  #  Raw Image File Format
             "rdp",  #  Remote Desktop Protocol File
+            "rsa",  #  RSA Private Key File
             "sh",  #  Shell Script
             "sql",  #  SQL Database Dump
             "sqlite",  #  SQLite Database File
@@ -87,7 +89,7 @@ class filedownload(BaseModule):
     scope_distance_modifier = 3
 
     async def setup(self):
-        self.extensions = list(set([e.lower().strip(".") for e in self.config.get("extensions", [])]))
+        self.extensions = list({e.lower().strip(".") for e in self.config.get("extensions", [])})
         self.max_filesize = self.config.get("max_filesize", "10MB")
         self.download_dir = self.scan.home / "filedownload"
         self.helpers.mkdir(self.download_dir)
@@ -146,7 +148,8 @@ class filedownload(BaseModule):
                 file_event = self.make_event(
                     {"path": str(file_destination)}, "FILESYSTEM", tags=["filedownload", "file"], parent=source_event
                 )
-                await self.emit_event(file_event)
+                if file_event is not None:
+                    await self.emit_event(file_event)
         self.urls_downloaded.add(hash(url))
 
     def make_filename(self, url, content_type=None):
@@ -177,7 +180,9 @@ class filedownload(BaseModule):
         if extension:
             filename = f"{filename}.{extension}"
             orig_filename = f"{orig_filename}.{extension}"
-        return orig_filename, self.download_dir / filename, base_url
+        file_destination = self.download_dir / filename
+        file_destination = self.helpers.truncate_filename(file_destination)
+        return orig_filename, file_destination, base_url
 
     async def report(self):
         if self.files_downloaded > 0:
