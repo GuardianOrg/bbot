@@ -52,13 +52,16 @@ class BaseSubmodule:
     async def test(self, event):
         base_url = self.set_base_url(event)
         for test_path_result in self.test_paths:
-            test_path = test_path_result[0]
-            subdomain_tag = test_path_result[1]
-            test_url = f"{base_url}{test_path}"
-            self.generic_ssrf.debug(f"Sending request to URL: {test_url}")
-            r = await self.generic_ssrf.helpers.curl(url=test_url)
-            if r:
-                self.process(event, r, subdomain_tag)
+            for lower in [True, False]:
+                test_path = test_path_result[0]
+                if lower:
+                    test_path = test_path.lower()
+                subdomain_tag = test_path_result[1]
+                test_url = f"{base_url}{test_path}"
+                self.generic_ssrf.debug(f"Sending request to URL: {test_url}")
+                r = await self.generic_ssrf.helpers.curl(url=test_url)
+                if r:
+                    self.process(event, r, subdomain_tag)
 
     def process(self, event, r, subdomain_tag):
         response_token = self.generic_ssrf.interactsh_domain.split(".")[0][::-1]
@@ -84,8 +87,8 @@ class Generic_SSRF(BaseSubmodule):
 
     def create_paths(self):
         test_paths = []
-        query_string = ""
         for param in ssrf_params:
+            query_string = ""
             subdomain_tag = self.generic_ssrf.helpers.rand_string(4)
             ssrf_canary = f"{subdomain_tag}.{self.generic_ssrf.interactsh_domain}"
             self.generic_ssrf.parameter_subdomain_tags_map[subdomain_tag] = param
