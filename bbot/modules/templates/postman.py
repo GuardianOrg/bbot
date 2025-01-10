@@ -1,5 +1,3 @@
-import traceback
-
 from bbot.modules.base import BaseModule
 
 
@@ -46,12 +44,13 @@ class postman(BaseModule):
             self.hugesuccess("API is ready")
             return True
         except Exception as e:
-            self.trace(traceback.format_exc())
+            self.trace()
             return None, f"Error with API ({str(e).strip()})"
         return True
 
     def prepare_api_request(self, url, kwargs):
-        kwargs["headers"]["X-Api-Key"] = self.api_key
+        if self.api_key:
+            kwargs["headers"]["X-Api-Key"] = self.api_key
         return url, kwargs
 
     async def get_workspace_id(self, repo_url):
