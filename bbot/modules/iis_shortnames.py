@@ -239,7 +239,7 @@ class iis_shortnames(BaseModule):
                 "VULNERABILITY",
                 event,
                 context="{module} detected low {event.type}: IIS shortname enumeration",
-                tags=["iis-magic-url"]
+                tags=[]
             )
 
 
