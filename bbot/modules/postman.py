@@ -63,33 +63,7 @@ class postman(postman):
                         )
         return in_scope_workspaces
 
-    async def process_workspaces(self, user=None, org=None):
-        in_scope_workspaces = []
-        owner = user or org
-        if owner:
-            self.verbose(f"Searching for postman workspaces, collections, requests for {owner}")
-            for item in await self.query(owner):
-                workspace = item["document"]
-                slug = workspace["slug"]
-                profile = workspace["publisherHandle"]
-                repo_url = f"{self.html_url}/{profile}/{slug}"
-                workspace_id = await self.get_workspace_id(repo_url)
-                if (org and workspace_id) or (user and owner.lower() == profile.lower()):
-                    self.verbose(f"Found workspace ID {workspace_id} for {repo_url}")
-                    data = await self.request_workspace(workspace_id)
-                    in_scope = await self.validate_workspace(
-                        data["workspace"], data["environments"], data["collections"]
-                    )
-                    if in_scope:
-                        in_scope_workspaces.append({"url": repo_url, "repo_name": slug})
-                    else:
-                        self.verbose(
-                            f"Failed to validate {repo_url} is in our scope as it does not contain any in-scope dns_names / emails"
-                        )
-        return in_scope_workspaces
-
     async def query(self, query):
-
         def api_page_iter(url, page, page_size, offset, **kwargs):
             kwargs["json"]["body"]["from"] = offset
             return url, kwargs
@@ -115,7 +89,9 @@ class postman(postman):
             },
         }
 
-        agen = self.api_page_iter(url, page_size=25, method="POST", iter_key=api_page_iter, json=json, _json=False, headers=self.headers)
+        agen = self.api_page_iter(
+            url, page_size=25, method="POST", iter_key=api_page_iter, json=json, _json=False, headers=self.headers
+        )
         async for r in agen:
             status_code = getattr(r, "status_code", 0)
             if status_code != 200:

@@ -17,7 +17,7 @@ class postman(BaseModule):
         "X-App-Version": "11.27.4-250109-2338",
         "X-Entity-Team-Id": "0",
         "Origin": "https://www.postman.com",
-        "Referer": "https://www.postman.com/search?q=&scope=public&type=all"
+        "Referer": "https://www.postman.com/search?q=&scope=public&type=all",
     }
 
     async def setup(self):
