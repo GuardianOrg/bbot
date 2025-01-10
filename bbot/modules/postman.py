@@ -70,7 +70,6 @@ class postman(postman):
             self.verbose(f"Searching for postman workspaces, collections, requests for {owner}")
             for item in await self.query(owner):
                 workspace = item["document"]
-                self.hugesuccess(workspace)
                 slug = workspace["slug"]
                 profile = workspace["publisherHandle"]
                 repo_url = f"{self.html_url}/{profile}/{slug}"
@@ -116,12 +115,14 @@ class postman(postman):
             },
         }
 
-        agen = self.api_page_iter(url, iter_key=api_page_iter, json=json, _json=False, headers=self.headers)
+        agen = self.api_page_iter(url, page_size=25, method="POST", iter_key=api_page_iter, json=json, _json=False, headers=self.headers)
         async for r in agen:
             status_code = getattr(r, "status_code", 0)
+            if status_code != 200:
+                self.debug(f"Reached end of postman search results (url: {r.url}) with status code {status_code}")
+                break
             try:
-                data.extend(json.get("data", []))
-                self.hugesuccess(len(data))
+                data.extend(r.json().get("data", []))
             except Exception as e:
                 self.warning(f"Failed to decode JSON for {r.url} (HTTP status: {status_code}): {e}")
                 return None

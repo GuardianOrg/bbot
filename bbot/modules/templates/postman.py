@@ -14,10 +14,10 @@ class postman(BaseModule):
 
     headers = {
         "Content-Type": "application/json",
-        "X-App-Version": "10.18.8-230926-0808",
+        "X-App-Version": "11.27.4-250109-2338",
         "X-Entity-Team-Id": "0",
         "Origin": "https://www.postman.com",
-        "Referer": "https://www.postman.com/search?q=&scope=public&type=all",
+        "Referer": "https://www.postman.com/search?q=&scope=public&type=all"
     }
 
     async def setup(self):
@@ -39,13 +39,14 @@ class postman(BaseModule):
             if self.auth_required:
                 return None, "No API key set"
         self.api_key = api_keys
-        try:
-            await self.ping()
-            self.hugesuccess("API is ready")
-            return True
-        except Exception as e:
-            self.trace()
-            return None, f"Error with API ({str(e).strip()})"
+        if self.api_key:
+            try:
+                await self.ping()
+                self.hugesuccess("API is ready")
+                return True
+            except Exception as e:
+                self.trace()
+                return None, f"Error with API ({str(e).strip()})"
         return True
 
     def prepare_api_request(self, url, kwargs):
