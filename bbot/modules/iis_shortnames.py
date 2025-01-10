@@ -238,8 +238,7 @@ class iis_shortnames(BaseModule):
                 {"severity": "LOW", "host": str(event.host), "url": normalized_url, "description": description},
                 "VULNERABILITY",
                 event,
-                context="{module} detected low {event.type}: IIS shortname enumeration",
-                tags=[]
+                context="{module} detected low {event.type}: IIS shortname enumeration"
             )
 
 
