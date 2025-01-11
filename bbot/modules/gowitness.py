@@ -73,7 +73,7 @@ class gowitness(BaseModule):
             self.chrome_path = custom_chrome_path
 
         # fix ubuntu-specific sandbox bug
-        chrome_devel_sandbox = self.scan.tools_dir / "chrome-linux" / "chrome_sandbox"
+        chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
         if chrome_devel_sandbox.is_file():
             os.environ["CHROME_DEVEL_SANDBOX"] = str(chrome_devel_sandbox)
 
