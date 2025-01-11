@@ -60,7 +60,7 @@ class jadx(BaseModule):
             await self.emit_event(
                 {"path": str(output_dir)},
                 "FILESYSTEM",
-                tags="folder",
+                tags=["folder", "unarchived-folder"],
                 parent=event,
                 context=f'extracted "{path}" to: {output_dir}',
             )
