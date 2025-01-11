@@ -19,6 +19,9 @@ class github_workflows(github):
         "num_logs": "For each workflow fetch the last N successful runs logs (max 100)",
     }
 
+    # we get lots of 404s, that's normal
+    _api_failure_abort_threshold = 9999999999
+
     scope_distance_modifier = 2
 
     async def setup(self):

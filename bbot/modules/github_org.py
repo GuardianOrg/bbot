@@ -17,6 +17,9 @@ class github_org(github):
         "include_member_repos": "Also enumerate organization members' repositories",
     }
 
+    # we get lots of 404s, that's normal
+    _api_failure_abort_threshold = 9999999999
+
     scope_distance_modifier = 2
 
     async def setup(self):
