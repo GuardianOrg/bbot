@@ -44,6 +44,7 @@ class unarchive(BaseInternalModule):
         # Use the appropriate extraction method based on the file type
         self.info(f"Extracting {path} to {output_dir}")
         success = await self.extract_file(path, output_dir)
+        output_dir.listdir()
 
         # If the extraction was successful, emit the event
         if success:
@@ -58,12 +59,12 @@ class unarchive(BaseInternalModule):
             output_dir.rmdir()
 
     async def extract_file(self, path, output_dir):
-        if not output_dir.exists():
-            self.helpers.mkdir(output_dir)
         extension, mime_type, description, confidence = get_magic_info(path)
         compression_format = get_compression(mime_type)
         cmd_list = self.compression_methods.get(compression_format, [])
         if cmd_list:
+            if not output_dir.exists():
+                self.helpers.mkdir(output_dir)
             command = [s.format(filename=path, extract_dir=output_dir) for s in cmd_list]
             try:
                 await self.run_process(command, check=True)
