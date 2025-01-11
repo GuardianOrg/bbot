@@ -19,9 +19,6 @@ class github_workflows(github):
         "num_logs": "For each workflow fetch the last N successful runs logs (max 100)",
     }
 
-    # we get lots of 404s, that's normal
-    _api_failure_abort_threshold = 9999999999
-
     scope_distance_modifier = 2
 
     async def setup(self):
@@ -32,6 +29,10 @@ class github_workflows(github):
         self.output_dir = self.scan.home / "workflow_logs"
         self.helpers.mkdir(self.output_dir)
         return await super().setup()
+
+    def _api_response_is_success(self, r):
+        # we allow 404s because they're normal
+        return r.is_success or getattr(r, "status_code", 0) == 404
 
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":

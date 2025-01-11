@@ -17,15 +17,16 @@ class github_org(github):
         "include_member_repos": "Also enumerate organization members' repositories",
     }
 
-    # we get lots of 404s, that's normal
-    _api_failure_abort_threshold = 9999999999
-
     scope_distance_modifier = 2
 
     async def setup(self):
         self.include_members = self.config.get("include_members", True)
         self.include_member_repos = self.config.get("include_member_repos", False)
         return await super().setup()
+
+    def _api_response_is_success(self, r):
+        # we allow 404s because they're normal
+        return r.is_success or getattr(r, "status_code", 0) == 404
 
     async def filter_event(self, event):
         if event.type == "SOCIAL":
