@@ -75,6 +75,8 @@ class gowitness(BaseModule):
         # fix ubuntu-specific sandbox bug
         chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
         if chrome_devel_sandbox.is_file():
+            # chmod 4755
+            self.helpers.run(["chmod", "4755", str(chrome_devel_sandbox)], sudo=True)
             os.environ["CHROME_DEVEL_SANDBOX"] = str(chrome_devel_sandbox)
 
         # make sure we have a working chrome install
