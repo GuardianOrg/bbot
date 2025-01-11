@@ -1148,7 +1148,7 @@ class BaseModule:
             kwargs["url"] = new_url
 
             r = await self.helpers.request(**kwargs)
-            success = False if r is None else r.is_success
+            success = r is not None and self._api_response_is_success(r)
 
             if success:
                 self._api_request_failures = 0
@@ -1182,6 +1182,9 @@ class BaseModule:
         """
         url = self.helpers.safe_format(url, page=page, page_size=page_size, offset=offset)
         return url, requests_kwargs
+
+    def _api_response_is_success(self, r):
+        return r.is_success
 
     async def api_page_iter(self, url, page_size=100, _json=True, next_key=None, iter_key=None, **requests_kwargs):
         """
