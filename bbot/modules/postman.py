@@ -64,6 +64,10 @@ class postman(postman):
         return in_scope_workspaces
 
     async def query(self, query):
+        def api_page_iter(url, page, page_size, offset, **kwargs):
+            kwargs["json"]["body"]["from"] = offset
+            return url, kwargs
+
         data = []
         url = f"{self.base_url}/ws/proxy"
         json = {
@@ -75,7 +79,7 @@ class postman(postman):
                     "collaboration.workspace",
                 ],
                 "queryText": self.helpers.quote(query),
-                "size": 100,
+                "size": 25,
                 "from": 0,
                 "clientTraceId": "",
                 "requestOrigin": "srp",
@@ -84,13 +88,19 @@ class postman(postman):
                 "domain": "public",
             },
         }
-        r = await self.helpers.request(url, method="POST", json=json, headers=self.headers)
-        if r is None:
-            return data
-        status_code = getattr(r, "status_code", 0)
-        try:
-            json = r.json()
-        except Exception as e:
-            self.warning(f"Failed to decode JSON for {r.url} (HTTP status: {status_code}): {e}")
-            return None
-        return json.get("data", [])
+
+        agen = self.api_page_iter(
+            url, page_size=25, method="POST", iter_key=api_page_iter, json=json, _json=False, headers=self.headers
+        )
+        async for r in agen:
+            status_code = getattr(r, "status_code", 0)
+            if status_code != 200:
+                self.debug(f"Reached end of postman search results (url: {r.url}) with status code {status_code}")
+                break
+            try:
+                data.extend(r.json().get("data", []))
+            except Exception as e:
+                self.warning(f"Failed to decode JSON for {r.url} (HTTP status: {status_code}): {e}")
+                return None
+
+        return data
