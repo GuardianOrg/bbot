@@ -198,7 +198,7 @@ class TestUnarchive(ModuleTestBase):
         extract_event = [e for e in filesystem_events if "test_rar" in e.data["path"] and "folder" in e.tags]
         assert 1 == len(extract_event), "Failed to extract rar"
         extract_path = Path(extract_event[0].data["path"]) / "test.txt"
-        assert extract_path.is_file(), list(extract_path.iterdir())
+        assert extract_path.is_file(), list(extract_path.parent.iterdir())
 
         # LZMA
         lzma_file_event = [e for e in filesystem_events if "test.lzma" in e.data["path"]]
