@@ -31,7 +31,6 @@ class DepsInstaller:
         "gcc": "gcc",
         "bash": "bash",
         "which": "which",
-        "unrar": "unrar-free",
         "tar": "tar",
         # debian why are you like this
         "7z": [
