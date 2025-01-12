@@ -1408,7 +1408,7 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
         """
         raw_header = self.data.get("raw_header", "")
         body = self.data.get("body", "")
-        return f'{raw_header}{body}'
+        return f"{raw_header}{body}"
 
     @property
     def http_status(self):
