@@ -47,7 +47,6 @@ class unarchive(BaseInternalModule):
         # Use the appropriate extraction method based on the file type
         self.info(f"Extracting {path} to {output_dir}")
         success = await self.extract_file(path, output_dir)
-        output_dir.listdir()
 
         # If the extraction was successful, emit the event
         if success:
