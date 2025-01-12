@@ -76,7 +76,7 @@ class gowitness(BaseModule):
         chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
         if chrome_devel_sandbox.is_file():
             # chown root
-            await self.helpers.run(["chown", "root:root", str(chrome_devel_sandbox)])
+            await self.helpers.run(["chown", "root:root", str(chrome_devel_sandbox)], sudo=True)
             # chmod 4755
             await self.helpers.run(["chmod", "4755", str(chrome_devel_sandbox)], sudo=True)
             os.environ["CHROME_DEVEL_SANDBOX"] = str(chrome_devel_sandbox)

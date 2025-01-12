@@ -143,19 +143,19 @@ async def run_live(self, *command, check=False, text=True, idle_timeout=None, **
                     log.trace(traceback.format_exc())
             await proc.wait()
 
-            # if proc.returncode:
-            stdout, stderr = await proc.communicate()
-            if text:
-                if stderr is not None:
-                    stderr = smart_decode(stderr)
-                if stdout is not None:
-                    stdout = smart_decode(stdout)
-            if check:
-                raise CalledProcessError(proc.returncode, command, output=stdout, stderr=stderr)
-            # surface stderr
-            if stderr and log_stderr:
-                command_str = " ".join(command)
-                log.warning(f"Stderr for run_live({command_str}):\n\t{stderr}")
+            if proc.returncode:
+                stdout, stderr = await proc.communicate()
+                if text:
+                    if stderr is not None:
+                        stderr = smart_decode(stderr)
+                    if stdout is not None:
+                        stdout = smart_decode(stdout)
+                if check:
+                    raise CalledProcessError(proc.returncode, command, output=stdout, stderr=stderr)
+                # surface stderr
+                if stderr and log_stderr:
+                    command_str = " ".join(command)
+                    log.warning(f"Stderr for run_live({command_str}):\n\t{stderr}")
         finally:
             proc_tracker.remove(proc)
 
