@@ -590,7 +590,7 @@ class BaseEvent:
                         if t in ("spider-danger", "spider-max"):
                             self.add_tag(t)
         elif not self._dummy:
-            log.warning(f"Tried to set invalid parent on {self}: (got: {parent})")
+            log.warning(f"Tried to set invalid parent on {self}: (got: {repr(parent)} ({type(parent)}))")
 
     @property
     def parent_id(self):
@@ -1045,6 +1045,9 @@ class DictPathEvent(DictEvent):
         blob = None
         try:
             self._data_path = Path(data["path"])
+            # prepend the scan's home dir if the path is relative
+            if not self._data_path.is_absolute():
+                self._data_path = self.scan.home / self._data_path
             if self._data_path.is_file():
                 self.add_tag("file")
                 if file_blobs:
@@ -1229,11 +1232,25 @@ class URL_UNVERIFIED(BaseEvent):
         return data
 
     def add_tag(self, tag):
-        host_same_as_parent = self.parent and self.host == self.parent.host
-        if tag == "spider-danger" and host_same_as_parent and "spider-danger" not in self.tags:
-            # increment the web spider distance
-            if self.type == "URL_UNVERIFIED":
-                self.web_spider_distance += 1
+        self_url = getattr(self, "parsed_url", "")
+        self_host = getattr(self, "host", "")
+        # autoincrement web spider distance if the "spider-danger" tag is added
+        if tag == "spider-danger" and "spider-danger" not in self.tags and self_url and self_host:
+            parent_hosts_and_urls = set()
+            for p in self.get_parents():
+                # URL_UNVERIFIED events don't count because they haven't been visited yet
+                if p.type == "URL_UNVERIFIED":
+                    continue
+                url = getattr(p, "parsed_url", "")
+                parent_hosts_and_urls.add((p.host, url))
+            # if there's a URL anywhere in our parent chain that's different from ours but shares our host, we're in dAnGeR
+            dangerous_parent = any(
+                p_host == self.host and p_url != self_url for p_host, p_url in parent_hosts_and_urls
+            )
+            if dangerous_parent:
+                # increment the web spider distance
+                if self.type == "URL_UNVERIFIED":
+                    self.web_spider_distance += 1
                 if self.is_spider_max:
                     self.add_tag("spider-max")
         super().add_tag(tag)
@@ -1389,7 +1406,9 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
         """
         Formats the status code, headers, and body into a single string formatted as an HTTP/1.1 response.
         """
-        return f'{self.data["raw_header"]}{self.data["body"]}'
+        raw_header = self.data.get("raw_header", "")
+        body = self.data.get("body", "")
+        return f'{raw_header}{body}'
 
     @property
     def http_status(self):
@@ -1575,19 +1594,22 @@ class FILESYSTEM(DictPathEvent):
             # detect type of file content using magic
             from bbot.core.helpers.libmagic import get_magic_info, get_compression
 
-            extension, mime_type, description, confidence = get_magic_info(self.data["path"])
-            self.data["magic_extension"] = extension
-            self.data["magic_mime_type"] = mime_type
-            self.data["magic_description"] = description
-            self.data["magic_confidence"] = confidence
-            # detection compression
-            compression = get_compression(mime_type)
-            if compression:
-                self.add_tag("compressed")
-                self.add_tag(f"{compression}-archive")
-                self.data["compression"] = compression
-            # refresh hash
-            self.data = self.data
+            try:
+                extension, mime_type, description, confidence = get_magic_info(self.data["path"])
+                self.data["magic_extension"] = extension
+                self.data["magic_mime_type"] = mime_type
+                self.data["magic_description"] = description
+                self.data["magic_confidence"] = confidence
+                # detection compression
+                compression = get_compression(mime_type)
+                if compression:
+                    self.add_tag("compressed")
+                    self.add_tag(f"{compression}-archive")
+                    self.data["compression"] = compression
+                # refresh hash
+                self.data = self.data
+            except Exception as e:
+                log.debug(f"Error detecting file type: {type(e).__name__}: {e}")
 
 
 class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
@@ -1680,6 +1702,8 @@ def make_event(
         When working within a module's `handle_event()`, use the instance method
         `self.make_event()` instead of calling this function directly.
     """
+    if not data:
+        raise ValidationError("No data provided")
 
     # allow tags to be either a string or an array
     if not tags:

@@ -622,6 +622,10 @@ async def test_events(events, helpers):
     assert str(parent_event_3.module) == "mymodule"
     assert str(parent_event_3.module_sequence) == "mymodule->mymodule->mymodule"
 
+    # event with no data
+    with pytest.raises(ValidationError):
+        event = scan.make_event(None, "DNS_NAME", parent=scan.root_event)
+
     await scan._cleanup()
 
 
@@ -804,6 +808,8 @@ async def test_event_discovery_context():
 async def test_event_web_spider_distance(bbot_scanner):
     # make sure web spider distance inheritance works as intended
     # and we don't have any runaway situations with SOCIAL events + URLs
+
+    # URL_UNVERIFIED events should not increment web spider distance
     scan = bbot_scanner(config={"web": {"spider_distance": 1}})
     url_event_1 = scan.make_event("http://www.evilcorp.com/test1", "URL_UNVERIFIED", parent=scan.root_event)
     assert url_event_1.web_spider_distance == 0
@@ -812,9 +818,24 @@ async def test_event_web_spider_distance(bbot_scanner):
     url_event_3 = scan.make_event(
         "http://www.evilcorp.com/test3", "URL_UNVERIFIED", parent=url_event_2, tags=["spider-danger"]
     )
+    assert url_event_3.web_spider_distance == 0
+    assert "spider-danger" in url_event_3.tags
+    assert "spider-max" not in url_event_3.tags
+
+    # URL events should increment web spider distance
+    scan = bbot_scanner(config={"web": {"spider_distance": 1}})
+    url_event_1 = scan.make_event("http://www.evilcorp.com/test1", "URL", parent=scan.root_event, tags="status-200")
+    assert url_event_1.web_spider_distance == 0
+    url_event_2 = scan.make_event("http://www.evilcorp.com/test2", "URL", parent=url_event_1, tags="status-200")
+    assert url_event_2.web_spider_distance == 0
+    url_event_3 = scan.make_event(
+        "http://www.evilcorp.com/test3", "URL_UNVERIFIED", parent=url_event_2, tags=["spider-danger"]
+    )
     assert url_event_3.web_spider_distance == 1
     assert "spider-danger" in url_event_3.tags
     assert "spider-max" not in url_event_3.tags
+
+    # SOCIAL events should inherit spider distance
     social_event = scan.make_event(
         {"platform": "github", "url": "http://www.evilcorp.com/test4"}, "SOCIAL", parent=url_event_3
     )
@@ -842,17 +863,17 @@ async def test_event_web_spider_distance(bbot_scanner):
     url_event_2 = scan.make_event(
         "http://www.evilcorp.com", "URL_UNVERIFIED", parent=scan.root_event, tags="spider-danger"
     )
-    # spider distance shouldn't increment because it's not the same host
-    assert url_event_2.web_spider_distance == 0
-    assert "spider-danger" in url_event_2.tags
-    assert "spider-max" not in url_event_2.tags
+    url_event_2b = scan.make_event("http://www.evilcorp.com", "URL", parent=url_event_2, tags="status-200")
+    assert url_event_2b.web_spider_distance == 0
+    assert "spider-danger" in url_event_2b.tags
+    assert "spider-max" not in url_event_2b.tags
     url_event_3 = scan.make_event(
-        "http://www.evilcorp.com/3", "URL_UNVERIFIED", parent=url_event_2, tags="spider-danger"
+        "http://www.evilcorp.com/3", "URL_UNVERIFIED", parent=url_event_2b, tags="spider-danger"
     )
     assert url_event_3.web_spider_distance == 1
     assert "spider-danger" in url_event_3.tags
     assert "spider-max" not in url_event_3.tags
-    url_event_4 = scan.make_event("http://evilcorp.com", "URL_UNVERIFIED", parent=url_event_3)
+    url_event_4 = scan.make_event("http://evilcorp.com", "URL", parent=url_event_3, tags="status-200")
     assert url_event_4.web_spider_distance == 0
     assert "spider-danger" not in url_event_4.tags
     assert "spider-max" not in url_event_4.tags

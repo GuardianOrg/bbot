@@ -1,3 +1,4 @@
+import os
 import asyncio
 import aiosqlite
 import multiprocessing
@@ -71,6 +72,15 @@ class gowitness(BaseModule):
         if custom_chrome_path.is_file():
             self.chrome_path = custom_chrome_path
 
+        # fix ubuntu-specific sandbox bug
+        chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
+        if chrome_devel_sandbox.is_file():
+            # chown root
+            await self.helpers.run(["chown", "root:root", str(chrome_devel_sandbox)], sudo=True)
+            # chmod 4755
+            await self.helpers.run(["chmod", "4755", str(chrome_devel_sandbox)], sudo=True)
+            os.environ["CHROME_DEVEL_SANDBOX"] = str(chrome_devel_sandbox)
+
         # make sure we have a working chrome install
         chrome_test_pass = False
         for binary in ("chrome", "chromium", "chromium-browser", custom_chrome_path):
@@ -142,6 +152,9 @@ class gowitness(BaseModule):
             url = screenshot["url"]
             final_url = screenshot["final_url"]
             filename = self.screenshot_path / screenshot["filename"]
+            filename = filename.relative_to(self.scan.home)
+            # NOTE: this prevents long filenames from causing problems in BBOT, but gowitness will still fail to save it.
+            filename = self.helpers.truncate_filename(filename)
             webscreenshot_data = {"path": str(filename), "url": final_url}
             parent_event = event_dict[url]
             await self.emit_event(

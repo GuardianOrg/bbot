@@ -154,7 +154,8 @@ class filedownload(BaseModule):
                 file_event = self.make_event(
                     {"path": str(file_destination)}, "FILESYSTEM", tags=["filedownload", "file"], parent=source_event
                 )
-                await self.emit_event(file_event)
+                if file_event is not None:
+                    await self.emit_event(file_event)
         self.urls_downloaded.add(hash(url))
 
     def make_filename(self, url, content_type=None):
@@ -185,7 +186,9 @@ class filedownload(BaseModule):
         if extension:
             filename = f"{filename}.{extension}"
             orig_filename = f"{orig_filename}.{extension}"
-        return orig_filename, self.download_dir / filename, base_url
+        file_destination = self.download_dir / filename
+        file_destination = self.helpers.truncate_filename(file_destination)
+        return orig_filename, file_destination, base_url
 
     async def report(self):
         if self.files_downloaded > 0:
