@@ -42,7 +42,7 @@ class DepsInstaller:
             },
             {
                 "name": "Install 7zip (Non-Debian)",
-                "package": {"name": ["p7zip"], "state": "present"},
+                "package": {"name": ["p7zip", "7zip-plugins"], "state": "present"},
                 "become": True,
                 "when": "ansible_facts['os_family'] != 'Debian'",
             },
