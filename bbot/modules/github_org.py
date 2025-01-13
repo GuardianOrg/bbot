@@ -130,7 +130,7 @@ class github_org(github):
                     html_url = item.get("html_url", "")
                     repos.append(html_url)
         finally:
-            agen.aclose()
+            await agen.aclose()
         return repos
 
     async def query_org_members(self, query):
@@ -158,7 +158,7 @@ class github_org(github):
                     login = item.get("login", "")
                     members.append(login)
         finally:
-            agen.aclose()
+            await agen.aclose()
         return members
 
     async def query_user_repos(self, query):
@@ -186,7 +186,7 @@ class github_org(github):
                     html_url = item.get("html_url", "")
                     repos.append(html_url)
         finally:
-            agen.aclose()
+            await agen.aclose()
         return repos
 
     async def validate_org(self, org):

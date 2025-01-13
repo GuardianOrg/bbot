@@ -1215,7 +1215,7 @@ class BaseModule:
             >>>         if not subdomains:
             >>>             break
             >>> finally:
-            >>>     agen.aclose()
+            >>>     await agen.aclose()
         """
         page = 1
         offset = 0
