@@ -256,7 +256,7 @@ class paramminer_headers(BaseModule):
             await self.process_results(event, results)
 
     async def filter_event(self, event):
-        # Filter out non-dynamic endpoints
+        # Filter out static endpoints
         if event.data.get("url").endswith(tuple(f".{ext}" for ext in self.config.get("url_extension_static", []))):
             return False
 
