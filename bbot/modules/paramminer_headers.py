@@ -161,10 +161,11 @@ class paramminer_headers(BaseModule):
         if event.type == "WEB_PARAMETER":
             parameter_name = event.data.get("name")
             if self.recycle_words or (event.data.get("type") == "SPECULATIVE"):
-                if self.config.get("skip_boring_words", True) and parameter_name not in self.boring_words:
-                    if parameter_name not in self.wl:  # Ensure it's not already in the wordlist
-                        self.debug(f"Adding {parameter_name} to wordlist")
-                        self.extracted_words_master.add(parameter_name)
+                if self.config.get("skip_boring_words", True) and parameter_name in self.boring_words:
+                    return
+                if parameter_name not in self.wl:  # Ensure it's not already in the wordlist
+                    self.debug(f"Adding {parameter_name} to wordlist")
+                    self.extracted_words_master.add(parameter_name)
 
         elif event.type == "HTTP_RESPONSE":
             url = event.data.get("url")

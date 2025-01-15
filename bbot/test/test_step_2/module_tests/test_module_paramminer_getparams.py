@@ -193,9 +193,10 @@ class TestParamminer_Getparams_finish(Paramminer_Headers):
 class TestParamminer_Getparams_xmlspeculative(Paramminer_Headers):
     targets = ["http://127.0.0.1:8888/"]
     modules_overrides = ["httpx", "excavate", "paramminer_getparams"]
-    config_overrides = {"modules": {"paramminer_getparams": {"wordlist": tempwordlist([]), "recycle_words": False}}}
+    config_overrides = {"modules": {"paramminer_getparams": {"wordlist": tempwordlist(["data","common"]), "recycle_words": False}}}
     getparam_extract_xml = """
     <data>
+     <junkparameter>1</junkparameter>
      <obscureParameter>1</obscureParameter>
          <common>1</common>
      </data>
