@@ -245,7 +245,7 @@ class TestParamminer_Getparams_xmlspeculative(Paramminer_Headers):
         assert paramminer_used_speculative, "Paramminer failed to confirm speculative GET parameter"
 
 
-class TestParamminer_Getparams_filter_non_dynamic(TestParamminer_Getparams_finish):
+class TestParamminer_Getparams_filter_static(TestParamminer_Getparams_finish):
 
     targets = ["http://127.0.0.1:8888/test1.php", "http://127.0.0.1:8888/test2.pdf"]
 
@@ -274,4 +274,4 @@ class TestParamminer_Getparams_filter_non_dynamic(TestParamminer_Getparams_finis
                     emitted_excavate_paramminer_duplicate = True
 
         assert found_hidden_getparam_recycled, "Failed to find hidden GET parameter"
-        assert not emitted_excavate_paramminer_duplicate, "Paramminer emitted parameter for non-dynamic URL"
+        assert not emitted_excavate_paramminer_duplicate, "Paramminer emitted parameter for static URL"
