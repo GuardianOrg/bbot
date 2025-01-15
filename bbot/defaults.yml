@@ -195,7 +195,6 @@ url_extension_static:
   - conf
   - cfg
   - env
-  - json
   - md
   - rtf
   - tiff

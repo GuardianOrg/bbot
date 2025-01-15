@@ -264,11 +264,6 @@ class paramminer_headers(BaseModule):
         if str(event.module).startswith("paramminer"):
             return False
 
-        # Filter out events with URLs ending in '.pdf'
-        url = event.data.get("url")
-        if url.endswith(".pdf"):
-            return False
-
         return True
 
 
