@@ -256,6 +256,10 @@ class paramminer_headers(BaseModule):
             await self.process_results(event, results)
 
     async def filter_event(self, event):
+        # Filter out non-dynamic endpoints
+        if event.data.get("url").endswith(tuple(f".{ext}" for ext in self.config.get("url_extension_non_dynamic", []))):
+            return False
+
         # We don't need to look at WEB_PARAMETERS that we produced
         if str(event.module).startswith("paramminer"):
             return False
@@ -266,3 +270,5 @@ class paramminer_headers(BaseModule):
             return False
 
         return True
+
+
