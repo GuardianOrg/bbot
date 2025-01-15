@@ -247,7 +247,7 @@ class paramminer_headers(BaseModule):
             except HttpCompareError as e:
                 self.debug(f"Error initializing compare helper: {e}")
                 continue
-            words_to_process = {i for i in sorted(self.extracted_words_master.copy()) if hash(i + url) not in self.already_checked}
+            words_to_process = {i for i in self.extracted_words_master.copy() if hash(i + url) not in self.already_checked}
             try:
                 results = await self.do_mining(words_to_process, url, batch_size, compare_helper)
             except HttpCompareError as e:
