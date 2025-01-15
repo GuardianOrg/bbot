@@ -177,8 +177,8 @@ url_extension_blacklist:
 url_extension_httpx_only:
   - js
 
-# These url extensions have little to no change of being dynamic, so we exclude them from modules expecting dynamic endpoints
-url_extension_non_dynamic:
+# These url extensions are almost always static, so we exclude them from modules that fuzz things
+url_extension_static:
   - pdf
   - doc
   - docx
