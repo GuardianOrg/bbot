@@ -20,7 +20,7 @@ class TestUnarchive(ModuleTestBase):
         bz2_file = temp_path / "test.bz2"
         xz_file = temp_path / "test.xz"
         zip7_file = temp_path / "test.7z"
-        lzma_file = temp_path / "test.lzma"
+        # lzma_file = temp_path / "test.lzma"
         tar_file = temp_path / "test.tar"
         tgz_file = temp_path / "test.tgz"
         commands = [
@@ -29,7 +29,7 @@ class TestUnarchive(ModuleTestBase):
             ("tar", "-C", f"{temp_path}", "-cvjf", f"{bz2_file}", f"{text_file.name}"),
             ("tar", "-C", f"{temp_path}", "-cvJf", f"{xz_file}", f"{text_file.name}"),
             ("7z", "a", '-p""', "-aoa", f"{zip7_file}", f"{text_file}"),
-            ("tar", "-C", f"{temp_path}", "--lzma", "-cvf", f"{lzma_file}", f"{text_file.name}"),
+            # ("tar", "-C", f"{temp_path}", "--lzma", "-cvf", f"{lzma_file}", f"{text_file.name}"),
             ("tar", "-C", f"{temp_path}", "-cvf", f"{tar_file}", f"{text_file.name}"),
             ("tar", "-C", f"{temp_path}", "-cvzf", f"{tgz_file}", f"{text_file.name}"),
         ]
@@ -49,8 +49,6 @@ class TestUnarchive(ModuleTestBase):
                 <a href="/test.bz2">
                 <a href="/test.xz">
                 <a href="/test.7z">
-                <a href="/test.rar">
-                <a href="/test.lzma">
                 <a href="/test.tar">
                 <a href="/test.tgz">""",
             ),
@@ -100,24 +98,24 @@ class TestUnarchive(ModuleTestBase):
                 ),
             ),
         )
-        (
-            module_test.set_expect_requests(
-                dict(uri="/test.rar"),
-                dict(
-                    response_data=b"Rar!\x1a\x07\x01\x003\x92\xb5\xe5\n\x01\x05\x06\x00\x05\x01\x01\x80\x80\x00\xa2N\x8ec&\x02\x03\x0b\x93\x00\x04\x93\x00\xa4\x83\x02\xc9\x11f\x06\x80\x00\x01\x08test.txt\n\x03\x13S\x96ug\x96\xf3\x1b\x06This is a test file\x1dwVQ\x03\x05\x04\x00",
-                    headers={"Content-Type": "application/vnd.rar"},
-                ),
-            ),
-        )
-        (
-            module_test.set_expect_requests(
-                dict(uri="/test.lzma"),
-                dict(
-                    response_data=lzma_file.read_bytes(),
-                    headers={"Content-Type": "application/x-lzma"},
-                ),
-            ),
-        )
+        # (
+        #     module_test.set_expect_requests(
+        #         dict(uri="/test.rar"),
+        #         dict(
+        #             response_data=b"Rar!\x1a\x07\x01\x003\x92\xb5\xe5\n\x01\x05\x06\x00\x05\x01\x01\x80\x80\x00\xa2N\x8ec&\x02\x03\x0b\x93\x00\x04\x93\x00\xa4\x83\x02\xc9\x11f\x06\x80\x00\x01\x08test.txt\n\x03\x13S\x96ug\x96\xf3\x1b\x06This is a test file\x1dwVQ\x03\x05\x04\x00",
+        #             headers={"Content-Type": "application/vnd.rar"},
+        #         ),
+        #     ),
+        # )
+        # (
+        #     module_test.set_expect_requests(
+        #         dict(uri="/test.lzma"),
+        #         dict(
+        #             response_data=lzma_file.read_bytes(),
+        #             headers={"Content-Type": "application/x-lzma"},
+        #         ),
+        #     ),
+        # )
         (
             module_test.set_expect_requests(
                 dict(uri="/test.tar"),
@@ -191,24 +189,24 @@ class TestUnarchive(ModuleTestBase):
         assert extract_path.is_file(), "Failed to extract the test file"
 
         # RAR
-        rar_file_event = [e for e in filesystem_events if "test.rar" in e.data["path"]]
-        assert 1 == len(rar_file_event), "No rar file found"
-        file = Path(rar_file_event[0].data["path"])
-        assert file.is_file(), f"File not found at {file}"
-        extract_event = [e for e in filesystem_events if "test_rar" in e.data["path"] and "folder" in e.tags]
-        assert 1 == len(extract_event), "Failed to extract rar"
-        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
-        assert extract_path.is_file(), list(extract_path.parent.iterdir())
+        # rar_file_event = [e for e in filesystem_events if "test.rar" in e.data["path"]]
+        # assert 1 == len(rar_file_event), "No rar file found"
+        # file = Path(rar_file_event[0].data["path"])
+        # assert file.is_file(), f"File not found at {file}"
+        # extract_event = [e for e in filesystem_events if "test_rar" in e.data["path"] and "folder" in e.tags]
+        # assert 1 == len(extract_event), "Failed to extract rar"
+        # extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        # assert extract_path.is_file(), list(extract_path.parent.iterdir())
 
         # LZMA
-        lzma_file_event = [e for e in filesystem_events if "test.lzma" in e.data["path"]]
-        assert 1 == len(lzma_file_event), "No lzma file found"
-        file = Path(lzma_file_event[0].data["path"])
-        assert file.is_file(), f"File not found at {file}"
-        extract_event = [e for e in filesystem_events if "test_lzma" in e.data["path"] and "folder" in e.tags]
-        assert 1 == len(extract_event), "Failed to extract lzma"
-        extract_path = Path(extract_event[0].data["path"]) / "test.txt"
-        assert extract_path.is_file(), "Failed to extract the test file"
+        # lzma_file_event = [e for e in filesystem_events if "test.lzma" in e.data["path"]]
+        # assert 1 == len(lzma_file_event), "No lzma file found"
+        # file = Path(lzma_file_event[0].data["path"])
+        # assert file.is_file(), f"File not found at {file}"
+        # extract_event = [e for e in filesystem_events if "test_lzma" in e.data["path"] and "folder" in e.tags]
+        # assert 1 == len(extract_event), "Failed to extract lzma"
+        # extract_path = Path(extract_event[0].data["path"]) / "test.txt"
+        # assert extract_path.is_file(), "Failed to extract the test file"
 
         # TAR
         tar_file_event = [e for e in filesystem_events if "test.tar" in e.data["path"]]
