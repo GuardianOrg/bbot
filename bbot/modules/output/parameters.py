@@ -27,7 +27,6 @@ class Parameters(BaseOutputModule):
         
         parameter_name = event.data.get("name", "")
         if parameter_name:
-            self.critical(f"Parameter: {parameter_name}")
             self.parameter_counts[parameter_name] += 1
 
     async def cleanup(self):
