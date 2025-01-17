@@ -14,6 +14,8 @@ config:
   modules:
     nuclei:
       directory_only: False # This will run nuclei on ALL discovered URLs! Be careful!
+    wayback:
+      urls: true
   web:
     spider_distance: 2
     spider_depth: 4
