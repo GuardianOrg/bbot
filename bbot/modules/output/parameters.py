@@ -37,14 +37,20 @@ class Parameters(BaseOutputModule):
 
     async def report(self):
         include_count = self.config.get("include_count", False)
+
+        # Sort behavior:
+        # - If include_count is True, sort by count (descending) and then alphabetically by name
+        # - If include_count is False, sort alphabetically by name only
         sorted_parameters = sorted(
             self.parameter_counts.items(),
             key=lambda x: (-x[1], x[0]) if include_count else x[0]
         )
         for param, count in sorted_parameters:
             if include_count:
+                # Include the count of each parameter in the output
                 self.file.write(f"{count}:{param}\n")
             else:
+                # Only include the parameter name, effectively deduplicating by name
                 self.file.write(f"{param}\n")
         self.file.flush()
         if getattr(self, "_file", None) is not None:

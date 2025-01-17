@@ -17,15 +17,13 @@ class TestParameters(TestExcavateParameterExtraction):
             assert "jquerypost" in data
             assert "size" in data
             
-
             # after lightfuzz is merged uncomment these additional parameters
-
             # assert "blog-post-author-display" in data
             # assert "csrf" in data
             # assert "q1" in data
             # assert "q2" in data
             # assert "q3" in data
-            #assert "test" in data
+            # assert "test" in data
 
 class TestParameters_include_count(TestParameters):
     config_overrides = {"web": {"spider_distance": 1, "spider_depth": 1}, "modules": {"parameters": {"include_count": True}}}
