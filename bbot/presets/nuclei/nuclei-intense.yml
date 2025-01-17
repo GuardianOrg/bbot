@@ -1,0 +1,16 @@
+description: Run nuclei scans against all discovered targets, allowing for minimal spidering, with additional discovery modules.
+
+modules:
+  - httpx
+  - nuclei
+  - robots
+  - portfilter
+  - wayback
+
+config:
+  modules:
+    nuclei:
+      directory_only: True # Do not run nuclei on individual non-directory URLs
+  web:
+    spider_distance: 1
+    spider_depth: 3

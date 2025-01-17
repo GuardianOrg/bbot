@@ -1,0 +1,19 @@
+description: Run nuclei scans against all discovered targets, allowing for spidering, with additional discovery modules, and run against ALL URLs
+
+include:
+  - dirbust-light
+
+modules:
+  - httpx
+  - nuclei
+  - robots
+  - portfilter
+  - wayback
+
+config:
+  modules:
+    nuclei:
+      directory_only: False # This will run nuclei on ALL discovered URLs! Be careful!
+  web:
+    spider_distance: 2
+    spider_depth: 4

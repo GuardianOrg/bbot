@@ -1,0 +1,15 @@
+description: Run nuclei scans against all discovered targets
+
+modules:
+  - httpx
+  - nuclei
+  - portfilter
+
+config:
+  modules:
+    nuclei:
+      directory_only: True # Do not run nuclei on individual non-directory URLs
+  web:
+    # For the standard nuclei preset, explicitly disable the spider
+    spider_distance: 0
+    spider_depth: 0
