@@ -1,7 +1,6 @@
 
 from .test_module_excavate import TestExcavateParameterExtraction
 
-
 class TestParameters(TestExcavateParameterExtraction):
     modules_overrides = ["excavate", "httpx", "parameters"]
 
@@ -27,13 +26,13 @@ class TestParameters(TestExcavateParameterExtraction):
             # assert "blog-post-author-display" in data
             # assert "csrf" in data
 
-            
 class TestParameters_include_count(TestParameters):
     config_overrides = {"web": {"spider_distance": 1, "spider_depth": 1}, "modules": {"parameters": {"include_count": True}}}
 
     def check(self, module_test, events):
         parameters_file = module_test.scan.home / "parameters.txt"
         with open(parameters_file) as f:
+            data = f.read()
             assert "2:q" in data
             assert "1:age" in data
             assert "1:fit" in data
