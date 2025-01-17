@@ -1,4 +1,4 @@
-description: Run nuclei scans against all discovered targets, allowing for spidering, with additional discovery modules, and run against ALL URLs
+description: Run nuclei scans against all discovered targets, allowing for spidering, with additional discovery modules, and run against ALL URLs, but limited by technology detection
 
 include:
   - dirbust-light
