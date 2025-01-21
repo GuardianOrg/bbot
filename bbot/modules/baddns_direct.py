@@ -74,19 +74,19 @@ class baddns_direct(BaseModule):
         if event.type == "STORAGE_BUCKET":
             if str(event.module).startswith("bucket_"):
                 return False
-            self.debug(f"Processing STORAGE_BUCKET for {str(event.host)}")
+            self.debug(f"Processing STORAGE_BUCKET for {event.host}")
         if event.type == "URL":
             if event.scope_distance > 0:
                 self.debug(
-                    f"Rejecting {str(event.host)} due to not being in scope (scope distance: {str(event.scope_distance)})"
+                    f"Rejecting {event.host} due to not being in scope (scope distance: {event.scope_distance})"
                 )
                 return False
             if "cdn-cloudflare" not in event.tags:
-                self.debug(f"Rejecting {str(event.host)} due to not being behind CloudFlare")
+                self.debug(f"Rejecting {event.host} due to not being behind CloudFlare")
                 return False
             if "status-200" in event.tags or "status-301" in event.tags:
-                self.debug(f"Rejecting {str(event.host)} due to lack of non-standard status code")
+                self.debug(f"Rejecting {event.host} due to lack of non-standard status code")
                 return False
 
-            self.debug(f"Passed all checks and is processing {str(event.host)}")
+            self.debug(f"Passed all checks and is processing {event.host}")
         return True
