@@ -1,4 +1,4 @@
-description: Run nuclei scans against all discovered targets, allowing for minimal spidering, with additional discovery modules.
+description: Run nuclei scans against all discovered targets, allowing for spidering, against ALL URLs, and with additional discovery modules.
 
 modules:
   - httpx
@@ -10,7 +10,15 @@ modules:
 config:
   modules:
     nuclei:
-      directory_only: True # Do not run nuclei on individual non-directory URLs
+      directory_only: False # Will run nuclei on ALL discovered URLs - Be careful!
+    wayback:
+      urls: true
   web:
     spider_distance: 1
     spider_depth: 3
+
+
+# Example for also running a dirbust
+
+#include:
+#  - dirbust-light
