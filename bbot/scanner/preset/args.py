@@ -365,7 +365,7 @@ class BBOTArgs:
         misc.add_argument("--custom-yara-rules", "-cy", help="Add custom yara rules to excavate")
 
         misc.add_argument("--user-agent", "-ua", help="Set the user-agent for all HTTP requests")
-        misc.add_argument("--user-agent-suffix", "-uas", help="Set a an optional user-agent suffix for all HTTP requests")
+        # misc.add_argument("--user-agent-suffix", "-uas", help="Set a an optional user-agent suffix for all HTTP requests") # Removed to declutter the CLI, maybe re-add in the future
         return p
 
     def sanitize_args(self):
