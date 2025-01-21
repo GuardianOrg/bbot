@@ -48,7 +48,7 @@ class Parameters(BaseOutputModule):
         for param, count in sorted_parameters:
             if include_count:
                 # Include the count of each parameter in the output
-                self.file.write(f"{count}:{param}\n")
+                self.file.write(f"{count}\t{param}\n")
             else:
                 # Only include the parameter name, effectively deduplicating by name
                 self.file.write(f"{param}\n")

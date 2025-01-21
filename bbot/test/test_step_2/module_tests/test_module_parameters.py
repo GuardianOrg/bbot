@@ -32,25 +32,25 @@ class TestParameters_include_count(TestParameters):
         parameters_file = module_test.scan.home / "parameters.txt"
         with open(parameters_file) as f:
             data = f.read()
-            assert "2:q" in data
-            assert "1:age" in data
-            assert "1:fit" in data
-            assert "1:id" in data
-            assert "1:jqueryget" in data
-            assert "1:jquerypost" in data
-            assert "1:size" in data
+            assert "2\tq" in data
+            assert "1\tage" in data
+            assert "1\tfit" in data
+            assert "1\tid" in data
+            assert "1\tjqueryget" in data
+            assert "1\tjquerypost" in data
+            assert "1\tsize" in data
 
             # after lightfuzz is merged, these will be the correct parameters to check
 
-            # assert "3:test" in data
-            # assert "2:blog-post-author-display" in data
-            # assert "2:csrf" in data
-            # assert "2:q2" in data
-            # assert "1:age" in data
-            # assert "1:fit" in data
-            # assert "1:id" in data
-            # assert "1:jqueryget" in data
-            # assert "1:jquerypost" in data
-            # assert "1:q1" in data
-            # assert "1:q3" in data
-            # assert "1:size" in data
+            # assert "3\ttest" in data
+            # assert "2\tblog-post-author-display" in data
+            # assert "2\tcsrf" in data
+            # assert "2\tq2" in data
+            # assert "1\tage" in data
+            # assert "1\tfit" in data
+            # assert "1\tid" in data
+            # assert "1\tjqueryget" in data
+            # assert "1\tjquerypost" in data
+            # assert "1\tq1" in data
+            # assert "1\tq3" in data
+            # assert "1\tsize" in data
