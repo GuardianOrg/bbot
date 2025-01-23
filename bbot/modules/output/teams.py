@@ -36,9 +36,9 @@ class Teams(WebhookOutputModule):
             else:
                 response_headers = response.headers
                 try:
-                    retry_after = int(response_headers.get("Retry-After", 123))
+                    retry_after = float(response_headers.get("Retry-After", 1))
                 except Exception:
-                    retry_after = 123
+                    retry_after = 1
                 self.verbose(
                     f"Error sending {event}: status code {status_code}, response headers: {response_headers}, retrying in {retry_after} seconds"
                 )
