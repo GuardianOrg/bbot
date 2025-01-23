@@ -15,3 +15,9 @@ config:
 
 #include:
 #  - dirbust-light
+
+conditions:
+  - |
+    {% if config.web.spider_distance != 0 %}
+      {{ warn("Running nuclei with spider enabled is generally not recommended. Consider removing 'spider' preset.") }}
+    {% endif %}

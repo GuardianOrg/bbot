@@ -11,3 +11,9 @@ config:
       mode: budget
       budget: 10
       directory_only: true # Do not run nuclei on individual non-directory URLs
+
+conditions:
+  - |
+    {% if config.web.spider_distance != 0 %}
+      {{ warn("Running nuclei with spider enabled is generally not recommended. Consider removing 'spider' preset.") }}
+    {% endif %}
