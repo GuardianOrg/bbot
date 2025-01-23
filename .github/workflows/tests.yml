@@ -12,7 +12,6 @@ concurrency:
 
 jobs:
   test:
-    needs: lint
     runs-on: ubuntu-latest
     strategy:
       # if one python version fails, let the others finish
