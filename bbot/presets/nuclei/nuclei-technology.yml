@@ -11,13 +11,13 @@ config:
       mode: technology
       directory_only: True # Do not run nuclei on individual non-directory URLs. This is less unsafe to disable with technology mode.
 
-# Example for also running a dirbust
-
-#include:
-#  - dirbust-light
-
 conditions:
   - |
     {% if config.web.spider_distance != 0 %}
       {{ warn("Running nuclei with spider enabled is generally not recommended. Consider removing 'spider' preset.") }}
     {% endif %}
+
+# Example for also running a dirbust
+
+#include:
+#  - dirbust-light
