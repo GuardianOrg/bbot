@@ -1,12 +1,8 @@
 description: Recursive web spider with more aggressive settings
 
-modules:
-  - httpx
-
-blacklist:
-  # Prevent spider from invalidating sessions by logging out
-  - "RE:/.*(sign|log)[_-]?out"
-
+include:
+  - spider
+  
 config:
   web:
     # how many links to follow in a row
