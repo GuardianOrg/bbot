@@ -34,13 +34,13 @@ class Teams(WebhookOutputModule):
             if self.evaluate_response(response):
                 break
             else:
-                response_data = getattr(response, "text", "")
+                response_headers = response.headers
                 try:
-                    retry_after = response.json().get("retry_after", 1)
+                    retry_after = int(response_headers.get("Retry-After", 123))
                 except Exception:
-                    retry_after = 1
+                    retry_after = 123
                 self.verbose(
-                    f"Error sending {event}: status code {status_code}, response: {response_data}, retrying in {retry_after} seconds"
+                    f"Error sending {event}: status code {status_code}, response headers: {response_headers}, retrying in {retry_after} seconds"
                 )
                 await self.helpers.sleep(retry_after)
 
