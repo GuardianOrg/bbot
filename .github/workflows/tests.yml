@@ -30,8 +30,8 @@ jobs:
           poetry install
       - name: Lint
         run: |
-          ruff check
-          ruff format --check
+          poetry run ruff check
+          poetry run ruff format --check
       - name: Run tests
         run: |
           poetry run pytest -vv --exitfirst --reruns 2 -o timeout_func_only=true --timeout 1200 --disable-warnings --log-cli-level=INFO --cov-config=bbot/test/coverage.cfg --cov-report xml:cov.xml --cov=bbot .
