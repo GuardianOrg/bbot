@@ -18,7 +18,7 @@ jobs:
       - run: |
           pipx install ruff
           ruff check
-          ruff format
+          ruff format --check
   test:
     needs: lint
     runs-on: ubuntu-latest
