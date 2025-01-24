@@ -19,6 +19,10 @@ class WebhookOutputModule(BaseOutputModule):
     _api_retries = 10
 
     async def setup(self):
+        self._api_retries = self.config.get("retries", 10)
+        return await super().setup()
+
+    async def setup(self):
         self.webhook_url = self.config.get("webhook_url", "")
         self.min_severity = self.config.get("min_severity", "LOW").strip().upper()
         assert (
