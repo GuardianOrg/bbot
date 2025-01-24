@@ -13,36 +13,16 @@ class Teams(WebhookOutputModule):
         "webhook_url": "Teams webhook URL",
         "event_types": "Types of events to send",
         "min_severity": "Only allow VULNERABILITY events of this severity or higher",
-        "retries": "Number of times to retry sending the message before skipping the event (Default: 10)",
+        "retries": "Number of times to retry sending the message before skipping the event",
     }
-    _module_threads = 5
-
-    async def setup(self):
-        self.retries = self.config.get("retries", 10)
-        return await super().setup()
 
     async def handle_event(self, event):
-        for _ in range(self.retries):
-            data = self.format_message(event)
-
-            response = await self.helpers.request(
-                url=self.webhook_url,
-                method="POST",
-                json=data,
-            )
-            status_code = getattr(response, "status_code", 0)
-            if self.evaluate_response(response):
-                break
-            else:
-                response_headers = response.headers
-                try:
-                    retry_after = float(response_headers.get("Retry-After", 1))
-                except Exception:
-                    retry_after = 1
-                self.verbose(
-                    f"Error sending {event}: status code {status_code}, response headers: {response_headers}, retrying in {retry_after} seconds"
-                )
-                await self.helpers.sleep(retry_after)
+        data = self.format_message(event)
+        await self.api_request(
+            url=self.webhook_url,
+            method="POST",
+            json=data,
+        )
 
     def trim_message(self, message):
         if len(message) > self.message_size_limit:
