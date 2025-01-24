@@ -8,12 +8,17 @@ class Teams(WebhookOutputModule):
         "created_date": "2023-08-14",
         "author": "@TheTechromancer",
     }
-    options = {"webhook_url": "", "event_types": ["VULNERABILITY", "FINDING"], "min_severity": "LOW"}
+    options = {"webhook_url": "", "event_types": ["VULNERABILITY", "FINDING"], "min_severity": "LOW", "retries": 10}
     options_desc = {
         "webhook_url": "Teams webhook URL",
         "event_types": "Types of events to send",
         "min_severity": "Only allow VULNERABILITY events of this severity or higher",
+        "retries": "Number of times to retry sending the message before skipping the event (Default: 10)",
     }
+
+    async def setup(self):
+        self._api_retries = self.config.get("retries", 10)
+        return await super().setup()
 
     async def handle_event(self, event):
         data = self.format_message(event)
