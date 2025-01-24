@@ -16,7 +16,7 @@ class WebhookOutputModule(BaseOutputModule):
     # abort module after 10 failed requests (not including retries)
     _api_failure_abort_threshold = 10
     # retry each request up to 10 times, respecting the Retry-After header
-    _api_failure_retry_limit = 10
+    _api_retries = 10
 
     async def setup(self):
         self.webhook_url = self.config.get("webhook_url", "")
