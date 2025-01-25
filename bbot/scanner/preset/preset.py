@@ -25,7 +25,7 @@ DEFAULT_PRESETS = None
 
 
 class BasePreset(type):
-    def __call__(cls, *args, include=None, presets=None, name=None, description=None, **kwargs):
+    def __call__(cls, *args, include=None, presets=None, name=None, description=None, _exclude=None, **kwargs):
         """
         Handles loading of "included" presets, while preserving the proper load order
 
@@ -43,14 +43,13 @@ class BasePreset(type):
         # include other presets
         if include and not isinstance(include, (list, tuple, set)):
             include = [include]
+
+        main_preset = type.__call__(cls, *args, name=name, description=description, _exclude=_exclude, **kwargs)
+
         if include:
-            include_preset = type.__call__(cls, name=name, description=description)
+            include_preset = type.__call__(cls, name=name, description=description, _exclude=_exclude)
             for included_preset in include:
                 include_preset.include_preset(included_preset)
-
-        main_preset = type.__call__(cls, *args, **kwargs)
-
-        if include_preset is not None:
             include_preset.merge(main_preset)
             return include_preset
 
@@ -276,6 +275,8 @@ class Preset(metaclass=BasePreset):
         self.flags.update(set(flags))
         self.exclude_flags.update(set(exclude_flags))
         self.require_flags.update(set(require_flags))
+
+        # log.critical(f"{self.name}: verbose: {self.verbose}, debug: {self.debug}, silent: {self.silent}")
 
     @property
     def bbot_home(self):
@@ -648,7 +649,7 @@ class Preset(metaclass=BasePreset):
         Examples:
             >>> preset = Preset.from_dict({"target": ["evilcorp.com"], "modules": ["portscan"]})
         """
-        new_preset = Preset(
+        new_preset = cls(
             *preset_dict.get("target", []),
             whitelist=preset_dict.get("whitelist"),
             blacklist=preset_dict.get("blacklist"),
@@ -692,7 +693,7 @@ class Preset(metaclass=BasePreset):
         preset_from_yaml = self.from_yaml_file(filename, _exclude=self._preset_files_loaded)
         if preset_from_yaml is not False:
             self.merge(preset_from_yaml)
-        self._preset_files_loaded.add(preset_from_yaml.filename)
+            self._preset_files_loaded.add(preset_from_yaml.filename)
 
     @classmethod
     def from_yaml_file(cls, filename, _exclude=None, _log=False):
