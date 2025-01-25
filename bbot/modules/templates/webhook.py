@@ -22,9 +22,9 @@ class WebhookOutputModule(BaseOutputModule):
         self._api_retries = self.config.get("retries", 10)
         self.webhook_url = self.config.get("webhook_url", "")
         self.min_severity = self.config.get("min_severity", "LOW").strip().upper()
-        assert (
-            self.min_severity in self.vuln_severities
-        ), f"min_severity must be one of the following: {','.join(self.vuln_severities)}"
+        assert self.min_severity in self.vuln_severities, (
+            f"min_severity must be one of the following: {','.join(self.vuln_severities)}"
+        )
         self.allowed_severities = self.vuln_severities[self.vuln_severities.index(self.min_severity) :]
         if not self.webhook_url:
             self.warning("Must set Webhook URL")
