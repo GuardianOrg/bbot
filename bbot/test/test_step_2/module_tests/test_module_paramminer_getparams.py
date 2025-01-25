@@ -89,7 +89,6 @@ class TestParamminer_Getparams_boring_off(TestParamminer_Getparams):
         module_test.set_expect_requests(respond_args=respond_args)
 
     def check(self, module_test, events):
-
         emitted_boring_parameter = False
         for e in events:
             if e.type == "WEB_PARAMETER":
@@ -106,7 +105,6 @@ class TestParamminer_Getparams_boring_on(TestParamminer_Getparams_boring_off):
     }
 
     def check(self, module_test, events):
-
         emitted_boring_parameter = False
 
         for e in events:
@@ -160,15 +158,12 @@ class TestParamminer_Getparams_finish(Paramminer_Headers):
         module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
 
     def check(self, module_test, events):
-
         excavate_extracted_web_parameter = False
         found_hidden_getparam_recycled = False
         emitted_excavate_paramminer_duplicate = False
 
         for e in events:
-
             if e.type == "WEB_PARAMETER":
-
                 if (
                     "http://127.0.0.1:8888/test2.php" in e.data["url"]
                     and "HTTP Extracted Parameter [abcd1234] (HTML Tags Submodule)" in e.data["description"]
@@ -198,9 +193,12 @@ class TestParamminer_Getparams_finish(Paramminer_Headers):
 class TestParamminer_Getparams_xmlspeculative(Paramminer_Headers):
     targets = ["http://127.0.0.1:8888/"]
     modules_overrides = ["httpx", "excavate", "paramminer_getparams"]
-    config_overrides = {"modules": {"paramminer_getparams": {"wordlist": tempwordlist([]), "recycle_words": False}}}
+    config_overrides = {
+        "modules": {"paramminer_getparams": {"wordlist": tempwordlist(["data", "common"]), "recycle_words": False}}
+    }
     getparam_extract_xml = """
     <data>
+     <junkparameter>1</junkparameter>
      <obscureParameter>1</obscureParameter>
          <common>1</common>
      </data>
@@ -213,7 +211,6 @@ class TestParamminer_Getparams_xmlspeculative(Paramminer_Headers):
     """
 
     async def setup_after_prep(self, module_test):
-
         module_test.scan.modules["paramminer_getparams"].rand_string = lambda *args, **kwargs: "AAAAAAAAAAAAAA"
         module_test.monkeypatch.setattr(
             helper.HttpCompare, "gen_cache_buster", lambda *args, **kwargs: {"AAAAAA": "1"}
@@ -248,3 +245,34 @@ class TestParamminer_Getparams_xmlspeculative(Paramminer_Headers):
 
         assert excavate_discovered_speculative, "Excavate failed to discover speculative xml parameter"
         assert paramminer_used_speculative, "Paramminer failed to confirm speculative GET parameter"
+
+
+class TestParamminer_Getparams_filter_static(TestParamminer_Getparams_finish):
+    targets = ["http://127.0.0.1:8888/test1.php", "http://127.0.0.1:8888/test2.pdf"]
+
+    test_1_html = """
+    <html><a href="/test2.pdf?abcd1234=foo">paramstest2</a></html>
+    """
+
+    def check(self, module_test, events):
+        found_hidden_getparam_recycled = False
+        emitted_excavate_paramminer_duplicate = False
+
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if (
+                    "http://127.0.0.1:8888/test1.php" in e.data["url"]
+                    and "[Paramminer] Getparam: [abcd1234] Reasons: [body] Reflection: [False]"
+                    in e.data["description"]
+                ):
+                    found_hidden_getparam_recycled = True
+
+                if (
+                    "http://127.0.0.1:8888/test2.pdf" in e.data["url"]
+                    and "[Paramminer] Getparam: [abcd1234] Reasons: [body] Reflection: [False]"
+                    in e.data["description"]
+                ):
+                    emitted_excavate_paramminer_duplicate = True
+
+        assert found_hidden_getparam_recycled, "Failed to find hidden GET parameter"
+        assert not emitted_excavate_paramminer_duplicate, "Paramminer emitted parameter for static URL"

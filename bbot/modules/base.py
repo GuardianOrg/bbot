@@ -51,7 +51,7 @@ class BaseModule:
 
         target_only (bool): Accept only the initial target event(s). Default is False.
 
-        in_scope_only (bool): Accept only explicitly in-scope events. Default is False.
+        in_scope_only (bool): Accept only explicitly in-scope events, regardless of the scan's search distance. Default is False.
 
         options (Dict): Customizable options for the module, e.g., {"api_key": ""}. Empty dict by default.
 
@@ -160,8 +160,7 @@ class BaseModule:
         self._api_request_failures = 0
 
         self._tasks = []
-        self._event_received = asyncio.Condition()
-        self._event_queued = asyncio.Condition()
+        self._event_received = None
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
@@ -311,7 +310,7 @@ class BaseModule:
         if self.auth_secret:
             try:
                 await self.ping()
-                self.hugesuccess(f"API is ready")
+                self.hugesuccess("API is ready")
                 return True, ""
             except Exception as e:
                 self.trace(traceback.format_exc())
@@ -332,10 +331,10 @@ class BaseModule:
 
     def cycle_api_key(self):
         if len(self._api_keys) > 1:
-            self.verbose(f"Cycling API key")
+            self.verbose("Cycling API key")
             self._api_keys.insert(0, self._api_keys.pop())
         else:
-            self.debug(f"No extra API keys to cycle")
+            self.debug("No extra API keys to cycle")
 
     @property
     def api_retries(self):
@@ -408,6 +407,12 @@ class BaseModule:
             bool: True if the module is properly configured for authentication, otherwise False.
         """
         return getattr(self, "api_key", "")
+
+    @property
+    def event_received(self):
+        if self._event_received is None:
+            self._event_received = asyncio.Condition()
+        return self._event_received
 
     def get_watched_events(self):
         """Retrieve the set of events that the module is interested in observing.
@@ -658,18 +663,19 @@ class BaseModule:
                         await asyncio.sleep(0.1)
                         continue
 
+                    # if batch wasn't big enough, we wait for the next event before continuing
                     if self.batch_size > 1:
                         submitted = await self._handle_batch()
                         if not submitted:
-                            async with self._event_received:
-                                await self._event_received.wait()
+                            async with self.event_received:
+                                await self.event_received.wait()
 
                     else:
                         try:
                             if self.incoming_event_queue is not False:
                                 event = await self.incoming_event_queue.get()
                             else:
-                                self.debug(f"Event queue is in bad state")
+                                self.debug("Event queue is in bad state")
                                 break
                         except asyncio.queues.QueueEmpty:
                             continue
@@ -700,7 +706,7 @@ class BaseModule:
                 else:
                     self.error(f"Critical failure in module {self.name}: {e}")
                     self.error(traceback.format_exc())
-        self.log.trace(f"Worker stopped")
+        self.log.trace("Worker stopped")
 
     @property
     def max_scope_distance(self):
@@ -743,7 +749,7 @@ class BaseModule:
         if event.type in ("FINISHED",):
             return True, "its type is FINISHED"
         if self.errored:
-            return False, f"module is in error state"
+            return False, "module is in error state"
         # exclude non-watched types
         if not any(t in self.get_watched_events() for t in ("*", event.type)):
             return False, "its type is not in watched_events"
@@ -770,7 +776,7 @@ class BaseModule:
             # check duplicates
             is_incoming_duplicate, reason = self.is_incoming_duplicate(event, add=True)
             if is_incoming_duplicate and not self.accept_dupes:
-                return False, f"module has already seen it" + (f" ({reason})" if reason else "")
+                return False, "module has already seen it" + (f" ({reason})" if reason else "")
 
         return acceptable, reason
 
@@ -863,7 +869,7 @@ class BaseModule:
         """
         async with self._task_counter.count("queue_event()", _log=False):
             if self.incoming_event_queue is False:
-                self.debug(f"Not in an acceptable state to queue incoming event")
+                self.debug("Not in an acceptable state to queue incoming event")
                 return
             acceptable, reason = self._event_precheck(event)
             if not acceptable:
@@ -874,12 +880,12 @@ class BaseModule:
                 self.debug(f"Queueing {event} because {reason}")
             try:
                 self.incoming_event_queue.put_nowait(event)
-                async with self._event_received:
-                    self._event_received.notify()
+                async with self.event_received:
+                    self.event_received.notify()
                 if event.type != "FINISHED":
                     self.scan._new_activity = True
             except AttributeError:
-                self.debug(f"Not in an acceptable state to queue incoming event")
+                self.debug("Not in an acceptable state to queue incoming event")
 
     async def queue_outgoing_event(self, event, **kwargs):
         """
@@ -904,7 +910,7 @@ class BaseModule:
         try:
             await self.outgoing_event_queue.put((event, kwargs))
         except AttributeError:
-            self.debug(f"Not in an acceptable state to queue outgoing event")
+            self.debug("Not in an acceptable state to queue outgoing event")
 
     def set_error_state(self, message=None, clear_outgoing_queue=False, critical=False):
         """
@@ -939,7 +945,7 @@ class BaseModule:
             self.errored = True
             # clear incoming queue
             if self.incoming_event_queue is not False:
-                self.debug(f"Emptying event_queue")
+                self.debug("Emptying event_queue")
                 with suppress(asyncio.queues.QueueEmpty):
                     while 1:
                         self.incoming_event_queue.get_nowait()
@@ -1126,7 +1132,7 @@ class BaseModule:
         """
         if self.api_key:
             url = url.format(api_key=self.api_key)
-            if not "headers" in kwargs:
+            if "headers" not in kwargs:
                 kwargs["headers"] = {}
             kwargs["headers"]["Authorization"] = f"Bearer {self.api_key}"
         return url, kwargs
@@ -1142,13 +1148,13 @@ class BaseModule:
 
         # loop until we have a successful request
         for _ in range(self.api_retries):
-            if not "headers" in kwargs:
+            if "headers" not in kwargs:
                 kwargs["headers"] = {}
             new_url, kwargs = self.prepare_api_request(url, kwargs)
             kwargs["url"] = new_url
 
             r = await self.helpers.request(**kwargs)
-            success = False if r is None else r.is_success
+            success = r is not None and self._api_response_is_success(r)
 
             if success:
                 self._api_request_failures = 0
@@ -1163,11 +1169,13 @@ class BaseModule:
                     )
                 else:
                     # sleep for a bit if we're being rate limited
-                    if status_code == 429:
+                    retry_after = self._get_retry_after(r)
+                    if retry_after or status_code == 429:
+                        sleep_interval = int(retry_after) if retry_after is not None else self._429_sleep_interval
                         self.verbose(
-                            f"Sleeping for {self._429_sleep_interval:,} seconds due to rate limit (HTTP status: 429)"
+                            f"Sleeping for {sleep_interval:,} seconds due to rate limit (HTTP status: {status_code})"
                         )
-                        await asyncio.sleep(self._429_sleep_interval)
+                        await asyncio.sleep(sleep_interval)
                     elif self._api_keys:
                         # if request failed, cycle API keys and try again
                         self.cycle_api_key()
@@ -1176,7 +1184,30 @@ class BaseModule:
 
         return r
 
-    async def api_page_iter(self, url, page_size=100, json=True, next_key=None, **requests_kwargs):
+    def _get_retry_after(self, r):
+        # try to get retry_after from headers first
+        headers = getattr(r, "headers", {})
+        retry_after = headers.get("Retry-After", None)
+        if retry_after is None:
+            # then look in body json
+            with suppress(Exception):
+                body_json = r.json()
+                if isinstance(body_json, dict):
+                    retry_after = body_json.get("retry_after", None)
+        if retry_after is not None:
+            return float(retry_after)
+
+    def _prepare_api_iter_req(self, url, page, page_size, offset, **requests_kwargs):
+        """
+        Default function for preparing an API request for iterating through paginated data.
+        """
+        url = self.helpers.safe_format(url, page=page, page_size=page_size, offset=offset)
+        return url, requests_kwargs
+
+    def _api_response_is_success(self, r):
+        return r.is_success
+
+    async def api_page_iter(self, url, page_size=100, _json=True, next_key=None, iter_key=None, **requests_kwargs):
         """
         An asynchronous generator function for iterating through paginated API data.
 
@@ -1189,6 +1220,7 @@ class BaseModule:
             page_size (int, optional): The number of items per page. Defaults to 100.
             json (bool, optional): If True, attempts to deserialize the response content to a JSON object. Defaults to True.
             next_key (callable, optional): A function that takes the last page's data and returns the URL for the next page. Defaults to None.
+            iter_key (callable, optional): A function that builds each new request based on the page number, page size, and offset. Defaults to a simple implementation that autoreplaces {page} and {page_size} in the url.
             **requests_kwargs: Arbitrary keyword arguments that will be forwarded to the HTTP request function.
 
         Yields:
@@ -1206,11 +1238,13 @@ class BaseModule:
             >>>         if not subdomains:
             >>>             break
             >>> finally:
-            >>>     agen.aclose()
+            >>>     await agen.aclose()
         """
         page = 1
         offset = 0
         result = None
+        if iter_key is None:
+            iter_key = self._prepare_api_iter_req
         while 1:
             if result and callable(next_key):
                 try:
@@ -1219,13 +1253,13 @@ class BaseModule:
                     self.debug(f"Failed to extract next page of results from {url}: {e}")
                     self.debug(traceback.format_exc())
             else:
-                new_url = self.helpers.safe_format(url, page=page, page_size=page_size, offset=offset)
-            result = await self.api_request(new_url, **requests_kwargs)
+                new_url, new_kwargs = iter_key(url, page, page_size, offset, **requests_kwargs)
+            result = await self.api_request(new_url, **new_kwargs)
             if result is None:
                 self.verbose(f"api_page_iter() got no response for {url}")
                 break
             try:
-                if json:
+                if _json:
                     result = result.json()
                 yield result
             except Exception:
@@ -1589,7 +1623,7 @@ class BaseInterceptModule(BaseModule):
                                 event = incoming
                                 kwargs = {}
                         else:
-                            self.debug(f"Event queue is in bad state")
+                            self.debug("Event queue is in bad state")
                             break
                     except asyncio.queues.QueueEmpty:
                         await asyncio.sleep(0.1)
@@ -1644,7 +1678,7 @@ class BaseInterceptModule(BaseModule):
                 else:
                     self.critical(f"Critical failure in intercept module {self.name}: {e}")
                     self.critical(traceback.format_exc())
-        self.log.trace(f"Worker stopped")
+        self.log.trace("Worker stopped")
 
     async def get_incoming_event(self):
         """
@@ -1675,7 +1709,7 @@ class BaseInterceptModule(BaseModule):
         try:
             self.incoming_event_queue.put_nowait((event, kwargs))
         except AttributeError:
-            self.debug(f"Not in an acceptable state to queue incoming event")
+            self.debug("Not in an acceptable state to queue incoming event")
 
     async def _event_postcheck(self, event):
         return await self._event_postcheck_inner(event)

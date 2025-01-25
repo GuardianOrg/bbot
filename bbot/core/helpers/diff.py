@@ -94,14 +94,16 @@ class HttpCompare:
                 baseline_1_json = xmltodict.parse(baseline_1.text)
                 baseline_2_json = xmltodict.parse(baseline_2.text)
             except ExpatError:
-                log.debug(f"Cant HTML parse for {self.baseline_url}. Switching to text parsing as a backup")
+                log.debug(f"Can't HTML parse for {self.baseline_url}. Switching to text parsing as a backup")
                 baseline_1_json = baseline_1.text.split("\n")
                 baseline_2_json = baseline_2.text.split("\n")
 
-            ddiff = DeepDiff(baseline_1_json, baseline_2_json, ignore_order=True, view="tree")
+            ddiff = DeepDiff(
+                baseline_1_json, baseline_2_json, ignore_order=True, view="tree", threshold_to_diff_deeper=0
+            )
             self.ddiff_filters = []
 
-            for k, v in ddiff.items():
+            for k in ddiff.keys():
                 for x in list(ddiff[k]):
                     log.debug(f"Added {k} filter for path: {x.path()}")
                     self.ddiff_filters.append(x.path())
@@ -135,12 +137,12 @@ class HttpCompare:
             for header, value in list(headers.items()):
                 if header.lower() in self.baseline_ignore_headers:
                     with suppress(KeyError):
-                        log.debug(f'found ignored header "{header}" in headers_{i+1} and removed')
+                        log.debug(f'found ignored header "{header}" in headers_{i + 1} and removed')
                         del headers[header]
 
-        ddiff = DeepDiff(headers_1, headers_2, ignore_order=True, view="tree")
+        ddiff = DeepDiff(headers_1, headers_2, ignore_order=True, view="tree", threshold_to_diff_deeper=0)
 
-        for k, v in ddiff.items():
+        for k in ddiff.keys():
             for x in list(ddiff[k]):
                 try:
                     header_value = str(x).split("'")[1]
@@ -153,7 +155,14 @@ class HttpCompare:
         if content_1 == content_2:
             return True
 
-        ddiff = DeepDiff(content_1, content_2, ignore_order=True, view="tree", exclude_paths=self.ddiff_filters)
+        ddiff = DeepDiff(
+            content_1,
+            content_2,
+            ignore_order=True,
+            view="tree",
+            exclude_paths=self.ddiff_filters,
+            threshold_to_diff_deeper=0,
+        )
 
         if len(ddiff.keys()) == 0:
             return True
@@ -183,7 +192,7 @@ class HttpCompare:
 
         await self._baseline()
 
-        if timeout == None:
+        if timeout is None:
             timeout = self.timeout
 
         reflection = False
@@ -203,7 +212,7 @@ class HttpCompare:
         )
 
         if subject_response is None:
-            # this can be caused by a WAF not liking the header, so we really arent interested in it
+            # this can be caused by a WAF not liking the header, so we really aren't interested in it
             return (True, "403", reflection, subject_response)
 
         if check_reflection:
@@ -225,7 +234,7 @@ class HttpCompare:
             subject_json = xmltodict.parse(subject_response.text)
 
         except ExpatError:
-            log.debug(f"Cant HTML parse for {subject.split('?')[0]}. Switching to text parsing as a backup")
+            log.debug(f"Can't HTML parse for {subject.split('?')[0]}. Switching to text parsing as a backup")
             subject_json = subject_response.text.split("\n")
 
         diff_reasons = []
@@ -238,11 +247,11 @@ class HttpCompare:
 
         different_headers = self.compare_headers(self.baseline.headers, subject_response.headers)
         if different_headers:
-            log.debug(f"headers were different, no match")
+            log.debug("headers were different, no match")
             diff_reasons.append("header")
 
-        if self.compare_body(self.baseline_json, subject_json) == False:
-            log.debug(f"difference in HTML body, no match")
+        if self.compare_body(self.baseline_json, subject_json) is False:
+            log.debug("difference in HTML body, no match")
 
             diff_reasons.append("body")
 
@@ -275,6 +284,6 @@ class HttpCompare:
             )
 
             # if a nonsense header "caused" a difference, we need to abort. We also need to abort if our canary was reflected
-            if match == False or reflection == True:
+            if match is False or reflection is True:
                 return False
         return True

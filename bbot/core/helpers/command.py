@@ -210,9 +210,10 @@ async def _write_proc_line(proc, chunk):
         return True
     except Exception as e:
         proc_args = [str(s) for s in getattr(proc, "args", [])]
-        command = " ".join(proc_args)
-        log.warning(f"Error writing line to stdin for command: {command}: {e}")
-        log.trace(traceback.format_exc())
+        command = " ".join(proc_args).strip()
+        if command:
+            log.warning(f"Error writing line to stdin for command: {command}: {e}")
+            log.trace(traceback.format_exc())
         return False
 
 
@@ -268,11 +269,11 @@ def _prepare_command_kwargs(self, command, kwargs):
         (['sudo', '-E', '-A', 'LD_LIBRARY_PATH=...', 'PATH=...', 'ls', '-l'], {'limit': 104857600, 'stdout': -1, 'stderr': -1, 'env': environ(...)})
     """
     # limit = 100MB (this is needed for cases like httpx that are sending large JSON blobs over stdout)
-    if not "limit" in kwargs:
+    if "limit" not in kwargs:
         kwargs["limit"] = 1024 * 1024 * 100
-    if not "stdout" in kwargs:
+    if "stdout" not in kwargs:
         kwargs["stdout"] = asyncio.subprocess.PIPE
-    if not "stderr" in kwargs:
+    if "stderr" not in kwargs:
         kwargs["stderr"] = asyncio.subprocess.PIPE
     sudo = kwargs.pop("sudo", False)
 
@@ -285,7 +286,7 @@ def _prepare_command_kwargs(self, command, kwargs):
 
     # use full path of binary, if not already specified
     binary = command[0]
-    if not "/" in binary:
+    if "/" not in binary:
         binary_full_path = which(binary)
         if binary_full_path is None:
             raise SubprocessError(f'Command "{binary}" was not found')

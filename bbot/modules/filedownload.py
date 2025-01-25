@@ -38,6 +38,7 @@ class filedownload(BaseModule):
             "indd",  #  Adobe InDesign Document
             "ini",  #  Initialization File
             "jar",  #  Java Archive
+            "json",  #  JSON File
             "key",  #  Private Key File
             "log",  #  Log File
             "markdown",  #  Markdown File
@@ -57,12 +58,14 @@ class filedownload(BaseModule):
             "pub",  #  Public Key File
             "raw",  #  Raw Image File Format
             "rdp",  #  Remote Desktop Protocol File
+            "rsa",  #  RSA Private Key File
             "sh",  #  Shell Script
             "sql",  #  SQL Database Dump
             "sqlite",  #  SQLite Database File
             "swp",  #  Swap File (temporary file, often Vim)
             "sxw",  #  OpenOffice.org Writer document
             "tar.gz",  # Gzip-Compressed Tar Archive
+            "tgz",  #  Gzip-Compressed Tar Archive
             "tar",  #  Tar Archive
             "txt",  #  Plain Text Document
             "vbs",  #  Visual Basic Script
@@ -74,6 +77,11 @@ class filedownload(BaseModule):
             "yaml",  #  YAML Ain't Markup Language
             "yml",  #  YAML Ain't Markup Language
             "zip",  #  Zip Archive
+            "lzma",  #  LZMA Compressed File
+            "rar",  #  RAR Compressed File
+            "7z",  #  7-Zip Compressed File
+            "xz",  #  XZ Compressed File
+            "bz2",  #  Bzip2 Compressed File
         ],
         "max_filesize": "10MB",
         "base_64_encoded_file": "false",
@@ -87,7 +95,7 @@ class filedownload(BaseModule):
     scope_distance_modifier = 3
 
     async def setup(self):
-        self.extensions = list(set([e.lower().strip(".") for e in self.config.get("extensions", [])]))
+        self.extensions = list({e.lower().strip(".") for e in self.config.get("extensions", [])})
         self.max_filesize = self.config.get("max_filesize", "10MB")
         self.download_dir = self.scan.home / "filedownload"
         self.helpers.mkdir(self.download_dir)
@@ -146,7 +154,8 @@ class filedownload(BaseModule):
                 file_event = self.make_event(
                     {"path": str(file_destination)}, "FILESYSTEM", tags=["filedownload", "file"], parent=source_event
                 )
-                await self.emit_event(file_event)
+                if file_event is not None:
+                    await self.emit_event(file_event)
         self.urls_downloaded.add(hash(url))
 
     def make_filename(self, url, content_type=None):
@@ -177,7 +186,9 @@ class filedownload(BaseModule):
         if extension:
             filename = f"{filename}.{extension}"
             orig_filename = f"{orig_filename}.{extension}"
-        return orig_filename, self.download_dir / filename, base_url
+        file_destination = self.download_dir / filename
+        file_destination = self.helpers.truncate_filename(file_destination)
+        return orig_filename, file_destination, base_url
 
     async def report(self):
         if self.files_downloaded > 0:

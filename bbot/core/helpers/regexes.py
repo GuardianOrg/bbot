@@ -23,7 +23,7 @@ num_regex = re.compile(r"\d+")
 _ipv4_regex = r"(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}"
 ipv4_regex = re.compile(_ipv4_regex, re.I)
 
-# IPv6 is complicated, so we have accomodate alternative patterns,
+# IPv6 is complicated, so we have accommodate alternative patterns,
 # :(:[A-F0-9]{1,4}){1,7} == ::1, ::ffff:1
 # ([A-F0-9]{1,4}:){1,7}: == 2001::, 2001:db8::, 2001:db8:0:1:2:3::
 # ([A-F0-9]{1,4}:){1,6}:([A-F0-9]{1,4}) == 2001::1, 2001:db8::1, 2001:db8:0:1:2:3::1
@@ -36,15 +36,15 @@ _ip_range_regexes = (
     _ipv4_regex + r"\/[0-9]{1,2}",
     _ipv6_regex + r"\/[0-9]{1,3}",
 )
-ip_range_regexes = list(re.compile(r, re.I) for r in _ip_range_regexes)
+ip_range_regexes = [re.compile(r, re.I) for r in _ip_range_regexes]
 
-# dns names with periods
-_dns_name_regex = r"(?:\w(?:[\w-]{0,100}\w)?\.)+(?:[xX][nN]--)?[^\W_]{1,63}\.?"
-dns_name_regex = re.compile(_dns_name_regex, re.I)
+# all dns names including IP addresses and bare hostnames (e.g. "localhost")
+_dns_name_regex = r"(?:\w(?:[\w-]{0,100}\w)?\.?)+(?:[xX][nN]--)?[^\W_]{1,63}\.?"
+# dns names with periods (e.g. "www.example.com")
+_dns_name_regex_with_period = r"(?:\w(?:[\w-]{0,100}\w)?\.)+(?:[xX][nN]--)?[^\W_]{1,63}\.?"
 
-# dns names without periods
-_hostname_regex = r"(?!\w*\.\w+)\w(?:[\w-]{0,100}\w)?"
-hostname_regex = re.compile(r"^" + _hostname_regex + r"$", re.I)
+dns_name_extraction_regex = re.compile(_dns_name_regex_with_period, re.I)
+dns_name_validation_regex = re.compile(r"^" + _dns_name_regex + r"$", re.I)
 
 _email_regex = r"(?:[^\W_][\w\-\.\+']{,100})@" + _dns_name_regex
 email_regex = re.compile(_email_regex, re.I)
@@ -60,17 +60,15 @@ event_uuid_regex = re.compile(_event_uuid_regex, re.I)
 
 _open_port_regexes = (
     _dns_name_regex + r":[0-9]{1,5}",
-    _hostname_regex + r":[0-9]{1,5}",
     r"\[" + _ipv6_regex + r"\]:[0-9]{1,5}",
 )
-open_port_regexes = list(re.compile(r, re.I) for r in _open_port_regexes)
+open_port_regexes = [re.compile(r, re.I) for r in _open_port_regexes]
 
 _url_regexes = (
     r"https?://" + _dns_name_regex + r"(?::[0-9]{1,5})?(?:(?:/|\?).*)?",
-    r"https?://" + _hostname_regex + r"(?::[0-9]{1,5})?(?:(?:/|\?).*)?",
     r"https?://\[" + _ipv6_regex + r"\](?::[0-9]{1,5})?(?:(?:/|\?).*)?",
 )
-url_regexes = list(re.compile(r, re.I) for r in _url_regexes)
+url_regexes = [re.compile(r, re.I) for r in _url_regexes]
 
 _double_slash_regex = r"/{2,}"
 double_slash_regex = re.compile(_double_slash_regex)
@@ -82,10 +80,7 @@ event_type_regexes = OrderedDict(
         for k, regexes in (
             (
                 "DNS_NAME",
-                (
-                    r"^" + _dns_name_regex + r"$",
-                    r"^" + _hostname_regex + r"$",
-                ),
+                (r"^" + _dns_name_regex + r"$",),
             ),
             (
                 "EMAIL_ADDRESS",
@@ -117,7 +112,7 @@ event_type_regexes = OrderedDict(
 scan_name_regex = re.compile(r"[a-z]{3,20}_[a-z]{3,20}")
 
 
-# For use with excavate paramaters extractor
+# For use with excavate parameters extractor
 input_tag_regex = re.compile(
     r"<input[^>]+?name=[\"\']?([\.$\w]+)[\"\']?(?:[^>]*?value=[\"\']([=+\/\w]*)[\"\'])?[^>]*>"
 )
@@ -139,7 +134,7 @@ select_tag_regex = re.compile(
 textarea_tag_regex = re.compile(
     r'<textarea[^>]*\bname=["\']?(\w+)["\']?[^>]*>(.*?)</textarea>', re.IGNORECASE | re.DOTALL
 )
-tag_attribute_regex = re.compile(r"<[^>]*(?:href|src)\s*=\s*[\"\']([^\"\']+)[\"\'][^>]*>")
+tag_attribute_regex = re.compile(r"<[^>]*(?:href|action|src)\s*=\s*[\"\']?(?!mailto:)([^\s\'\"\>]+)[\"\']?[^>]*>")
 
 valid_netloc = r"[^\s!@#$%^&()=/?\\'\";~`<>]+"
 

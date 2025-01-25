@@ -11,31 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: psf/black@stable
-        with:
-          options: "--check"
-      - name: Install Python 3
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-      - name: Install dependencies
-        run: |
-          pip install flake8
-      - name: flake8
-        run: |
-          flake8
   test:
-    needs: lint
     runs-on: ubuntu-latest
     strategy:
       # if one python version fails, let the others finish
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -46,14 +28,19 @@ jobs:
         run: |
           pip install poetry
           poetry install
+      - name: Lint
+        run: |
+          poetry run ruff check
+          poetry run ruff format --check
       - name: Run tests
         run: |
-          poetry run pytest --exitfirst --reruns 2 -o timeout_func_only=true --timeout 1200 --disable-warnings --log-cli-level=INFO --cov-config=bbot/test/coverage.cfg --cov-report xml:cov.xml --cov=bbot .
+          poetry run pytest -vv --exitfirst --reruns 2 -o timeout_func_only=true --timeout 1200 --disable-warnings --log-cli-level=INFO --cov-config=bbot/test/coverage.cfg --cov-report xml:cov.xml --cov=bbot .
       - name: Upload Debug Logs
-        uses: actions/upload-artifact@v3
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: pytest-debug-logs
-          path: pytest_debug.log
+          name: pytest-debug-logs-${{ matrix.python-version }}
+          path: pytest_debug_${{ matrix.python-version }}.log
       - name: Upload Code Coverage
         uses: codecov/codecov-action@v3
         with:

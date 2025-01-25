@@ -55,7 +55,6 @@ class baddns(BaseModule):
         return True
 
     async def handle_event(self, event):
-
         tasks = []
         for ModuleClass in self.select_modules():
             kwargs = {
@@ -75,7 +74,6 @@ class baddns(BaseModule):
             tasks.append((module_instance, task))
 
         async for completed_task in self.helpers.as_completed([task for _, task in tasks]):
-
             module_instance = next((m for m, t in tasks if t == completed_task), None)
             try:
                 task_result = await completed_task
@@ -89,10 +87,12 @@ class baddns(BaseModule):
                     for r in results:
                         r_dict = r.to_dict()
 
-                        if r_dict["confidence"] in ["CONFIRMED", "PROBABLE"]:
+                        confidence = r_dict["confidence"]
+
+                        if confidence in ["CONFIRMED", "PROBABLE"]:
                             data = {
                                 "severity": "MEDIUM",
-                                "description": f"{r_dict['description']}. Confidence: [{r_dict['confidence']}] Signature: [{r_dict['signature']}] Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
+                                "description": f"{r_dict['description']}. Confidence: [{confidence}] Signature: [{r_dict['signature']}] Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
                                 "host": str(event.host),
                             }
                             await self.emit_event(
@@ -103,20 +103,26 @@ class baddns(BaseModule):
                                 context=f'{{module}}\'s "{r_dict["module"]}" module found {{event.type}}: {r_dict["description"]}',
                             )
 
-                        elif r_dict["confidence"] in ["UNLIKELY", "POSSIBLE"] and not self.only_high_confidence:
-                            data = {
-                                "description": f"{r_dict['description']} Confidence: [{r_dict['confidence']}] Signature: [{r_dict['signature']}] Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
-                                "host": str(event.host),
-                            }
-                            await self.emit_event(
-                                data,
-                                "FINDING",
-                                event,
-                                tags=[f"baddns-{module_instance.name.lower()}"],
-                                context=f'{{module}}\'s "{r_dict["module"]}" module found {{event.type}}: {r_dict["description"]}',
-                            )
+                        elif confidence in ["UNLIKELY", "POSSIBLE"]:
+                            if not self.only_high_confidence:
+                                data = {
+                                    "description": f"{r_dict['description']} Confidence: [{confidence}] Signature: [{r_dict['signature']}] Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
+                                    "host": str(event.host),
+                                }
+                                await self.emit_event(
+                                    data,
+                                    "FINDING",
+                                    event,
+                                    tags=[f"baddns-{module_instance.name.lower()}"],
+                                    context=f'{{module}}\'s "{r_dict["module"]}" module found {{event.type}}: {r_dict["description"]}',
+                                )
+                            else:
+                                self.debug(
+                                    f"Skipping low-confidence result due to only_high_confidence setting: {confidence}"
+                                )
+
                         else:
-                            self.warning(f"Got unrecognized confidence level: {r['confidence']}")
+                            self.warning(f"Got unrecognized confidence level: {confidence}")
 
                         found_domains = r_dict.get("found_domains", None)
                         if found_domains:

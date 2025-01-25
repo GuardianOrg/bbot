@@ -21,19 +21,19 @@ class TestExtractous(ModuleTestBase):
 
     async def setup_after_prep(self, module_test):
         module_test.set_expect_requests(
-            dict(uri="/"),
-            dict(response_data='<a href="/Test_PDF"/><a href="/Test_DOCX"/>'),
+            {"uri": "/"},
+            {"response_data": '<a href="/Test_PDF"/><a href="/Test_DOCX"/>'},
         )
         module_test.set_expect_requests(
-            dict(uri="/Test_PDF"),
-            dict(response_data=self.pdf_data, headers={"Content-Type": "application/pdf"}),
+            {"uri": "/Test_PDF"},
+            {"response_data": self.pdf_data, "headers": {"Content-Type": "application/pdf"}},
         )
         module_test.set_expect_requests(
-            dict(uri="/Test_DOCX"),
-            dict(
-                response_data=self.docx_data,
-                headers={"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-            ),
+            {"uri": "/Test_DOCX"},
+            {
+                "response_data": self.docx_data,
+                "headers": {"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+            },
         )
 
     def check(self, module_test, events):
@@ -42,9 +42,9 @@ class TestExtractous(ModuleTestBase):
         for filesystem_event in filesystem_events:
             file = Path(filesystem_event.data["path"])
             assert file.is_file(), "Destination file doesn't exist"
-            assert (
-                open(file, "rb").read() == self.pdf_data or open(file, "rb").read() == self.docx_data
-            ), f"File at {file} does not contain the correct content"
+            assert open(file, "rb").read() == self.pdf_data or open(file, "rb").read() == self.docx_data, (
+                f"File at {file} does not contain the correct content"
+            )
         raw_text_events = [e for e in events if e.type == "RAW_TEXT"]
         assert 2 == len(raw_text_events), "Failed to emit RAW_TEXT event"
         for raw_text_event in raw_text_events:

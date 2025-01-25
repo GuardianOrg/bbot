@@ -6,6 +6,9 @@ from radixtarget import RadixTarget
 from bbot.modules.base import BaseModule
 
 
+# TODO: this module is getting big. It should probably be two modules: one for ping and one for SYN.
+
+
 class portscan(BaseModule):
     flags = ["active", "portscan", "safe"]
     watched_events = ["IP_ADDRESS", "IP_RANGE", "DNS_NAME"]
@@ -60,7 +63,8 @@ class portscan(BaseModule):
             try:
                 self.helpers.parse_port_string(self.ports)
             except ValueError as e:
-                return False, f"Error parsing ports: {e}"
+                return False, f"Error parsing ports '{self.ports}': {e}"
+
         # whether we've finished scanning our original scan targets
         self.scanned_initial_targets = False
         # keeps track of individual scanned IPs and their open ports
@@ -84,17 +88,17 @@ class portscan(BaseModule):
             return False, "Masscan failed to run"
         returncode = getattr(ipv6_result, "returncode", 0)
         if returncode and "failed to detect IPv6 address" in ipv6_result.stderr:
-            self.warning(f"It looks like you are not set up for IPv6. IPv6 targets will not be scanned.")
+            self.warning("It looks like you are not set up for IPv6. IPv6 targets will not be scanned.")
             self.ipv6_support = False
         return True
 
     async def handle_batch(self, *events):
-        # on our first run, we automatically include all our intial scan targets
+        # on our first run, we automatically include all our initial scan targets
         if not self.scanned_initial_targets:
             self.scanned_initial_targets = True
             events = set(events)
             events.update(
-                set([e for e in self.scan.target.seeds.events if e.type in ("DNS_NAME", "IP_ADDRESS", "IP_RANGE")])
+                {e for e in self.scan.target.seeds.events if e.type in ("DNS_NAME", "IP_ADDRESS", "IP_RANGE")}
             )
 
         # ping scan
@@ -227,6 +231,7 @@ class portscan(BaseModule):
             parent=parent_event,
             context=f"{{module}} executed a {scan_type} scan against {parent_event.data} and found: {{event.type}}: {{event.data}}",
         )
+
         await self.emit_event(event)
         return event
 
@@ -308,7 +313,7 @@ class portscan(BaseModule):
         if "FAIL" in s:
             self.warning(s)
             self.warning(
-                f'Masscan failed to detect interface. Recommend passing "adapter_ip", "adapter_mac", and "router_mac" config options to portscan module.'
+                'Masscan failed to detect interface. Recommend passing "adapter_ip", "adapter_mac", and "router_mac" config options to portscan module.'
             )
         else:
             self.verbose(s)

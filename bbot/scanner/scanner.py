@@ -10,11 +10,11 @@ from datetime import datetime
 from collections import OrderedDict
 
 from bbot import __version__
-
 from bbot.core.event import make_event
 from .manager import ScanIngress, ScanEgress
 from bbot.core.helpers.misc import sha1, rand_string
 from bbot.core.helpers.names_generator import random_name
+from bbot.core.multiprocess import SHARED_INTERPRETER_STATE
 from bbot.core.helpers.async_helpers import async_to_sync_gen
 from bbot.errors import BBOTError, ScanError, ValidationError
 
@@ -124,6 +124,7 @@ class Scanner:
         self.duration_seconds = None
 
         self._success = False
+        self._scan_finish_status_message = None
 
         if scan_id is not None:
             self.id = str(scan_id)
@@ -214,8 +215,8 @@ class Scanner:
             )
 
         # url file extensions
-        self.url_extension_blacklist = set(e.lower() for e in self.config.get("url_extension_blacklist", []))
-        self.url_extension_httpx_only = set(e.lower() for e in self.config.get("url_extension_httpx_only", []))
+        self.url_extension_blacklist = {e.lower() for e in self.config.get("url_extension_blacklist", [])}
+        self.url_extension_httpx_only = {e.lower() for e in self.config.get("url_extension_httpx_only", [])}
 
         # url querystring behavior
         self.url_querystring_remove = self.config.get("url_querystring_remove", True)
@@ -259,6 +260,9 @@ class Scanner:
         Creates the scan's output folder, loads its modules, and calls their .setup() methods.
         """
 
+        # update the master PID
+        SHARED_INTERPRETER_STATE.update_scan_pid()
+
         self.helpers.mkdir(self.home)
         if not self._prepped:
             # save scan preset
@@ -266,7 +270,7 @@ class Scanner:
                 f.write(self.preset.to_yaml())
 
             # log scan overview
-            start_msg = f"Scan with {len(self.preset.scan_modules):,} modules seeded with {len(self.target):,} targets"
+            start_msg = f"Scan seeded with {len(self.seeds):,} targets"
             details = []
             if self.whitelist != self.target:
                 details.append(f"{len(self.whitelist):,} in whitelist")
@@ -330,12 +334,12 @@ class Scanner:
             await self._prep()
 
             self._start_log_handlers()
-            self.trace(f'Ran BBOT {__version__} at {self.start_time}, command: {" ".join(sys.argv)}')
+            self.trace(f"Ran BBOT {__version__} at {self.start_time}, command: {' '.join(sys.argv)}")
             self.trace(f"Target: {self.preset.target.json}")
             self.trace(f"Preset: {self.preset.to_dict(redact_secrets=True)}")
 
             if not self.target:
-                self.warning(f"No scan targets specified")
+                self.warning("No scan targets specified")
 
             # start status ticker
             self.ticker_task = asyncio.create_task(
@@ -345,7 +349,7 @@ class Scanner:
             self.status = "STARTING"
 
             if not self.modules:
-                self.error(f"No modules loaded")
+                self.error("No modules loaded")
                 self.status = "FAILED"
                 return
             else:
@@ -359,7 +363,8 @@ class Scanner:
 
             # distribute seed events
             self.init_events_task = asyncio.create_task(
-                self.ingress_module.init_events(self.target.events), name=f"{self.name}.ingress_module.init_events()"
+                self.ingress_module.init_events(self.target.seeds.events),
+                name=f"{self.name}.ingress_module.init_events()",
             )
 
             # main scan loop
@@ -421,14 +426,19 @@ class Scanner:
 
             self._stop_log_handlers()
 
+            if self._scan_finish_status_message:
+                log_fn = self.hugesuccess
+                if self.status.startswith("ABORT"):
+                    log_fn = self.hugewarning
+                elif not self._success:
+                    log_fn = self.critical
+                log_fn(self._scan_finish_status_message)
+
     async def _mark_finished(self):
-        log_fn = self.hugesuccess
         if self.status == "ABORTING":
             status = "ABORTED"
-            log_fn = self.hugewarning
         elif not self._success:
             status = "FAILED"
-            log_fn = self.critical
         else:
             status = "FINISHED"
 
@@ -437,9 +447,9 @@ class Scanner:
         self.duration_seconds = self.duration.total_seconds()
         self.duration_human = self.helpers.human_timedelta(self.duration)
 
-        status_message = f"Scan {self.name} completed in {self.duration_human} with status {status}"
+        self._scan_finish_status_message = f"Scan {self.name} completed in {self.duration_human} with status {status}"
 
-        scan_finish_event = self.finish_event(status_message, status)
+        scan_finish_event = self.finish_event(self._scan_finish_status_message, status)
 
         # queue final scan event with output modules
         output_modules = [m for m in self.modules.values() if m._type == "output" and m.name != "python"]
@@ -447,17 +457,16 @@ class Scanner:
             await m.queue_event(scan_finish_event)
         # wait until output modules are flushed
         while 1:
-            modules_finished = all([m.finished for m in output_modules])
+            modules_finished = all(m.finished for m in output_modules)
             if modules_finished:
                 break
             await asyncio.sleep(0.05)
 
         self.status = status
-        log_fn(status_message)
         return scan_finish_event
 
     def _start_modules(self):
-        self.verbose(f"Starting module worker loops")
+        self.verbose("Starting module worker loops")
         for module in self.modules.values():
             module.start()
 
@@ -481,17 +490,17 @@ class Scanner:
             Soft-failed modules are not set to an error state but are also removed if `remove_failed` is True.
         """
         await self.load_modules()
-        self.verbose(f"Setting up modules")
+        self.verbose("Setting up modules")
         succeeded = []
         hard_failed = []
         soft_failed = []
 
         async for task in self.helpers.as_completed([m._setup() for m in self.modules.values()]):
             module, status, msg = await task
-            if status == True:
+            if status is True:
                 self.debug(f"Setup succeeded for {module.name} ({msg})")
                 succeeded.append(module.name)
-            elif status == False:
+            elif status is False:
                 self.warning(f"Setup hard-failed for {module.name}: {msg}")
                 self.modules[module.name].set_error_state()
                 hard_failed.append(module.name)
@@ -533,11 +542,11 @@ class Scanner:
         """
         if not self._modules_loaded:
             if not self.preset.modules:
-                self.warning(f"No modules to load")
+                self.warning("No modules to load")
                 return
 
             if not self.preset.scan_modules:
-                self.warning(f"No scan modules to load")
+                self.warning("No scan modules to load")
 
             # install module dependencies
             succeeded, failed = await self.helpers.depsinstaller.install(*self.preset.modules)
@@ -674,14 +683,14 @@ class Scanner:
             event_type_summary = sorted(self.stats.events_emitted_by_type.items(), key=lambda x: x[-1], reverse=True)
             if event_type_summary:
                 self.info(
-                    f'{self.name}: Events produced so far: {", ".join([f"{k}: {v}" for k,v in event_type_summary])}'
+                    f"{self.name}: Events produced so far: {', '.join([f'{k}: {v}' for k, v in event_type_summary])}"
                 )
             else:
                 self.info(f"{self.name}: No events produced yet")
 
             if modules_errored:
                 self.verbose(
-                    f'{self.name}: Modules errored: {len(modules_errored):,} ({", ".join([m for m in modules_errored])})'
+                    f"{self.name}: Modules errored: {len(modules_errored):,} ({', '.join(list(modules_errored))})"
                 )
 
             num_queued_events = self.num_queued_events
@@ -718,7 +727,7 @@ class Scanner:
                     memory_usage = module.memory_usage
                     module_memory_usage.append((module.name, memory_usage))
                 module_memory_usage.sort(key=lambda x: x[-1], reverse=True)
-                self.debug(f"MODULE MEMORY USAGE:")
+                self.debug("MODULE MEMORY USAGE:")
                 for module_name, usage in module_memory_usage:
                     self.debug(f"    - {module_name}: {self.helpers.bytes_to_human(usage)}")
 
@@ -765,7 +774,7 @@ class Scanner:
             # Trigger .finished() on every module and start over
             log.info("Finishing scan")
             for module in self.modules.values():
-                finished_event = self.make_event(f"FINISHED", "FINISHED", dummy=True, tags={module.name})
+                finished_event = self.make_event("FINISHED", "FINISHED", dummy=True, tags={module.name})
                 await module.queue_event(finished_event)
             self.verbose("Completed finish()")
             return True
@@ -894,6 +903,10 @@ class Scanner:
         return self.preset.target
 
     @property
+    def seeds(self):
+        return self.preset.seeds
+
+    @property
     def whitelist(self):
         return self.preset.whitelist
 
@@ -1016,7 +1029,7 @@ class Scanner:
         A list of DNS hostname strings generated from the scan target
         """
         if self._dns_strings is None:
-            dns_whitelist = set(t.host for t in self.whitelist if t.host and isinstance(t.host, str))
+            dns_whitelist = {t.host for t in self.whitelist if t.host and isinstance(t.host, str)}
             dns_whitelist = sorted(dns_whitelist, key=len)
             dns_whitelist_set = set()
             dns_strings = []
@@ -1076,9 +1089,19 @@ class Scanner:
             regexes_component_list = []
             for i, r in enumerate(self.dns_regexes_yara):
                 regexes_component_list.append(rf"$dns_name_{i} = /\b{r.pattern}/ nocase")
-            if regexes_component_list:
-                regexes_component = " ".join(regexes_component_list)
-                self._dns_yara_rules_uncompiled = f'rule hostname_extraction {{meta: description = "matches DNS hostname pattern derived from target(s)" strings: {regexes_component} condition: any of them}}'
+
+            # Chunk the regexes into groups of 10,000
+            chunk_size = 10000
+            rules = {}
+            for chunk_index in range(0, len(regexes_component_list), chunk_size):
+                chunk = regexes_component_list[chunk_index : chunk_index + chunk_size]
+                if chunk:
+                    regexes_component = " ".join(chunk)
+                    rule_name = f"hostname_extraction_{chunk_index // chunk_size}"
+                    rule = f'rule {rule_name} {{meta: description = "matches DNS hostname pattern derived from target(s)" strings: {regexes_component} condition: any of them}}'
+                    rules[rule_name] = rule
+
+            self._dns_yara_rules_uncompiled = rules
         return self._dns_yara_rules_uncompiled
 
     async def dns_yara_rules(self):
@@ -1087,7 +1110,7 @@ class Scanner:
                 import yara
 
                 self._dns_yara_rules = await self.helpers.run_in_executor(
-                    yara.compile, source=self.dns_yara_rules_uncompiled
+                    yara.compile, source="\n".join(self.dns_yara_rules_uncompiled.values())
                 )
         return self._dns_yara_rules
 
@@ -1113,7 +1136,7 @@ class Scanner:
         """
         A dictionary representation of the scan including its name, ID, targets, whitelist, blacklist, and modules
         """
-        j = dict()
+        j = {}
         for i in ("id", "name"):
             v = getattr(self, i, "")
             if v:
@@ -1283,7 +1306,7 @@ class Scanner:
             context = f"{context.__qualname__}()"
         filename, lineno, funcname = self.helpers.get_traceback_details(e)
         if self.helpers.in_exception_chain(e, (KeyboardInterrupt,)):
-            log.debug(f"Interrupted")
+            log.debug("Interrupted")
             self.stop()
         elif isinstance(e, BrokenPipeError):
             log.debug(f"BrokenPipeError in {filename}:{lineno}:{funcname}(): {e}")

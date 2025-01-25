@@ -14,6 +14,9 @@ folder_blobs: false
 ### SCOPE ###
 
 scope:
+  # strict scope means only exact DNS names are considered in-scope
+  # subdomains are not included unless they are explicitly provided in the target list
+  strict: false
   # Filter by scope distance which events are displayed in the output
   # 0 == show only in-scope events (affiliates are always shown)
   # 1 == show all events up to distance-1 (1 hop from target)
@@ -71,7 +74,7 @@ dns:
 
 web:
   # HTTP proxy
-  http_proxy: 
+  http_proxy:
   # Web user-agent
   user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.2151.97
   # Set the maximum number of HTTP links that can be followed in a row (0 == no spidering allowed)
@@ -109,6 +112,13 @@ engine:
 deps:
   ffuf:
     version: "2.1.0"
+  # How to handle installation of module dependencies
+  # Choices are:
+  #  - abort_on_failure (default) - if a module dependency fails to install, abort the scan
+  #  - retry_failed - try again to install failed dependencies
+  #  - ignore_failed - run the scan regardless of what happens with dependency installation
+  #  - disable - completely disable BBOT's dependency system (you are responsible for installing tools, pip packages, etc.)
+  behavior: abort_on_failure
 
 ### ADVANCED OPTIONS ###
 
@@ -125,14 +135,6 @@ aggregate: True
 dnsresolve: True
 # Cloud provider tagging
 cloudcheck: True
-
-# How to handle installation of module dependencies
-# Choices are:
-#  - abort_on_failure (default) - if a module dependency fails to install, abort the scan
-#  - retry_failed - try again to install failed dependencies
-#  - ignore_failed - run the scan regardless of what happens with dependency installation
-#  - disable - completely disable BBOT's dependency system (you are responsible for installing tools, pip packages, etc.)
-deps_behavior: abort_on_failure
 
 # Strip querystring from URLs by default
 url_querystring_remove: True
@@ -174,6 +176,50 @@ url_extension_blacklist:
 # Distribute URLs with these extensions only to httpx (these are omitted from output)
 url_extension_httpx_only:
   - js
+
+# These url extensions are almost always static, so we exclude them from modules that fuzz things
+url_extension_static:
+  - pdf
+  - doc
+  - docx
+  - xls
+  - xlsx
+  - ppt
+  - pptx
+  - txt
+  - csv
+  - xml
+  - yaml
+  - ini
+  - log
+  - conf
+  - cfg
+  - env
+  - md
+  - rtf
+  - tiff
+  - bmp
+  - jpg
+  - jpeg
+  - png
+  - gif
+  - svg
+  - ico
+  - mp3
+  - wav
+  - flac
+  - mp4
+  - mov
+  - avi
+  - mkv
+  - webm
+  - zip
+  - tar
+  - gz
+  - bz2
+  - 7z
+  - rar
+  
 # Don't output these types of events (they are still distributed to modules)
 omit_event_types:
   - HTTP_RESPONSE

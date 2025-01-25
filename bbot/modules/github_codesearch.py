@@ -42,7 +42,7 @@ class github_codesearch(github, subdomain_enum):
     async def query(self, query):
         repos = {}
         url = f"{self.base_url}/search/code?per_page=100&type=Code&q={self.helpers.quote(query)}&page=" + "{page}"
-        agen = self.api_page_iter(url, headers=self.headers, json=False)
+        agen = self.api_page_iter(url, headers=self.headers, _json=False)
         num_results = 0
         try:
             async for r in agen:
@@ -50,9 +50,10 @@ class github_codesearch(github, subdomain_enum):
                     break
                 status_code = getattr(r, "status_code", 0)
                 if status_code == 429:
-                    "Github is rate-limiting us (HTTP status: 429)"
+                    self.info("Github is rate-limiting us (HTTP status: 429)")
                     break
                 if status_code != 200:
+                    self.info(f"Unexpected response (HTTP status: {status_code})")
                     break
                 try:
                     j = r.json()
@@ -77,7 +78,7 @@ class github_codesearch(github, subdomain_enum):
                 if num_results >= self.limit:
                     break
         finally:
-            agen.aclose()
+            await agen.aclose()
         return repos
 
     def raw_url(self, url):

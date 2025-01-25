@@ -14,7 +14,6 @@ log = logging.getLogger("bbot.core.helpers.web.engine")
 
 
 class HTTPEngine(EngineServer):
-
     CMDS = {
         0: "request",
         1: "request_batch",
@@ -138,7 +137,7 @@ class HTTPEngine(EngineServer):
         if max_size is not None:
             max_size = human_to_bytes(max_size)
         kwargs["follow_redirects"] = follow_redirects
-        if not "method" in kwargs:
+        if "method" not in kwargs:
             kwargs["method"] = "GET"
         try:
             total_size = 0
@@ -153,7 +152,7 @@ class HTTPEngine(EngineServer):
                         log.verbose(
                             f"Size of response from {url} exceeds {bytes_to_human(max_size)}, file will be truncated"
                         )
-                        agen.aclose()
+                        await agen.aclose()
                         break
                     total_size += _chunk_size
                     chunks.append(chunk)

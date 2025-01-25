@@ -1,3 +1,5 @@
+from ipaddress import ip_network
+
 from ..bbot_fixtures import *
 
 
@@ -12,6 +14,7 @@ async def test_scan(
         "1.1.1.0",
         "1.1.1.1/31",
         "evilcorp.com",
+        "test.evilcorp.com",
         blacklist=["1.1.1.1/28", "www.evilcorp.com"],
         modules=["ipneighbor"],
     )
@@ -31,8 +34,11 @@ async def test_scan(
     assert not scan0.in_scope("test.www.evilcorp.com")
     assert not scan0.in_scope("www.evilcorp.co.uk")
     j = scan0.json
-    assert set(j["target"]["seeds"]) == {"1.1.1.0", "1.1.1.0/31", "evilcorp.com"}
-    assert set(j["target"]["whitelist"]) == {"1.1.1.0/31", "evilcorp.com"}
+    assert set(j["target"]["seeds"]) == {"1.1.1.0", "1.1.1.0/31", "evilcorp.com", "test.evilcorp.com"}
+    # we preserve the original whitelist inputs
+    assert set(j["target"]["whitelist"]) == {"1.1.1.0", "1.1.1.0/31", "evilcorp.com", "test.evilcorp.com"}
+    # but in the background they are collapsed
+    assert scan0.target.whitelist.hosts == {ip_network("1.1.1.0/31"), "evilcorp.com"}
     assert set(j["target"]["blacklist"]) == {"1.1.1.0/28", "www.evilcorp.com"}
     assert "ipneighbor" in j["preset"]["modules"]
 
@@ -94,13 +100,13 @@ async def test_url_extension_handling(bbot_scanner):
     assert "blacklisted" not in bad_event.tags
     assert "httpx-only" not in httpx_event.tags
     result = await scan.ingress_module.handle_event(good_event)
-    assert result == None
+    assert result is None
     result, reason = await scan.ingress_module.handle_event(bad_event)
-    assert result == False
+    assert result is False
     assert reason == "event is blacklisted"
     assert "blacklisted" in bad_event.tags
     result = await scan.ingress_module.handle_event(httpx_event)
-    assert result == None
+    assert result is None
     assert "httpx-only" in httpx_event.tags
 
     await scan._cleanup()
@@ -138,8 +144,86 @@ async def test_python_output_matches_json(bbot_scanner):
     assert len(events) == 5
     scan_events = [e for e in events if e["type"] == "SCAN"]
     assert len(scan_events) == 2
-    assert all([isinstance(e["data"]["status"], str) for e in scan_events])
+    assert all(isinstance(e["data"]["status"], str) for e in scan_events)
     assert len([e for e in events if e["type"] == "DNS_NAME"]) == 1
     assert len([e for e in events if e["type"] == "ORG_STUB"]) == 1
     assert len([e for e in events if e["type"] == "IP_ADDRESS"]) == 1
     assert events == json_events
+
+
+@pytest.mark.asyncio
+async def test_huge_target_list(bbot_scanner, monkeypatch):
+    # single target should only have one rule
+    scan = bbot_scanner("evilcorp.com", config={"excavate": True})
+    await scan._prep()
+    assert "hostname_extraction_0" in scan.modules["excavate"].yara_rules_dict
+    assert "hostname_extraction_1" not in scan.modules["excavate"].yara_rules_dict
+
+    # over 10000 targets should be broken into two rules
+    num_targets = 10005
+    targets = [f"evil{i}.com" for i in range(num_targets)]
+    scan = bbot_scanner(*targets, config={"excavate": True})
+    await scan._prep()
+    assert "hostname_extraction_0" in scan.modules["excavate"].yara_rules_dict
+    assert "hostname_extraction_1" in scan.modules["excavate"].yara_rules_dict
+    assert "hostname_extraction_2" not in scan.modules["excavate"].yara_rules_dict
+
+
+@pytest.mark.asyncio
+async def test_exclude_cdn(bbot_scanner, monkeypatch):
+    # test that CDN exclusion works
+
+    from bbot import Preset
+
+    dns_mock = {
+        "evilcorp.com": {"A": ["127.0.0.1"]},
+        "www.evilcorp.com": {"A": ["127.0.0.1"]},
+    }
+
+    # first, run a scan with no CDN exclusion
+    scan = bbot_scanner("evilcorp.com")
+    await scan.helpers._mock_dns(dns_mock)
+
+    from bbot.modules.base import BaseModule
+
+    class DummyModule(BaseModule):
+        watched_events = ["DNS_NAME"]
+
+        async def handle_event(self, event):
+            if event.type == "DNS_NAME" and event.data == "evilcorp.com":
+                await self.emit_event("www.evilcorp.com", "DNS_NAME", parent=event, tags=["cdn-cloudflare"])
+            if event.type == "DNS_NAME" and event.data == "www.evilcorp.com":
+                await self.emit_event("www.evilcorp.com:80", "OPEN_TCP_PORT", parent=event, tags=["cdn-cloudflare"])
+                await self.emit_event("www.evilcorp.com:443", "OPEN_TCP_PORT", parent=event, tags=["cdn-cloudflare"])
+                await self.emit_event("www.evilcorp.com:8080", "OPEN_TCP_PORT", parent=event, tags=["cdn-cloudflare"])
+
+    dummy = DummyModule(scan=scan)
+    await scan._prep()
+    scan.modules["dummy"] = dummy
+    events = [e async for e in scan.async_start() if e.type in ("DNS_NAME", "OPEN_TCP_PORT")]
+    assert set(e.data for e in events) == {
+        "evilcorp.com",
+        "www.evilcorp.com",
+        "www.evilcorp.com:80",
+        "www.evilcorp.com:443",
+        "www.evilcorp.com:8080",
+    }
+
+    monkeypatch.setattr("sys.argv", ["bbot", "-t", "evilcorp.com", "--exclude-cdn"])
+
+    # then run a scan with --exclude-cdn enabled
+    preset = Preset("evilcorp.com")
+    preset.parse_args()
+    assert preset.bake().to_yaml() == "modules:\n- portfilter\n"
+    scan = bbot_scanner("evilcorp.com", preset=preset)
+    await scan.helpers._mock_dns(dns_mock)
+    dummy = DummyModule(scan=scan)
+    await scan._prep()
+    scan.modules["dummy"] = dummy
+    events = [e async for e in scan.async_start() if e.type in ("DNS_NAME", "OPEN_TCP_PORT")]
+    assert set(e.data for e in events) == {
+        "evilcorp.com",
+        "www.evilcorp.com",
+        "www.evilcorp.com:80",
+        "www.evilcorp.com:443",
+    }

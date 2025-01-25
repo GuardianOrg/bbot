@@ -8,7 +8,6 @@ class TestDNSCommonSRV(ModuleTestBase):
     config_overrides = {"dns": {"minimal": False}}
 
     async def setup_after_prep(self, module_test):
-
         old_run_live = module_test.scan.helpers.run_live
 
         async def new_run_live(*command, check=False, text=True, **kwargs):
@@ -76,21 +75,21 @@ class TestDNSCommonSRV(ModuleTestBase):
                 and str(e.module) == "dnscommonsrv"
             ]
         ), "Failed to detect subdomain 2"
-        assert 2 == len(
-            [e for e in events if e.type == "DNS_NAME" and e.data == "asdf.blacklanternsecurity.com"]
-        ), "Failed to detect subdomain 3"
-        assert 1 == len(
-            [e for e in events if e.type == "DNS_NAME" and e.data == "api.blacklanternsecurity.com"]
-        ), "Failed to detect subdomain 4"
+        assert 2 == len([e for e in events if e.type == "DNS_NAME" and e.data == "asdf.blacklanternsecurity.com"]), (
+            "Failed to detect subdomain 3"
+        )
+        assert 1 == len([e for e in events if e.type == "DNS_NAME" and e.data == "api.blacklanternsecurity.com"]), (
+            "Failed to detect subdomain 4"
+        )
         assert 1 == len(
             [e for e in events if e.type == "DNS_NAME" and e.data == "test.api.blacklanternsecurity.com"]
         ), "Failed to detect subdomain 5"
         assert 1 == len(
             [e for e in events if e.type == "DNS_NAME" and e.data == "_msdcs.api.blacklanternsecurity.com"]
         ), "Failed to detect subdomain 5"
-        assert 1 == len(
-            [e for e in events if e.type == "DNS_NAME" and e.data == "blacklanternsecurity.com"]
-        ), "Failed to detect main domain"
+        assert 1 == len([e for e in events if e.type == "DNS_NAME" and e.data == "blacklanternsecurity.com"]), (
+            "Failed to detect main domain"
+        )
         assert 1 == len(
             [
                 e

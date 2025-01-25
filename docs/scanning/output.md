@@ -90,10 +90,11 @@ mail.evilcorp.com
 
 BBOT supports output via webhooks to `discord`, `slack`, and `teams`. To use them, you must specify a webhook URL either in the config:
 
-```yaml title="~/.bbot/config/bbot.yml"
-modules:
-  discord:
-    webhook_url: https://discord.com/api/webhooks/1234/deadbeef
+```yaml title="discord_preset.yml"
+config:
+  modules:
+    discord:
+      webhook_url: https://discord.com/api/webhooks/1234/deadbeef
 ```
 
 ...or on the command line:
@@ -103,13 +104,14 @@ bbot -t evilcorp.com -om discord -c modules.discord.webhook_url=https://discord.
 
 By default, only `VULNERABILITY` and `FINDING` events are sent, but this can be customized by setting `event_types` in the config like so:
 
-```yaml title="~/.bbot/config/bbot.yml"
-modules:
-  discord:
-    event_types:
-      - VULNERABILITY
-      - FINDING
-      - STORAGE_BUCKET
+```yaml title="discord_preset.yml"
+config:
+  modules:
+    discord:
+      event_types:
+        - VULNERABILITY
+        - FINDING
+        - STORAGE_BUCKET
 ```
 
 ...or on the command line:
@@ -120,10 +122,11 @@ bbot -t evilcorp.com -om discord -c modules.discord.event_types=["STORAGE_BUCKET
 You can also filter on the severity of `VULNERABILITY` events by setting `min_severity`:
 
 
-```yaml title="~/.bbot/config/bbot.yml"
-modules:
-  discord:
-    min_severity: HIGH
+```yaml title="discord_preset.yml"
+config:
+  modules:
+    discord:
+      min_severity: HIGH
 ```
 
 ### HTTP
@@ -137,16 +140,42 @@ bbot -t evilcorp.com -om http -c modules.http.url=http://localhost:8000
 
 You can customize the HTTP method if needed. Authentication is also supported:
 
-```yaml title="~/.bbot/config/bbot.yml"
-modules:
-  http:
-    url: https://localhost:8000
-    method: PUT
-    # Authorization: Bearer
-    bearer: <bearer_token>
-    # OR
-    username: bob
-    password: P@ssw0rd
+```yaml title="http_preset.yml"
+config:
+  modules:
+    http:
+      url: https://localhost:8000
+      method: PUT
+      # Authorization: Bearer
+      bearer: <bearer_token>
+      # OR
+      username: bob
+      password: P@ssw0rd
+```
+
+### Elasticsearch
+
+When outputting to Elastic, use the `http` output module with the following settings (replace `<your_index>` with your desired index, e.g. `bbot`):
+
+```bash
+# send scan results directly to elasticsearch
+bbot -t evilcorp.com -om http -c \
+  modules.http.url=http://localhost:8000/<your_index>/_doc \
+  modules.http.siem_friendly=true \
+  modules.http.username=elastic \
+  modules.http.password=changeme
+```
+
+Alternatively, via a preset:
+
+```yaml title="elastic_preset.yml"
+config:
+  modules:
+    http:
+      url: http://localhost:8000/<your_index>/_doc
+      siem_friendly: true
+      username: elastic
+      password: changeme
 ```
 
 ### Splunk
@@ -155,17 +184,18 @@ The `splunk` output module sends [events](events.md) in JSON format to a desired
 
 You can customize this output with the following config options:
 
-```yaml title="~/.bbot/config/bbot.yml"
-modules:
-  splunk:
-    # The full URL with the URI `/services/collector/event`
-    url: https://localhost:8088/services/collector/event
-    # Generated from splunk webui
-    hectoken: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    # Defaults to `main` if not set
-    index: my-specific-index
-    # Defaults to `bbot` if not set
-    source: /my/source.json
+```yaml title="splunk_preset.yml"
+config:
+  modules:
+    splunk:
+      # The full URL with the URI `/services/collector/event`
+      url: https://localhost:8088/services/collector/event
+      # Generated from splunk webui
+      hectoken: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      # Defaults to `main` if not set
+      index: my-specific-index
+      # Defaults to `bbot` if not set
+      source: /my/source.json
 ```
 
 ### Asset Inventory
@@ -185,6 +215,46 @@ The `sqlite` output module produces a SQLite database containing all events, sca
 ```bash
 # specifying a custom database path
 bbot -t evilcorp.com -om sqlite -c modules.sqlite.database=/tmp/bbot.sqlite
+```
+
+### Postgres
+
+The `postgres` output module allows you to ingest events, scans, and targets into a Postgres database. By default, it will connect to the server on `localhost` with a username of `postgres` and password of `bbotislife`. You can change this behavior in the config.
+
+```bash
+# specifying an alternate database
+bbot -t evilcorp.com -om postgres -c modules.postgres.database=custom_bbot_db
+```
+
+```yaml title="postgres_preset.yml"
+config:
+  modules:
+    postgres:
+      host: psq.fsociety.local
+      database: custom_bbot_db
+      port: 5432
+      username: postgres
+      password: bbotislife
+```
+
+### MySQL
+
+The `mysql` output module allows you to ingest events, scans, and targets into a MySQL database. By default, it will connect to the server on `localhost` with a username of `root` and password of `bbotislife`. You can change this behavior in the config.
+
+```bash
+# specifying an alternate database
+bbot -t evilcorp.com -om mysql -c modules.mysql.database=custom_bbot_db
+```
+
+```yaml title="mysql_preset.yml"
+config:
+  modules:
+    mysql:
+      host: mysql.fsociety.local
+      database: custom_bbot_db
+      port: 3306
+      username: root
+      password: bbotislife
 ```
 
 ### Subdomains
@@ -221,7 +291,7 @@ bbot -f subdomain-enum -t evilcorp.com -om neo4j
 
 ### Cypher Queries and Tips
 
-Neo4j uses the Cypher Query Language for its graph query language. Cypher uses common clauses to craft relational queries and present the desired data in multiple formats. 
+Neo4j uses the Cypher Query Language for its graph query language. Cypher uses common clauses to craft relational queries and present the desired data in multiple formats.
 
 Cypher queries can be broken down into three required pieces; selection, filter, and presentation. The selection piece identifies what data that will be searched against - 90% of the time the "MATCH" clause will be enough but there are means to read from csv or json data files. In all of these examples the "MATCH" clause will be used. The filter piece helps to focus in on the required data and used the "WHERE" clause to accomplish this effort (most basic operators can be used). Finally, the presentation section identifies how the data should be presented back to the querier. While neo4j is a graph database, it can be used in a traditional table view.
 
@@ -230,7 +300,7 @@ A simple query to grab every URL event with ".com" in the BBOT data field would 
 
 In this query the following can be identified:
 - Within the MATCH statement "u" is a variable and can be any value needed by the user while the "URL" label is a direct relationship to the BBOT event type.
-- The WHERE statement allows the query to filter on any of the BBOT event properties like data, tag, or even the label itself. 
+- The WHERE statement allows the query to filter on any of the BBOT event properties like data, tag, or even the label itself.
 - The RETURN statement is a general presentation of the whole URL event but this can be narrowed down to present any of the specific properties of the BBOT event (`RETURN u.data, u.tags`).
 
 The following are a few recommended queries to get started with:
@@ -267,6 +337,16 @@ RETURN n.data, collect(distinct port)
 MATCH (n) DETACH DELETE n
 ```
 
-This is not an exhaustive list of clauses, filters, or other means to use cypher and should be considered a starting point. To build more advanced queries consider reading Neo4j's Cypher [documentation](https://neo4j.com/docs/cypher-manual/current/introduction/). 
+This is not an exhaustive list of clauses, filters, or other means to use cypher and should be considered a starting point. To build more advanced queries consider reading Neo4j's Cypher [documentation](https://neo4j.com/docs/cypher-manual/current/introduction/).
 
-Additional note: these sample queries are dependent on the existence of the data in the target neo4j database. 
+Additional note: these sample queries are dependent on the existence of the data in the target neo4j database.
+
+### Web_parameters
+
+The `web_parameters` output module will utilize BBOT web parameter extraction capabilities, and output the resulting parameters to a file (web_parameters.txt, by default). Web parameter extraction is disabled by default, but will automatically be enabled when a module is included that consumes WEB_PARAMETER events (including the `web_parameters` output module itself).
+
+This can be useful for those who want to discover new common web parameters or those which may be associated with a specific target or organization. This could be very useful for further parameter bruteforcing, or even fed back into bbot via the paramminer modules. For example:
+
+```bash
+bbot -t evilcorp.com -m paramminer_getparams -c modules.paramminer_getparams.wordlist=/path/to/your/new/wordlist.txt
+``` 

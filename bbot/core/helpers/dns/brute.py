@@ -29,10 +29,16 @@ class DNSBrute:
         self.devops_mutations = list(self.parent_helper.word_cloud.devops_mutations)
         self.digit_regex = self.parent_helper.re.compile(r"\d+")
         self._resolver_file = None
-        self._dnsbrute_lock = asyncio.Lock()
+        self._dnsbrute_lock = None
 
     async def __call__(self, *args, **kwargs):
         return await self.dnsbrute(*args, **kwargs)
+
+    @property
+    def dnsbrute_lock(self):
+        if self._dnsbrute_lock is None:
+            self._dnsbrute_lock = asyncio.Lock()
+        return self._dnsbrute_lock
 
     async def dnsbrute(self, module, domain, subdomains, type=None):
         subdomains = list(subdomains)
@@ -41,10 +47,13 @@ class DNSBrute:
             type = "A"
         type = str(type).strip().upper()
 
-        wildcard_rdtypes = await self.parent_helper.dns.is_wildcard_domain(domain, (type, "CNAME"))
-        if wildcard_rdtypes:
+        wildcard_domains = await self.parent_helper.dns.is_wildcard_domain(domain, (type, "CNAME"))
+        wildcard_rdtypes = set()
+        for domain, rdtypes in wildcard_domains.items():
+            wildcard_rdtypes.update(rdtypes)
+        if wildcard_domains:
             self.log.hugewarning(
-                f"Aborting massdns on {domain} because it's a wildcard domain ({','.join(wildcard_rdtypes)})"
+                f"Aborting massdns on {domain} because it's a wildcard domain ({','.join(sorted(wildcard_rdtypes))})"
             )
             return []
 
@@ -116,7 +125,7 @@ class DNSBrute:
         )
         subdomains = self.gen_subdomains(subdomains, domain)
         hosts_yielded = set()
-        async with self._dnsbrute_lock:
+        async with self.dnsbrute_lock:
             async for line in module.run_process_live(*command, stderr=subprocess.DEVNULL, input=subdomains):
                 try:
                     j = json.loads(line)
@@ -161,7 +170,7 @@ class DNSBrute:
         for i in range(0, max(0, n - 5)):
             d = delimiters[i % len(delimiters)]
             l = lengths[i % len(lengths)]
-            segments = list(random.choice(self.devops_mutations) for _ in range(l))
+            segments = [random.choice(self.devops_mutations) for _ in range(l)]
             segments.append(self.parent_helper.rand_string(length=8, digits=False))
             subdomain = d.join(segments)
             yield subdomain

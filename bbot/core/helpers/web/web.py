@@ -19,7 +19,6 @@ log = logging.getLogger("bbot.core.helpers.web")
 
 
 class WebHelper(EngineClient):
-
     SERVER_CLASS = HTTPEngine
     ERROR_CLASS = WebError
 
@@ -58,7 +57,7 @@ class WebHelper(EngineClient):
         self.ssl_verify = self.config.get("ssl_verify", False)
         engine_debug = self.config.get("engine", {}).get("debug", False)
         super().__init__(
-            server_kwargs={"config": self.config, "target": self.parent_helper.preset.target.radix_only},
+            server_kwargs={"config": self.config, "target": self.parent_helper.preset.target.minimal},
             debug=engine_debug,
         )
 
@@ -262,7 +261,7 @@ class WebHelper(EngineClient):
         """
         if not path:
             raise WordlistError(f"Invalid wordlist: {path}")
-        if not "cache_hrs" in kwargs:
+        if "cache_hrs" not in kwargs:
             kwargs["cache_hrs"] = 720
         if self.parent_helper.is_url(path):
             filename = await self.download(str(path), **kwargs)
@@ -351,7 +350,7 @@ class WebHelper(EngineClient):
                     headers[hk] = hv
 
             # add the timeout
-            if not "timeout" in kwargs:
+            if "timeout" not in kwargs:
                 timeout = http_timeout
 
             curl_command.append("-m")
@@ -386,7 +385,7 @@ class WebHelper(EngineClient):
             cookies_str = ""
             for k, v in cookies.items():
                 cookies_str += f"{k}={v}; "
-            curl_command.append(f'{cookies_str.rstrip(" ")}')
+            curl_command.append(f"{cookies_str.rstrip(' ')}")
 
         path_override = kwargs.get("path_override", None)
         if path_override:
@@ -452,7 +451,7 @@ class WebHelper(EngineClient):
             Perform an html parse of the 'markup' argument and return a soup instance
 
             >>> email_type = soup.find(type="email")
-            Searches the soup instance for all occurances of the passed in argument
+            Searches the soup instance for all occurrences of the passed in argument
         """
         try:
             soup = BeautifulSoup(

@@ -1,3 +1,4 @@
+import os
 import asyncio
 import aiosqlite
 import multiprocessing
@@ -71,6 +72,11 @@ class gowitness(BaseModule):
         if custom_chrome_path.is_file():
             self.chrome_path = custom_chrome_path
 
+        # fix ubuntu-specific sandbox bug
+        chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
+        if chrome_devel_sandbox.is_file():
+            os.environ["CHROME_DEVEL_SANDBOX"] = str(chrome_devel_sandbox)
+
         # make sure we have a working chrome install
         chrome_test_pass = False
         for binary in ("chrome", "chromium", "chromium-browser", custom_chrome_path):
@@ -88,7 +94,7 @@ class gowitness(BaseModule):
         self.screenshot_path = self.base_path / "screenshots"
         self.command = self.construct_command()
         self.prepped = False
-        self.screenshots_taken = dict()
+        self.screenshots_taken = {}
         self.connections_logged = set()
         self.technologies_found = set()
         return True
@@ -142,6 +148,9 @@ class gowitness(BaseModule):
             url = screenshot["url"]
             final_url = screenshot["final_url"]
             filename = self.screenshot_path / screenshot["filename"]
+            filename = filename.relative_to(self.scan.home)
+            # NOTE: this prevents long filenames from causing problems in BBOT, but gowitness will still fail to save it.
+            filename = self.helpers.truncate_filename(filename)
             webscreenshot_data = {"path": str(filename), "url": final_url}
             parent_event = event_dict[url]
             await self.emit_event(
@@ -172,7 +181,7 @@ class gowitness(BaseModule):
 
         # emit technologies
         new_technologies = await self.get_new_technologies()
-        for _, row in new_technologies.items():
+        for row in new_technologies.values():
             parent_id = row["url_id"]
             parent_url = self.screenshots_taken[parent_id]
             parent_event = event_dict[parent_url]
@@ -227,7 +236,7 @@ class gowitness(BaseModule):
         return screenshots
 
     async def get_new_network_logs(self):
-        network_logs = dict()
+        network_logs = {}
         if self.db_path.is_file():
             async with aiosqlite.connect(str(self.db_path)) as con:
                 con.row_factory = aiosqlite.Row
@@ -241,7 +250,7 @@ class gowitness(BaseModule):
         return network_logs
 
     async def get_new_technologies(self):
-        technologies = dict()
+        technologies = {}
         if self.db_path.is_file():
             async with aiosqlite.connect(str(self.db_path)) as con:
                 con.row_factory = aiosqlite.Row
@@ -264,8 +273,8 @@ class gowitness(BaseModule):
     async def report(self):
         if self.screenshots_taken:
             self.success(f"{len(self.screenshots_taken):,} web screenshots captured. To view:")
-            self.success(f"    - Start gowitness")
+            self.success("    - Start gowitness")
             self.success(f"        - cd {self.base_path} && ./gowitness server")
-            self.success(f"    - Browse to http://localhost:7171")
+            self.success("    - Browse to http://localhost:7171")
         else:
-            self.info(f"No web screenshots captured")
+            self.info("No web screenshots captured")

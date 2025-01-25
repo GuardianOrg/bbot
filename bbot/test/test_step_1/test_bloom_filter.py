@@ -6,7 +6,6 @@ import random
 
 @pytest.mark.asyncio
 async def test_bloom_filter():
-
     def generate_random_strings(n, length=10):
         """Generate a list of n random strings."""
         return ["".join(random.choices(string.ascii_letters + string.digits, k=length)) for _ in range(n)]
@@ -39,7 +38,7 @@ async def test_bloom_filter():
         test_set.add(hash(item))
     end = time.time()
     elapsed = end - start
-    print(f"elapsed: {elapsed:.2f} ({int(n_items_to_test/elapsed)}/s)")
+    print(f"elapsed: {elapsed:.2f} ({int(n_items_to_test / elapsed)}/s)")
     # this shouldn't take longer than 5 seconds
     assert elapsed < 5
 
@@ -49,7 +48,7 @@ async def test_bloom_filter():
         assert item in bloom_filter
     end = time.time()
     elapsed = end - start
-    print(f"elapsed: {elapsed:.2f} ({int(n_items_to_test/elapsed)}/s)")
+    print(f"elapsed: {elapsed:.2f} ({int(n_items_to_test / elapsed)}/s)")
     # this shouldn't take longer than 5 seconds
     assert elapsed < 5
 
@@ -65,5 +64,7 @@ async def test_bloom_filter():
 
     # ensure false positives are less than .02 percent
     assert false_positive_percent < 0.02
+
+    bloom_filter.close()
 
     await scan._cleanup()

@@ -22,11 +22,11 @@ class TestAzure_Realm(ModuleTestBase):
     async def setup_after_prep(self, module_test):
         await module_test.mock_dns({"evilcorp.com": {"A": ["127.0.0.5"]}})
         module_test.httpx_mock.add_response(
-            url=f"https://login.microsoftonline.com/getuserrealm.srf?login=test@evilcorp.com",
+            url="https://login.microsoftonline.com/getuserrealm.srf?login=test@evilcorp.com",
             json=self.response_json,
         )
 
     def check(self, module_test, events):
-        assert any(
-            e.data == "https://evilcorp.okta.com/app/office365/deadbeef/sso/wsfed/passive" for e in events
-        ), "Failed to detect URL"
+        assert any(e.data == "https://evilcorp.okta.com/app/office365/deadbeef/sso/wsfed/passive" for e in events), (
+            "Failed to detect URL"
+        )

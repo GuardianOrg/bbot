@@ -12,7 +12,7 @@ class dastardly(BaseModule):
         "author": "@domwhewell-sage",
     }
 
-    deps_pip = ["lxml~=4.9.2"]
+    deps_pip = ["lxml~=5.3.0"]
     deps_common = ["docker"]
     per_hostport_only = True
 
@@ -37,8 +37,8 @@ class dastardly(BaseModule):
         self.verbose(f"Running Dastardly scan against {host}")
         command, output_file = self.construct_command(host)
         finished_proc = await self.run_process(command, sudo=True)
-        self.debug(f'dastardly stdout: {getattr(finished_proc, "stdout", "")}')
-        self.debug(f'dastardly stderr: {getattr(finished_proc, "stderr", "")}')
+        self.debug(f"dastardly stdout: {getattr(finished_proc, 'stdout', '')}")
+        self.debug(f"dastardly stderr: {getattr(finished_proc, 'stderr', '')}")
         for testsuite in self.parse_dastardly_xml(output_file):
             url = testsuite.endpoint
             for testcase in testsuite.testcases:

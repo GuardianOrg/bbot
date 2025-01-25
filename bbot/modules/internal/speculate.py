@@ -32,10 +32,11 @@ class speculate(BaseInternalModule):
         "author": "@liquidsec",
     }
 
-    options = {"max_hosts": 65536, "ports": "80,443"}
+    options = {"max_hosts": 65536, "ports": "80,443", "essential_only": False}
     options_desc = {
         "max_hosts": "Max number of IP_RANGE hosts to convert into IP_ADDRESS events",
         "ports": "The set of ports to speculate on",
+        "essential_only": "Only enable essential speculate features (no extra discovery)",
     }
     scope_distance_modifier = 1
     _priority = 4
@@ -44,14 +45,15 @@ class speculate(BaseInternalModule):
 
     async def setup(self):
         scan_modules = [m for m in self.scan.modules.values() if m._type == "scan"]
-        self.open_port_consumers = any(["OPEN_TCP_PORT" in m.watched_events for m in scan_modules])
+        self.open_port_consumers = any("OPEN_TCP_PORT" in m.watched_events for m in scan_modules)
         # only consider active portscanners (still speculate if only passive ones are enabled)
         self.portscanner_enabled = any(
-            ["portscan" in m.flags and "active" in m.flags for m in self.scan.modules.values()]
+            "portscan" in m.flags and "active" in m.flags for m in self.scan.modules.values()
         )
         self.emit_open_ports = self.open_port_consumers and not self.portscanner_enabled
         self.range_to_ip = True
         self.dns_disable = self.scan.config.get("dns", {}).get("disable", False)
+        self.essential_only = self.config.get("essential_only", False)
         self.org_stubs_seen = set()
 
         port_string = self.config.get("ports", "80,443")
@@ -63,18 +65,26 @@ class speculate(BaseInternalModule):
         if not self.portscanner_enabled:
             self.info(f"No portscanner enabled. Assuming open ports: {', '.join(str(x) for x in self.ports)}")
 
-        target_len = len(self.scan.target)
+        target_len = len(self.scan.target.seeds)
         if target_len > self.config.get("max_hosts", 65536):
             if not self.portscanner_enabled:
                 self.hugewarning(
                     f"Selected target ({target_len:,} hosts) is too large, skipping IP_RANGE --> IP_ADDRESS speculation"
                 )
-                self.hugewarning(f'Enabling the "portscan" module is highly recommended')
+                self.hugewarning('Enabling the "portscan" module is highly recommended')
             self.range_to_ip = False
 
         return True
 
     async def handle_event(self, event):
+        ### BEGIN ESSENTIAL SPECULATION ###
+        # These features are required for smooth operation of bbot
+        # I.e. they are not "osinty" or intended to discover anything, they only compliment other modules
+
+        # we speculate on distance-1 stuff too, because distance-1 open ports are needed by certain modules like sslcert
+        event_in_scope_distance = event.scope_distance <= (self.scan.scope_search_distance + 1)
+        speculate_open_ports = self.emit_open_ports and event_in_scope_distance
+
         # generate individual IP addresses from IP range
         if event.type == "IP_RANGE" and self.range_to_ip:
             net = ipaddress.ip_network(event.data)
@@ -89,17 +99,35 @@ class speculate(BaseInternalModule):
                     context=f"speculate converted range into individual IP_ADDRESS: {ip}",
                 )
 
+        # IP_ADDRESS / DNS_NAME --> OPEN_TCP_PORT
+        if speculate_open_ports:
+            # don't act on unresolved DNS_NAMEs
+            usable_dns = False
+            if event.type == "DNS_NAME":
+                if self.dns_disable or event.resolved_hosts:
+                    usable_dns = True
+
+            if event.type == "IP_ADDRESS" or usable_dns:
+                for port in self.ports:
+                    await self.emit_event(
+                        self.helpers.make_netloc(event.data, port),
+                        "OPEN_TCP_PORT",
+                        parent=event,
+                        internal=True,
+                        context="speculated {event.type}: {event.data}",
+                    )
+
+        ### END ESSENTIAL SPECULATION ###
+        if self.essential_only:
+            return
+
         # parent domains
         if event.type.startswith("DNS_NAME"):
             parent = self.helpers.parent_domain(event.host_original)
             if parent != event.data:
                 await self.emit_event(
-                    parent, "DNS_NAME", parent=event, context=f"speculated parent {{event.type}}: {{event.data}}"
+                    parent, "DNS_NAME", parent=event, context="speculated parent {event.type}: {event.data}"
                 )
-
-        # we speculate on distance-1 stuff too, because distance-1 open ports are needed by certain modules like sslcert
-        event_in_scope_distance = event.scope_distance <= (self.scan.scope_search_distance + 1)
-        speculate_open_ports = self.emit_open_ports and event_in_scope_distance
 
         # URL --> OPEN_TCP_PORT
         event_is_url = event.type == "URL"
@@ -143,24 +171,6 @@ class speculate(BaseInternalModule):
                     parent=event,
                     context="speculated {event.type}: {event.data}",
                 )
-
-        # IP_ADDRESS / DNS_NAME --> OPEN_TCP_PORT
-        if speculate_open_ports:
-            # don't act on unresolved DNS_NAMEs
-            usable_dns = False
-            if event.type == "DNS_NAME":
-                if self.dns_disable or ("a-record" in event.tags or "aaaa-record" in event.tags):
-                    usable_dns = True
-
-            if event.type == "IP_ADDRESS" or usable_dns:
-                for port in self.ports:
-                    await self.emit_event(
-                        self.helpers.make_netloc(event.data, port),
-                        "OPEN_TCP_PORT",
-                        parent=event,
-                        internal=True,
-                        context="speculated {event.type}: {event.data}",
-                    )
 
         # ORG_STUB from TLD, SOCIAL, AZURE_TENANT
         org_stubs = set()

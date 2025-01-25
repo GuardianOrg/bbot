@@ -106,7 +106,7 @@ class subdomain_enum(BaseModule):
                 break
         return ".".join([s for s in query.split(".") if s != "_wildcard"])
 
-    def parse_results(self, r, query=None):
+    async def parse_results(self, r, query=None):
         json = r.json()
         if json:
             for hostname in json:
@@ -123,7 +123,7 @@ class subdomain_enum(BaseModule):
                 self.info(f'Query "{query}" failed (no response)')
                 return []
             try:
-                results = list(parse_fn(response, query))
+                results = list(await parse_fn(response, query))
             except Exception as e:
                 if response:
                     self.info(
@@ -144,18 +144,18 @@ class subdomain_enum(BaseModule):
         agen = self.api_page_iter(url, page_size=self.page_size, **self.api_page_iter_kwargs)
         try:
             async for response in agen:
-                subdomains = self.parse_results(response, query)
+                subdomains = await self.parse_results(response, query)
                 self.verbose(f'Got {len(subdomains):,} subdomains for "{query}"')
                 if not subdomains:
                     break
                 yield subdomains
         finally:
-            agen.aclose()
+            await agen.aclose()
 
     async def _is_wildcard(self, query):
         rdtypes = ("A", "AAAA", "CNAME")
         if self.helpers.is_dns_name(query):
-            for domain, wildcard_rdtypes in (await self.helpers.is_wildcard_domain(query, rdtypes=rdtypes)).items():
+            for wildcard_rdtypes in (await self.helpers.is_wildcard_domain(query, rdtypes=rdtypes)).values():
                 if any(t in wildcard_rdtypes for t in rdtypes):
                     return True
         return False
@@ -169,7 +169,7 @@ class subdomain_enum(BaseModule):
         if any(t.startswith("cloud-") for t in event.tags):
             is_cloud = True
         # reject if it's a cloud resource and not in our target
-        if is_cloud and event not in self.scan.target:
+        if is_cloud and event not in self.scan.target.whitelist:
             return False, "Event is a cloud resource and not a direct target"
         # optionally reject events with wildcards / errors
         if self.reject_wildcards:

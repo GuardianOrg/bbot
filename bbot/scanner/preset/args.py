@@ -10,7 +10,6 @@ log = logging.getLogger("bbot.presets.args")
 
 
 class BBOTArgs:
-
     # module config options to exclude from validation
     exclude_from_validation = re.compile(r".*modules\.[a-z0-9_]+\.(?:batch_size|module_threads)$")
 
@@ -54,6 +53,11 @@ class BBOTArgs:
             "bbot -l",
         ),
         (
+            "List output modules",
+            "",
+            "bbot -lo",
+        ),
+        (
             "List presets",
             "",
             "bbot -lp",
@@ -91,7 +95,6 @@ class BBOTArgs:
             *self.parsed.targets,
             whitelist=self.parsed.whitelist,
             blacklist=self.parsed.blacklist,
-            strict_scope=self.parsed.strict_scope,
             name="args_preset",
         )
 
@@ -130,16 +133,21 @@ class BBOTArgs:
             )
         if self.parsed.event_types:
             args_preset.core.merge_custom({"modules": {"stdout": {"event_types": self.parsed.event_types}}})
+        if self.parsed.exclude_cdn:
+            args_preset.explicit_scan_modules.add("portfilter")
 
         # dependencies
+        deps_config = args_preset.core.custom_config.get("deps", {})
         if self.parsed.retry_deps:
-            args_preset.core.custom_config["deps_behavior"] = "retry_failed"
+            deps_config["behavior"] = "retry_failed"
         elif self.parsed.force_deps:
-            args_preset.core.custom_config["deps_behavior"] = "force_install"
+            deps_config["behavior"] = "force_install"
         elif self.parsed.no_deps:
-            args_preset.core.custom_config["deps_behavior"] = "disable"
+            deps_config["behavior"] = "disable"
         elif self.parsed.ignore_failed_deps:
-            args_preset.core.custom_config["deps_behavior"] = "ignore_failed"
+            deps_config["behavior"] = "ignore_failed"
+        if deps_config:
+            args_preset.core.merge_custom({"deps": deps_config})
 
         # other scan options
         if self.parsed.name is not None:
@@ -149,6 +157,9 @@ class BBOTArgs:
         if self.parsed.force:
             args_preset.force_start = self.parsed.force
 
+        if self.parsed.proxy:
+            args_preset.core.merge_custom({"web": {"http_proxy": self.parsed.proxy}})
+
         if self.parsed.custom_headers:
             args_preset.core.merge_custom({"web": {"http_headers": self.parsed.custom_headers}})
 
@@ -156,6 +167,21 @@ class BBOTArgs:
             args_preset.core.merge_custom(
                 {"modules": {"excavate": {"custom_yara_rules": self.parsed.custom_yara_rules}}}
             )
+
+        # Check if both user_agent and user_agent_suffix are set. If so combine them and merge into the config
+        if self.parsed.user_agent and self.parsed.user_agent_suffix:
+            modified_user_agent = f"{self.parsed.user_agent} {self.parsed.user_agent_suffix}"
+            args_preset.core.merge_custom({"web": {"user_agent": modified_user_agent}})
+
+        # If only user_agent_suffix is set, retrieve the existing user_agent from the merged config and append the suffix
+        elif self.parsed.user_agent_suffix:
+            existing_user_agent = args_preset.core.config.get("web", {}).get("user_agent", "")
+            modified_user_agent = f"{existing_user_agent} {self.parsed.user_agent_suffix}"
+            args_preset.core.merge_custom({"web": {"user_agent": modified_user_agent}})
+
+        # If only user_agent is set, merge it directly
+        elif self.parsed.user_agent:
+            args_preset.core.merge_custom({"web": {"user_agent": self.parsed.user_agent}})
 
         # CLI config options (dot-syntax)
         for config_arg in self.parsed.config:
@@ -165,13 +191,19 @@ class BBOTArgs:
             except Exception as e:
                 raise BBOTArgumentError(f'Error parsing command-line config option: "{config_arg}": {e}')
 
+        # strict scope
+        if self.parsed.strict_scope:
+            args_preset.core.merge_custom({"scope": {"strict": True}})
+
         return args_preset
 
     def create_parser(self, *args, **kwargs):
         kwargs.update(
-            dict(
-                description="Bighuge BLS OSINT Tool", formatter_class=argparse.RawTextHelpFormatter, epilog=self.epilog
-            )
+            {
+                "description": "Bighuge BLS OSINT Tool",
+                "formatter_class": argparse.RawTextHelpFormatter,
+                "epilog": self.epilog,
+            }
         )
         p = argparse.ArgumentParser(*args, **kwargs)
 
@@ -209,7 +241,7 @@ class BBOTArgs:
             metavar="CONFIG",
             default=[],
         )
-        presets.add_argument("-lp", "--list-presets", action="store_true", help=f"List available presets.")
+        presets.add_argument("-lp", "--list-presets", action="store_true", help="List available presets.")
 
         modules = p.add_argument_group(title="Modules")
         modules.add_argument(
@@ -217,31 +249,31 @@ class BBOTArgs:
             "--modules",
             nargs="+",
             default=[],
-            help=f'Modules to enable. Choices: {",".join(self.preset.module_loader.scan_module_choices)}',
+            help=f"Modules to enable. Choices: {','.join(sorted(self.preset.module_loader.scan_module_choices))}",
             metavar="MODULE",
         )
-        modules.add_argument("-l", "--list-modules", action="store_true", help=f"List available modules.")
+        modules.add_argument("-l", "--list-modules", action="store_true", help="List available modules.")
         modules.add_argument(
             "-lmo", "--list-module-options", action="store_true", help="Show all module config options"
         )
         modules.add_argument(
-            "-em", "--exclude-modules", nargs="+", default=[], help=f"Exclude these modules.", metavar="MODULE"
+            "-em", "--exclude-modules", nargs="+", default=[], help="Exclude these modules.", metavar="MODULE"
         )
         modules.add_argument(
             "-f",
             "--flags",
             nargs="+",
             default=[],
-            help=f'Enable modules by flag. Choices: {",".join(self.preset.module_loader.flag_choices)}',
+            help=f"Enable modules by flag. Choices: {','.join(sorted(self.preset.module_loader.flag_choices))}",
             metavar="FLAG",
         )
-        modules.add_argument("-lf", "--list-flags", action="store_true", help=f"List available flags.")
+        modules.add_argument("-lf", "--list-flags", action="store_true", help="List available flags.")
         modules.add_argument(
             "-rf",
             "--require-flags",
             nargs="+",
             default=[],
-            help=f"Only enable modules with these flags (e.g. -rf passive)",
+            help="Only enable modules with these flags (e.g. -rf passive)",
             metavar="FLAG",
         )
         modules.add_argument(
@@ -249,7 +281,7 @@ class BBOTArgs:
             "--exclude-flags",
             nargs="+",
             default=[],
-            help=f"Disable modules with these flags. (e.g. -ef aggressive)",
+            help="Disable modules with these flags. (e.g. -ef aggressive)",
             metavar="FLAG",
         )
         modules.add_argument("--allow-deadly", action="store_true", help="Enable the use of highly aggressive modules")
@@ -265,7 +297,12 @@ class BBOTArgs:
             help="Run scan even in the case of condition violations or failed module setups",
         )
         scan.add_argument("-y", "--yes", action="store_true", help="Skip scan confirmation prompt")
-        scan.add_argument("--dry-run", action="store_true", help=f"Abort before executing scan")
+        scan.add_argument(
+            "--fast-mode",
+            action="store_true",
+            help="Scan only the provided targets as fast as possible, with no extra discovery",
+        )
+        scan.add_argument("--dry-run", action="store_true", help="Abort before executing scan")
         scan.add_argument(
             "--current-preset",
             action="store_true",
@@ -289,12 +326,19 @@ class BBOTArgs:
             "--output-modules",
             nargs="+",
             default=[],
-            help=f'Output module(s). Choices: {",".join(self.preset.module_loader.output_module_choices)}',
+            help=f"Output module(s). Choices: {','.join(sorted(self.preset.module_loader.output_module_choices))}",
             metavar="MODULE",
         )
+        output.add_argument("-lo", "--list-output-modules", action="store_true", help="List available output modules")
         output.add_argument("--json", "-j", action="store_true", help="Output scan data in JSON format")
         output.add_argument("--brief", "-br", action="store_true", help="Output only the data itself")
         output.add_argument("--event-types", nargs="+", default=[], help="Choose which event types to display")
+        output.add_argument(
+            "--exclude-cdn",
+            "-ec",
+            action="store_true",
+            help="Filter out unwanted open ports on CDNs/WAFs (80,443 only)",
+        )
 
         deps = p.add_argument_group(
             title="Module dependencies", description="Control how modules install their dependencies"
@@ -310,6 +354,7 @@ class BBOTArgs:
 
         misc = p.add_argument_group(title="Misc")
         misc.add_argument("--version", action="store_true", help="show BBOT version and exit")
+        misc.add_argument("--proxy", help="Use this proxy for all HTTP requests", metavar="HTTP_PROXY")
         misc.add_argument(
             "-H",
             "--custom-headers",
@@ -318,6 +363,9 @@ class BBOTArgs:
             help="List of custom headers as key value pairs (header=value).",
         )
         misc.add_argument("--custom-yara-rules", "-cy", help="Add custom yara rules to excavate")
+
+        misc.add_argument("--user-agent", "-ua", help="Set the user-agent for all HTTP requests")
+        misc.add_argument("--user-agent-suffix", "-uas", help=argparse.SUPPRESS, metavar="SUFFIX", default=None)
         return p
 
     def sanitize_args(self):
@@ -358,6 +406,10 @@ class BBOTArgs:
                 )
             custom_headers_dict[k] = v
         self.parsed.custom_headers = custom_headers_dict
+
+        # --fast-mode
+        if self.parsed.fast_mode:
+            self.parsed.preset += ["fast"]
 
     def validate(self):
         # validate config options

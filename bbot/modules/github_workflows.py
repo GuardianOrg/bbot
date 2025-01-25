@@ -30,6 +30,10 @@ class github_workflows(github):
         self.helpers.mkdir(self.output_dir)
         return await super().setup()
 
+    def _api_response_is_success(self, r):
+        # we allow 404s because they're normal
+        return r.is_success or getattr(r, "status_code", 0) == 404
+
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":
             if "git" not in event.tags and "github" not in event.data.get("url", ""):
@@ -88,7 +92,7 @@ class github_workflows(github):
     async def get_workflows(self, owner, repo):
         workflows = []
         url = f"{self.base_url}/repos/{owner}/{repo}/actions/workflows?per_page=100&page=" + "{page}"
-        agen = self.api_page_iter(url, json=False)
+        agen = self.api_page_iter(url, _json=False)
         try:
             async for r in agen:
                 if r is None:
@@ -109,7 +113,7 @@ class github_workflows(github):
                 for item in j:
                     workflows.append(item)
         finally:
-            agen.aclose()
+            await agen.aclose()
         return workflows
 
     async def get_workflow_runs(self, owner, repo, workflow_id):
@@ -166,7 +170,7 @@ class github_workflows(github):
             main_logs = []
             with zipfile.ZipFile(file_destination, "r") as logzip:
                 for name in logzip.namelist():
-                    if fnmatch.fnmatch(name, "*.txt") and not "/" in name:
+                    if fnmatch.fnmatch(name, "*.txt") and "/" not in name:
                         logzip.extract(name, folder)
                         main_logs.append(folder / name)
             return main_logs

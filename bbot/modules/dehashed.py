@@ -90,7 +90,7 @@ class dehashed(subdomain_enum):
         url = f"{self.base_url}?query={query}&size=10000&page=" + "{page}"
         page = 0
         num_entries = 0
-        agen = self.api_page_iter(url=url, auth=self.auth, headers=self.headers, json=False)
+        agen = self.api_page_iter(url=url, auth=self.auth, headers=self.headers, _json=False)
         async for result in agen:
             result_json = {}
             with suppress(Exception):
@@ -110,6 +110,6 @@ class dehashed(subdomain_enum):
                     self.info(
                         f"{domain} has {total:,} results in Dehashed. The API can only process the first 30,000 results. Please check dehashed.com to get the remaining results."
                     )
-                agen.aclose()
+                await agen.aclose()
                 break
             yield entries

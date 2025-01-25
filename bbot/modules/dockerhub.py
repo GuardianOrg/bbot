@@ -31,7 +31,7 @@ class dockerhub(BaseModule):
     async def handle_org_stub(self, event):
         profile_name = event.data
         # docker usernames are case sensitive, so if there are capitalizations we also try a lowercase variation
-        profiles_to_check = set([profile_name, profile_name.lower()])
+        profiles_to_check = {profile_name, profile_name.lower()}
         for p in profiles_to_check:
             api_url = f"{self.api_url}/users/{p}"
             api_result = await self.helpers.request(api_url, follow_redirects=True)
@@ -64,7 +64,7 @@ class dockerhub(BaseModule):
     async def get_repos(self, username):
         repos = []
         url = f"{self.api_url}/repositories/{username}?page_size=25&page=" + "{page}"
-        agen = self.api_page_iter(url, json=False)
+        agen = self.api_page_iter(url, _json=False)
         try:
             async for r in agen:
                 if r is None:
@@ -85,5 +85,5 @@ class dockerhub(BaseModule):
                     if image_name and namespace:
                         repos.append("https://hub.docker.com/r/" + namespace + "/" + image_name)
         finally:
-            agen.aclose()
+            await agen.aclose()
         return repos

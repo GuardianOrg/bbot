@@ -77,15 +77,46 @@ You can also pair the web spider with subdomain enumeration:
 bbot -t evilcorp.com -f subdomain-enum -c spider.yml
 ```
 
-### Ingesting BBOT Data Into SIEM (Elastic, Splunk)
+### Exclude CDNs from Port Scan
 
-If your goal is to feed BBOT data into a SIEM such as Elastic, be sure to enable this option when scanning:
+Use `--exclude-cdns` to filter out unwanted open ports from CDNs and WAFs, e.g. Cloudflare. You can also customize the criteria by setting `modules.portfilter.cdn_tags`. By default, only open ports with `cdn-*` tags are filtered, but you can include all cloud providers by setting `cdn_tags` to `cdn,cloud`:
+
+```bash
+bbot -t evilcorp.com --exclude-cdns -c modules.portfilter.cdn_tags=cdn,cloud
+```
+
+Additionally, you can customize the allowed ports by setting `modules.portscan.allowed_cdn_ports`.
+
+```bash
+bbot -t evilcorp.com --exclude-cdns -c modules.portfilter.allowed_cdn_ports=80,443,8443
+```
+
+Example preset:
+
+```yaml title="skip_cdns.yml"
+modules:
+  - portfilter
+
+config:
+  modules:
+    portfilter:
+      cdn_tags: cdn-,cloud-
+      allowed_cdn_ports: 80,443,8443
+```
+
+```bash
+bbot -t evilcorp.com -p skip_cdns.yml
+```
+
+### Ingest BBOT Data Into SIEM (Elastic, Splunk)
+
+If your goal is to run a BBOT scan and later feed its data into a SIEM such as Elastic, be sure to enable this option when scanning:
 
 ```bash
 bbot -t evilcorp.com -c modules.json.siem_friendly=true
 ```
 
-This nests the event's `.data` beneath its event type like so:
+This ensures the `.data` event attribute is always the same type (a dictionary), by nesting it like so:
 ```json
 {
   "type": "DNS_NAME",
