@@ -5,6 +5,21 @@ from bbot.modules.base import BaseModule
 
 
 class telerik(BaseModule):
+    """
+    Test for endpoints associated with Telerik.Web.UI.dll
+
+    Telerik.Web.UI.WebResource.axd (CVE-2017-11317)
+    Telerik.Web.UI.DialogHandler.aspx (CVE-2017-9248)
+    Telerik.Web.UI.SpellCheckHandler.axd (associated with CVE-2017-9248)
+    ChartImage.axd (CVE-2019-19790)
+
+    For the Telerik Report Server vulnerability (CVE-2024-4358) Use the Nuclei Template: (https://github.com/projectdiscovery/nuclei-templates/blob/main/http/cves/2024/CVE-2024-4358.yaml)
+
+    With exploit_RAU_crypto enabled, the module will attempt to exploit CVE-2017-11317. THIS WILL UPLOAD A (benign) FILE IF SUCCESSFUL.
+
+    Will dedupe to host by default (running against first received URL). With include_subdirs enabled, will run against every directory.
+    """
+
     watched_events = ["URL", "HTTP_RESPONSE"]
     produced_events = ["VULNERABILITY", "FINDING"]
     flags = ["active", "aggressive", "web-thorough"]
@@ -139,8 +154,11 @@ class telerik(BaseModule):
 
     RAUConfirmed = []
 
-    options = {"exploit_RAU_crypto": False}
-    options_desc = {"exploit_RAU_crypto": "Attempt to confirm any RAU AXD detections are vulnerable"}
+    options = {"exploit_RAU_crypto": False, "include_subdirs": False}
+    options_desc = {
+        "exploit_RAU_crypto": "Attempt to confirm any RAU AXD detections are vulnerable",
+        "include_subdirs": "Include subdirectories in the scan (off by default)",  # will create many finding events if used in conjunction with web spider or ffuf
+    }
 
     in_scope_only = True
 
@@ -164,7 +182,10 @@ class telerik(BaseModule):
 
     def _incoming_dedup_hash(self, event):
         if event.type == "URL":
-            return hash(event.host)
+            if self.config.get("include_subdirs") is True:
+                return hash(event.data)
+            else:
+                return hash(event.host)
         else:
             return hash(event.data["url"])
 
@@ -174,7 +195,7 @@ class telerik(BaseModule):
             result, _ = await self.test_detector(event.data, webresource)
             if result:
                 if "RadAsyncUpload handler is registered successfully" in result.text:
-                    self.debug("Detected Telerik instance (Telerik.Web.UI.WebResource.axd?type=rau)")
+                    self.verbose("Detected Telerik instance (Telerik.Web.UI.WebResource.axd?type=rau)")
 
                     probe_data = {
                         "rauPostData": (
@@ -211,7 +232,7 @@ class telerik(BaseModule):
 
                     description = f"Telerik RAU AXD Handler detected. Verbose Errors Enabled: [{str(verbose_errors)}] Version Guess: [{version}]"
                     await self.emit_event(
-                        {"host": str(event.host), "url": f"{event.data}{webresource}", "description": description},
+                        {"host": str(event.data), "url": f"{event.data}{webresource}", "description": description},
                         "FINDING",
                         event,
                         context=f"{{module}} scanned {event.data} and identified {{event.type}}: Telerik RAU AXD Handler",
