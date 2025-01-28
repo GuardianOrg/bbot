@@ -180,19 +180,30 @@ class telerik(BaseModule):
 
     _module_threads = 5
 
+    @staticmethod
+    def normalize_url(url):
+        return str(url.rstrip("/") + "/").lower()
+
     def _incoming_dedup_hash(self, event):
         if event.type == "URL":
             if self.config.get("include_subdirs") is True:
-                return hash(event.data)
+                return hash(f"{event.type}{self.normalize_url(event.data)}")
             else:
-                return hash(event.host)
-        else:
-            return hash(event.data["url"])
+                return hash(f"{event.type}{event.netloc}")
+        else:  # HTTP_RESPONSE
+            return hash(f"{event.type}{event.data['url']}")
 
     async def handle_event(self, event):
         if event.type == "URL":
+            if self.config.get("include_subdirs"):
+                base_url = self.normalize_url(event.data)  # Use the entire URL including subdirectories
+
+            else:
+                base_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}/"  # path will be omitted
+
+            # Check for RAU AXD Handler
             webresource = "Telerik.Web.UI.WebResource.axd?type=rau"
-            result, _ = await self.test_detector(event.data, webresource)
+            result, _ = await self.test_detector(base_url, webresource)
             if result:
                 if "RadAsyncUpload handler is registered successfully" in result.text:
                     self.verbose("Detected Telerik instance (Telerik.Web.UI.WebResource.axd?type=rau)")
@@ -232,15 +243,14 @@ class telerik(BaseModule):
 
                     description = f"Telerik RAU AXD Handler detected. Verbose Errors Enabled: [{str(verbose_errors)}] Version Guess: [{version}]"
                     await self.emit_event(
-                        {"host": str(event.data), "url": f"{event.data}{webresource}", "description": description},
+                        {"host": str(event.host), "url": f"{base_url}{webresource}", "description": description},
                         "FINDING",
                         event,
-                        context=f"{{module}} scanned {event.data} and identified {{event.type}}: Telerik RAU AXD Handler",
+                        context=f"{{module}} scanned {base_url} and identified {{event.type}}: Telerik RAU AXD Handler",
                     )
                     if self.config.get("exploit_RAU_crypto") is True:
-                        hostname = urlparse(event.data).netloc
-                        if hostname not in self.RAUConfirmed:
-                            self.RAUConfirmed.append(hostname)
+                        if base_url not in self.RAUConfirmed:
+                            self.RAUConfirmed.append(base_url)
                             root_tool_path = self.scan.helpers.tools_dir / "telerik"
                             self.debug(root_tool_path)
 
@@ -263,17 +273,17 @@ class telerik(BaseModule):
                                             "severity": "CRITICAL",
                                             "description": description,
                                             "host": str(event.host),
-                                            "url": f"{event.data}{webresource}",
+                                            "url": f"{base_url}{webresource}",
                                         },
                                         "VULNERABILITY",
                                         event,
-                                        context=f"{{module}} scanned {event.data} and identified critical {{event.type}}: {description}",
+                                        context=f"{{module}} scanned {base_url} and identified critical {{event.type}}: {description}",
                                     )
                                     break
 
             urls = {}
             for dh in self.DialogHandlerUrls:
-                url = self.create_url(event.data, f"{dh}?dp=1")
+                url = self.create_url(base_url, f"{dh}?dp=1")
                 urls[url] = dh
 
             gen = self.helpers.request_batch(list(urls))
@@ -286,14 +296,14 @@ class telerik(BaseModule):
                     # tolerate some random errors
                     if fail_count < 2:
                         continue
-                    self.debug(f"Cancelling run against {event.data} due to failed request")
+                    self.debug(f"Cancelling run against {base_url} due to failed request")
                     await gen.aclose()
                 else:
                     if "Cannot deserialize dialog parameters" in response.text:
                         self.debug(f"Detected Telerik UI instance ({dh})")
                         description = "Telerik DialogHandler detected"
                         await self.emit_event(
-                            {"host": str(event.host), "url": f"{event.data}{dh}", "description": description},
+                            {"host": str(event.host), "url": f"{base_url}{dh}", "description": description},
                             "FINDING",
                             event,
                         )
@@ -301,12 +311,12 @@ class telerik(BaseModule):
                         await gen.aclose()
 
             spellcheckhandler = "Telerik.Web.UI.SpellCheckHandler.axd"
-            result, _ = await self.test_detector(event.data, spellcheckhandler)
+            result, _ = await self.test_detector(base_url, spellcheckhandler)
             status_code = getattr(result, "status_code", 0)
             # The standard behavior for the spellcheck handler without parameters is a 500
             if status_code == 500:
                 # Sometimes webapps will just return 500 for everything, so rule out the false positive
-                validate_result, _ = await self.test_detector(event.data, self.helpers.rand_string())
+                validate_result, _ = await self.test_detector(base_url, self.helpers.rand_string())
                 self.debug(validate_result)
                 validate_status_code = getattr(validate_result, "status_code", 0)
                 if validate_status_code not in (0, 500):
@@ -315,31 +325,31 @@ class telerik(BaseModule):
                     await self.emit_event(
                         {
                             "host": str(event.host),
-                            "url": f"{event.data}{spellcheckhandler}",
+                            "url": f"{base_url}{spellcheckhandler}",
                             "description": description,
                         },
                         "FINDING",
                         event,
-                        context=f"{{module}} scanned {event.data} and identified {{event.type}}: Telerik SpellCheckHandler",
+                        context=f"{{module}} scanned {base_url} and identified {{event.type}}: Telerik SpellCheckHandler",
                     )
 
             chartimagehandler = "ChartImage.axd?ImageName=bqYXJAqm315eEd6b%2bY4%2bGqZpe7a1kY0e89gfXli%2bjFw%3d"
-            result, _ = await self.test_detector(event.data, chartimagehandler)
+            result, _ = await self.test_detector(base_url, chartimagehandler)
             status_code = getattr(result, "status_code", 0)
             if status_code == 200:
                 chartimagehandler_error = "ChartImage.axd?ImageName="
-                result_error, _ = await self.test_detector(event.data, chartimagehandler_error)
+                result_error, _ = await self.test_detector(base_url, chartimagehandler_error)
                 error_status_code = getattr(result_error, "status_code", 0)
                 if error_status_code not in (0, 200):
                     await self.emit_event(
                         {
                             "host": str(event.host),
-                            "url": f"{event.data}{chartimagehandler}",
+                            "url": f"{base_url}{chartimagehandler}",
                             "description": "Telerik ChartImage AXD Handler Detected",
                         },
                         "FINDING",
                         event,
-                        context=f"{{module}} scanned {event.data} and identified {{event.type}}: Telerik ChartImage AXD Handler",
+                        context=f"{{module}} scanned {base_url} and identified {{event.type}}: Telerik ChartImage AXD Handler",
                     )
 
         elif event.type == "HTTP_RESPONSE":
@@ -369,14 +379,8 @@ class telerik(BaseModule):
                         context="{module} searched HTTP_RESPONSE and identified {event.type}: Telerik AsyncUpload",
                     )
 
-        # Check for RAD Controls in URL
-
     def create_url(self, baseurl, detector):
-        if not baseurl.endswith("/"):
-            url = f"{baseurl}/{detector}"
-        else:
-            url = f"{baseurl}{detector}"
-        return url
+        return f"{baseurl}{detector}"
 
     async def test_detector(self, baseurl, detector):
         result = None
