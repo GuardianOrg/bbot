@@ -2,7 +2,7 @@ from bbot.modules.base import BaseInterceptModule
 
 
 class portfilter(BaseInterceptModule):
-    watched_events = ["OPEN_TCP_PORT"]
+    watched_events = ["OPEN_TCP_PORT", "URL_UNVERIFIED", "URL"]
     flags = ["passive", "safe"]
     meta = {
         "description": "Filter out unwanted open ports from cloud/CDN targets",
