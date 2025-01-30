@@ -45,19 +45,33 @@ class aspnet_bin_exposure(BaseModule):
                         self.debug(
                             f"Got positive result for probe with test url: [{test_url}]. Status Code: [{test_result.status_code}] Content Length: [{len(test_result.content)}]"
                         )
-                        description = f"IIS Bin Directory DLL Exposure. Detection Url: [{test_url}]"
-                        await self.emit_event(
-                            {
-                                "severity": "HIGH",
-                                "host": str(event.host),
-                                "url": normalized_url,
-                                "description": description,
-                            },
-                            "VULNERABILITY",
-                            event,
-                            context="{module} detected IIS Bin Directory DLL Exposure vulnerability",
-                        )
-                        return True
+
+
+                        
+                        if test_result.status_code == 200 and (
+                            "content-type" in test_result.headers
+                            and "application/x-msdownload" in test_result.headers["content-type"]
+                        ):
+                            confirm_url = f"{normalized_url}{technique.replace('###DLL_PLACEHOLDER###', 'oopsnotarealdll.dll')}"
+                            confirm_result = await self.helpers.request(confirm_url, **kwargs)
+
+                            if confirm_result and (confirm_result.status_code != 200 or not (
+                                "content-type" in confirm_result.headers and 
+                                "application/x-msdownload" in confirm_result.headers["content-type"]
+                            )):
+                                description = f"IIS Bin Directory DLL Exposure. Detection Url: [{test_url}]"
+                                await self.emit_event(
+                                    {
+                                        "severity": "HIGH", 
+                                        "host": str(event.host),
+                                        "url": normalized_url,
+                                        "description": description,
+                                    },
+                                    "VULNERABILITY",
+                                    event,
+                                    context="{module} detected IIS Bin Directory DLL Exposure vulnerability",
+                                )
+                                return True
 
     async def filter_event(self, event):
         if "dir" in event.tags:
