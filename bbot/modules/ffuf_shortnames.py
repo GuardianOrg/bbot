@@ -193,6 +193,8 @@ class ffuf_shortnames(ffuf):
         return None
 
     async def filter_event(self, event):
+        if "iis-magic-url" in event.tags:
+            return False, "iis-magic-url URL_HINTs are not solvable by ffuf_shortnames"
         if event.parent.type != "URL":
             return False, "its parent event is not of type URL"
         return True
