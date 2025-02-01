@@ -4,6 +4,7 @@ import re
 import random
 import string
 import logging
+import os
 
 from bbot.modules.deadly.ffuf import ffuf
 
@@ -142,10 +143,21 @@ class ffuf_shortnames(ffuf):
 
         self.subword_list = []
         if self.find_subwords:
-            self.debug("find_subwords is enabled, downloading nltk data")
+            self.debug("find_subwords is enabled, checking for nltk data")
             self.nltk_dir = self.helpers.tools_dir / "nltk_data"
-            self.debug(f"Attempting to download nltk data from {self.nltk_dir}")
-            nltk.download("words", download_dir=self.nltk_dir, quiet=True)
+
+            # Ensure the directory exists
+            os.makedirs(self.nltk_dir, exist_ok=True)
+
+            # Set the NLTK data path to include self.nltk_dir
+            nltk.data.path.append(str(self.nltk_dir))
+
+            try:
+                nltk.data.find('corpora/words.zip')
+                self.debug("NLTK words data already present")
+            except LookupError:
+                self.debug("NLTK words data not found, downloading")
+                nltk.download("words", download_dir=self.nltk_dir, quiet=True)
 
             from nltk.corpus import words
 
