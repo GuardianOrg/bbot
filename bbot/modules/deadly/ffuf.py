@@ -307,7 +307,7 @@ class ffuf(BaseModule):
 
                                     else:
                                         self.verbose(
-                                            "Baseline changed mid-scan after multiple attempts. This is probably due to a WAF turning on a block against you."
+                                            "Baseline changed mid-scan, or all strings send to this directory are coming back as a match. This may be due to a WAF turning on a block against you, or an unusual configuration on the web server."
                                         )
                                         self.verbose(f"Aborting the current run against [{url}]")
                                         return
