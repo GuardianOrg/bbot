@@ -303,7 +303,6 @@ class ffuf(BaseModule):
                                     ]
                                     if len(pre_emit_temp_canary) == 0:
                                         yield found_json
-                                        break
 
                                     else:
                                         self.verbose(
