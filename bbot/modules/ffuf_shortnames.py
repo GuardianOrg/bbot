@@ -144,7 +144,7 @@ class ffuf_shortnames(ffuf):
         if self.find_subwords:
             self.debug("find_subwords is enabled, downloading nltk data")
             self.nltk_dir = self.helpers.tools_dir / "nltk_data"
-
+            self.debug(f"Attempting to download nltk data from {self.nltk_dir}")
             nltk.download("words", download_dir=self.nltk_dir, quiet=True)
 
             from nltk.corpus import words
