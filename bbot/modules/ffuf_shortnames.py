@@ -300,27 +300,28 @@ class ffuf_shortnames(ffuf):
 
         if self.config.get("find_subwords"):
             subword, suffix = self.find_subword(filename_hint)
-            if "shortname-directory" in event.tags:
-                tempfile, tempfile_len = self.generate_templist(suffix, "directory")
-                async for r in self.execute_ffuf(tempfile, root_url, prefix=subword, exts=["/"]):
-                    await self.emit_event(
-                        r["url"],
-                        "URL_UNVERIFIED",
-                        parent=event,
-                        tags=[f"status-{r['status']}"],
-                        context=f'{{module}} brute-forced directories with detected subword "{subword}" and found {{event.type}}: {{event.data}}',
-                    )
-            elif "shortname-endpoint" in event.tags:
-                for ext in used_extensions:
-                    tempfile, tempfile_len = self.generate_templist(suffix, "endpoint")
-                    async for r in self.execute_ffuf(tempfile, root_url, prefix=subword, suffix=f".{ext}"):
+            if subword:
+                if "shortname-directory" in event.tags:
+                    tempfile, tempfile_len = self.generate_templist(suffix, "directory")
+                    async for r in self.execute_ffuf(tempfile, root_url, prefix=subword, exts=["/"]):
                         await self.emit_event(
                             r["url"],
                             "URL_UNVERIFIED",
                             parent=event,
                             tags=[f"status-{r['status']}"],
-                            context=f'{{module}} brute-forced {ext.upper()} files with detected subword "{subword}" and found {{event.type}}: {{event.data}}',
+                            context=f'{{module}} brute-forced directories with detected subword "{subword}" and found {{event.type}}: {{event.data}}',
                         )
+                elif "shortname-endpoint" in event.tags:
+                    for ext in used_extensions:
+                        tempfile, tempfile_len = self.generate_templist(suffix, "endpoint")
+                        async for r in self.execute_ffuf(tempfile, root_url, prefix=subword, suffix=f".{ext}"):
+                            await self.emit_event(
+                                r["url"],
+                                "URL_UNVERIFIED",
+                                parent=event,
+                                tags=[f"status-{r['status']}"],
+                                context=f'{{module}} brute-forced {ext.upper()} files with detected subword "{subword}" and found {{event.type}}: {{event.data}}',
+                            )
 
     async def finish(self):
         if self.config.get("find_common_prefixes"):
