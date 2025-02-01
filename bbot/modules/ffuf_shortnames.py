@@ -153,7 +153,7 @@ class ffuf_shortnames(ffuf):
             nltk.data.path.append(str(self.nltk_dir))
 
             try:
-                nltk.data.find('corpora/words.zip')
+                nltk.data.find("corpora/words.zip")
                 self.debug("NLTK words data already present")
             except LookupError:
                 self.debug("NLTK words data not found, downloading")
