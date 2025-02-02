@@ -1,4 +1,3 @@
-import sys
 import git_dumper
 from pathlib import Path
 from bbot.modules.base import BaseModule

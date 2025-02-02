@@ -342,7 +342,6 @@ class TestGitDumper_Dirlisting(ModuleTestBase):
 
 class TestGitDumper_NoDirlisting(TestGitDumper_Dirlisting):
     async def setup_after_prep(self, module_test):
-        module_test.set_expect_requests(expect_args={"uri": "/test/.git/"}, respond_args={"response_data": ""})
         module_test.set_expect_requests(
             expect_args={"uri": "/test/.git/index"}, respond_args={"response_data": self.filebytes_gitindex}
         )
