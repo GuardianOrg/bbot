@@ -42,7 +42,7 @@ class ffuf_shortnames(ffuf):
         "ignore_redirects": "Explicitly ignore redirects (301,302)",
         "find_common_prefixes": "Attempt to automatically detect common prefixes and make additional ffuf runs against them",
         "find_delimiters": "Attempt to detect common delimiters and make additional ffuf runs against them",
-        "find_subwords": "",
+        "find_subwords": "Attempt to detect subwords and make additional ffuf runs against them",
         "max_predictions": "The maximum number of predictions to generate per shortname prefix",
     }
 
