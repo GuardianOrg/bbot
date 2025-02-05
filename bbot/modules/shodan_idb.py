@@ -1,7 +1,7 @@
 from bbot.modules.base import BaseModule
 
 
-class internetdb(BaseModule):
+class shodan_idb(BaseModule):
     """
     Query IP in Shodan InternetDB, returning open ports, discovered technologies, and findings/vulnerabilities
     API reference: https://internetdb.shodan.io/docs
@@ -43,21 +43,14 @@ class internetdb(BaseModule):
         "created_date": "2023-12-22",
         "author": "@TheTechromancer",
     }
-    options = {"show_open_ports": False}
-    options_desc = {
-        "show_open_ports": "Display OPEN_TCP_PORT events in output, even if they didn't lead to an interesting discovery"
-    }
 
     # we get lots of 404s, that's normal
     _api_failure_abort_threshold = 9999999999
 
+    # there aren't any rate limits to speak of, so our outgoing queue can be pretty big
     _qsize = 500
 
     base_url = "https://internetdb.shodan.io"
-
-    async def setup(self):
-        self.show_open_ports = self.config.get("show_open_ports", False)
-        return True
 
     def _incoming_dedup_hash(self, event):
         return hash(self.get_ip(event))
@@ -115,7 +108,6 @@ class internetdb(BaseModule):
                 self.helpers.make_netloc(event.data, port),
                 "OPEN_TCP_PORT",
                 parent=event,
-                internal=(not self.show_open_ports),
                 context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
             )
         vulns = data.get("vulns", [])
