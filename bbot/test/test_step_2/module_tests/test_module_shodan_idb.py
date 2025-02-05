@@ -41,7 +41,9 @@ class TestShodanInternetDB(ModuleTestBase):
             [e for e in events if e.type == "DNS_NAME" and e.data == "autodiscover.blacklanternsecurity.com"]
         )
         assert 1 == len([e for e in events if e.type == "DNS_NAME" and e.data == "mail.blacklanternsecurity.com"])
-        assert 3 == len([e for e in events if e.type == "OPEN_TCP_PORT" and e.host == "1.2.3.4" and str(e.module) == "shodan_idb"])
+        assert 3 == len(
+            [e for e in events if e.type == "OPEN_TCP_PORT" and e.host == "1.2.3.4" and str(e.module) == "shodan_idb"]
+        )
         assert 1 == len([e for e in events if e.type == "FINDING" and str(e.module) == "shodan_idb"])
         assert 1 == len([e for e in events if e.type == "FINDING" and "CVE-2021-26857" in e.data["description"]])
         assert 2 == len([e for e in events if e.type == "TECHNOLOGY" and str(e.module) == "shodan_idb"])
