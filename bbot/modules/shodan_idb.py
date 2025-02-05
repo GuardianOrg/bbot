@@ -4,6 +4,9 @@ from bbot.modules.base import BaseModule
 class shodan_idb(BaseModule):
     """
     Query IP in Shodan InternetDB, returning open ports, discovered technologies, and findings/vulnerabilities
+
+    InternetDB is especially nice because it doesn't require an API key
+
     API reference: https://internetdb.shodan.io/docs
 
     Example API response:
