@@ -183,7 +183,7 @@ async def _main():
                 for event in scan.target.seeds.events:
                     if event.type == "DNS_NAME":
                         cloudcheck_result = scan.helpers.cloudcheck(event.host)
-                        if cloudcheck_result:
+                        if cloudcheck_result and not scan.preset.strict_scope:
                             scan.hugewarning(
                                 f'YOUR TARGET CONTAINS A CLOUD DOMAIN: "{event.host}". You\'re in for a wild ride!'
                             )
