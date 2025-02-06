@@ -1,7 +1,7 @@
 from .base import ModuleTestBase
 
 
-class TestShodanInternetDB(ModuleTestBase):
+class TestShodan_IDB(ModuleTestBase):
     config_overrides = {"dns": {"minimal": False}}
 
     async def setup_before_prep(self, module_test):
