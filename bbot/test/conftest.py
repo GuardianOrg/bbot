@@ -8,6 +8,7 @@ from pathlib import Path
 from contextlib import suppress
 from omegaconf import OmegaConf
 from pytest_httpserver import HTTPServer
+import time
 
 from bbot.core import CORE
 from bbot.core.helpers.misc import execute_sync_or_async
@@ -53,6 +54,12 @@ def silence_live_logging():
             handler.setLevel(logging.CRITICAL)
 
 
+def stop_server(server):
+    server.stop()
+    while server.is_running():
+        time.sleep(0.1)  # Wait a bit before checking again
+
+
 @pytest.fixture
 def bbot_httpserver():
     server = HTTPServer(host="127.0.0.1", port=8888, threaded=True)
@@ -61,11 +68,7 @@ def bbot_httpserver():
     yield server
 
     server.clear()
-    if server.is_running():
-        server.stop()
-
-    # this is to check if the client has made any request where no
-    # `assert_request` was called on it from the test
+    stop_server(server)  # Ensure the server is fully stopped
 
     server.check_assertions()
     server.clear()
@@ -84,11 +87,7 @@ def bbot_httpserver_ssl():
     yield server
 
     server.clear()
-    if server.is_running():
-        server.stop()
-
-    # this is to check if the client has made any request where no
-    # `assert_request` was called on it from the test
+    stop_server(server)  # Ensure the server is fully stopped
 
     server.check_assertions()
     server.clear()
@@ -133,6 +132,7 @@ class Interactsh_mock:
         self.correlation_id = "deadbeef-dead-beef-dead-beefdeadbeef"
         self.stop = False
         self.poll_task = None
+        self.lock = asyncio.Lock()
 
     def mock_interaction(self, subdomain_tag, msg=None):
         self.log.info(f"Mocking interaction to subdomain tag: {subdomain_tag}")
@@ -149,7 +149,7 @@ class Interactsh_mock:
         self.stop = True
         if self.poll_task is not None:
             self.poll_task.cancel()
-            with suppress(BaseException):
+            with suppress(asyncio.CancelledError):
                 await self.poll_task
 
     async def poll_loop(self, callback=None):
@@ -161,12 +161,16 @@ class Interactsh_mock:
 
     async def poll(self, callback=None):
         poll_results = []
-        for subdomain_tag in self.interactions:
-            result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": "HTTP"}
-            poll_results.append(result)
-            if callback is not None:
-                await execute_sync_or_async(callback, result)
-        self.interactions = []
+        async with self.lock:
+            try:
+                for subdomain_tag in self.interactions:
+                    result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": "HTTP"}
+                    poll_results.append(result)
+                    if callback is not None:
+                        await execute_sync_or_async(callback, result)
+                self.interactions = []
+            except Exception as e:
+                self.log.error(f"Error during poll: {e}")
         return poll_results
 
 
