@@ -160,18 +160,16 @@ class Interactsh_mock:
                 continue
 
     async def poll(self, callback=None):
-        poll_results = []
         async with self.lock:
-            try:
-                for subdomain_tag in self.interactions:
-                    result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": "HTTP"}
+            poll_results = []
+            for subdomain_tag in self.interactions:
+                for protocol in ["HTTP", "DNS"]:
+                    result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
                     poll_results.append(result)
                     if callback is not None:
                         await execute_sync_or_async(callback, result)
-                self.interactions = []
-            except Exception as e:
-                self.log.error(f"Error during poll: {e}")
-        return poll_results
+            self.interactions = []
+            return poll_results
 
 
 import threading
