@@ -1,3 +1,4 @@
+import regex as re
 from pathlib import Path
 from subprocess import CalledProcessError
 from bbot.modules.base import BaseModule
@@ -32,45 +33,40 @@ class gitdumper(BaseModule):
         self.helpers.mkdir(self.output_dir)
         self.git_files = [
             ".git/",
-            "config",
-            "hooks/",
-            "hooks/applypatch-msg",
-            "hooks/commit-msg",
-            "hooks/fsmonitor-watchman",
-            "hooks/post-update",
-            "hooks/pre-applypatch",
-            "hooks/pre-commit",
-            "hooks/pre-merge-commit",
-            "hooks/pre-push",
-            "hooks/pre-rebase",
-            "hooks/pre-receive",
-            "hooks/prepare-commit-msg",
-            "hooks/update",
-            "COMMIT_EDITMSG",
-            "description",
-            "FETCH_HEAD",
             "HEAD",
+            "description",
+            "config",
+            "COMMIT_EDITMSG",
             "index",
-            "info/",
-            "info/exclude",
-            "logs",
-            "logs/HEAD",
-            "logs/refs/",
-            "logs/refs/remotes/",
-            "logs/refs/remotes/origin/",
-            "logs/refs/remotes/origin/HEAD",
-            "logs/refs/stash",
-            "ORIG_HEAD",
             "packed-refs",
+            "info/",
+            "info/refs",
+            "info/exclude",
             "refs/",
+            "refs/stash",
+            "refs/heads/",
+            "refs/heads/master",
             "refs/remotes/",
             "refs/remotes/origin/",
             "refs/remotes/origin/HEAD",
-            "refs/stash",
+            "refs/wip/",
+            "refs/wip/index/",
+            "refs/wip/index/refs/",
+            "refs/wip/index/refs/heads/",
+            "refs/wip/index/refs/heads/master",
+            "refs/wip/wtree/",
+            "refs/wip/wtree/refs/",
+            "refs/wip/wtree/refs/heads/",
+            "refs/wip/wtree/refs/heads/master",
+            "logs/",
+            "logs/HEAD",
+            "logs/refs/",
+            "logs/refs/heads/",
+            "logs/refs/heads/master",
+            "logs/refs/remotes/",
+            "logs/refs/remotes/origin/HEAD",
             "objects/",
             "objects/info/",
-            "objects/info/alternates",
-            "objects/info/http-alternates",
             "objects/info/packs",
         ]
         return await super().setup()
@@ -91,12 +87,7 @@ class gitdumper(BaseModule):
             urls = await self.recursive_dir_list(dir_listing)
             result = await self.download_files(urls, repo_folder)
         else:
-            self.debug("Directory listing not enabled, fuzzing common git files")
-            url_list = []
-            for file in self.git_files:
-                url = self.helpers.urljoin(repo_url, file)
-                url_list.append(self.helpers.urlparse(url))
-            result = await self.download_files(url_list, repo_folder)
+            result = await self.git_fuzz(repo_url, repo_folder)
         if result:
             await self.git_checkout(repo_folder)
             codebase_event = self.make_event({"path": str(repo_folder)}, "FILESYSTEM", tags=["git"], parent=event)
@@ -137,13 +128,52 @@ class gitdumper(BaseModule):
                     file_list.append(url)
         return file_list
 
-    async def add_git_files(self, repo_url):
+    async def git_fuzz(self, repo_url, repo_folder):
+        self.debug("Directory listing not enabled, fuzzing common git files")
         url_list = []
-        self.debug("Adding basic git files to fuzz list")
         for file in self.git_files:
-            url = self.helpers.urljoin(repo_url, file)
-            url_list.append(url)
-        return url_list
+            url_list.append(self.helpers.urlparse(self.helpers.urljoin(repo_url, file)))
+        result = await self.download_files(url_list, repo_folder)
+        if result:
+            for object in await self.regex_files(r"[a-f0-9]{40}", folder=repo_folder):
+                await self.download_object(object, repo_url, repo_folder)
+            return True
+        else:
+            return False
+
+    async def regex_files(self, regex_pattern, folder=Path(), file=Path(), files=[]):
+        regex = re.compile(regex_pattern)
+        results = []
+        if folder:
+            if folder.is_dir():
+                for file_path in folder.rglob("*"):
+                    if file_path.is_file():
+                        results.extend(await self.regex_file(regex, file_path))
+        if files:
+            for file in files:
+                results.extend(await self.regex_file(regex, file))
+        if file:
+            results.extend(await self.regex_file(regex, file))
+        return results
+
+    async def regex_file(self, regex, file=Path()):
+        self.debug(f"Searching {file} for regex pattern {regex.pattern}")
+        if file.exists() and file.is_file():
+            with file.open("r", encoding="utf-8", errors="ignore") as file:
+                content = file.read()
+                matches = await self.helpers.re.findall(regex, content)
+                if matches:
+                    return matches
+        return []
+
+    async def download_object(self, object, repo_url, repo_folder):
+        regex = re.compile(r"[a-f0-9]{40}")
+        output = await self.git_catfile(object, option="-p", folder=repo_folder)
+        for obj in await self.helpers.re.findall(regex, output):
+            await self.download_files(
+                [self.helpers.urlparse(self.helpers.urljoin(repo_url, f"objects/{obj[:2]}/{obj[2:]}"))], repo_folder
+            )
+            await self.download_object(obj, repo_url, repo_folder)
 
     async def download_files(self, urls, folder):
         self.verbose(f"Downloading the git files to {folder}")
@@ -155,12 +185,23 @@ class gitdumper(BaseModule):
                 file_url = url.geturl()
                 filename = str(folder / url.path[git_index:])
                 self.debug(f"Downloading {file_url} to {filename}")
-                await self.helpers.download(file_url, filename=filename)
+                await self.helpers.download(file_url, filename=filename, warn=False)
         if any(folder.rglob("*")):
             return True
         else:
             self.debug(f"Unable to download git files to {folder}")
             return False
+
+    async def git_catfile(self, hash, option="-t", folder=Path()):
+        command = ["git", "cat-file", option, hash]
+        try:
+            output = await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, cwd=folder, check=True)
+        except CalledProcessError as e:
+            # Still emit the event even if the checkout fails
+            self.debug(f"Error running git checkout in {folder}. STDERR: {repr(e.stderr)}")
+            return ""
+
+        return output.strip()
 
     async def git_checkout(self, folder):
         self.verbose(f"Running git checkout to reconstruct the git repository at {folder}")
