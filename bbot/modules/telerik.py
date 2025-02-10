@@ -1,7 +1,6 @@
 from sys import executable
 from urllib.parse import urlparse
 
-from bbot.core.helpers import helper
 from bbot.modules.base import BaseModule
 
 
