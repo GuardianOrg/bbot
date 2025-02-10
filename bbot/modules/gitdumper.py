@@ -32,41 +32,22 @@ class gitdumper(BaseModule):
             self.output_dir = self.scan.home / "git_repos"
         self.helpers.mkdir(self.output_dir)
         self.git_files = [
-            ".git/",
             "HEAD",
             "description",
             "config",
             "COMMIT_EDITMSG",
             "index",
             "packed-refs",
-            "info/",
             "info/refs",
             "info/exclude",
-            "refs/",
             "refs/stash",
-            "refs/heads/",
             "refs/heads/master",
-            "refs/remotes/",
-            "refs/remotes/origin/",
             "refs/remotes/origin/HEAD",
-            "refs/wip/",
-            "refs/wip/index/",
-            "refs/wip/index/refs/",
-            "refs/wip/index/refs/heads/",
             "refs/wip/index/refs/heads/master",
-            "refs/wip/wtree/",
-            "refs/wip/wtree/refs/",
-            "refs/wip/wtree/refs/heads/",
             "refs/wip/wtree/refs/heads/master",
-            "logs/",
             "logs/HEAD",
-            "logs/refs/",
-            "logs/refs/heads/",
             "logs/refs/heads/master",
-            "logs/refs/remotes/",
             "logs/refs/remotes/origin/HEAD",
-            "objects/",
-            "objects/info/",
             "objects/info/packs",
         ]
         return await super().setup()
@@ -115,8 +96,6 @@ class gitdumper(BaseModule):
                 continue
             if href.endswith("/"):
                 folder_url = self.helpers.urljoin(str(dir_listing.url), href)
-                url = self.helpers.urlparse(folder_url)
-                file_list.append(url)
                 response = await self.helpers.request(folder_url)
                 if response.status_code == 200:
                     file_list.extend(await self.recursive_dir_list(response))
@@ -167,25 +146,23 @@ class gitdumper(BaseModule):
         return []
 
     async def download_object(self, object, repo_url, repo_folder):
+        await self.download_files(
+            [self.helpers.urlparse(self.helpers.urljoin(repo_url, f"objects/{object[:2]}/{object[2:]}"))], repo_folder
+        )
         regex = re.compile(r"[a-f0-9]{40}")
         output = await self.git_catfile(object, option="-p", folder=repo_folder)
         for obj in await self.helpers.re.findall(regex, output):
-            await self.download_files(
-                [self.helpers.urlparse(self.helpers.urljoin(repo_url, f"objects/{obj[:2]}/{obj[2:]}"))], repo_folder
-            )
             await self.download_object(obj, repo_url, repo_folder)
 
     async def download_files(self, urls, folder):
         self.verbose(f"Downloading the git files to {folder}")
         for url in urls:
             git_index = url.path.find(".git")
-            if url.path.endswith("/"):
-                self.helpers.mkdir(folder / url.path[git_index:])
-            else:
-                file_url = url.geturl()
-                filename = str(folder / url.path[git_index:])
-                self.debug(f"Downloading {file_url} to {filename}")
-                await self.helpers.download(file_url, filename=filename, warn=False)
+            file_url = url.geturl()
+            filename = folder / url.path[git_index:]
+            self.helpers.mkdir(filename.parent)
+            self.debug(f"Downloading {file_url} to {filename}")
+            await self.helpers.download(file_url, filename=filename, warn=False)
         if any(folder.rglob("*")):
             return True
         else:
@@ -198,10 +175,10 @@ class gitdumper(BaseModule):
             output = await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, cwd=folder, check=True)
         except CalledProcessError as e:
             # Still emit the event even if the checkout fails
-            self.debug(f"Error running git checkout in {folder}. STDERR: {repr(e.stderr)}")
+            self.debug(f"Error running git cat-file in {folder}. STDERR: {repr(e.stderr)}")
             return ""
 
-        return output.strip()
+        return output.stdout
 
     async def git_checkout(self, folder):
         self.verbose(f"Running git checkout to reconstruct the git repository at {folder}")
