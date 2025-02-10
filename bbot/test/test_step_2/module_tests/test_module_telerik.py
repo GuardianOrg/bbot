@@ -1,6 +1,5 @@
 import re
 
-from bbot.core.helpers import helper
 from .base import ModuleTestBase, tempwordlist
 
 
