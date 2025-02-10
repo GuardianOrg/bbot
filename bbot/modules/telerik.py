@@ -1,6 +1,7 @@
 from sys import executable
 from urllib.parse import urlparse
 
+from bbot.core.helpers import helper
 from bbot.modules.base import BaseModule
 
 
@@ -316,7 +317,7 @@ class telerik(BaseModule):
             # The standard behavior for the spellcheck handler without parameters is a 500
             if status_code == 500:
                 # Sometimes webapps will just return 500 for everything, so rule out the false positive
-                validate_result, _ = await self.test_detector(base_url, self.helpers.rand_string())
+                validate_result, _ = await self.test_detector(base_url, f"{self.helpers.rand_string()}.axd")
                 self.debug(validate_result)
                 validate_status_code = getattr(validate_result, "status_code", 0)
                 if validate_status_code not in (0, 500):
