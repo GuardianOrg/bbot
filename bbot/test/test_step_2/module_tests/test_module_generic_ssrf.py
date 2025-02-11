@@ -34,7 +34,6 @@ class TestGeneric_SSRF(ModuleTestBase):
 
     async def setup_before_prep(self, module_test):
         self.interactsh_mock_instance = module_test.mock_interactsh("generic_ssrf")
-        asyncio.run(self.interactsh_mock_instance.mock_interaction("asdf"))
         module_test.monkeypatch.setattr(
             module_test.scan.helpers, "interactsh", lambda *args, **kwargs: self.interactsh_mock_instance
         )
