@@ -24,9 +24,11 @@ class TestGeneric_SSRF(ModuleTestBase):
         elif request.method == "POST":
             subdomain_tag = extract_subdomain_tag(request.data.decode())
         if subdomain_tag:
-            asyncio.run(self.interactsh_mock_instance.mock_interaction(
-                subdomain_tag, msg=f"{request.method}: {request.data.decode()}"
-            ))
+            asyncio.run(
+                self.interactsh_mock_instance.mock_interaction(
+                    subdomain_tag, msg=f"{request.method}: {request.data.decode()}"
+                )
+            )
 
         return Response("alive", status=200)
 
