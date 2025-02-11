@@ -145,6 +145,7 @@ class Interactsh_mock:
         return "fakedomain.fakeinteractsh.com"
 
     async def deregister(self, callback=None):
+        await asyncio.sleep(2)
         self.stop = True
         if self.poll_task is not None:
             self.poll_task.cancel()
