@@ -182,7 +182,7 @@ class gitdumper(BaseModule):
 
     async def git_checkout(self, folder):
         self.verbose(f"Running git checkout to reconstruct the git repository at {folder}")
-        command = ["git", "checkout"]
+        command = ["git", "checkout", "."]
         try:
             await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, cwd=folder, check=True)
         except CalledProcessError as e:

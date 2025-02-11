@@ -25,6 +25,7 @@ class TestGitDumper_Dirlisting(ModuleTestBase):
                 <tr><td><a href='/test/.git/hooks/'>&lt;hooks&gt;</a></td><td></td></tr>
                 <tr><td><a href='/test/.git/info/'>&lt;info&gt;</a></td><td></td></tr>
                 <tr><td><a href='/test/.git/objects/'>&lt;objects&gt;</a></td><td></td></tr>
+                <tr><td><a href='/test/.git/index'>index</a></td><td></td></tr>
                 <tr><td><a href='/test/.git/refs/'>&lt;refs&gt;</a></td><td></td></tr>
                 <tr><td><a href='/test/.git/logs/'>&lt;logs&gt;</a></td><td></td></tr>
             </table>
