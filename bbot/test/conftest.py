@@ -128,18 +128,16 @@ class Interactsh_mock:
     def __init__(self, name):
         self.name = name
         self.log = logging.getLogger(f"bbot.interactsh.{self.name}")
-        self.interactions = []
+        self.interactions = asyncio.Queue()  # Use asyncio.Queue for safe concurrent access
         self.correlation_id = "deadbeef-dead-beef-dead-beefdeadbeef"
         self.stop = False
         self.poll_task = None
-        self.lock = asyncio.Lock()
 
     async def mock_interaction(self, subdomain_tag, msg=None):
         self.log.info(f"Mocking interaction to subdomain tag: {subdomain_tag}")
         if msg is not None:
             self.log.info(msg)
-        async with self.lock:
-            self.interactions.append(subdomain_tag)
+        await self.interactions.put(subdomain_tag)  # Add to the queue
 
     async def register(self, callback=None):
         if callable(callback):
@@ -147,7 +145,6 @@ class Interactsh_mock:
         return "fakedomain.fakeinteractsh.com"
 
     async def deregister(self, callback=None):
-        await asyncio.sleep(2)
         self.stop = True
         if self.poll_task is not None:
             self.poll_task.cancel()
@@ -158,20 +155,21 @@ class Interactsh_mock:
         while not self.stop:
             data_list = await self.poll(callback)
             if not data_list:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
                 continue
+        await asyncio.sleep(2)
+        await self.poll(callback)
 
     async def poll(self, callback=None):
-        async with self.lock:
-            poll_results = []
-            while self.interactions:
-                subdomain_tag = self.interactions.pop(0)
-                for protocol in ["HTTP", "DNS"]:
-                    result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
-                    poll_results.append(result)
-                    if callback is not None:
-                        await execute_sync_or_async(callback, result)
-            return poll_results
+        poll_results = []
+        while not self.interactions.empty():
+            subdomain_tag = await self.interactions.get()  # Pop from the queue
+            for protocol in ["HTTP", "DNS"]:
+                result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
+                poll_results.append(result)
+                if callback is not None:
+                    await execute_sync_or_async(callback, result)
+        return poll_results
 
 
 import threading
