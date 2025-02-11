@@ -134,11 +134,12 @@ class Interactsh_mock:
         self.poll_task = None
         self.lock = asyncio.Lock()
 
-    def mock_interaction(self, subdomain_tag, msg=None):
+    async def mock_interaction(self, subdomain_tag, msg=None):
         self.log.info(f"Mocking interaction to subdomain tag: {subdomain_tag}")
         if msg is not None:
             self.log.info(msg)
-        self.interactions.append(subdomain_tag)
+        async with self.lock:
+            self.interactions.append(subdomain_tag)
 
     async def register(self, callback=None):
         if callable(callback):

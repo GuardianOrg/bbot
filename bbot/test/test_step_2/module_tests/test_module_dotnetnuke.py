@@ -1,3 +1,4 @@
+import asyncio
 import re
 from .base import ModuleTestBase
 from werkzeug.wrappers import Response
@@ -142,7 +143,7 @@ class TestDotnetnuke_blindssrf(ModuleTestBase):
         subdomain_tag = None
         subdomain_tag = extract_subdomain_tag(request.full_path)
         if subdomain_tag:
-            self.interactsh_mock_instance.mock_interaction(subdomain_tag)
+            asyncio.run(self.interactsh_mock_instance.mock_interaction(subdomain_tag))
         return Response("alive", status=200)
 
     async def setup_before_prep(self, module_test):

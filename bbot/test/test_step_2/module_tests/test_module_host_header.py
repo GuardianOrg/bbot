@@ -1,3 +1,4 @@
+import asyncio
 import re
 from werkzeug.wrappers import Response
 
@@ -23,7 +24,7 @@ class TestHost_Header(ModuleTestBase):
 
         # Standard (with reflection)
         if subdomain_tag:
-            self.interactsh_mock_instance.mock_interaction(subdomain_tag)
+            asyncio.run(self.interactsh_mock_instance.mock_interaction(subdomain_tag))
             return Response(f"Alive, host is: {subdomain_tag}.{self.fake_host}", status=200)
 
         # Host Header Overrides
