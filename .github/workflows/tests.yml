@@ -1,4 +1,4 @@
-name: Tests (Python Versions)
+name: Tests
 on:
   push:
     branches:
@@ -40,7 +40,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pytest-debug-logs-${{ matrix.python-version }}
-          path: pytest_debug_${{ matrix.python-version }}.log
+          path: pytest_debug.log
       - name: Upload Code Coverage
         uses: codecov/codecov-action@v5
         with:

@@ -67,4 +67,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pytest-debug-logs-${{ matrix.os }}
-          path: pytest_debug_${{ matrix.os }}.log
+          path: pytest_debug.log
