@@ -163,13 +163,13 @@ class Interactsh_mock:
     async def poll(self, callback=None):
         async with self.lock:
             poll_results = []
-            for subdomain_tag in self.interactions:
+            while self.interactions:
+                subdomain_tag = self.interactions.pop(0)
                 for protocol in ["HTTP", "DNS"]:
                     result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
                     poll_results.append(result)
                     if callback is not None:
                         await execute_sync_or_async(callback, result)
-            self.interactions = []
             return poll_results
 
 
