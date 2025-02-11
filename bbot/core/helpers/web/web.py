@@ -401,7 +401,7 @@ class WebHelper(EngineClient):
         if raw_body:
             curl_command.append("-d")
             curl_command.append(raw_body)
-        log.critical(f"Running curl command: {curl_command}")
+        log.verbose(f"Running curl command: {curl_command}")
         output = (await self.parent_helper.run(curl_command)).stdout
         return output
 
