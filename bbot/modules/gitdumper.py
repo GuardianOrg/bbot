@@ -55,9 +55,10 @@ class gitdumper(BaseModule):
             "logs/HEAD",
             "objects/info/packs",
         ]
-        self.debug("Adding common git branch names to fuzz list")
+        self.info("Compiling fuzz list with common branch names")
         branch_names = [
             "daily",
+            "stable",
             "dev",
             "feature",
             "feat",
@@ -85,16 +86,16 @@ class gitdumper(BaseModule):
         self.fuzz_tags = self.config.get("fuzz_tags", "10")
         self.max_semanic_version = self.config.get("max_semanic_version", "10")
         if self.fuzz_tags:
-            self.debug("Adding symantec version tags to fuzz list")
+            self.info("Adding symantec version tags to fuzz list")
             for major in range(self.max_semanic_version):
                 for minor in range(self.max_semanic_version):
                     for patch in range(self.max_semanic_version):
-                        self.debug(f"{major}.{minor}.{patch}")
+                        self.verbose(f"{major}.{minor}.{patch}")
                         self.git_files.append(f"refs/tags/{major}.{minor}.{patch}")
-                        self.debug(f"v{major}.{minor}.{patch}")
+                        self.verbose(f"v{major}.{minor}.{patch}")
                         self.git_files.append(f"refs/tags/v{major}.{minor}.{patch}")
         else:
-            self.debug("Adding symantec version tags to fuzz list (v0.0.1, 0.0.1, v1.0.0, 1.0.0)")
+            self.info("Adding symantec version tags to fuzz list (v0.0.1, 0.0.1, v1.0.0, 1.0.0)")
             for path in ["refs/tags/v0.0.1", "refs/tags/0.0.1", "refs/tags/v1.0.0", "refs/tags/1.0.0"]:
                 self.git_files.append(path)
         return await super().setup()
@@ -107,7 +108,7 @@ class gitdumper(BaseModule):
 
     async def handle_event(self, event):
         repo_url = event.data.get("url")
-        self.verbose(f"Processing leaked .git directory at {repo_url}")
+        self.info(f"Processing leaked .git directory at {repo_url}")
         repo_folder = self.output_dir / self.helpers.tagify(repo_url)
         self.helpers.mkdir(repo_folder)
         dir_listing = await self.directory_listing_enabled(repo_url)
@@ -156,7 +157,7 @@ class gitdumper(BaseModule):
         return file_list
 
     async def git_fuzz(self, repo_url, repo_folder):
-        self.debug("Directory listing not enabled, fuzzing common git files")
+        self.info("Directory listing not enabled, fuzzing common git files")
         url_list = []
         for file in self.git_files:
             url_list.append(self.helpers.urlparse(self.helpers.urljoin(repo_url, file)))
