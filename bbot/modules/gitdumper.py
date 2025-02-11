@@ -226,7 +226,7 @@ class gitdumper(BaseModule):
             filename = folder / url.path[git_index:]
             self.helpers.mkdir(filename.parent)
             if hash(str(file_url)) not in self.urls_downloaded:
-                self.debug(f"Downloading {file_url} to {filename}")
+                self.verbose(f"Downloading {file_url} to {filename}")
                 await self.helpers.download(file_url, filename=filename, warn=False)
                 self.urls_downloaded.add(hash(str(file_url)))
         if any(folder.rglob("*")):
