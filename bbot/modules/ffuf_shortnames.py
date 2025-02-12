@@ -1,10 +1,7 @@
 import pickle
-import nltk
 import re
 import random
 import string
-import logging
-import os
 
 from bbot.modules.deadly.ffuf import ffuf
 
