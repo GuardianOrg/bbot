@@ -170,6 +170,7 @@ class Interactsh_mock:
                 poll_results.append(result)
                 if callback is not None:
                     await execute_sync_or_async(callback, result)
+            await asyncio.sleep(0.5)
         return poll_results
 
 
