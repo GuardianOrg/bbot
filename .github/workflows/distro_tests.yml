@@ -54,7 +54,7 @@ jobs:
             pipx install poetry
           "
       - name: Set OS Environment Variable
-        run: echo "OS_NAME=${{ matrix.os }}" | sed 's/:/_/g' >> $GITHUB_ENV
+        run: echo "OS_NAME=${{ matrix.os }}" | sed 's|[:/]|_|g' >> $GITHUB_ENV
       - name: Run tests
         run: |
           export PATH="$HOME/.local/bin:$PATH"
