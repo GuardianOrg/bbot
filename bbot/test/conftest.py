@@ -129,8 +129,7 @@ class Interactsh_mock:
     def __init__(self, name):
         self.name = name
         self.log = logging.getLogger(f"bbot.interactsh.{self.name}")
-        self.interactions = queue.Queue()  # Use a thread-safe queue for sync access
-        self.async_interactions = asyncio.Queue()  # Use an asyncio queue for async access
+        self.interactions = asyncio.Queue()  # Use an asyncio queue for async access
         self.correlation_id = "deadbeef-dead-beef-dead-beefdeadbeef"
         self.stop = False
         self.poll_task = None
@@ -139,7 +138,7 @@ class Interactsh_mock:
         self.log.info(f"Mocking interaction to subdomain tag: {subdomain_tag}")
         if msg is not None:
             self.log.info(msg)
-        self.interactions.put(subdomain_tag)  # Add to the thread-safe queue
+        self.interactions.put_nowait(subdomain_tag)  # Add to the thread-safe queue
 
     async def register(self, callback=None):
         if callable(callback):
@@ -165,13 +164,8 @@ class Interactsh_mock:
 
     async def poll(self, callback=None):
         poll_results = []
-        # Transfer items from the thread-safe queue to the asyncio queue (thanks pytest!)
         while not self.interactions.empty():
-            subdomain_tag = self.interactions.get()
-            await self.async_interactions.put(subdomain_tag)
-
-        while not self.async_interactions.empty():
-            subdomain_tag = await self.async_interactions.get()  # Get the first element from the asyncio queue
+            subdomain_tag = await self.interactions.get()  # Get the first element from the asyncio queue
             for protocol in ["HTTP", "DNS"]:
                 result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
                 poll_results.append(result)
