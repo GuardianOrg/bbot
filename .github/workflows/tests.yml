@@ -39,7 +39,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-debug-logs-${{ matrix.python-version }}
+          name: pytest-debug-logs-${{ matrix.python-version | replace(':', '_') }}
           path: pytest_debug.log
       - name: Upload Code Coverage
         uses: codecov/codecov-action@v5
