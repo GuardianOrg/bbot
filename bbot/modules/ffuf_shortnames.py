@@ -12,7 +12,6 @@ from bbot.modules.deadly.ffuf import ffuf
 class ffuf_shortnames(ffuf):
     watched_events = ["URL_HINT"]
     produced_events = ["URL_UNVERIFIED"]
-    deps_pip = ["numpy", "nltk"]
     flags = ["aggressive", "active", "iis-shortnames", "web-thorough"]
     meta = {
         "description": "Use ffuf in combination IIS shortnames",
@@ -21,7 +20,6 @@ class ffuf_shortnames(ffuf):
     }
 
     options = {
-        "wordlist": "",  # default is defined within setup function
         "wordlist_extensions": "",  # default is defined within setup function
         "max_depth": 1,
         "version": "2.0.0",
@@ -34,7 +32,6 @@ class ffuf_shortnames(ffuf):
     }
 
     options_desc = {
-        "wordlist": "Specify wordlist to use when finding directories",
         "wordlist_extensions": "Specify wordlist to use when making extension lists",
         "max_depth": "the maximum directory depth to attempt to solve",
         "version": "ffuf version",
@@ -124,13 +121,14 @@ class ffuf_shortnames(ffuf):
                 if name == "MinimalWordPredictor":
                     return MinimalWordPredictor
                 return super().find_class(module, name)
-
+        self.info("Loading ffuf_shortnames prediction models, could take a while if not cached")
         endpoint_model = await self.helpers.wordlist(
             "https://raw.githubusercontent.com/blacklanternsecurity/wordpredictor/refs/heads/main/trained_models/endpoints.bin"
         )
         directory_model = await self.helpers.wordlist(
             "https://raw.githubusercontent.com/blacklanternsecurity/wordpredictor/refs/heads/main/trained_models/directories.bin"
         )
+
         self.debug(f"Loading endpoint model from: {endpoint_model}")
         with open(endpoint_model, "rb") as f:
             unpickler = CustomUnpickler(f)
@@ -143,25 +141,15 @@ class ffuf_shortnames(ffuf):
 
         self.subword_list = []
         if self.find_subwords:
-            self.debug("find_subwords is enabled, checking for nltk data")
-            self.nltk_dir = self.helpers.tools_dir / "nltk_data"
-
-            # Ensure the directory exists
-            os.makedirs(self.nltk_dir, exist_ok=True)
-
-            # Set the NLTK data path to include self.nltk_dir
-            nltk.data.path.append(str(self.nltk_dir))
-
-            try:
-                nltk.data.find("corpora/words.zip")
-                self.debug("NLTK words data already present")
-            except LookupError:
-                self.debug("NLTK words data not found, downloading")
-                nltk.download("words", download_dir=self.nltk_dir, quiet=True)
-
-            from nltk.corpus import words
-
-            self.subword_list = {word.lower() for word in words.words() if 3 <= len(word) <= 5}
+            self.debug("Acquiring ffuf_shortnames subword list")
+            subwords = await self.helpers.wordlist(
+                "https://raw.githubusercontent.com/nltk/nltk_data/refs/heads/gh-pages/packages/corpora/words.zip",
+                zip=True,
+                zip_filename="words/en"
+            )
+            with open(subwords, 'r') as f:
+                subword_list_content = f.readlines()
+            self.subword_list = {word.lower().strip() for word in subword_list_content if 3 <= len(word.strip()) <= 5}
             self.debug(f"Created subword_list with {len(self.subword_list)} words")
             self.subword_list = self.subword_list.union(self.supplementary_words)
             self.debug(f"Extended subword_list with supplementary words, total size: {len(self.subword_list)}")
