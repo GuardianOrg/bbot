@@ -9,6 +9,7 @@ from contextlib import suppress
 from omegaconf import OmegaConf
 from pytest_httpserver import HTTPServer
 import time
+import queue
 
 from bbot.core import CORE
 from bbot.core.helpers.misc import execute_sync_or_async
@@ -128,16 +129,17 @@ class Interactsh_mock:
     def __init__(self, name):
         self.name = name
         self.log = logging.getLogger(f"bbot.interactsh.{self.name}")
-        self.interactions = asyncio.Queue()  # Use asyncio.Queue for safe concurrent access
+        self.interactions = queue.Queue()  # Use a thread-safe queue for sync access
+        self.async_interactions = asyncio.Queue()  # Use an asyncio queue for async access
         self.correlation_id = "deadbeef-dead-beef-dead-beefdeadbeef"
         self.stop = False
         self.poll_task = None
 
-    async def mock_interaction(self, subdomain_tag, msg=None):
+    def mock_interaction(self, subdomain_tag, msg=None):
         self.log.info(f"Mocking interaction to subdomain tag: {subdomain_tag}")
         if msg is not None:
             self.log.info(msg)
-        await self.interactions.put(subdomain_tag)  # Add to the queue
+        self.interactions.put(subdomain_tag)  # Add to the thread-safe queue
 
     async def register(self, callback=None):
         if callable(callback):
@@ -145,7 +147,7 @@ class Interactsh_mock:
         return "fakedomain.fakeinteractsh.com"
 
     async def deregister(self, callback=None):
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         self.stop = True
         if self.poll_task is not None:
             self.poll_task.cancel()
@@ -158,19 +160,24 @@ class Interactsh_mock:
             if not data_list:
                 await asyncio.sleep(0.5)
                 continue
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         await self.poll(callback)
 
     async def poll(self, callback=None):
         poll_results = []
+        # Transfer items from the thread-safe queue to the asyncio queue (thanks pytest!)
         while not self.interactions.empty():
-            subdomain_tag = await self.interactions.get()  # Pop from the queue
+            subdomain_tag = self.interactions.get()
+            await self.async_interactions.put(subdomain_tag)
+
+        while not self.async_interactions.empty():
+            subdomain_tag = await self.async_interactions.get()  # Get the first element from the asyncio queue
             for protocol in ["HTTP", "DNS"]:
                 result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
                 poll_results.append(result)
                 if callback is not None:
                     await execute_sync_or_async(callback, result)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
         return poll_results
 
 
