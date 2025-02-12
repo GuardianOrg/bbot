@@ -121,6 +121,7 @@ class ffuf_shortnames(ffuf):
                 if name == "MinimalWordPredictor":
                     return MinimalWordPredictor
                 return super().find_class(module, name)
+
         self.info("Loading ffuf_shortnames prediction models, could take a while if not cached")
         endpoint_model = await self.helpers.wordlist(
             "https://raw.githubusercontent.com/blacklanternsecurity/wordpredictor/refs/heads/main/trained_models/endpoints.bin"
@@ -145,9 +146,9 @@ class ffuf_shortnames(ffuf):
             subwords = await self.helpers.wordlist(
                 "https://raw.githubusercontent.com/nltk/nltk_data/refs/heads/gh-pages/packages/corpora/words.zip",
                 zip=True,
-                zip_filename="words/en"
+                zip_filename="words/en",
             )
-            with open(subwords, 'r') as f:
+            with open(subwords, "r") as f:
                 subword_list_content = f.readlines()
             self.subword_list = {word.lower().strip() for word in subword_list_content if 3 <= len(word.strip()) <= 5}
             self.debug(f"Created subword_list with {len(self.subword_list)} words")

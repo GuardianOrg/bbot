@@ -281,7 +281,7 @@ class WebHelper(EngineClient):
             if not zip_filename:
                 raise WordlistError("zip_filename must be specified when zip is True")
             try:
-                with zipfile.ZipFile(filename, 'r') as zip_ref:
+                with zipfile.ZipFile(filename, "r") as zip_ref:
                     if zip_filename not in zip_ref.namelist():
                         raise WordlistError(f"File {zip_filename} not found in the zip archive {filename}")
                     zip_ref.extract(zip_filename, filename.parent)
