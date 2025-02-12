@@ -40,6 +40,7 @@ class ffuf_shortnames(ffuf):
         "max_predictions": "The maximum number of predictions to generate per shortname prefix",
     }
 
+    deps_pip = ["numpy"]
     deps_common = ["ffuf"]
     in_scope_only = True
 
