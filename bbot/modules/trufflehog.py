@@ -209,4 +209,4 @@ class trufflehog(BaseModule):
         message = line.get("msg", "")
         ts = line.get("ts", "")
         status = f"Message: {message} | Timestamp: {ts}"
-        self.info(status)
+        self.verbose(status)
