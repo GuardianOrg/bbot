@@ -24,8 +24,6 @@ class gitdumper(BaseModule):
         "max_semanic_version": "Maximum version number to fuzz for (default < v10.10.10)",
     }
 
-    deps_apt = ["git"]
-
     scope_distance_modifier = 2
 
     async def setup(self):
@@ -57,19 +55,28 @@ class gitdumper(BaseModule):
         ]
         self.info("Compiling fuzz list with common branch names")
         branch_names = [
+            "bugfix",
             "daily",
-            "stable",
             "dev",
-            "feature",
+            "develop",
+            "development",
             "feat",
+            "feature",
             "fix",
             "hotfix",
+            "integration",
             "issue",
             "main",
             "master",
             "ng",
+            "prod",
+            "production",
+            "qa",
             "quickfix",
             "release",
+            "stable",
+            "stage",
+            "staging",
             "test",
             "testing",
             "wip",
@@ -130,7 +137,7 @@ class gitdumper(BaseModule):
 
     async def directory_listing_enabled(self, repo_url):
         response = await self.helpers.request(repo_url)
-        if "<title>Index of" in response.text:
+        if "<title>Index of" in getattr(response, "text", ""):
             self.info(f"Directory listing enabled at {repo_url}")
             return response
         return None
@@ -146,7 +153,7 @@ class gitdumper(BaseModule):
             if href.endswith("/"):
                 folder_url = self.helpers.urljoin(str(dir_listing.url), href)
                 response = await self.helpers.request(folder_url)
-                if response.status_code == 200:
+                if getattr(response, "status_code", 0) == 200:
                     file_list.extend(await self.recursive_dir_list(response))
             else:
                 file_url = self.helpers.urljoin(str(dir_listing.url), href)
@@ -240,7 +247,7 @@ class gitdumper(BaseModule):
         if config_file.exists():
             with config_file.open("r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
-                sanitized = await self.helpers.re.sub(self.unsafe_regex, "# \g<0>", content)
+                sanitized = await self.helpers.re.sub(self.unsafe_regex, r"# \g<0>", content)
             with config_file.open("w", encoding="utf-8") as file:
                 file.write(sanitized)
 
