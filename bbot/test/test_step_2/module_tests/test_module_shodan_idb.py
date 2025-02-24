@@ -42,7 +42,11 @@ class TestShodan_IDB(ModuleTestBase):
         )
         assert 1 == len([e for e in events if e.type == "DNS_NAME" and e.data == "mail.blacklanternsecurity.com"])
         assert 3 == len(
-            [e for e in events if e.type == "OPEN_TCP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"]
+            [
+                e
+                for e in events
+                if e.type == "OPEN_TCP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"
+            ]
         )
         assert 1 == len([e for e in events if e.type == "FINDING" and str(e.module) == "shodan_idb"])
         assert 1 == len([e for e in events if e.type == "FINDING" and "CVE-2021-26857" in e.data["description"]])
