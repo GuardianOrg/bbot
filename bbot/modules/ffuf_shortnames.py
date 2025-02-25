@@ -98,6 +98,7 @@ class ffuf_shortnames(ffuf):
         self.ignore_redirects = self.config.get("ignore_redirects")
         self.max_predictions = self.config.get("max_predictions")
         self.find_subwords = self.config.get("find_subwords")
+        self.rate = self.config.get("rate", 0)
 
         class MinimalWordPredictor:
             def __init__(self):
