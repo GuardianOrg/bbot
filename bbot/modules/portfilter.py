@@ -18,6 +18,8 @@ class portfilter(BaseInterceptModule):
         "allowed_cdn_ports": "Comma-separated list of ports that are allowed to be scanned for CDNs",
     }
 
+    _priority = 4
+
     async def setup(self):
         self.cdn_tags = [t.strip() for t in self.config.get("cdn_tags", "").split(",")]
         self.allowed_cdn_ports = self.config.get("allowed_cdn_ports", "").strip()
