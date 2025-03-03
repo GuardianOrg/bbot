@@ -314,6 +314,15 @@ class BBOTArgs:
             help="Show the current preset in its full form, including defaults",
         )
 
+        scan.add_argument(
+            "-mh",
+            "--module-help",
+            nargs=1,
+            default=None,
+            help="Show help for a specific module",
+            metavar="MODULE",
+        )
+
         output = p.add_argument_group(title="Output")
         output.add_argument(
             "-o",
