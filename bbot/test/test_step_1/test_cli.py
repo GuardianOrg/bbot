@@ -450,7 +450,7 @@ async def test_cli_customheaders(monkeypatch, caplog, capsys):
 
 
 @pytest.mark.asyncio
-async def test_cli_module_help(monkeypatch, caplog, capsys):
+async def test_cli_module_help(monkeypatch, capsys):
     monkeypatch.setattr(sys, "exit", lambda *args, **kwargs: True)
     monkeypatch.setattr(os, "_exit", lambda *args, **kwargs: True)
 
