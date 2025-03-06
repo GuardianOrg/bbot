@@ -67,6 +67,11 @@ class BBOTArgs:
             "",
             "bbot -lf",
         ),
+        (
+            "Show help for a specific module",
+            "",
+            "bbot -mh <module_name>",
+        ),
     ]
 
     epilog = "EXAMPLES\n"
