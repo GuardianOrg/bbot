@@ -121,7 +121,7 @@ async def _main():
 
             # --module-help
             if options.module_help:
-                module_name = options.module_help[0]
+                module_name = options.module_help
                 all_modules = list(preset.module_loader.preloaded())
                 if module_name not in all_modules:
                     log.hugewarning(f'Module "{module_name}" not found')

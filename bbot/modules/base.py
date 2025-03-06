@@ -1630,8 +1630,8 @@ class BaseModule:
             for option, default_value in options.items():
                 option_description = options_desc.get(option, "No description available.")
                 help_text += f"  - {option}:\n"
-                help_text += f"    Description: {option_description}\n"
-                help_text += f"    Default: {default_value}\n"
+                help_text += f"      Description: {option_description}\n"
+                help_text += f"      Default: {default_value}\n"
         else:
             help_text += "  No options available."
 
