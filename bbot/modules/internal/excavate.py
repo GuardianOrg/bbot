@@ -1146,7 +1146,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 else:
                     self.hugewarning(f"YARA Rule {rule_name} not found in pre-compiled rules")
 
-    async def handle_event(self, event):
+    async def handle_event(self, event, **kwargs):
         if event.type == "HTTP_RESPONSE":
             if self.parameter_extraction is True:
                 # if parameter extraction is enabled, and we have custom cookies or headers, emit them as WEB_PARAMETER events
