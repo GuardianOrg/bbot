@@ -388,7 +388,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 extracted_results = await self.excavate.helpers.re.findall(self.extraction_regex, str(self.result))
                 if extracted_results:
                     for action, extracted_parameters in extracted_results:
-                        extracted_parameters_dict = self.convert_to_dict(extracted_parameters)
+                        extracted_parameters_dict = await self.convert_to_dict(extracted_parameters)
                         for parameter_name, original_value in extracted_parameters_dict.items():
                             yield (
                                 self.output_type,
@@ -398,9 +398,12 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                 _exclude_key(extracted_parameters_dict, parameter_name),
                             )
 
-            def convert_to_dict(self, extracted_str):
+            async def convert_to_dict(self, extracted_str):
                 extracted_str = extracted_str.replace("'", '"')
-                extracted_str = re.sub(r"(\w+):", r'"\1":', extracted_str)
+                extracted_str = await self.excavate.helpers.re.sub(
+                    re.compile(r"(\w+):"), r'"\1":', extracted_str
+                )  # Quote keys
+
                 try:
                     return json.loads(extracted_str)
                 except json.JSONDecodeError as e:
@@ -456,7 +459,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         extracted_values[key] = match.group(1)
 
                 # Check to see if the format is defined as JSON
-                if "content_type" in extracted_values.keys() and extracted_values["content_type"] == "application/json":
+                if (
+                    "content_type" in extracted_values.keys()
+                    and extracted_values["content_type"] == "application/json"
+                ):
                     form_parameters = {}
 
                     # If we can't figure out the parameter names, there is no point in continuing
@@ -465,8 +471,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
                         try:
                             s = extracted_values["data"]
-                            s = re.sub(r"(\w+)\s*:", r'"\1":', s)  # Quote keys
-                            s = re.sub(r":\s*(\w+)", r': "\1"', s)  # Quote values if they are unquoted
+                            s = await self.excavate.helpers.re.sub(re.compile(r"(\w+)\s*:"), r'"\1":', s)  # Quote keys
+                            s = await self.excavate.helpers.re.sub(
+                                re.compile(r":\s*(\w+)"), r': "\1"', s
+                            )  # Quote values if they are unquoted
                             data = json.loads(s)
                         except (ValueError, SyntaxError):
                             data = None
@@ -581,8 +589,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 for result in results:
                     if identifier not in self.parameterExtractorCallbackDict.keys():
                         raise ExcavateError("ParameterExtractor YaraRule identified reference non-existent submodule")
-                    parameterExtractorSubModule = self.parameterExtractorCallbackDict[identifier](self.excavate, result)
-                    
+                    parameterExtractorSubModule = self.parameterExtractorCallbackDict[identifier](
+                        self.excavate, result
+                    )
+
                     # Use async for to iterate over the async generator
                     async for (
                         parameter_type,
@@ -609,9 +619,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         # The endpoint is usually a form action - we should use it if we have it. If not, default to URL.
                         else:
                             # Use the original URL as the base and resolve the endpoint correctly in case of relative paths
-                            base_url = (
-                                f"{event.parsed_url.scheme}://{event.parsed_url.netloc}{event.parsed_url.path}"
-                            )
+                            base_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}{event.parsed_url.path}"
                             if self.excavate.retain_querystring and len(event.parsed_url.query) > 0:
                                 base_url += f"?{event.parsed_url.query}"
                             url = urljoin(base_url, endpoint)
