@@ -115,12 +115,12 @@ If you wanted a specific submodule, you could make your own preset adjusting the
 
 Just XSS:
 ```
-bbot -p lightfuzz -t targets.txt -c modules.lightfuzz.enabled_submodules[xss]  --allow-deadly
+bbot -p lightfuzz -t targets.txt -c modules.lightfuzz.enabled_submodules=[xss]  --allow-deadly
 ```
 
 XSS and SQLi:
 ```
-bbot -p lightfuzz -t targets.txt -c modules.lightfuzz.enabled_submodules[xss,sqli]  --allow-deadly
+bbot -p lightfuzz -t targets.txt -c modules.lightfuzz.enabled_submodules=[xss,sqli]  --allow-deadly
 ```
 
 
