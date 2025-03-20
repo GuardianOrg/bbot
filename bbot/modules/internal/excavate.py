@@ -330,36 +330,6 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
     _module_threads = 8
 
-    parameter_blacklist_prefix = [
-        "TS01",
-        "BIGipServer",
-        "incap_",
-        "visid_incap_",
-        "AWSALB",
-        "utm_",
-        "ApplicationGatewayAffinity",
-        "JSESSIONID",
-        "ARRAffinity",
-    ]
-
-    parameter_blacklist = set(
-        p.lower()
-        for p in [
-            "__VIEWSTATE",
-            "__EVENTARGUMENT",
-            "__EVENTVALIDATION",
-            "__EVENTTARGET",
-            "__EVENTARGUMENT",
-            "__VIEWSTATEGENERATOR",
-            "__SCROLLPOSITIONY",
-            "__SCROLLPOSITIONX",
-            "ASP.NET_SessionId",
-            "PHPSESSID",
-            "__cf_bm",
-            "f5_cspm",
-        ]
-    )
-
     yara_rule_name_regex = re.compile(r"rule\s(\w+)\s{")
     yara_rule_regex = re.compile(r"(?s)((?:rule\s+\w+\s*{[^{}]*(?:{[^{}]*}[^{}]*)*[^{}]*(?:/\S*?}[^/]*?/)*)*})")
 
@@ -370,7 +340,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         if lower_value in self.parameter_blacklist:
             return True
 
-        for bl_param_prefix in self.parameter_blacklist_prefix:
+        for bl_param_prefix in self.parameter_blacklist_prefixes:
             if lower_value.startswith(bl_param_prefix.lower()):
                 return True
 
@@ -1037,6 +1007,11 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     excavateRule = e(self)
                     for rule_name, rule_content in excavateRule.yara_rules.items():
                         self.add_yara_rule(rule_name, rule_content, excavateRule)
+
+        self.parameter_blacklist = set(
+            p.lower() for p in self.scan.config.get("parameter_blacklist", [])
+        )
+        self.parameter_blacklist_prefixes = set(self.scan.config.get("parameter_blacklist_prefixes", []))
 
         self.custom_yara_rules = str(self.config.get("custom_yara_rules", ""))
         if self.custom_yara_rules:

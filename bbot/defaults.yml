@@ -219,7 +219,32 @@ url_extension_static:
   - bz2
   - 7z
   - rar
-  
+
+parameter_blacklist:
+  - __VIEWSTATE
+  - __EVENTARGUMENT
+  - __EVENTVALIDATION
+  - __EVENTTARGET
+  - __EVENTARGUMENT
+  - __VIEWSTATEGENERATOR
+  - __SCROLLPOSITIONY
+  - __SCROLLPOSITIONX
+  - ASP.NET_SessionId
+  - PHPSESSID
+  - __cf_bm
+  - f5_cspm
+
+parameter_blacklist_prefixes:
+  - TS01
+  - BIGipServer
+  - incap_
+  - visid_incap_
+  - AWSALB
+  - utm_
+  - ApplicationGatewayAffinity
+  - JSESSIONID
+  - ARRAffinity
+
 # Don't output these types of events (they are still distributed to modules)
 omit_event_types:
   - HTTP_RESPONSE
