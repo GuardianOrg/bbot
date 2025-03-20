@@ -71,7 +71,8 @@ class path(BaseLightfuzz):
             },
         }
 
-        linux_path_regex = re.match(r"/(?:[\w-]+/)*[\w-]+\.\w+", probe_value)
+        compiled_regex = self.lightfuzz.helpers.re.compile(r"/(?:[\w-]+/)*[\w-]+\.\w+")
+        linux_path_regex = await self.lightfuzz.helpers.re.match(compiled_regex, probe_value)
         if linux_path_regex is not None:
             original_path_only = "/".join(probe_value.split("/")[:-1])
             original_filename_only = probe_value.split("/")[-1]
