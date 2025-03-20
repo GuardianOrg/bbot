@@ -1008,9 +1008,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     for rule_name, rule_content in excavateRule.yara_rules.items():
                         self.add_yara_rule(rule_name, rule_content, excavateRule)
 
-        self.parameter_blacklist = set(
-            p.lower() for p in self.scan.config.get("parameter_blacklist", [])
-        )
+        self.parameter_blacklist = set(p.lower() for p in self.scan.config.get("parameter_blacklist", []))
         self.parameter_blacklist_prefixes = set(self.scan.config.get("parameter_blacklist_prefixes", []))
 
         self.custom_yara_rules = str(self.config.get("custom_yara_rules", ""))

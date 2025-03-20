@@ -16,6 +16,43 @@ class serial(BaseLightfuzz):
 
     friendly_name = "Unsafe Deserialization"
 
+    # Class-level constants
+    CONTROL_PAYLOAD_HEX = "f56124208220432ec767646acd2e6c6bc9622a62c5656f2eeb616e2f"
+    CONTROL_PAYLOAD_BASE64 = "4Wt5fYx5Y3rELn5myS5oa996Ji7IZ28uwGdha4x6YmuMfG992CA="
+    CONTROL_PAYLOAD_PHP_RAW = "z:0:{}"
+
+    BASE64_SERIALIZATION_PAYLOADS = {
+        "php_base64": "YTowOnt9",
+        "java_base64": "rO0ABXNyABFqYXZhLmxhbmcuQm9vbGVhbs0gcoDVnPruAgABWgAFdmFsdWV4cAA=",
+        "java_base64_string_error": "rO0ABXQABHRlc3Q=",
+        "java_base64_OptionalDataException": "rO0ABXcEAAAAAAEAAAABc3IAEGphdmEudXRpbC5IYXNoTWFwAAAAAAAAAAECAAJMAARrZXkxYgABAAAAAAAAAAJ4cHcBAAAAB3QABHRlc3Q=",
+        "dotnet_base64": "AAEAAAD/////AQAAAAAAAAAGAQAAAAdndXN0YXZvCw==",
+        "ruby_base64": "BAh7BjoKbE1FAAVJsg==",
+    }
+
+    HEX_SERIALIZATION_PAYLOADS = {
+        "java_hex": "ACED00057372000E6A6176612E6C616E672E426F6F6C65616ECD207EC0D59CF6EE02000157000576616C7565787000",
+        "java_hex_OptionalDataException": "ACED0005737200106A6176612E7574696C2E486173684D617000000000000000012000014C00046B6579317A00010000000000000278707000000774000474657374",
+        "dotnet_hex": "0001000000ffffffff01000000000000000601000000076775737461766f0b",
+    }
+
+    PHP_RAW_SERIALIZATION_PAYLOADS = {
+        "php_raw": "a:0:{}",
+    }
+
+    SERIALIZATION_ERRORS = [
+        "invalid user",
+        "cannot cast java.lang.string",
+        "dump format error",
+        "java.io.optionaldataexception",
+    ]
+
+    GENERAL_ERRORS = [
+        "Internal Error",
+        "Internal Server Error",
+        "The requested URL was rejected",
+    ]
+
     def is_possibly_serialized(self, value):
         # Use the is_base64 method from BaseLightfuzz via self
         if self.is_base64(value):
@@ -43,42 +80,16 @@ class serial(BaseLightfuzz):
 
     async def fuzz(self):
         cookies = self.event.data.get("assigned_cookies", {})
-        control_payload_hex = "f56124208220432ec767646acd2e6c6bc9622a62c5656f2eeb616e2f"
-        control_payload_base64 = "4Wt5fYx5Y3rELn5myS5oa996Ji7IZ28uwGdha4x6YmuMfG992CA="
-        control_payload_php_raw = "z:0:{}"
-        # These payloads are benign, no-op, or otherwise harmless
-        #  minimally sized valid serialized objects for their given language/platform
-        base64_serialization_payloads = {
-            "php_base64": "YTowOnt9",
-            "java_base64": "rO0ABXNyABFqYXZhLmxhbmcuQm9vbGVhbs0gcoDVnPruAgABWgAFdmFsdWV4cAA=",
-            "java_base64_string_error": "rO0ABXQABHRlc3Q=",
-            "java_base64_OptionalDataException": "rO0ABXcEAAAAAAEAAAABc3IAEGphdmEudXRpbC5IYXNoTWFwAAAAAAAAAAECAAJMAARrZXkxYgABAAAAAAAAAAJ4cHcBAAAAB3QABHRlc3Q=",
-            "dotnet_base64": "AAEAAAD/////AQAAAAAAAAAGAQAAAAdndXN0YXZvCw==",
-            "ruby_base64": "BAh7BjoKbE1FAAVJsg==",
-        }
+        control_payload_hex = self.CONTROL_PAYLOAD_HEX
+        control_payload_base64 = self.CONTROL_PAYLOAD_BASE64
+        control_payload_php_raw = self.CONTROL_PAYLOAD_PHP_RAW
 
-        hex_serialization_payloads = {
-            "java_hex": "ACED00057372000E6A6176612E6C616E672E426F6F6C65616ECD207EC0D59CF6EE02000157000576616C7565787000",
-            "java_hex_OptionalDataException": "ACED0005737200106A6176612E7574696C2E486173684D617000000000000000012000014C00046B6579317A00010000000000000278707000000774000474657374",
-            "dotnet_hex": "0001000000ffffffff01000000000000000601000000076775737461766f0b",
-        }
+        base64_serialization_payloads = self.BASE64_SERIALIZATION_PAYLOADS
+        hex_serialization_payloads = self.HEX_SERIALIZATION_PAYLOADS
+        php_raw_serialization_payloads = self.PHP_RAW_SERIALIZATION_PAYLOADS
 
-        php_raw_serialization_payloads = {
-            "php_raw": "a:0:{}",
-        }
-
-        serialization_errors = [
-            "invalid user",
-            "cannot cast java.lang.string",
-            "dump format error",
-            "java.io.optionaldataexception",
-        ]
-
-        general_errors = [
-            "Internal Error",
-            "Internal Server Error",
-            "The requested URL was rejected",
-        ]
+        serialization_errors = self.SERIALIZATION_ERRORS
+        general_errors = self.GENERAL_ERRORS
 
         probe_value = self.incoming_probe_value(populate_empty=False)
         if probe_value:
