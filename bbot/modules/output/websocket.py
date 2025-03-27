@@ -14,7 +14,7 @@ class Websocket(BaseOutputModule):
         "url": "Web URL",
         "token": "Authorization Bearer token",
         "preserve_graph": "Preserve full chains of events in the graph (prevents orphans)",
-        "ignore_ssl": "Ignores all Websocket SSL related errors (like Self-Signed Certificates, etc.)"
+        "ignore_ssl": "Ignores all Websocket SSL related errors (like Self-Signed Certificates, etc.)",
     }
 
     async def setup(self):
