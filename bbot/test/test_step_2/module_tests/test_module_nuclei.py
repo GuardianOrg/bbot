@@ -1,3 +1,4 @@
+import gzip
 from .base import ModuleTestBase
 
 
@@ -101,8 +102,13 @@ class TestNucleiTechnology(TestNucleiManual):
     def check(self, module_test, events):
         assert any(e.type == "TECHNOLOGY" and "apache" in e.data["technology"].lower() for e in events)
 
-        with open(module_test.scan.home / "debug.log") as f:
-            assert "Using Interactsh Server" not in f.read()
+        try:
+            with gzip.open(module_test.scan.home / "debug.log.gz", 'rt') as f:
+                assert "Using Interactsh Server" not in f.read()
+        except (OSError, IOError):
+            # Fallback to regular file if not gzipped
+            with open(module_test.scan.home / "debug.log") as f:
+                assert "Using Interactsh Server" not in f.read()
 
 
 class TestNucleiBudget(TestNucleiManual):
@@ -141,8 +147,13 @@ class TestNucleiRetries(TestNucleiManual):
         module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
 
     def check(self, module_test, events):
-        with open(module_test.scan.home / "debug.log") as f:
-            assert "-retries 0" in f.read()
+        try:
+            with gzip.open(module_test.scan.home / "debug.log.gz", 'rt') as f:
+                assert "-retries 0" in f.read()
+        except (OSError, IOError):
+            # Fallback to regular file if not gzipped
+            with open(module_test.scan.home / "debug.log") as f:
+                assert "-retries 0" in f.read()
 
 
 class TestNucleiRetriesCustom(TestNucleiRetries):
@@ -152,8 +163,13 @@ class TestNucleiRetriesCustom(TestNucleiRetries):
     }
 
     def check(self, module_test, events):
-        with open(module_test.scan.home / "debug.log") as f:
-            assert "-retries 1" in f.read()
+        try:
+            with gzip.open(module_test.scan.home / "debug.log.gz", 'rt') as f:
+                assert "-retries 1" in f.read()
+        except (OSError, IOError):
+            # Fallback to regular file if not gzipped
+            with open(module_test.scan.home / "debug.log") as f:
+                assert "-retries 1" in f.read()
 
 
 class TestNucleiCustomHeaders(TestNucleiManual):

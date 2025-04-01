@@ -58,4 +58,4 @@ class GzipRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
     def _open(self):
         import gzip
 
-        return gzip.open(self.baseFilename + ".gz", mode="at", encoding=self.encoding)
+        return gzip.open(f"{self.baseFilename}.gz", mode="at", encoding=self.encoding)
