@@ -103,7 +103,7 @@ class TestNucleiTechnology(TestNucleiManual):
         assert any(e.type == "TECHNOLOGY" and "apache" in e.data["technology"].lower() for e in events)
 
         try:
-            with gzip.open(module_test.scan.home / "debug.log.gz", 'rt') as f:
+            with gzip.open(module_test.scan.home / "debug.log.gz", "rt") as f:
                 assert "Using Interactsh Server" not in f.read()
         except (OSError, IOError):
             # Fallback to regular file if not gzipped
@@ -148,7 +148,7 @@ class TestNucleiRetries(TestNucleiManual):
 
     def check(self, module_test, events):
         try:
-            with gzip.open(module_test.scan.home / "debug.log.gz", 'rt') as f:
+            with gzip.open(module_test.scan.home / "debug.log.gz", "rt") as f:
                 assert "-retries 0" in f.read()
         except (OSError, IOError):
             # Fallback to regular file if not gzipped
@@ -164,7 +164,7 @@ class TestNucleiRetriesCustom(TestNucleiRetries):
 
     def check(self, module_test, events):
         try:
-            with gzip.open(module_test.scan.home / "debug.log.gz", 'rt') as f:
+            with gzip.open(module_test.scan.home / "debug.log.gz", "rt") as f:
                 assert "-retries 1" in f.read()
         except (OSError, IOError):
             # Fallback to regular file if not gzipped
