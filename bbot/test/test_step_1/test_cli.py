@@ -187,7 +187,8 @@ async def test_cli_args(monkeypatch, caplog, capsys, clean_default_config):
     output_dir = bbot_test_dir / "bbot_cli_args_output"
     scan_name = "bbot_cli_args_scan_name"
     scan_dir = output_dir / scan_name
-    assert not output_dir.exists()
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
     monkeypatch.setattr("sys.argv", ["bbot", "-o", str(output_dir), "-n", scan_name, "-y"])
     result = await cli._main()
     assert result is True
