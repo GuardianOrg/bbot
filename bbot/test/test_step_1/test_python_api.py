@@ -20,15 +20,15 @@ async def test_python_api():
     scan_log = scan_home / "scan.log.gz"
     debug_log = scan_home / "debug.log.gz"
     assert scan_log.is_file()
-    assert "python_api_test" in open(scan_log).read()
+    assert "python_api_test" in read_gzipped_file(scan_log)
     assert debug_log.is_file()
-    assert "python_api_test" in open(debug_log).read()
+    assert "python_api_test" in read_gzipped_file(debug_log)
 
     scan3 = Scanner("127.0.0.1", output_modules=["json"], scan_name="scan_logging_test")
     await scan3.async_start_without_generator()
 
-    assert "scan_logging_test" not in open(scan_log).read()
-    assert "scan_logging_test" not in open(debug_log).read()
+    assert "scan_logging_test" not in read_gzipped_file(scan_log)
+    assert "scan_logging_test" not in read_gzipped_file(debug_log)
 
     scan_home = scan3.helpers.scans_dir / "scan_logging_test"
     out_file = scan_home / "output.json"
@@ -37,8 +37,8 @@ async def test_python_api():
     debug_log = scan_home / "debug.log.gz"
     assert scan_log.is_file()
     assert debug_log.is_file()
-    assert "scan_logging_test" in open(scan_log).read()
-    assert "scan_logging_test" in open(debug_log).read()
+    assert "scan_logging_test" in read_gzipped_file(scan_log)
+    assert "scan_logging_test" in read_gzipped_file(debug_log)
 
     # make sure config loads properly
     bbot_home = "/tmp/.bbot_python_api_test"
