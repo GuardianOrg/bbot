@@ -15,7 +15,7 @@ class nuclei(BaseModule):
     }
 
     options = {
-        "version": "3.3.9",
+        "version": "3.4.1",
         "tags": "",
         "templates": "",
         "severity": "",
