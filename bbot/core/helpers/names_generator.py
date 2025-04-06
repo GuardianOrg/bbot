@@ -327,7 +327,6 @@ names = [
     "beverly",
     "bilbo",
     "billy",
-    "biscuit",
     "bobby",
     "bombadil",
     "bonnie",
