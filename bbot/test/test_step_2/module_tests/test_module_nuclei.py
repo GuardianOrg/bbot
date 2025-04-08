@@ -140,8 +140,7 @@ class TestNucleiRetries(TestNucleiManual):
         module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
 
     def check(self, module_test, events):
-        assert "-retries 0" in read_gzipped_file(module_test.scan.home / "debug.log.gz")
-
+        assert "-retries 0" in open(module_test.scan.home / "debug.log").read()
 
 class TestNucleiRetriesCustom(TestNucleiRetries):
     config_overrides = {
@@ -150,8 +149,7 @@ class TestNucleiRetriesCustom(TestNucleiRetries):
     }
 
     def check(self, module_test, events):
-        assert "-retries 1" in read_gzipped_file(module_test.scan.home / "debug.log.gz")
-
+        assert "-retries 1" in open(module_test.scan.home / "debug.log").read()
 
 class TestNucleiCustomHeaders(TestNucleiManual):
     custom_headers = {"testheader1": "test1", "testheader2": "test2"}
