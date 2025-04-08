@@ -142,6 +142,7 @@ class TestNucleiRetries(TestNucleiManual):
     def check(self, module_test, events):
         assert "-retries 0" in open(module_test.scan.home / "debug.log").read()
 
+
 class TestNucleiRetriesCustom(TestNucleiRetries):
     config_overrides = {
         "interactsh_disable": True,
@@ -150,6 +151,7 @@ class TestNucleiRetriesCustom(TestNucleiRetries):
 
     def check(self, module_test, events):
         assert "-retries 1" in open(module_test.scan.home / "debug.log").read()
+
 
 class TestNucleiCustomHeaders(TestNucleiManual):
     custom_headers = {"testheader1": "test1", "testheader2": "test2"}
