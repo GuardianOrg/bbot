@@ -18,8 +18,8 @@ from pydantic import BaseModel, field_validator
 from urllib.parse import urlparse, urljoin, parse_qs
 
 
-from .helpers import *
 from bbot.errors import *
+from .helpers import EventSeed
 from bbot.core.helpers import (
     extract_words,
     is_domain,
@@ -1348,7 +1348,7 @@ class EMAIL_ADDRESS(BaseEvent):
         return validators.validate_email(data)
 
     def _host(self):
-        data = str(self.data).split("@")[-1]
+        data = str(self.data).rsplit("@", 1)[-1]
         host, self._port = split_host_port(data)
         return host
 
@@ -1712,6 +1712,7 @@ def make_event(
         tags = [tags]
     tags = set(tags)
 
+    # if data is already an event, update it with the user's kwargs
     if is_event(data):
         event = copy(data)
         if scan is not None and not event.scan:
@@ -1731,8 +1732,11 @@ def make_event(
         event_type = data.type
         return event
     else:
+        # if event_type is not provided, autodetect it
         if event_type is None:
-            event_type, data = get_event_type(data)
+            event_seed = EventSeed(data)
+            event_type = event_seed.type
+            data = event_seed.data
             if not dummy:
                 log.debug(f'Autodetected event type "{event_type}" based on data: "{data}"')
 
