@@ -57,6 +57,7 @@ class ScanIngress(BaseInterceptModule):
                     parent=root_event,
                     module=target_module,
                     context=f"Scan {self.scan.name} seeded with " + "{event.type}: {event.data}",
+                    tags=["target"]
                 )
                 self.verbose(f"Target: {event}")
                 # don't fill up the queue with too many events
