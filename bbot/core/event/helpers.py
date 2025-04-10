@@ -47,7 +47,7 @@ def EventSeed(input):
                 if match:
                     data = event_class.handle_match(match)
                     return event_class(data)
-    raise ValidationError(f"No match found for input: {input}")
+    raise ValidationError(f'Unable to autodetect data type from "{input}"')
 
 
 class BaseEventSeed(metaclass=EventSeedRegistry):
