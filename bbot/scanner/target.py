@@ -5,7 +5,7 @@ from radixtarget import RadixTarget
 from radixtarget.helpers import host_size_key
 
 from bbot.errors import *
-from bbot.core.event import make_event, is_event
+from bbot.core.event import is_event
 from bbot.core.event.helpers import EventSeed, BaseEventSeed
 from bbot.core.helpers.misc import is_dns_name, is_ip, is_ip_type
 
