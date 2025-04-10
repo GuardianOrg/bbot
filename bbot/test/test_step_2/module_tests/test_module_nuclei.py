@@ -101,7 +101,7 @@ class TestNucleiTechnology(TestNucleiManual):
 
     def check(self, module_test, events):
         assert any(e.type == "TECHNOLOGY" and "apache" in e.data["technology"].lower() for e in events)
-        assert "Using Interactsh Server" not in read_gzipped_file(module_test.scan.home / "debug.log.gz")
+        assert "Using Interactsh Server" not in open(module_test.scan.home / "debug.log").read()
 
 
 class TestNucleiBudget(TestNucleiManual):
