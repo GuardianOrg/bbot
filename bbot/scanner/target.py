@@ -75,7 +75,7 @@ class BaseTarget(RadixTarget):
             else:
                 log.warning(msg)
 
-    def add(self, targets):
+    def add(self, targets, data=None):
         if not isinstance(targets, (list, set, tuple)):
             targets = [targets]
         event_seeds = set()
@@ -90,7 +90,7 @@ class BaseTarget(RadixTarget):
         event_seeds = sorted(event_seeds, key=lambda e: ((0, 0) if not e.host else host_size_key(e.host)))
         for event_seed in event_seeds:
             self.event_seeds.add(event_seed)
-            self._add(event_seed.host, data=event_seed)
+            self._add(event_seed.host, data=(event_seed if data is None else data))
 
     def __iter__(self):
         yield from self.event_seeds
