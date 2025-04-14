@@ -120,7 +120,6 @@ class BaseEvent:
     _suppress_chain_dupes = False
 
     # using __slots__ dramatically reduces memory usage in large scans
-    #
     __slots__ = [
         # Core identification attributes
         "_uuid",
@@ -144,6 +143,7 @@ class BaseEvent:
         "_priority",
         "_scope_distance",
         "_module_priority",
+        "_graph_important",
         "_resolved_hosts",
         "_discovery_context",
         "_discovery_context_regex",
@@ -220,6 +220,7 @@ class BaseEvent:
         self._host_original = None
         self._scope_distance = None
         self._module_priority = None
+        self._graph_important = False
         self._resolved_hosts = set()
         self.dns_children = {}
         self.raw_dns_records = {}
