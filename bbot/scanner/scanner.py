@@ -1238,7 +1238,11 @@ class Scanner:
                 str(self.home / "debug.log"), maxBytes=1024 * 1024 * 100, backupCount=100
             )
             debug_handler.addFilter(lambda x: x.levelno >= logging.DEBUG)
-            self.__log_handlers = [main_handler, debug_handler]
+            error_handler = GzipRotatingFileHandler(
+                str(self.home / "error.log"), maxBytes=1024 * 1024 * 100, backupCount=100
+            )
+            error_handler.addFilter(lambda x: x.levelno == logging.TRACE or x.levelno >= logging.ERROR)
+            self.__log_handlers = [main_handler, debug_handler, error_handler]
         return self.__log_handlers
 
     def _start_log_handlers(self):

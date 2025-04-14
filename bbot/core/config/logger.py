@@ -205,10 +205,10 @@ class BBOTLogger:
             if not mkdir(log_dir, raise_error=False):
                 error_and_exit(f"Failure creating or error writing to BBOT logs directory ({log_dir})")
 
-            # Main log file (compressed)
+            # Main log file
             main_handler = GzipRotatingFileHandler(f"{log_dir}/bbot.log", maxBytes=1024 * 1024 * 100, backupCount=100)
 
-            # Separate log file for debugging (compressed)
+            # Separate log file for debugging
             debug_handler = GzipRotatingFileHandler(
                 f"{log_dir}/bbot.debug.log", maxBytes=1024 * 1024 * 100, backupCount=100
             )
