@@ -109,17 +109,65 @@ class BaseEvent:
     # Bypass scope checking and dns resolution, distribute immediately to modules
     # This is useful for "end-of-line" events like FINDING and VULNERABILITY
     _quick_emit = False
-    # Whether this event has been retroactively marked as part of an important discovery chain
-    _graph_important = False
-    # Disables certain data validations
-    _dummy = False
     # Data validation, if data is a dictionary
     _data_validator = None
     # Whether to increment scope distance if the child and parent hosts are the same
+    # Normally we don't want this, since scope distance only increases if the host changes
+    # But for some events like SOCIAL media profiles, this is required to prevent spidering all of facebook.com
     _scope_distance_increment_same_host = False
     # Don't allow duplicates to occur within a parent chain
     # In other words, don't emit the event if the same one already exists in its discovery context
     _suppress_chain_dupes = False
+
+    # using __slots__ dramatically reduces memory usage in large scans
+    #
+    __slots__ = [
+        # Core identification attributes
+        "_uuid",
+        "_id",
+        "_hash",
+        "_data",
+        "_data_hash",
+        # Host-related attributes
+        "__host",
+        "_host_original",
+        "_port",
+        # Parent-related attributes
+        "_parent",
+        "_parent_id",
+        "_parent_uuid",
+        # Event metadata
+        "_type",
+        "_tags",
+        "_omit",
+        "__words",
+        "_priority",
+        "_scope_distance",
+        "_module_priority",
+        "_resolved_hosts",
+        "_discovery_context",
+        "_discovery_context_regex",
+        "_stats_recorded",
+        "_internal",
+        "_confidence",
+        "_dummy",
+        "_module",
+        # DNS-related attributes
+        "dns_children",
+        "raw_dns_records",
+        "dns_resolve_distance",
+        # Web-related attributes
+        "web_spider_distance",
+        "parsed_url",
+        "url_extension",
+        "num_redirects",
+        # File-related attributes
+        "_data_path",
+        # Public attributes
+        "module",
+        "scan",
+        "timestamp",
+    ]
 
     def __init__(
         self,
@@ -129,7 +177,6 @@ class BaseEvent:
         context=None,
         module=None,
         scan=None,
-        scans=None,
         tags=None,
         confidence=100,
         timestamp=None,
@@ -148,7 +195,6 @@ class BaseEvent:
             parent (BaseEvent, optional): Parent event that led to this event's discovery. Defaults to None.
             module (str, optional): Module that discovered the event. Defaults to None.
             scan (Scan, optional): BBOT Scan object. Required unless _dummy is True. Defaults to None.
-            scans (list of Scan, optional): BBOT Scan objects, used primarily when unserializing an Event from the database. Defaults to None.
             tags (list of str, optional): Descriptive tags for the event. Defaults to None.
             confidence (int, optional): Confidence level for the event, on a scale of 1-100. Defaults to 100.
             timestamp (datetime, optional): Time of event discovery. Defaults to current UTC time.
@@ -204,12 +250,6 @@ class BaseEvent:
         self.scan = scan
         if (not self.scan) and (not self._dummy):
             raise ValidationError("Must specify scan")
-        # self.scans holds a list of scan IDs from scans that encountered this event
-        self.scans = []
-        if scans is not None:
-            self.scans = scans
-        if self.scan:
-            self.scans = list(set([self.scan.id] + self.scans))
 
         try:
             self.data = self._sanitize_data(data)
@@ -1652,7 +1692,6 @@ def make_event(
     context=None,
     module=None,
     scan=None,
-    scans=None,
     tags=None,
     confidence=100,
     dummy=False,
@@ -1717,8 +1756,6 @@ def make_event(
         event = copy(data)
         if scan is not None and not event.scan:
             event.scan = scan
-        if scans is not None and not event.scans:
-            event.scans = scans
         if module is not None:
             event.module = module
         if parent is not None:
@@ -1780,7 +1817,6 @@ def make_event(
             context=context,
             module=module,
             scan=scan,
-            scans=scans,
             tags=tags,
             confidence=confidence,
             _dummy=dummy,
@@ -1814,7 +1850,6 @@ def event_from_json(j, siem_friendly=False):
         event_type = j["type"]
         kwargs = {
             "event_type": event_type,
-            "scans": j.get("scans", []),
             "tags": j.get("tags", []),
             "confidence": j.get("confidence", 100),
             "context": j.get("discovery_context", None),
