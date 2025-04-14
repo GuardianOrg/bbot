@@ -365,7 +365,7 @@ class Scanner:
 
             # distribute seed events
             self.init_events_task = asyncio.create_task(
-                self.ingress_module.init_events(self.target.seeds.events),
+                self.ingress_module.init_events(self.target.seeds.event_seeds),
                 name=f"{self.name}.ingress_module.init_events()",
             )
 
@@ -1022,6 +1022,7 @@ class Scanner:
         root_event._id = self.id
         root_event.scope_distance = 0
         root_event.parent = root_event
+        root_event._dummy = False
         root_event.module = self._make_dummy_module(name="TARGET", _type="TARGET")
         return root_event
 
@@ -1301,7 +1302,11 @@ class Scanner:
         try:
             yield
         except BaseException as e:
-            self._handle_exception(e, context=context, unhandled_is_critical=unhandled_is_critical)
+            try:
+                self._handle_exception(e, context=context, unhandled_is_critical=unhandled_is_critical)
+            except Exception as e2:
+                self.log.critical(f"Error in exception handler: {e2} {traceback.format_exc()}")
+                raise
 
     def _handle_exception(self, e, context="scan", finally_callback=None, unhandled_is_critical=False):
         if callable(context):

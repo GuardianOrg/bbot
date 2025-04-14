@@ -591,7 +591,7 @@ def test_cli_module_validation(monkeypatch, caplog):
     assert not caplog.text
     monkeypatch.setattr("sys.argv", ["bbot", "-t", "asdf:::sdf"])
     cli.main()
-    assert 'Unable to autodetect event type from "asdf:::sdf"' in caplog.text
+    assert 'Unable to autodetect data type from "asdf:::sdf"' in caplog.text
 
     # incorrect flag
     caplog.clear()
