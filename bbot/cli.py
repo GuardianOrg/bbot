@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import io
 import sys
 import logging
 import multiprocessing
@@ -78,7 +79,7 @@ async def _main():
             return
 
         # if we're listing modules or their options
-        if options.list_modules or options.list_output_modules or options.list_module_options:
+        if options.list_modules or options.list_output_modules or options.list_module_options or options.module_help:
             # if no modules or flags are specified, enable everything
             if not (options.modules or options.output_modules or options.flags):
                 for module, preloaded in preset.module_loader.preloaded().items():
@@ -117,6 +118,20 @@ async def _main():
                 print("")
                 for row in preset.module_loader.modules_options_table(preset.modules).splitlines():
                     print(row)
+                return
+
+            # --module-help
+            if options.module_help:
+                module_name = options.module_help
+                all_modules = list(preset.module_loader.preloaded())
+                if module_name not in all_modules:
+                    log.hugewarning(f'Module "{module_name}" not found')
+                    return
+
+                # Load the module class
+                loaded_modules = preset.module_loader.load_modules([module_name])
+                module_name, module_class = next(iter(loaded_modules.items()))
+                print(module_class.help_text())
                 return
 
         # --list-flags
@@ -184,7 +199,7 @@ async def _main():
             if sys.stdin.isatty():
                 # warn if any targets belong directly to a cloud provider
                 if not scan.preset.strict_scope:
-                    for event in scan.target.seeds.events:
+                    for event in scan.target.seeds.event_seeds:
                         if event.type == "DNS_NAME":
                             cloudcheck_result = scan.helpers.cloudcheck(event.host)
                             if cloudcheck_result:
@@ -226,7 +241,12 @@ async def _main():
 
                 # set stdout and stderr to blocking mode
                 # this is needed to prevent BlockingIOErrors in logging etc.
-                fds = [sys.stdout.fileno(), sys.stderr.fileno()]
+                fds = []
+                for stream in [sys.stdout, sys.stderr]:
+                    try:
+                        fds.append(stream.fileno())
+                    except io.UnsupportedOperation:
+                        log.debug(f"Can't get fileno for {stream}")
                 for fd in fds:
                     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
                     fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
