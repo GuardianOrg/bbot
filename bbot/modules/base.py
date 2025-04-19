@@ -104,8 +104,6 @@ class BaseModule:
     _batch_size = 1
     batch_wait = 10
 
-    # API retries, etc.
-    _api_retries = 2
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
     # sleep for this many seconds after being rate limited
@@ -158,6 +156,8 @@ class BaseModule:
 
         # track number of failures (for .api_request())
         self._api_request_failures = 0
+
+        self._default_api_retries = self.scan.config.get("web", {}).get("api_retries", 2)
 
         self._tasks = []
         self._event_received = None
@@ -338,7 +338,7 @@ class BaseModule:
 
     @property
     def api_retries(self):
-        return max(self._api_retries + 1, len(self._api_keys))
+        return max(self._default_api_retries + 1, len(self._api_keys))
 
     @property
     def api_failure_abort_threshold(self):
@@ -1172,9 +1172,7 @@ class BaseModule:
                     retry_after = self._get_retry_after(r)
                     if retry_after or status_code == 429:
                         sleep_interval = int(retry_after) if retry_after is not None else self._429_sleep_interval
-                        self.verbose(
-                            f"Sleeping for {sleep_interval:,} seconds due to rate limit (HTTP status: {status_code})"
-                        )
+                        self.info(f"Retrying {new_url} in {sleep_interval:,} seconds (HTTP status: {status_code})")
                         await asyncio.sleep(sleep_interval)
                     elif self._api_keys:
                         # if request failed, cycle API keys and try again
