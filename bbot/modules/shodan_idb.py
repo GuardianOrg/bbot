@@ -69,10 +69,6 @@ class shodan_idb(BaseModule):
     def _incoming_dedup_hash(self, event):
         return hash(self.get_ip(event))
 
-    def _api_response_is_success(self, r):
-        # 404s are normal, so we don't want to retry them
-        return r.is_success and not getattr(r, "status_code", 0) == 404
-
     @property
     def api_retries(self):
         # allow the module to override global retry setting
