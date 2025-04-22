@@ -1204,7 +1204,7 @@ class BaseModule:
 
     def _api_response_is_success(self, r):
         # 404s typically indicate no data rather than an actual error with the API, so we don't want to retry them
-        return getattr(r, "is_success", False) and not getattr(r, "status_code", 0) == 404
+        return getattr(r, "is_success", False) or getattr(r, "status_code", 0) == 404
 
     async def api_page_iter(self, url, page_size=100, _json=True, next_key=None, iter_key=None, **requests_kwargs):
         """
