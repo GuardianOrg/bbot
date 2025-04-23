@@ -1918,7 +1918,7 @@ class Test_Lightfuzz_XSS_jsquotecontext_doublequote(Test_Lightfuzz_XSS_jsquoteco
 
             if input_value:
                 # Simulate flawed escaping with opposite quotes
-                sanitized_input = input_value.replace("'", "\\").replace('%22', '\\"')
+                sanitized_input = input_value.replace("'", "\\").replace("%22", '\\"')
                 sanitized_input = sanitized_input.replace("<", "%3C").replace(">", "%3E")
 
                 reflected_block = f"""
