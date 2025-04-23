@@ -1918,7 +1918,7 @@ class Test_Lightfuzz_XSS_jsquotecontext_doublequote(Test_Lightfuzz_XSS_jsquoteco
 
             if input_value:
                 # Simulate flawed escaping with opposite quotes
-                sanitized_input = input_value.replace("'", "\\'").replace('"', '\\"')
+                sanitized_input = input_value.replace("'", "\\").replace('%22', '\\"')
                 sanitized_input = sanitized_input.replace("<", "%3C").replace(">", "%3E")
 
                 reflected_block = f"""
@@ -1936,7 +1936,6 @@ class Test_Lightfuzz_XSS_jsquotecontext_doublequote(Test_Lightfuzz_XSS_jsquoteco
     def check(self, module_test, events):
         web_parameter_emitted = False
         xss_finding_emitted = False
-
         for e in events:
             if e.type == "WEB_PARAMETER":
                 if "[Paramminer] Getparam: [input] Reasons: [body] Reflection: [True]" in e.data["description"]:
