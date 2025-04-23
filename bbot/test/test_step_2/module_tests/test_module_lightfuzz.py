@@ -1032,7 +1032,8 @@ class Test_Lightfuzz_sqli_cookies(Test_Lightfuzz_sqli):
         }
         seed_event = module_test.scan.make_event(data, "WEB_PARAMETER", parent_event, tags=["distance-0"])
         seed_events.append(seed_event)
-        module_test.scan.target.seeds.event_seeds = set(seed_events)
+        for event in seed_events:
+            await module_test.scan.ingress_module.incoming_event_queue.put(event)
 
     def request_handler(self, request):
         placeholder_block = """
@@ -1066,16 +1067,10 @@ class Test_Lightfuzz_sqli_cookies(Test_Lightfuzz_sqli):
 
     def check(self, module_test, events):
         sqli_finding_emitted = False
-        print("@@@@@")
         for e in events:
-            
-            print(e)
-            print(e.type)
             if e.type == "FINDING":
-                print("@@@@@!")
-                print(e.data["description"])
                 if (
-                    "Possible SQL Injection. Parameter: [test] Parameter Type: Original Value: [header] [COOKIE] Detection Method: [Single Quote/Two Single Quote, Code Change (200->500->200)]"
+                    "Possible SQL Injection. Parameter: [test] Parameter Type: [COOKIE] Detection Method: [Single Quote/Two Single Quote, Code Change (200->500->200)]"
                     in e.data["description"]
                 ):
                     sqli_finding_emitted = True
