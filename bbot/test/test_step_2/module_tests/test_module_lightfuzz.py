@@ -995,10 +995,11 @@ class Test_Lightfuzz_sqli_headers(Test_Lightfuzz_sqli):
 
     def check(self, module_test, events):
         sqli_finding_emitted = False
+
         for e in events:
             if e.type == "FINDING":
                 if (
-                    "Possible SQL Injection. Parameter: [test] Parameter Type: [HEADER] Detection Method: [Single Quote/Two Single Quote, Code Change (200->500->200)]"
+                    "Possible SQL Injection. Parameter: [test] Parameter Type: [HEADER] Original Value: [header] Detection Method: [Single Quote/Two Single Quote, Code Change (200->500->200)]"
                     in e.data["description"]
                 ):
                     sqli_finding_emitted = True

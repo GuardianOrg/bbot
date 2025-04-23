@@ -52,7 +52,7 @@ def is_domain(d):
     if is_ip(d):
         return False
     extracted = tldextract(d)
-    if extracted.registered_domain:
+    if extracted.top_domain_under_public_suffix:
         if not extracted.subdomain:
             return True
     else:
@@ -87,7 +87,7 @@ def is_subdomain(d):
     if is_ip(d):
         return False
     extracted = tldextract(d)
-    if extracted.registered_domain:
+    if extracted.top_domain_under_public_suffix:
         if extracted.subdomain:
             return True
     else:
@@ -488,7 +488,7 @@ def split_domain(hostname):
         return ("", hostname)
     parsed = tldextract(hostname)
     subdomain = parsed.subdomain
-    domain = parsed.registered_domain
+    domain = parsed.top_domain_under_public_suffix
     if not domain:
         split = hostname.split(".")
         subdomain = ".".join(split[:-2])
