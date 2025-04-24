@@ -108,8 +108,6 @@ class BaseModule:
     _api_retries = 2
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
-    # sleep for this many seconds after being rate limited
-    _429_sleep_interval = 30
 
     default_discovery_context = "{module} discovered {event.type}: {event.data}"
 
@@ -164,6 +162,10 @@ class BaseModule:
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
+
+        # 429 rate limit handling
+        self._429_sleep_interval = self.scan.web_config.get("429_sleep_interval", 30)
+        self._429_max_sleep_interval = self.scan.web_config.get("429_max_sleep_interval", 60)
 
     async def setup(self):
         """
@@ -1172,6 +1174,11 @@ class BaseModule:
                     retry_after = self._get_retry_after(r)
                     if retry_after or status_code == 429:
                         sleep_interval = int(retry_after) if retry_after is not None else self._429_sleep_interval
+                        if retry_after and retry_after > self._429_max_sleep_interval:
+                            self.verbose(
+                                f"Got an excessive retry-after header of {retry_after} from {new_url}, using {self._429_max_sleep_interval} instead"
+                            )
+                            sleep_interval = self._429_max_sleep_interval
                         self.verbose(
                             f"Sleeping for {sleep_interval:,} seconds due to rate limit (HTTP status: {status_code})"
                         )
