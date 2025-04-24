@@ -108,10 +108,6 @@ class BaseModule:
     _api_retries = 2
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
-    # sleep for this many seconds after being rate limited
-    _429_sleep_interval = 30
-    # when following a retry-after header, don't sleep for longer than a minute
-    _429_max_sleep_interval = 60
 
     default_discovery_context = "{module} discovered {event.type}: {event.data}"
 
@@ -166,6 +162,10 @@ class BaseModule:
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
+
+        # 429 rate limit handling
+        self._429_sleep_interval = self.scan.web_config.get("429_sleep_interval", 30)
+        self._429_max_sleep_interval = self.scan.web_config.get("429_max_sleep_interval", 60)
 
     async def setup(self):
         """
