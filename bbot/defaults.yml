@@ -96,9 +96,9 @@ web:
   http_retries: 1
   # HTTP retries (for httpx)
   httpx_retries: 1
-  # Default sleep interval when rate limited by 429 (when retry-after isn't provided)
+  # Default sleep interval when rate limited by 429 (and retry-after isn't provided)
   429_sleep_interval: 30
-  # Maximum sleep interval when rate limited by 429 (when an excessive retry-after is provided)
+  # Maximum sleep interval when rate limited by 429 (and an excessive retry-after is provided)
   429_max_sleep_interval: 60
   # Enable/disable debug messages for web requests/responses
   debug: false
