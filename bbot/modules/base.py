@@ -104,8 +104,6 @@ class BaseModule:
     _batch_size = 1
     batch_wait = 10
 
-    # API retries, etc.
-    _api_retries = 2
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
 
@@ -156,6 +154,8 @@ class BaseModule:
 
         # track number of failures (for .api_request())
         self._api_request_failures = 0
+
+        self._default_api_retries = self.scan.config.get("web", {}).get("api_retries", 2)
 
         self._tasks = []
         self._event_received = None
@@ -340,7 +340,7 @@ class BaseModule:
 
     @property
     def api_retries(self):
-        return max(self._api_retries + 1, len(self._api_keys))
+        return max(self._default_api_retries + 1, len(self._api_keys))
 
     @property
     def api_failure_abort_threshold(self):
@@ -1212,7 +1212,8 @@ class BaseModule:
         return url, requests_kwargs
 
     def _api_response_is_success(self, r):
-        return r.is_success
+        # 404s typically indicate no data rather than an actual error with the API, so we don't want to retry them
+        return getattr(r, "is_success", False) or getattr(r, "status_code", 0) == 404
 
     async def api_page_iter(self, url, page_size=100, _json=True, next_key=None, iter_key=None, **requests_kwargs):
         """

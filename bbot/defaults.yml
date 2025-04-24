@@ -92,7 +92,11 @@ web:
   # These are attached to all in-scope HTTP requests
   # Note that some modules (e.g. github) may end up sending these to out-of-scope resources
   http_headers: {}
-  # HTTP retries (for Python requests; API calls, etc.)
+  # How many times to retry API requests
+  # Note that this is a separate mechanism on top of HTTP retries
+  # which will retry API requests that don't return a successful status code
+  api_retries: 2
+  # HTTP retries - try again if the raw connection fails
   http_retries: 1
   # HTTP retries (for httpx)
   httpx_retries: 1
