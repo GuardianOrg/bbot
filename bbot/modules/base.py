@@ -1175,7 +1175,9 @@ class BaseModule:
                     if retry_after or status_code == 429:
                         sleep_interval = int(retry_after) if retry_after is not None else self._429_sleep_interval
                         if retry_after and retry_after > self._429_max_sleep_interval:
-                            self.verbose(f"Got an excessive retry-after header of {retry_after} from {new_url}, using {self._429_max_sleep_interval} instead")
+                            self.verbose(
+                                f"Got an excessive retry-after header of {retry_after} from {new_url}, using {self._429_max_sleep_interval} instead"
+                            )
                             sleep_interval = self._429_max_sleep_interval
                         self.verbose(
                             f"Sleeping for {sleep_interval:,} seconds due to rate limit (HTTP status: {status_code})"
