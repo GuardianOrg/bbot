@@ -1,7 +1,6 @@
 import json
 import re
 import base64
-import logging
 
 from .base import ModuleTestBase, tempwordlist
 from werkzeug.wrappers import Response
@@ -9,7 +8,6 @@ from urllib.parse import unquote, quote
 
 import xml.etree.ElementTree as ET
 
-from .test_module_paramminer_getparams import TestParamminer_Getparams
 from .test_module_paramminer_headers import helper
 
 
