@@ -104,12 +104,8 @@ class BaseModule:
     _batch_size = 1
     batch_wait = 10
 
-    # API retries, etc.
-    _api_retries = 2
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
-    # sleep for this many seconds after being rate limited
-    _429_sleep_interval = 30
 
     default_discovery_context = "{module} discovered {event.type}: {event.data}"
 
@@ -159,11 +155,17 @@ class BaseModule:
         # track number of failures (for .api_request())
         self._api_request_failures = 0
 
+        self._default_api_retries = self.scan.config.get("web", {}).get("api_retries", 2)
+
         self._tasks = []
         self._event_received = None
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
+
+        # 429 rate limit handling
+        self._429_sleep_interval = self.scan.web_config.get("429_sleep_interval", 30)
+        self._429_max_sleep_interval = self.scan.web_config.get("429_max_sleep_interval", 60)
 
     async def setup(self):
         """
@@ -338,7 +340,7 @@ class BaseModule:
 
     @property
     def api_retries(self):
-        return max(self._api_retries + 1, len(self._api_keys))
+        return max(self._default_api_retries + 1, len(self._api_keys))
 
     @property
     def api_failure_abort_threshold(self):
@@ -1174,6 +1176,11 @@ class BaseModule:
                     retry_after = self._get_retry_after(r)
                     if retry_after or status_code == 429:
                         sleep_interval = int(retry_after) if retry_after is not None else self._429_sleep_interval
+                        if retry_after and retry_after > self._429_max_sleep_interval:
+                            self.verbose(
+                                f"Got an excessive retry-after header of {retry_after} from {new_url}, using {self._429_max_sleep_interval} instead"
+                            )
+                            sleep_interval = self._429_max_sleep_interval
                         self.verbose(
                             f"Sleeping for {sleep_interval:,} seconds due to rate limit (HTTP status: {status_code})"
                         )
@@ -1207,7 +1214,8 @@ class BaseModule:
         return url, requests_kwargs
 
     def _api_response_is_success(self, r):
-        return r.is_success
+        # 404s typically indicate no data rather than an actual error with the API, so we don't want to retry them
+        return getattr(r, "is_success", False) or getattr(r, "status_code", 0) == 404
 
     async def api_page_iter(self, url, page_size=100, _json=True, next_key=None, iter_key=None, **requests_kwargs):
         """
