@@ -1,4 +1,4 @@
-description: Discover web parameters and lightly fuzz them, optimized for looking just for xss vulnerabilities
+description: Discover web parameters and lightly fuzz them, limited to just GET-based xss vulnerabilities.
 modules:
   - httpx
   - lightfuzz

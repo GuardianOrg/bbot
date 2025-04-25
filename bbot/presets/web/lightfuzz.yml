@@ -1,4 +1,4 @@
-description: Discover web parameters and lightly fuzz them for vulnerabilities, without some of the more intense discovery techniques
+description: Discover web parameters and lightly fuzz them for vulnerabilities. Uses all lightfuzz modules, without some of the more intense discovery techniques. Does not send POST requests.
 
 modules:
   - httpx

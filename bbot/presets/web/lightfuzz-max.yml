@@ -1,4 +1,4 @@
-description: Discover web parameters and lightly fuzz them for vulnerabilities, with the most intense discovery techniques
+description: Discover web parameters and lightly fuzz them for vulnerabilities, with the most intense discovery techniques, including POST parameters. Uses all lightfuzz modules, adds paramminer modules for parameter discovery, and tests each unique parameter-value instance individually. 
 
 flags:
   - web-paramminer
