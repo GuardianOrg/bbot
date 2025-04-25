@@ -15,22 +15,24 @@ class HttpCompare:
         parent_helper,
         method="GET",
         data=None,
+        json=None,
         allow_redirects=False,
         include_cache_buster=True,
         headers=None,
         cookies=None,
-        timeout=15,
+        timeout=10,
     ):
         self.parent_helper = parent_helper
         self.baseline_url = baseline_url
         self.include_cache_buster = include_cache_buster
         self.method = method
         self.data = data
+        self.json = json
         self.allow_redirects = allow_redirects
         self._baselined = False
         self.headers = headers
         self.cookies = cookies
-        self.timeout = 15
+        self.timeout = 10
 
     @staticmethod
     def merge_dictionaries(headers1, headers2):
@@ -53,12 +55,13 @@ class HttpCompare:
                 follow_redirects=self.allow_redirects,
                 method=self.method,
                 data=self.data,
+                json=self.json,
                 headers=self.headers,
                 cookies=self.cookies,
                 retries=2,
                 timeout=self.timeout,
             )
-            await self.parent_helper.sleep(1)
+            await self.parent_helper.sleep(0.5)
             # put random parameters in URL, headers, and cookies
             get_params = {self.parent_helper.rand_string(6): self.parent_helper.rand_string(6)}
 
@@ -76,12 +79,12 @@ class HttpCompare:
                 follow_redirects=self.allow_redirects,
                 method=self.method,
                 data=self.data,
+                json=self.json,
                 retries=2,
                 timeout=self.timeout,
             )
 
             self.baseline = baseline_1
-
             if baseline_1 is None or baseline_2 is None:
                 log.debug("HTTP error while establishing baseline, aborting")
                 raise HttpCompareError(
@@ -90,6 +93,7 @@ class HttpCompare:
             if baseline_1.status_code != baseline_2.status_code:
                 log.debug("Status code not stable during baseline, aborting")
                 raise HttpCompareError("Can't get baseline from source URL")
+
             try:
                 baseline_1_json = xmltodict.parse(baseline_1.text)
                 baseline_2_json = xmltodict.parse(baseline_2.text)
@@ -105,11 +109,9 @@ class HttpCompare:
 
             for k in ddiff.keys():
                 for x in list(ddiff[k]):
-                    log.debug(f"Added {k} filter for path: {x.path()}")
                     self.ddiff_filters.append(x.path())
 
             self.baseline_json = baseline_1_json
-
             self.baseline_ignore_headers = [
                 h.lower()
                 for h in [
@@ -167,7 +169,6 @@ class HttpCompare:
         if len(ddiff.keys()) == 0:
             return True
         else:
-            log.debug(ddiff)
             return False
 
     async def compare(
@@ -178,6 +179,7 @@ class HttpCompare:
         check_reflection=False,
         method="GET",
         data=None,
+        json=None,
         allow_redirects=False,
         timeout=None,
     ):
@@ -208,6 +210,7 @@ class HttpCompare:
             follow_redirects=allow_redirects,
             method=method,
             data=data,
+            json=json,
             timeout=timeout,
         )
 
