@@ -314,13 +314,11 @@ class excavate(BaseInternalModule, BaseInterceptModule):
     }
 
     options = {
-        "retain_querystring": True,
         "yara_max_match_data": 2000,
         "custom_yara_rules": "",
         "speculate_params": False,
     }
     options_desc = {
-        "retain_querystring": "Keep the querystring intact on emitted WEB_PARAMETERS",
         "yara_max_match_data": "Sets the maximum amount of text that can extracted from a YARA regex",
         "custom_yara_rules": "Include custom Yara rules",
         "speculate_params": "Enable speculative parameter extraction from JSON and XML content",
@@ -347,7 +345,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         return False
 
     def url_unparse(self, param_type, parsed_url):
-        # Reconstructs a URL, optionally omitting the query string based on retain_querystring configuration value.
+        # Reconstructs a URL, optionally omitting the query string based on remove_querystring configuration value.
         if param_type == "GETPARAM":
             querystring = ""
         else:
@@ -359,7 +357,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 parsed_url.netloc,
                 parsed_url.path,
                 "",
-                querystring if self.retain_querystring else "",
+                "" if self.remove_querystring else querystring,
                 "",
             )
         )
@@ -620,7 +618,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         else:
                             # Use the original URL as the base and resolve the endpoint correctly in case of relative paths
                             base_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}{event.parsed_url.path}"
-                            if self.excavate.retain_querystring and len(event.parsed_url.query) > 0:
+                            if not self.excavate.remove_querystring and len(event.parsed_url.query) > 0:
                                 base_url += f"?{event.parsed_url.query}"
                             url = urljoin(base_url, endpoint)
 
@@ -988,10 +986,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
         self.parameter_extraction = bool(modules_WEB_PARAMETER)
         self.speculate_params = bool(self.config.get("speculate_params", False))
-
-        self.retain_querystring = False
-        if self.config.get("retain_querystring", False) is True:
-            self.retain_querystring = True
+        self.remove_querystring = self.scan.config.get("url_querystring_remove", True)
 
         for module in self.scan.modules.values():
             if not str(module).startswith("_"):

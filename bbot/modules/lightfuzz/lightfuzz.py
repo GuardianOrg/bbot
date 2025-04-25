@@ -1,7 +1,6 @@
 import importlib
 from bbot.modules.base import BaseModule
 
-from urllib.parse import urlunparse
 from bbot.errors import InteractshError
 
 
@@ -92,35 +91,6 @@ class lightfuzz(BaseModule):
                 event.data["description"],
                 event.data.get("type", ""),
                 event.data.get("name", ""),
-            )
-        )
-
-    def url_unparse(self, param_type, parsed_url):
-        """
-        Reconstructs a URL from its components, optionally omitting the query string for GET parameters.
-
-        Parameters:
-        - param_type (str): The type of parameter, typically "GETPARAM" or another type indicating the request method.
-        - parsed_url (ParseResult): A named tuple containing the components of the URL (scheme, netloc, path, params, query, fragment).
-
-        Returns:
-        - str: The reconstructed URL as a string.
-
-        The method checks if the parameter type is "GETPARAM". If so, it omits the query string from the reconstructed URL unless
-        the retain_querystring flag is set to True. For other parameter types, it includes the query string.
-        """
-        if param_type == "GETPARAM":
-            querystring = ""
-        else:
-            querystring = parsed_url.query
-        return urlunparse(
-            (
-                parsed_url.scheme,
-                parsed_url.netloc,
-                parsed_url.path,
-                "",
-                querystring if self.retain_querystring else "",
-                "",
             )
         )
 

@@ -1092,11 +1092,6 @@ class TestExcavateParameterExtraction_targeturl(ModuleTestBase):
         "url_querystring_remove": False,
         "url_querystring_collapse": False,
         "interactsh_disable": True,
-        "modules": {
-            "excavate": {
-                "retain_querystring": True,
-            }
-        },
     }
 
     async def setup_after_prep(self, module_test):
@@ -1124,11 +1119,6 @@ class TestExcavate_retain_querystring(ModuleTestBase):
         "url_querystring_collapse": False,
         "interactsh_disable": True,
         "web": {"spider_distance": 4, "spider_depth": 4},
-        "modules": {
-            "excavate": {
-                "retain_querystring": True,
-            }
-        },
     }
 
     async def setup_after_prep(self, module_test):
@@ -1151,15 +1141,10 @@ class TestExcavate_retain_querystring(ModuleTestBase):
 
 class TestExcavate_retain_querystring_not(TestExcavate_retain_querystring):
     config_overrides = {
-        "url_querystring_remove": False,
+        "url_querystring_remove": True,
         "url_querystring_collapse": False,
         "interactsh_disable": True,
         "web": {"spider_distance": 4, "spider_depth": 4},
-        "modules": {
-            "excavate": {
-                "retain_querystring": True,
-            }
-        },
     }
 
     def check(self, module_test, events):

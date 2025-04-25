@@ -51,37 +51,32 @@ Lightfuzz is divided into numerous "submodules". These would typically be ran al
     - Can find a variety of XSS types, across several different contexts (between-tags, attribute, Javascript-based)
 ## Presets 
 
-Lightfuzz comes with a few pre-defined presets. The first thing to know is that, unless you really know BBOT inside and out, we recommend using one of them. This because to be successful, Lightfuzz needs to change a lot of very important BBOT settings. These include:
+Lightfuzz comes with a few pre-defined presets. The first thing to know is that, unless you really know BBOT inside and out, we recommend using one of them. This is because to be successful, Lightfuzz needs to change a lot of very important BBOT settings. These include:
 
 * Setting `url_querystring_remove` to False. By default, BBOT strips away querystings, so in order to FUZZ GET parameters, that default has to be disabled.
 ```
 url_querystring_remove: False
-```
-* Setting the `excavate` internal module to retain querystrings when it finds new URLs
-```
-    excavate:
-      retain_querystring: True
 ```
 * Enabling several other complimentary modules. Specifically, `hunt` and `reflected_parameters` can be useful companion modules that also be useful when `WEB_PARAMETER` events are being emitted.
 
 
 If you don't want to dive into those details, and we don't blame you, here are the built-in preset options and what you need to know about the differences.
 
-# -p lightfuzz
+# -p lightfuzz-medium
 
 This is the default setting, and it enables all submodules. It changes all of the essential BBOT settings to make Lightfuzz work, without too many extras. However it is important to note that it **DISABLES FUZZING POST REQUESTS**. This is because this type of request is the most intrusive, and the most likely to cause problems, especially if it's ran against an internal network. 
 
-# -p lightfuzz-intense
+# -p lightfuzz-heavy
 
 * Increases the web spider settings a bit from the default.
 * Adds in the **Param Miner** suite of modules to try and find new parameters to fuzz via brute-force
 * Enables fuzzing of POST parameters
 
-# -p lightfuzz-max
+# -p lightfuzz-superheavy
 
-Everything included in `lightfuzz-intense`, plus:
+Everything included in `lightfuzz-heavy`, plus:
 
-* Query string collapsing turned OFF. Normally, multiple instances of the same parameter (e.g., foo=bar and foo=bar2) are collapsed into one for fuzzing. With `lightfuzz-max`, each instance is fuzzed individually.
+* Query string collapsing turned OFF. Normally, multiple instances of the same parameter (e.g., foo=bar and foo=bar2) are collapsed into one for fuzzing. With `lightfuzz-superheavy`, each instance is fuzzed individually.
 * Force common headers enabled - Fuzz certain common header parameters, even if we didn't discover them
 * 'Speculate' GET parameters from JSON or XML response bodies
 
@@ -91,7 +86,7 @@ These settings aren't typically desired as they add significant time to the scan
 
 This is a special Lightfuzz preset that focuses entirely on XSS, to make XSS hunting as fast as possible. It is an example of how to make a preset that focuses on specific submodules. It also includes the `paramminer-getparams` module to help find undocumented parameters to fuzz. 
 
-# -p lightfuzz-min
+# -p lightfuzz-light
 
 This preset excludes all extra modules, dials down all the settings, and tests only submodules for the most common vulnerabilities. 
 
