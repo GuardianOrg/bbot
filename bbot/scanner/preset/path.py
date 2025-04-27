@@ -18,7 +18,7 @@ class PresetPath:
         self.paths = [DEFAULT_PRESET_PATH]
 
     def find(self, filename):
-        filename_path = Path(filename).resolve()
+        filename_path = Path(filename).expanduser().resolve()
         extension = filename_path.suffix.lower()
         file_candidates = set()
         extension_candidates = {".yaml", ".yml"}
@@ -30,16 +30,12 @@ class PresetPath:
             file_candidates.add(f"{filename_path.stem}{ext}")
         file_candidates = sorted(file_candidates)
         file_candidates_str = ",".join([str(s) for s in file_candidates])
-        paths_to_search = list(self.paths)
         if "/" in str(filename):
-            if filename_path.parent not in paths_to_search:
-                paths_to_search.append(filename_path.parent)
-        log.debug(
-            f"Searching for preset in {[str(p) for p in paths_to_search]}, file candidates: {file_candidates_str}"
-        )
-        for path in paths_to_search:
+            self.add_path(filename_path.parent)
+        log.debug(f"Searching for {file_candidates_str} in {[str(p) for p in self.paths]}")
+        for path in self.paths:
             for candidate in file_candidates:
-                for file in path.rglob(candidate):
+                for file in path.rglob(f"**/{candidate}"):
                     if file.is_file():
                         log.verbose(f'Found preset matching "{filename}" at {file}')
                         self.add_path(file.parent)
@@ -63,9 +59,9 @@ class PresetPath:
         if not path.is_dir():
             log.debug(f'Path "{path.resolve()}" is not a directory')
             return
-        self.paths.append(path)
-        # lastly, remove any paths that are subdirectories of the new path
+        # preemptively remove any paths that are subdirectories of the new path
         self.paths = [p for p in self.paths if not p.is_relative_to(path)]
+        self.paths.append(path)
 
     def __iter__(self):
         yield from self.paths

@@ -414,10 +414,11 @@ class Preset(metaclass=BasePreset):
         # create a copy of self
         baked_preset = copy(self)
 
+        # copy core
+        baked_preset.core = self.core.copy()
+
         if scan is not None:
             baked_preset.scan = scan
-            # copy core
-            baked_preset.core = self.core.copy()
             # copy module loader
             baked_preset._module_loader = self.module_loader.copy()
             # prepare os environment
@@ -430,11 +431,11 @@ class Preset(metaclass=BasePreset):
             os.environ.clear()
             os.environ.update(os_environ)
 
-            # validate log level options
-            baked_preset.apply_log_level()
-
             # assign baked preset to our scan
             scan.preset = baked_preset
+
+        # validate log level options
+        baked_preset.apply_log_level(apply_core=scan is not None)
 
         # validate flags, config options
         baked_preset.validate()
@@ -480,17 +481,17 @@ class Preset(metaclass=BasePreset):
             for output_module in self.default_output_modules:
                 baked_preset.add_module(output_module, module_type="output", raise_error=False)
 
+        # create target object
+        from bbot.scanner.target import BBOTTarget
+
+        baked_preset._target = BBOTTarget(
+            *list(self._seeds),
+            whitelist=self._whitelist,
+            blacklist=self._blacklist,
+            strict_scope=self.strict_scope,
+        )
+
         if scan is not None:
-            # create target object
-            from bbot.scanner.target import BBOTTarget
-
-            baked_preset._target = BBOTTarget(
-                *list(self._seeds),
-                whitelist=self._whitelist,
-                blacklist=self._blacklist,
-                strict_scope=self.strict_scope,
-            )
-
             # evaluate conditions
             if baked_preset.conditions:
                 from .conditions import ConditionEvaluator
