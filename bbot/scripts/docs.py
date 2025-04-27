@@ -198,15 +198,15 @@ def update_docs():
     update_md_files("BBOT PRESETS", bbot_presets_table)
 
     # BBOT presets
-    for yaml_file, (loaded_preset, category, preset_path, original_filename) in DEFAULT_PRESET.all_presets.items():
+    for _, (loaded_preset, category, preset_path, original_filename) in DEFAULT_PRESET.all_presets.items():
         preset_yaml = f"""
-```yaml title={yaml_file.name}
+```yaml title={preset_path.name}
 {loaded_preset._yaml_str}
 ```
 """
         preset_yaml_expandable = f"""
 <details>
-<summary><b><code>{yaml_file.name}</code></b></summary>
+<summary><b><code>{preset_path.name}</code></b></summary>
 
 ```yaml
 {loaded_preset._yaml_str}
@@ -218,11 +218,11 @@ def update_docs():
         update_md_files(f"BBOT {loaded_preset.name.upper()} PRESET EXPANDABLE", preset_yaml_expandable)
 
     content = []
-    for yaml_file, (loaded_preset, category, preset_path, original_filename) in DEFAULT_PRESET.all_presets.items():
+    for _, (loaded_preset, category, preset_path, original_filename) in DEFAULT_PRESET.all_presets.items():
         yaml_str = loaded_preset._yaml_str
         indent = " " * 4
         yaml_str = f"\n{indent}".join(yaml_str.splitlines())
-        filename = homedir_collapseuser(yaml_file)
+        filename = homedir_collapseuser(preset_path)
 
         num_modules = len(loaded_preset.scan_modules)
         modules = ", ".join(sorted([f"`{m}`" for m in loaded_preset.scan_modules]))
