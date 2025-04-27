@@ -64,7 +64,7 @@ If you don't want to dive into those details, and we don't blame you, here are t
 
 # -p lightfuzz-light
 
-This is a minimal preset that checks for only the most common vulnerabilities. It enables only a few of lightfuzz's submodules, and is safest for larger scans.
+This is a minimal preset that checks for only the most common vulnerabilities. It enables a select few of lightfuzz's submodules, and is safest for larger scans.
 
 # -p lightfuzz-medium
 
