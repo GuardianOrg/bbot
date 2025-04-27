@@ -6,6 +6,7 @@ from bbot.errors import *
 log = logging.getLogger("bbot.presets.path")
 
 DEFAULT_PRESET_PATH = Path(__file__).parent.parent.parent / "presets"
+DEFAULT_PRESET_PATH = DEFAULT_PRESET_PATH.expanduser().resolve()
 
 
 class PresetPath:
@@ -29,7 +30,7 @@ class PresetPath:
             file_candidates.add(f"{filename_path.stem}{ext}")
         file_candidates = sorted(file_candidates)
         file_candidates_str = ",".join([str(s) for s in file_candidates])
-        paths_to_search = self.paths
+        paths_to_search = list(self.paths)
         if "/" in str(filename):
             if filename_path.parent not in paths_to_search:
                 paths_to_search.append(filename_path.parent)
@@ -51,15 +52,20 @@ class PresetPath:
         return ":".join([str(s) for s in self.paths])
 
     def add_path(self, path):
-        path = Path(path).resolve()
+        path = Path(path).expanduser().resolve()
+        # skip if already in paths
         if path in self.paths:
             return
+        # skip if path is a subdirectory of any path in paths
         if any(path.is_relative_to(p) for p in self.paths):
             return
+        # skip if path is not a directory
         if not path.is_dir():
             log.debug(f'Path "{path.resolve()}" is not a directory')
             return
         self.paths.append(path)
+        # lastly, remove any paths that are subdirectories of the new path
+        self.paths = [p for p in self.paths if not p.is_relative_to(path)]
 
     def __iter__(self):
         yield from self.paths

@@ -308,7 +308,7 @@ class Preset(metaclass=BasePreset):
 
     @property
     def preset_dir(self):
-        return self.bbot_home / "presets"
+        return (self.bbot_home / "presets").expanduser().resolve()
 
     @property
     def default_output_modules(self):
@@ -413,30 +413,31 @@ class Preset(metaclass=BasePreset):
         self.log_debug("Getting baked")
         # create a copy of self
         baked_preset = copy(self)
-        baked_preset.scan = scan
-        # copy core
-        baked_preset.core = self.core.copy()
-        # copy module loader
-        baked_preset._module_loader = self.module_loader.copy()
-        # prepare os environment
-        os_environ = baked_preset.environ.prepare()
-        # find and replace preloaded modules with os environ
-        # this is different from the config variable substitution because it modifies
-        #  the preloaded modules, i.e. their ansible playbooks
-        baked_preset.module_loader.find_and_replace(**os_environ)
-        # update os environ
-        os.environ.clear()
-        os.environ.update(os_environ)
+
+        if scan is not None:
+            baked_preset.scan = scan
+            # copy core
+            baked_preset.core = self.core.copy()
+            # copy module loader
+            baked_preset._module_loader = self.module_loader.copy()
+            # prepare os environment
+            os_environ = baked_preset.environ.prepare()
+            # find and replace preloaded modules with os environ
+            # this is different from the config variable substitution because it modifies
+            #  the preloaded modules, i.e. their ansible playbooks
+            baked_preset.module_loader.find_and_replace(**os_environ)
+            # update os environ
+            os.environ.clear()
+            os.environ.update(os_environ)
+
+            # validate log level options
+            baked_preset.apply_log_level()
+
+            # assign baked preset to our scan
+            scan.preset = baked_preset
 
         # validate flags, config options
         baked_preset.validate()
-
-        # validate log level options
-        baked_preset.apply_log_level(apply_core=scan is not None)
-
-        # assign baked preset to our scan
-        if scan is not None:
-            scan.preset = baked_preset
 
         # now that our requirements / exclusions are validated, we can start enabling modules
         # enable scan modules
@@ -479,19 +480,23 @@ class Preset(metaclass=BasePreset):
             for output_module in self.default_output_modules:
                 baked_preset.add_module(output_module, module_type="output", raise_error=False)
 
-        # create target object
-        from bbot.scanner.target import BBOTTarget
+        if scan is not None:
+            # create target object
+            from bbot.scanner.target import BBOTTarget
 
-        baked_preset._target = BBOTTarget(
-            *list(self._seeds), whitelist=self._whitelist, blacklist=self._blacklist, strict_scope=self.strict_scope
-        )
+            baked_preset._target = BBOTTarget(
+                *list(self._seeds),
+                whitelist=self._whitelist,
+                blacklist=self._blacklist,
+                strict_scope=self.strict_scope,
+            )
 
-        # evaluate conditions
-        if baked_preset.conditions:
-            from .conditions import ConditionEvaluator
+            # evaluate conditions
+            if baked_preset.conditions:
+                from .conditions import ConditionEvaluator
 
-            evaluator = ConditionEvaluator(baked_preset)
-            evaluator.evaluate()
+                evaluator = ConditionEvaluator(baked_preset)
+                evaluator.evaluate()
 
         self._baked = True
         return baked_preset
@@ -562,6 +567,12 @@ class Preset(metaclass=BasePreset):
         return self.scope_config.get("strict", False)
 
     def apply_log_level(self, apply_core=False):
+        """
+        Apply the log level to the preset.
+
+        Args:
+            apply_core (bool, optional): If True, apply the log level to the core logger.
+        """
         # silent takes precedence
         if self.silent:
             self.verbose = False
@@ -920,20 +931,17 @@ class Preset(metaclass=BasePreset):
         """
         Recursively find all the presets and return them as a dictionary
         """
-        preset_dir = self.preset_dir
-        home_dir = Path.home()
-
         # first, add local preset dir to PRESET_PATH
         PRESET_PATH.add_path(self.preset_dir)
 
         # ensure local preset directory exists
-        mkdir(preset_dir)
+        mkdir(self.preset_dir)
 
         global DEFAULT_PRESETS
         if DEFAULT_PRESETS is None:
             presets = {}
-            for ext in ("yml", "yaml"):
-                for preset_path in PRESET_PATH:
+            for preset_path in PRESET_PATH:
+                for ext in ("yml", "yaml"):
                     # for every yaml file
                     for original_filename in preset_path.rglob(f"**/*.{ext}"):
                         # not including symlinks
@@ -957,18 +965,14 @@ class Preset(metaclass=BasePreset):
 
                         local_preset = original_filename
                         # populate symlinks in local preset dir
-                        if not original_filename.is_relative_to(preset_dir):
+                        if not original_filename.is_relative_to(self.preset_dir):
                             relative_preset = original_filename.relative_to(preset_path)
-                            local_preset = preset_dir / relative_preset
+                            local_preset = self.preset_dir / relative_preset
                             mkdir(local_preset.parent, check_writable=False)
                             if not local_preset.exists():
                                 local_preset.symlink_to(original_filename)
 
-                        # collapse home directory into "~"
-                        if local_preset.is_relative_to(home_dir):
-                            local_preset = Path("~") / local_preset.relative_to(home_dir)
-
-                        presets[local_preset] = (loaded_preset, category, preset_path, original_filename)
+                        presets[local_preset.stem] = (loaded_preset, category, preset_path, original_filename)
 
             # sort by name
             DEFAULT_PRESETS = dict(sorted(presets.items(), key=lambda x: x[-1][0].name))
