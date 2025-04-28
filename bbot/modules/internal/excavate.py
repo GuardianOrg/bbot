@@ -622,28 +622,29 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                 base_url += f"?{event.parsed_url.query}"
                             url = urljoin(base_url, endpoint)
 
+                        try:
+                            # Validate the URL before using it
+                            parsed_url = self.excavate.helpers.validators.validate_url_parsed(url)
+                        except ValidationError as e:
+                            self.excavate.debug(f"Invalid URL [{url}]: {e}")
+                            continue
+
                         if self.excavate.helpers.validate_parameter(parameter_name, parameter_type):
                             if self.excavate.in_bl(parameter_name) is False:
-                                try:
-                                    # Validate the URL before using it
-                                    parsed_url = self.excavate.helpers.validators.validate_url_parsed(url)
-                                    description = f"HTTP Extracted Parameter [{parameter_name}] ({parameterExtractorSubModule.name} Submodule)"
-                                    data = {
-                                        "host": parsed_url.hostname,
-                                        "type": parameter_type,
-                                        "name": parameter_name,
-                                        "original_value": original_value,
-                                        "url": self.excavate.url_unparse(parameter_type, parsed_url),
-                                        "additional_params": additional_params,
-                                        "assigned_cookies": self.excavate.assigned_cookies,
-                                        "description": description,
-                                    }
-                                    await self.report(
-                                        data, event, yara_rule_settings, discovery_context, event_type="WEB_PARAMETER"
-                                    )
-                                except ValidationError as e:
-                                    self.excavate.debug(f"Invalid URL [{url}]: {e}")
-                                    continue
+                                description = f"HTTP Extracted Parameter [{parameter_name}] ({parameterExtractorSubModule.name} Submodule)"
+                                data = {
+                                    "host": parsed_url.hostname,
+                                    "type": parameter_type,
+                                    "name": parameter_name,
+                                    "original_value": original_value,
+                                    "url": self.excavate.url_unparse(parameter_type, parsed_url),
+                                    "additional_params": additional_params,
+                                    "assigned_cookies": self.excavate.assigned_cookies,
+                                    "description": description,
+                                }
+                                await self.report(
+                                    data, event, yara_rule_settings, discovery_context, event_type="WEB_PARAMETER"
+                                )
                             else:
                                 self.excavate.debug(f"blocked parameter [{parameter_name}] due to BL match")
                         else:
