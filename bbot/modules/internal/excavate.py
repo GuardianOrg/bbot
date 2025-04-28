@@ -625,7 +625,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         try:
                             # Validate the URL before using it
                             parsed_url = self.excavate.helpers.validators.validate_url_parsed(url)
-                        except ValidationError as e:
+                        except ValueError as e:
                             self.excavate.debug(f"Invalid URL [{url}]: {e}")
                             continue
 
