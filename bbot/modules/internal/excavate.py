@@ -1121,7 +1121,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
                 # Check if rule processing function exists
                 if rule_name in self.yara_preprocess_dict:
-                    await self.yara_preprocess_dict[rule_name](result, event, discovery_context)
+                    try:
+                        await self.yara_preprocess_dict[rule_name](result, event, discovery_context)
+                    except ValidationError as e:
+                        self.debug(f"ValidationError in rule {rule_name} for result {result}: {e}")
                 else:
                     self.hugewarning(f"YARA Rule {rule_name} not found in pre-compiled rules")
 
