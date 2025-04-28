@@ -156,6 +156,9 @@ def clean_url(url: str, url_querystring_remove=True):
     Returns:
         ParseResult: A ParseResult object containing the cleaned URL.
 
+    Raises:
+        ValidationError: If the port number is invalid (not between 1 and 65535).
+
     Examples:
         >>> clean_url("http://evilcorp.com:80")
         ParseResult(scheme='http', netloc='evilcorp.com', path='/', params='', query='', fragment='')
@@ -182,6 +185,13 @@ def clean_url(url: str, url_querystring_remove=True):
     if port is None:
         port = 80 if scheme == "http" else 443
     hostname = validate_host(parsed.hostname)
+    # validate port
+    try:
+        port = int(port)
+        if port < 1 or port > 65535:
+            raise ValidationError(f'Invalid port number: "{port}"')
+    except (ValueError, TypeError):
+        raise ValidationError(f'Invalid port number: "{port}"')
     # remove ports if they're redundant
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         port = None
