@@ -62,9 +62,13 @@ url_querystring_remove: False
 
 If you don't want to dive into those details, and we don't blame you, here are the built-in preset options and what you need to know about the differences.
 
+# -p lightfuzz-light
+
+This is a minimal preset that checks for only the most common vulnerabilities. It enables a select few of lightfuzz's submodules, and is safest for larger scans.
+
 # -p lightfuzz-medium
 
-This is the default setting, and it enables all submodules. It changes all of the essential BBOT settings to make Lightfuzz work, without too many extras. However it is important to note that it **DISABLES FUZZING POST REQUESTS**. This is because this type of request is the most intrusive, and the most likely to cause problems, especially if it's ran against an internal network. 
+This is the default setting. It enables all lightfuzz submodules, and includes all the necessary config options to make Lightfuzz work, without too many extras. However it is important to note that it **DISABLES FUZZING POST REQUESTS**. This is because this type of request is the most intrusive, and the most likely to cause problems, especially in an internal network. 
 
 # -p lightfuzz-heavy
 
@@ -86,10 +90,6 @@ These settings aren't typically desired as they add significant time to the scan
 
 This is a special Lightfuzz preset that focuses entirely on XSS, to make XSS hunting as fast as possible. It is an example of how to make a preset that focuses on specific submodules. It also includes the `paramminer-getparams` module to help find undocumented parameters to fuzz. 
 
-# -p lightfuzz-light
-
-This preset excludes all extra modules, dials down all the settings, and tests only submodules for the most common vulnerabilities. 
-
 # Spider preset
 
 We also *strongly* recommend running Lightfuzz with the spider enabled, as this will dramatically increase the number of parameters that are discovered. If you don't, you will see a warning reminding you that things will work a lot better if you do.
@@ -101,7 +101,7 @@ That can be done by simply also enabling either the `spider` or `spider-intense`
 With the presets in mind, usage is incredibly simple. In most cases you will just do the following:
 
 ```
-bbot -p lightfuzz spider -t targets.txt --allow-deadly
+bbot -p lightfuzz-medium spider -t targets.txt --allow-deadly
 ```
 
 It's really that simple. Almost all output from Lightfuzz will be in the form of a `FINDING`, as opposed to a `VULNERABILITY`, with a couple of exceptions. This is because, as was explained, the nature of the findings are that they are typically unconfirmed and will require work on your part to do so.
@@ -110,12 +110,12 @@ If you wanted a specific submodule, you could make your own preset adjusting the
 
 Just XSS:
 ```
-bbot -p lightfuzz -t targets.txt -c modules.lightfuzz.enabled_submodules=[xss]  --allow-deadly
+bbot -p lightfuzz-medium -t targets.txt -c modules.lightfuzz.enabled_submodules=[xss]  --allow-deadly
 ```
 
 XSS and SQLi:
 ```
-bbot -p lightfuzz -t targets.txt -c modules.lightfuzz.enabled_submodules=[xss,sqli]  --allow-deadly
+bbot -p lightfuzz-medium -t targets.txt -c modules.lightfuzz.enabled_submodules=[xss,sqli]  --allow-deadly
 ```
 
 
