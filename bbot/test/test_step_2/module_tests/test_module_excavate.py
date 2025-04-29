@@ -1432,4 +1432,3 @@ class TestExcavateURL_InvalidPort(TestExcavate):
     def check(self, module_test, events):
         # Verify we got the hostname
         assert any(e.data == "asdffoo.test.notreal" for e in events)
-        

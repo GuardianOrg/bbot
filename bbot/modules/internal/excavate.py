@@ -858,7 +858,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                 continue
                             final_url = url_str
                             self.excavate.debug(f"Discovered Full URL [{final_url}]")
-                            
+
                         elif identifier == "url_attr" and hasattr(event, "parsed_url"):
                             m = await self.helpers.re.search(self.tag_attribute_regex, url_str)
                             if not m:
