@@ -5,7 +5,7 @@ import time
 import inspect
 import regex as re
 from pathlib import Path
-from bbot.errors import ExcavateError
+from bbot.errors import ExcavateError, ValidationError
 import bbot.core.helpers.regexes as bbot_regexes
 from bbot.modules.base import BaseInterceptModule
 from bbot.modules.internal.base import BaseInternalModule
@@ -622,14 +622,15 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                 base_url += f"?{event.parsed_url.query}"
                             url = urljoin(base_url, endpoint)
 
+                        try:
+                            # Validate the URL before using it
+                            parsed_url = self.excavate.helpers.validators.validate_url_parsed(url)
+                        except (ValidationError, ValueError) as e:
+                            self.excavate.debug(f"Invalid URL [{url}]: {e}")
+                            continue
+
                         if self.excavate.helpers.validate_parameter(parameter_name, parameter_type):
                             if self.excavate.in_bl(parameter_name) is False:
-                                parsed_url = urlparse(url)
-                                if not parsed_url.hostname:
-                                    self.excavate.warning(
-                                        f"Error Parsing reconstructed URL [{url}] during parameter extraction, missing hostname"
-                                    )
-                                    continue
                                 description = f"HTTP Extracted Parameter [{parameter_name}] ({parameterExtractorSubModule.name} Submodule)"
                                 data = {
                                     "host": parsed_url.hostname,
@@ -848,45 +849,51 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 urls_found = 0
                 final_url = ""
                 for url_str in results:
-                    if identifier == "url_full":
-                        if not await self.helpers.re.search(self.full_url_regex, url_str):
-                            self.excavate.debug(
-                                f"Rejecting potential full URL [{url_str}] as did not match full_url_regex"
-                            )
-                            continue
-                        final_url = url_str
+                    try:
+                        if identifier == "url_full":
+                            if not await self.helpers.re.search(self.full_url_regex, url_str):
+                                self.excavate.debug(
+                                    f"Rejecting potential full URL [{url_str}] as did not match full_url_regex"
+                                )
+                                continue
+                            final_url = url_str
+                            self.excavate.debug(f"Discovered Full URL [{final_url}]")
 
-                        self.excavate.debug(f"Discovered Full URL [{final_url}]")
-                    elif identifier == "url_attr" and hasattr(event, "parsed_url"):
-                        m = await self.helpers.re.search(self.tag_attribute_regex, url_str)
-                        if not m:
+                        elif identifier == "url_attr" and hasattr(event, "parsed_url"):
+                            m = await self.helpers.re.search(self.tag_attribute_regex, url_str)
+                            if not m:
+                                self.excavate.debug(
+                                    f"Rejecting potential attribute URL [{url_str}] as did not match tag_attribute_regex"
+                                )
+                                continue
+                            unescaped_url = html.unescape(m.group(1))
+                            source_url = event.parsed_url.geturl()
+                            final_url = urldefrag(urljoin(source_url, unescaped_url)).url
+                            if not await self.helpers.re.search(self.full_url_regex_strict, final_url):
+                                self.excavate.debug(
+                                    f"Rejecting reconstructed URL [{final_url}] as did not match full_url_regex_strict"
+                                )
+                                continue
                             self.excavate.debug(
-                                f"Rejecting potential attribute URL [{url_str}] as did not match tag_attribute_regex"
+                                f"Reconstructed Full URL [{final_url}] from extracted relative URL [{unescaped_url}] "
                             )
-                            continue
-                        unescaped_url = html.unescape(m.group(1))
-                        source_url = event.parsed_url.geturl()
-                        final_url = urldefrag(urljoin(source_url, unescaped_url)).url
-                        if not await self.helpers.re.search(self.full_url_regex_strict, final_url):
-                            self.excavate.debug(
-                                f"Rejecting reconstructed URL [{final_url}] as did not match full_url_regex_strict"
-                            )
-                            continue
-                        self.excavate.debug(
-                            f"Reconstructed Full URL [{final_url}] from extracted relative URL [{unescaped_url}] "
-                        )
 
-                    if final_url:
-                        if self.excavate.scan.in_scope(final_url):
-                            urls_found += 1
-                        await self.report(
-                            final_url,
-                            event,
-                            yara_rule_settings,
-                            discovery_context,
-                            event_type="URL_UNVERIFIED",
-                            urls_found=urls_found,
-                        )
+                        if final_url:
+                            # Validate the URL before using it
+                            self.excavate.helpers.validators.validate_url_parsed(final_url)
+                            if self.excavate.scan.in_scope(final_url):
+                                urls_found += 1
+                            await self.report(
+                                final_url,
+                                event,
+                                yara_rule_settings,
+                                discovery_context,
+                                event_type="URL_UNVERIFIED",
+                                urls_found=urls_found,
+                            )
+                    except (ValidationError, ValueError) as e:
+                        self.excavate.debug(f"Invalid URL [{url_str if not final_url else final_url}]: {e}")
+                        continue
 
         async def report_prep(self, event_data, event_type, event, tags, **kwargs):
             event_draft = self.excavate.make_event(event_data, event_type, parent=event)
@@ -1114,7 +1121,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
                 # Check if rule processing function exists
                 if rule_name in self.yara_preprocess_dict:
-                    await self.yara_preprocess_dict[rule_name](result, event, discovery_context)
+                    try:
+                        await self.yara_preprocess_dict[rule_name](result, event, discovery_context)
+                    except ValidationError as e:
+                        self.debug(f"ValidationError in rule {rule_name} for result {result}: {e}")
                 else:
                     self.hugewarning(f"YARA Rule {rule_name} not found in pre-compiled rules")
 

@@ -1418,3 +1418,17 @@ class TestExcavateBadURLs(ModuleTestBase):
 
         url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
         assert sorted([e.data for e in url_events]) == sorted(["https://ssl/", "http://127.0.0.1:8888/"])
+
+
+class TestExcavateURL_InvalidPort(TestExcavate):
+    modules_overrides = ["excavate", "httpx", "hunt"]
+
+    async def setup_before_prep(self, module_test):
+        # Test URL with invalid port (greater than 65535)
+        module_test.httpserver.expect_request("/").respond_with_data(
+            '<div><img loading="lazy" src="https://asdffoo.test.notreal:9212952841/whatever.jpg" width="576" height="382" alt="...." /></div>'
+        )
+
+    def check(self, module_test, events):
+        # Verify we got the hostname
+        assert any(e.data == "asdffoo.test.notreal" for e in events)

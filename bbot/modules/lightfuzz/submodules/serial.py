@@ -22,7 +22,7 @@ class serial(BaseLightfuzz):
     CONTROL_PAYLOAD_PHP_RAW = "z:0:{}"
 
     BASE64_SERIALIZATION_PAYLOADS = {
-        "php_base64": "YTowOnt9",
+        "php_base64": "YToxOntpOjA7aToxO30=",
         "java_base64": "rO0ABXNyABFqYXZhLmxhbmcuQm9vbGVhbs0gcoDVnPruAgABWgAFdmFsdWV4cAA=",
         "java_base64_string_error": "rO0ABXQABHRlc3Q=",
         "java_base64_OptionalDataException": "rO0ABXcEAAAAAAEAAAABc3IAEGphdmEudXRpbC5IYXNoTWFwAAAAAAAAAAECAAJMAARrZXkxYgABAAAAAAAAAAJ4cHcBAAAAB3QABHRlc3Q=",
