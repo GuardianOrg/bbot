@@ -91,6 +91,10 @@ class ModuleTestBase:
     async def module_test(
         self, httpx_mock, bbot_httpserver, bbot_httpserver_ssl, monkeypatch, request, caplog, capsys
     ):
+        # If a test uses docker, we can't run it in the distro tests
+        if os.getenv("BBOT_DISTRO_TESTS") and self.skip_distro_tests:
+            pytest.skip("Skipping test since it uses docker")
+
         self.log.info(f"Starting {self.name} module test")
         module_test = self.ModuleTest(
             self, httpx_mock, bbot_httpserver, bbot_httpserver_ssl, monkeypatch, request, caplog, capsys
