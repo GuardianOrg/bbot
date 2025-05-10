@@ -6,7 +6,7 @@ class github_usersearch(github):
     produced_events = ["SOCIAL", "EMAIL_ADDRESS"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
-        "description": "Query Github's API for users with emails matching in scope domains",
+        "description": "Query Github's API for users with emails matching in scope domains that may not be discoverable by listing members of the organization.",
         "created_date": "2025-05-10",
         "author": "@domwhewell-sage",
         "auth_required": True,
