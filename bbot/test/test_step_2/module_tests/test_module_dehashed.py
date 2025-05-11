@@ -5,33 +5,26 @@ dehashed_domain_response = {
     "entries": [
         {
             "id": "4363462346",
-            "email": "bob@blacklanternsecurity.com",
-            "ip_address": "",
-            "username": "bob@bob.com",
-            "password": "",
-            "hashed_password": "$2a$12$pVmwJ7pXEr3mE.DmCCE4fOUDdeadbeefd2KuCy/tq1ZUFyEOH2bve",
-            "name": "Bob Smith",
-            "vin": "",
-            "address": "",
-            "phone": "+91283423839",
+            "email": ["bob@blacklanternsecurity.com"],
+            "ip_address": ["127.0.0.9"],
+            "username": ["bob@bob.com"],
+            "hashed_password": ["$2a$12$pVmwJ7pXEr3mE.DmCCE4fOUDdeadbeefd2KuCy/tq1ZUFyEOH2bve"],
+            "name": ["Bob Smith"],
+            "phone": ["+91283423839"],
             "database_name": "eatstreet",
+            "raw_record": {"le_only": True, "unstructured": True},
         },
         {
             "id": "234623453454",
-            "email": "tim@blacklanternsecurity.com",
-            "ip_address": "",
-            "username": "timmy",
-            "password": "TimTamSlam69",
-            "hashed_password": "",
+            "email": ["tim@blacklanternsecurity.com"],
+            "username": ["timmy"],
+            "password": ["TimTamSlam69"],
             "name": "Tim Tam",
-            "vin": "",
-            "address": "",
-            "phone": "+123455667",
+            "phone": ["+123455667"],
             "database_name": "eatstreet",
         },
     ],
-    "success": True,
-    "took": "61µs",
+    "took": "61ms",
     "total": 2,
 }
 
@@ -40,12 +33,13 @@ class TestDehashed(ModuleTestBase):
     modules_overrides = ["dehashed", "speculate"]
     config_overrides = {
         "scope": {"report_distance": 2},
-        "modules": {"dehashed": {"username": "admin", "api_key": "deadbeef"}},
+        "modules": {"dehashed": {"api_key": "deadbeef"}},
     }
 
     async def setup_before_prep(self, module_test):
         module_test.httpx_mock.add_response(
-            url="https://api.dehashed.com/search?query=domain:blacklanternsecurity.com&size=10000&page=1",
+            url="https://api.dehashed.com/v2/search",
+            method="POST",
             json=dehashed_domain_response,
         )
         await module_test.mock_dns(
