@@ -31,6 +31,21 @@ class medusa(BaseModule):
 
     deps_ansible = [
         {
+            "name": "Install build dependencies",
+            "package": {
+                "name": [
+                    "autoconf",
+                    "automake",
+                    "libtool",
+                    "gcc",
+                    "make",
+                ],
+                "state": "present",
+            },
+            "become": True,
+            "ignore_errors": True,
+        },
+        {
             "name": "Get medusa repo",
             "git": {
                 "repo": "https://github.com/jmk-foofus/medusa",
