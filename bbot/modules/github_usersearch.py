@@ -1,7 +1,8 @@
 from bbot.modules.templates.github import github
+from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
-class github_usersearch(github):
+class github_usersearch(github, subdomain_enum):
     watched_events = ["DNS_NAME"]
     produced_events = ["SOCIAL", "EMAIL_ADDRESS"]
     flags = ["passive", "safe", "code-enum"]
