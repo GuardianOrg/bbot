@@ -20,6 +20,7 @@ class medusa(BaseModule):
         "snmp_versions": ["1", "2C"],  # Only 1 and 2C are available with medusa 2.3.
         "wait_ms": 0.2,
         "timeout_s": 5,
+        "threads": 5,
     }
 
     options_desc = {
@@ -27,6 +28,7 @@ class medusa(BaseModule):
         "snmp_versions": "List of SNMP versions to attempt against the SNMP server (default ['1', '2C'])",
         "wait_ms": "Wait time after every SNMP request in milliseconds (default 0.2)",
         "timeout_s": "Wait time for the SNMP response(s) once at the end of all attempts (default 5)",
+        "threads": "Number of communities to be tested concurrently (default 5)",
     }
 
     deps_ansible = [
@@ -196,6 +198,8 @@ class medusa(BaseModule):
             protocol,
             "-T",
             1,
+            "-t",
+            self.config.get('threads'),
             "-h",
             host,
             "-u",
