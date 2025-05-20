@@ -112,12 +112,9 @@ class medusa(BaseModule):
     async def filter_event(self, event):
         handled_protocols = ["snmp"]  # Could be extended later
 
-        if event.type == "PROTOCOL":
-            protocol = event.data["protocol"].lower()
-            if not protocol in handled_protocols:
-                return False, f"service {protocol} is currently not supported. Only SNMP."
-        else:
-            return False, "event type is not PROTOCOL"
+        protocol = event.data["protocol"].lower()
+        if not protocol in handled_protocols:
+            return False, f"service {protocol} is currently not supported. Only SNMP."
 
         return True
 
