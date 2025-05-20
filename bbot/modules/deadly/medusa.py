@@ -18,7 +18,7 @@ class medusa(BaseModule):
     options = {
         "snmp_wordlist": "https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/SNMP/common-snmp-community-strings.txt",
         "snmp_versions": ["1", "2C"],  # Only 1 and 2C are available with medusa 2.3.
-        "wait_ms": 0.2,
+        "wait_microseconds": 200,
         "timeout_s": 5,
         "threads": 5,
     }
@@ -26,7 +26,7 @@ class medusa(BaseModule):
     options_desc = {
         "snmp_wordlist": "Wordlist url for SNMP community strings, newline separated (default https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/SNMP/snmp.txt)",
         "snmp_versions": "List of SNMP versions to attempt against the SNMP server (default ['1', '2C'])",
-        "wait_ms": "Wait time after every SNMP request in milliseconds (default 0.2)",
+        "wait_ms": "Wait time after every SNMP request in microseconds (default 200)",
         "timeout_s": "Wait time for the SNMP response(s) once at the end of all attempts (default 5)",
         "threads": "Number of communities to be tested concurrently (default 5)",
     }
@@ -209,7 +209,7 @@ class medusa(BaseModule):
             "-m",
             f"VERSION:{protocol_version}",
             "-m",
-            f"SEND_DELAY:{int(self.config.get('wait_ms', 500) * 1000)}",  # Multiply `wait_ms` by 1000 because medusa needs microseconds.
+            f"SEND_DELAY:{self.config.get('wait_microseconds')}",
             "-m",
             "ACCESS:WRITE",
             "-m",
