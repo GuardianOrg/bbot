@@ -17,7 +17,8 @@ class github_usersearch(github, subdomain_enum):
 
     async def handle_event(self, event):
         self.verbose("Searching for users with emails matching in scope domains")
-        users = await self.query_users(event.data)
+        query = self.make_query(event)
+        users = await self.query_users(query)
         for user, email in users:
             user_url = f"https://github.com/{user}"
             event_data = {"platform": "github", "profile_name": user, "url": user_url}
