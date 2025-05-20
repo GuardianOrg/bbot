@@ -16,7 +16,7 @@ class medusa(BaseModule):
     scope_distance_modifier = None
 
     options = {
-        "snmp_wordlist": "https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/SNMP/snmp.txt",
+        "snmp_wordlist": "https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/SNMP/common-snmp-community-strings.txt",
         "snmp_versions": ["1", "2C"],  # Only 1 and 2C are available with medusa 2.3.
         "wait_ms": 500,
         "timeout_s": 30,
