@@ -139,14 +139,14 @@ class medusa(BaseModule):
                     # That's intended behavior
                     self.info(f"Medusa stderr: {result.stderr}")
 
-                async for message in self.parse_output(result.stdout, event, snmp_version):
+                async for message in self.parse_output(result.stdout, snmp_version):
                     vuln_event = self.create_vuln_event("CRITICAL", message, event)
                     await self.emit_event(vuln_event)
 
         # else: Medusa supports various protocols which could in theory be implemented later on.
 
-    async def parse_output(self, output, event, protocol_version):
-        for i, line in enumerate(output.splitlines()):
+    async def parse_output(self, output, protocol_version):
+        for line in output.splitlines():
             # Print original Medusa output
             self.info(line)
 
