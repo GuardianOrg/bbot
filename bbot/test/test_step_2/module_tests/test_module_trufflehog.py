@@ -6,10 +6,18 @@ import tarfile
 from pathlib import Path
 
 from .base import ModuleTestBase
+from bbot.test.bbot_fixtures import bbot_test_dir
 
 
 class TestTrufflehog(ModuleTestBase):
-    config_overrides = {"modules": {"postman_download": {"api_key": "asdf"}}}
+    download_dir = bbot_test_dir / "test_trufflehog"
+    config_overrides = {
+        "modules": {
+            "postman_download": {"api_key": "asdf", "output_folder": str(download_dir)},
+            "docker_pull": {"output_folder": str(download_dir)},
+            "git_clone": {"output_folder": str(download_dir)},
+        }
+    }
     modules_overrides = [
         "github_org",
         "speculate",
@@ -1201,7 +1209,15 @@ class TestTrufflehog(ModuleTestBase):
 
 
 class TestTrufflehog_NonVerified(TestTrufflehog):
-    config_overrides = {"modules": {"trufflehog": {"only_verified": False}, "postman_download": {"api_key": "asdf"}}}
+    download_dir = bbot_test_dir / "test_trufflehog_nonverified"
+    config_overrides = {
+        "modules": {
+            "trufflehog": {"only_verified": False},
+            "docker_pull": {"output_folder": str(download_dir)},
+            "postman_download": {"api_key": "asdf", "output_folder": str(download_dir)},
+            "git_clone": {"output_folder": str(download_dir)},
+        }
+    }
 
     def check(self, module_test, events):
         finding_events = [
@@ -1279,7 +1295,11 @@ class TestTrufflehog_HTTPResponse(ModuleTestBase):
 class TestTrufflehog_RAWText(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/test.pdf"]
     modules_overrides = ["httpx", "trufflehog", "filedownload", "extractous"]
-    config_overrides = {"modules": {"trufflehog": {"only_verified": False}}}
+
+    download_dir = bbot_test_dir / "test_trufflehog_rawtext"
+    config_overrides = {
+        "modules": {"trufflehog": {"only_verified": False}, "filedownload": {"output_folder": str(download_dir)}}
+    }
 
     async def setup_before_prep(self, module_test):
         expect_args = {
