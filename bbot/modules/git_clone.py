@@ -13,7 +13,10 @@ class git_clone(github):
         "author": "@domwhewell-sage",
     }
     options = {"api_key": "", "output_folder": ""}
-    options_desc = {"api_key": "Github token", "output_folder": "Folder to clone repositories to"}
+    options_desc = {
+        "api_key": "Github token",
+        "output_folder": "Folder to clone repositories to. If not specified, cloned repositories will be deleted when the scan completes, to minimize disk usage.",
+    }
 
     deps_apt = ["git"]
 
@@ -24,7 +27,7 @@ class git_clone(github):
         if output_folder:
             self.output_dir = Path(output_folder) / "git_repos"
         else:
-            self.output_dir = self.scan.home / "git_repos"
+            self.output_dir = self.helpers.temp_dir / "git_repos"
         self.helpers.mkdir(self.output_dir)
         return await super().setup()
 
