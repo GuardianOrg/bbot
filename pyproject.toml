@@ -54,7 +54,7 @@ httpx = "^0.28.1"
 puremagic = "^1.28"
 pydantic = "^2.9.2"
 radixtarget = "^3.0.13"
-cloudcheck = "^7.0.12"
+cloudcheck = "^7.2.11"
 orjson = "^3.10.12"
 ansible-core = "^2.15.13"
 
