@@ -109,6 +109,9 @@ class medusa(BaseModule):
         except WordlistError as e:
             return False, f"Error retrieving wordlist: {e}"
 
+        self.password_match_regex = re.compile(r"Password:\s*(\S+)")
+        self.success_indicator_match_regex = re.compile(r"\[([^\]]+)\]\s*$")
+
         return True
 
     async def filter_event(self, event):
@@ -152,12 +155,10 @@ class medusa(BaseModule):
 
             if "FOUND" in line:
                 # Some credential was guessed
-                password_match = re.search(r"Password:\s*(\S+)", line)
+                password_match = self.password_match_regex.search(line)
                 password = password_match.group(1) if password_match else None
 
-                success_indicator_match = re.search(
-                    r"\[([^\]]+)\]\s*$", line
-                )  # Captures text inside last brackets at end
+                success_indicator_match = self.success_indicator_match_regex.search(line)
                 success_indicator = success_indicator_match.group(1) if success_indicator_match else None
 
                 # Medusa in WRITE mode shows "ERROR" if a readonly community was found. Replace with "READ"
