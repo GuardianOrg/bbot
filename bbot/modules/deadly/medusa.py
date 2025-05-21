@@ -199,7 +199,7 @@ class medusa(BaseModule):
             "-T",
             1,
             "-t",
-            self.config.get('threads'),
+            self.config.get("threads"),
             "-h",
             host,
             "-u",
