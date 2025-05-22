@@ -199,8 +199,8 @@ def update_docs():
 
     # BBOT presets
     for _, (loaded_preset, category, preset_path, original_filename) in DEFAULT_PRESET.all_presets.items():
-        category = "" if not category else f"/{category}"
-        filename = f"~/.bbot/presets{category}/{original_filename.name}"
+        str_category = "" if not category else f"/{category}"
+        filename = f"~/.bbot/presets{str_category}/{original_filename.name}"
         preset_yaml = f"""
 ```yaml title={filename}
 {loaded_preset._yaml_str}
@@ -224,8 +224,8 @@ def update_docs():
         yaml_str = loaded_preset._yaml_str
         indent = " " * 4
         yaml_str = f"\n{indent}".join(yaml_str.splitlines())
-        category = "" if not category else f"/{category}"
-        filename = f"~/.bbot/presets{category}/{original_filename.name}"
+        str_category = "" if not category else f"/{category}"
+        filename = f"~/.bbot/presets{str_category}/{original_filename.name}"
 
         num_modules = len(loaded_preset.scan_modules)
         modules = ", ".join(sorted([f"`{m}`" for m in loaded_preset.scan_modules]))
