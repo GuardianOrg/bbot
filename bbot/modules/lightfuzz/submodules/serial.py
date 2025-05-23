@@ -156,7 +156,7 @@ class serial(BaseLightfuzz):
                     self.results.append(
                         {
                             "type": "FINDING",
-                            "description": f"POSSIBLE Unsafe Deserialization. {self.metadata()} Technique: [Error Resolution] Serialization Payload: [{type}]",
+                            "description": f"POSSIBLE Unsafe Deserialization. {self.metadata()} Technique: [Error Resolution (Baseline: [{payload_baseline.baseline.status_code}] '{self.lightfuzz.helpers.truncate_string(self.lightfuzz.helpers.beautifulsoup(payload_baseline.baseline.text, 'html.parser').title.string if self.lightfuzz.helpers.beautifulsoup(payload_baseline.baseline.text, 'html.parser').title else '', 50)}' -> Probe: [{status_code}] '{self.lightfuzz.helpers.truncate_string(self.lightfuzz.helpers.beautifulsoup(response.text, 'html.parser').title.string if self.lightfuzz.helpers.beautifulsoup(response.text, 'html.parser').title else '', 50)}')] Serialization Payload: [{type}]",
                         }
                     )
                 # if the first case doesn't match, we check for a telltale error string like "java.io.optionaldataexception" in the response.
