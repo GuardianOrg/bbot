@@ -22,7 +22,7 @@ class gitdumper(BaseModule):
     }
     options_desc = {
         "output_folder": "Folder to download repositories to",
-        "timeout:": "Timeout for downloading git objects in seconds (default 3600)",
+        "timeout": "Timeout for downloading git objects in seconds (default 3600)",
         "fuzz_tags": "Fuzz for common git tag names (v0.0.1, 0.0.2, etc.) up to the max_semanic_version",
         "max_semanic_version": "Maximum version number to fuzz for (default < v10.10.10)",
     }
