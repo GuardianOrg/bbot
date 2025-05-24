@@ -159,6 +159,10 @@ class BaseModule:
 
         self._tasks = []
         self._event_received = None
+        self._event_handler_watchdog_task = None
+        self._event_handler_watchdog_interval = (
+            self.scan.module_handle_event_timeout if self.batch_size <= 1 else self.scan.module_handle_batch_timeout
+        ) / 10
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
@@ -455,9 +459,17 @@ class BaseModule:
                 if events and not self.errored:
                     counter.n = len(events)
                     self.verbose(f"Handling batch of {len(events):,} events")
+                    event_types = {}
+                    for e in events:
+                        event_types[e.type] = event_types.get(e.type, 0) + 1
+                    event_types_sorted = sorted(event_types.items(), key=lambda x: x[1], reverse=True)
+                    event_types_str = ", ".join(f"{k}: {v}" for k, v in event_types_sorted)
                     submitted = True
-                    async with self.scan._acatch(f"{self.name}.handle_batch()"):
-                        await self.handle_batch(*events)
+                    context = f"{self.name}.handle_batch({event_types_str})"
+                    try:
+                        await self.run_task(self.handle_batch(*events), context)
+                    except asyncio.CancelledError:
+                        self.debug(f"{context} was cancelled")
                     self.verbose(f"Finished handling batch of {len(events):,} events")
         if finish:
             context = f"{self.name}.finish()"
@@ -594,6 +606,10 @@ class BaseModule:
             asyncio.create_task(self._worker(), name=f"{self.scan.name}.{self.name}._worker()")
             for _ in range(self.module_threads)
         ]
+        self._event_handler_watchdog_task = asyncio.create_task(
+            self._event_handler_watchdog(),
+            name=f"{self.scan.name}.{self.name}._event_handler_watchdog()",
+        )
 
     async def _setup(self):
         """
@@ -689,14 +705,20 @@ class BaseModule:
                         if acceptable:
                             if event.type == "FINISHED":
                                 context = f"{self.name}.finish()"
-                                async with self.scan._acatch(context), self._task_counter.count(context):
-                                    await self.finish()
+                                try:
+                                    await self.run_task(self.finish(), context)
+                                except asyncio.CancelledError:
+                                    self.debug(f"{context} was cancelled")
+                                    continue
                             else:
                                 context = f"{self.name}.handle_event({event})"
                                 self.scan.stats.event_consumed(event, self)
                                 self.debug(f"Handling {event}")
-                                async with self.scan._acatch(context), self._task_counter.count(context):
-                                    await self.handle_event(event)
+                                try:
+                                    await self.run_task(self.handle_event(event), context)
+                                except asyncio.CancelledError:
+                                    self.debug(f"{context} was cancelled")
+                                    continue
                                 self.debug(f"Finished handling {event}")
                         else:
                             self.debug(f"Not accepting {event} because {reason}")
@@ -851,6 +873,45 @@ class BaseModule:
                 if callable(callback):
                     async with self.scan._acatch(context), self._task_counter.count(context):
                         await self.helpers.execute_sync_or_async(callback)
+
+    async def run_task(self, coro, name):
+        """
+        Start a task while tracking it in the module's task counter.
+
+        This lets us keep a detailed module status and selectively cancel tasks when needed, like when handle_event exceeds its max runtime.
+        """
+        task = asyncio.create_task(coro)
+        async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task):
+            return await task
+
+    async def _event_handler_watchdog(self):
+        """
+        Watches handle_event and handle_batch tasks and cancels them if they exceed their max runtime.
+        """
+        while not self.scan.stopping and not self.errored:
+            # if there are events in the outgoing queue, we leave the tasks alone
+            if self.outgoing_event_queue.qsize() > 0:
+                await self.helpers.sleep(self._event_handler_watchdog_interval)
+            handle_event_tasks = []
+            handle_batch_tasks = []
+            for t in self._task_counter.tasks.values():
+                if t.function_name == "handle_event":
+                    handle_event_tasks.append(t)
+                elif t.function_name == "handle_batch":
+                    handle_batch_tasks.append(t)
+            for handle_event_task in handle_event_tasks:
+                if handle_event_task.running_for > self.scan.module_handle_event_timeout:
+                    self.warning(
+                        f"{self.name} Cancelling handle_event task {handle_event_task.task_name} because it's been running for {handle_event_task.running_for:.1f}s"
+                    )
+                    await handle_event_task.cancel()
+            for handle_batch_task in handle_batch_tasks:
+                if handle_batch_task.running_for > self.scan.module_handle_batch_timeout:
+                    self.warning(
+                        f"{self.name} Cancelling handle_batch task {handle_batch_task.task_name} because it has been running for {handle_batch_task.running_for:.1f}s"
+                    )
+                    await handle_batch_task.cancel()
+            await asyncio.sleep(self._event_handler_watchdog_interval)
 
     async def queue_event(self, event):
         """
@@ -1708,10 +1769,13 @@ class BaseInterceptModule(BaseModule):
                         context = f"{self.name}.handle_event({event, kwargs})"
                         self.scan.stats.event_consumed(event, self)
                         self.debug(f"Intercepting {event}")
-                        async with self.scan._acatch(context), self._task_counter.count(context):
-                            forward_event = await self.handle_event(event, **kwargs)
-                            with suppress(ValueError, TypeError):
-                                forward_event, forward_event_reason = forward_event
+                        try:
+                            forward_event = await self.run_task(self.handle_event(event, **kwargs), context)
+                        except asyncio.CancelledError:
+                            self.debug(f"{context} was cancelled")
+                            continue
+                        with suppress(ValueError, TypeError):
+                            forward_event, forward_event_reason = forward_event
 
                         if forward_event is False:
                             self.debug(f"Not forwarding {event} because {forward_event_reason}")

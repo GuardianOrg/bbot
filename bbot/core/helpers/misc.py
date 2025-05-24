@@ -1947,6 +1947,13 @@ def human_timedelta(d):
     return ret
 
 
+def timestamp_to_human(timestamp):
+    """
+    Convert time.time() into a human-readable string.
+    """
+    return human_timedelta(datetime.now() - datetime.fromtimestamp(timestamp))
+
+
 def bytes_to_human(_bytes):
     """Convert a bytes size to a human-readable string.
 

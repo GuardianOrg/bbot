@@ -235,6 +235,10 @@ class Scanner:
         # how often to print scan status
         self.status_frequency = self.config.get("status_frequency", 15)
 
+        # maximum runtime for each module's handle_event()
+        self.module_handle_event_timeout = self.config.get("module_handle_event_timeout", 60 * 10)  # 10 minutes
+        self.module_handle_batch_timeout = self.config.get("module_handle_batch_timeout", 60 * 60)  # 1 hour
+
         from .stats import ScanStats
 
         self.stats = ScanStats(self)
@@ -245,8 +249,6 @@ class Scanner:
         self._cleanedup = False
         self._omitted_event_types = None
 
-        self.__loop = None
-        self._manager_worker_loop_tasks = []
         self.init_events_task = None
         self.ticker_task = None
         self.dispatcher_tasks = []
@@ -726,6 +728,7 @@ class Scanner:
                             scan_active_status.append(f"        - {task}:")
                     # scan_active_status.append(f"        incoming_queue_size: {m.num_incoming_events}")
                     # scan_active_status.append(f"        outgoing_queue_size: {m.outgoing_event_queue.qsize()}")
+
                 for line in scan_active_status:
                     self.debug(line)
 
@@ -834,8 +837,6 @@ class Scanner:
             tasks.append(self.ticker_task)
         # dispatcher
         tasks += self.dispatcher_tasks
-        # manager worker loops
-        tasks += self._manager_worker_loop_tasks
         self.helpers.cancel_tasks_sync(tasks)
         # process pool
         self.helpers.process_pool.shutdown(cancel_futures=True)
