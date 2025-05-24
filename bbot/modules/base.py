@@ -897,6 +897,7 @@ class BaseModule:
             # if there are events in the outgoing queue, we leave the tasks alone
             if self.outgoing_event_queue.qsize() > 0:
                 await self.helpers.sleep(self._event_handler_watchdog_interval)
+                continue
             event_handler_tasks = [
                 t for t in self._task_counter.tasks.values() if t.function_name in ("handle_event", "handle_batch")
             ]
