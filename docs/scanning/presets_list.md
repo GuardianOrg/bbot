@@ -107,7 +107,7 @@ Recursive web directory brute-force (aggressive)
           urls: True
     ```
 
-Category: /web
+Category: web
 
 Modules: [5]("`ffuf_shortnames`, `ffuf`, `httpx`, `iis_shortnames`, `wayback`")
 
@@ -132,7 +132,7 @@ Basic web directory brute-force (surface-level directories only)
           lines: 1000
     ```
 
-Category: /web
+Category: web
 
 Modules: [4]("`ffuf_shortnames`, `ffuf`, `httpx`, `iis_shortnames`")
 
@@ -169,7 +169,7 @@ Comprehensive scan for all IIS/.NET specific modules and module settings
           include_subdirs: True # Run against every directory, not the default first received URL per-host
     ```
 
-Category: /web
+Category: web
 
 Modules: [8]("`ajaxpro`, `badsecrets`, `dotnetnuke`, `ffuf_shortnames`, `ffuf`, `httpx`, `iis_shortnames`, `telerik`")
 
@@ -238,7 +238,7 @@ Recursively enumerate IIS shortnames
           detect_only: false
     ```
 
-Category: /web
+Category: web
 
 Modules: [3]("`ffuf_shortnames`, `httpx`, `iis_shortnames`")
 
@@ -296,7 +296,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities, with more int
           disable_post: False
     ```
 
-Category: /web
+Category: web
 
 Modules: [10]("`badsecrets`, `httpx`, `hunt`, `lightfuzz`, `paramminer_cookies`, `paramminer_getparams`, `paramminer_headers`, `portfilter`, `reflected_parameters`, `robots`")
 
@@ -328,7 +328,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities, with only the
       {% endif %}
     ```
 
-Category: /web
+Category: web
 
 Modules: [3]("`httpx`, `lightfuzz`, `portfilter`")
 
@@ -354,7 +354,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities. Uses all ligh
           enabled_submodules: [cmdi,crypto,nosqli,path,serial,sqli,ssti,xss]
     ```
 
-Category: /web
+Category: web
 
 Modules: [6]("`badsecrets`, `httpx`, `hunt`, `lightfuzz`, `portfilter`, `reflected_parameters`")
 
@@ -379,7 +379,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities, with the most
           speculate_params: True # speculate potential parameters extracted from JSON/XML web responses
     ```
 
-Category: /web
+Category: web
 
 Modules: [10]("`badsecrets`, `httpx`, `hunt`, `lightfuzz`, `paramminer_cookies`, `paramminer_getparams`, `paramminer_headers`, `portfilter`, `reflected_parameters`, `robots`")
 
@@ -413,7 +413,7 @@ Discover web parameters and lightly fuzz them, limited to just GET-based xss vul
         {% endif %}
     ```
 
-Category: /web
+Category: web
 
 Modules: [5]("`httpx`, `lightfuzz`, `paramminer_getparams`, `portfilter`, `reflected_parameters`")
 
@@ -459,7 +459,7 @@ Run nuclei scans against all discovered targets
     
     ```
 
-Category: /nuclei
+Category: nuclei
 
 Modules: [3]("`httpx`, `nuclei`, `portfilter`")
 
@@ -490,7 +490,7 @@ Run nuclei scans against all discovered targets, using budget mode to look for l
         {% endif %}
     ```
 
-Category: /nuclei
+Category: nuclei
 
 Modules: [3]("`httpx`, `nuclei`, `portfilter`")
 
@@ -530,7 +530,7 @@ Run nuclei scans against all discovered targets, allowing for spidering, against
     #  - dirbust-light
     ```
 
-Category: /nuclei
+Category: nuclei
 
 Modules: [6]("`httpx`, `nuclei`, `portfilter`, `robots`, `urlscan`, `wayback`")
 
@@ -565,7 +565,7 @@ Run nuclei scans against all discovered targets, running templates which match d
     #  - dirbust-light
     ```
 
-Category: /nuclei
+Category: nuclei
 
 Modules: [3]("`httpx`, `nuclei`, `portfilter`")
 
@@ -592,7 +592,7 @@ Discover new web parameters via brute-force, and analyze them with additional mo
         {% endif %}
     ```
 
-Category: /web
+Category: web
 
 Modules: [6]("`httpx`, `hunt`, `paramminer_cookies`, `paramminer_getparams`, `paramminer_headers`, `reflected_parameters`")
 
