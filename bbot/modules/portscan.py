@@ -46,6 +46,8 @@ class portscan(BaseModule):
     deps_common = ["masscan"]
     batch_size = 1000000
     _shuffle_incoming_queue = False
+    # we let masscan run for up to 3 days (72 hours)
+    _handle_batch_timeout = 3600 * 24 * 3
 
     async def setup(self):
         self.top_ports = self.config.get("top_ports", 100)

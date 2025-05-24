@@ -38,7 +38,7 @@ class nuclei(BaseModule):
         "concurrency": "maximum number of templates to be executed in parallel (default 25)",
         "mode": "manual | technology | severe | budget. Technology: Only activate based on technology events that match nuclei tags (nuclei -as mode). Manual (DEFAULT): Fully manual settings. Severe: Only critical and high severity templates without intrusive. Budget: Limit Nuclei to a specified number of HTTP requests",
         "etags": "tags to exclude from the scan",
-        "budget": "Used in budget mode to set the number of requests per host allowed to the nuclei scan",
+        "budget": "Used in budget mode to set the number of allowed requests per host",
         "silent": "Don't display nuclei's banner or status messages",
         "directory_only": "Filter out 'file' URL event (default True)",
         "retries": "number of times to retry a failed request (default 0)",
@@ -58,6 +58,8 @@ class nuclei(BaseModule):
     deps_pip = ["pyyaml~=6.0"]
     in_scope_only = True
     _batch_size = 200
+    # we let nuclei run for up to 6 hours
+    _handle_batch_timeout = 3600 * 6
 
     async def setup(self):
         # attempt to update nuclei templates

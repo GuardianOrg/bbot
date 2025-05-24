@@ -133,9 +133,9 @@ deps:
 # Load BBOT modules from these custom paths
 module_dirs: []
 
-# maximum runtime in seconds for each module's handle_event() is 10 minutes
+# maximum runtime in seconds for each module's handle_event() is 30 minutes
 # when the timeout is reached, the offending handle_event() will be cancelled and the module will move on to the next event
-module_handle_event_timeout: 600
+module_handle_event_timeout: 1800
 # handle_batch() default timeout is 1 hour
 module_handle_batch_timeout: 3600
 

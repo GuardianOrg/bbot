@@ -236,7 +236,7 @@ class Scanner:
         self.status_frequency = self.config.get("status_frequency", 15)
 
         # maximum runtime for each module's handle_event()
-        self.module_handle_event_timeout = self.config.get("module_handle_event_timeout", 60 * 10)  # 10 minutes
+        self.module_handle_event_timeout = self.config.get("module_handle_event_timeout", 60 * 30)  # 30 minutes
         self.module_handle_batch_timeout = self.config.get("module_handle_batch_timeout", 60 * 60)  # 1 hour
 
         from .stats import ScanStats

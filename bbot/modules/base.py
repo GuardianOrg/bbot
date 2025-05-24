@@ -104,6 +104,10 @@ class BaseModule:
     _batch_size = 1
     batch_wait = 10
 
+    # allow individual modules to override the global event handling timeouts
+    _handle_event_timeout = None
+    _handle_batch_timeout = None
+
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
 
@@ -160,9 +164,7 @@ class BaseModule:
         self._tasks = []
         self._event_received = None
         self._event_handler_watchdog_task = None
-        self._event_handler_watchdog_interval = (
-            self.scan.module_handle_event_timeout if self.batch_size <= 1 else self.scan.module_handle_batch_timeout
-        ) / 10
+        self._event_handler_watchdog_interval = self.event_handler_timeout / 10
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
@@ -883,6 +885,17 @@ class BaseModule:
         task = asyncio.create_task(coro)
         async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task):
             return await task
+
+    @property
+    def event_handler_timeout(self):
+        if self.batch_size <= 1:
+            if self._handle_event_timeout is not None:
+                return self._handle_event_timeout
+            return self.module_handle_event_timeout
+        else:
+            if self._handle_batch_timeout is not None:
+                return self._handle_batch_timeout
+            return self.module_handle_batch_timeout
 
     async def _event_handler_watchdog(self):
         """
