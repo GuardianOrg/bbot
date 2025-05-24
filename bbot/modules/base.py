@@ -163,6 +163,9 @@ class BaseModule:
 
         self._tasks = []
         self._event_received = None
+        # maximum runtime for each module's handle_event()
+        self._default_handle_event_timeout = self.scan.config.get("module_handle_event_timeout", 60 * 30)  # 30 minutes
+        self._default_handle_batch_timeout = self.scan.config.get("module_handle_batch_timeout", 60 * 60)  # 1 hour
         self._event_handler_watchdog_task = None
         self._event_handler_watchdog_interval = self.event_handler_timeout / 10
 
@@ -891,11 +894,11 @@ class BaseModule:
         if self.batch_size <= 1:
             if self._handle_event_timeout is not None:
                 return self._handle_event_timeout
-            return self.module_handle_event_timeout
+            return self._default_handle_event_timeout
         else:
             if self._handle_batch_timeout is not None:
                 return self._handle_batch_timeout
-            return self.module_handle_batch_timeout
+            return self._default_handle_batch_timeout
 
     async def _event_handler_watchdog(self):
         """
@@ -905,25 +908,15 @@ class BaseModule:
             # if there are events in the outgoing queue, we leave the tasks alone
             if self.outgoing_event_queue.qsize() > 0:
                 await self.helpers.sleep(self._event_handler_watchdog_interval)
-            handle_event_tasks = []
-            handle_batch_tasks = []
-            for t in self._task_counter.tasks.values():
-                if t.function_name == "handle_event":
-                    handle_event_tasks.append(t)
-                elif t.function_name == "handle_batch":
-                    handle_batch_tasks.append(t)
-            for handle_event_task in handle_event_tasks:
-                if handle_event_task.running_for > self.scan.module_handle_event_timeout:
+            event_handler_tasks = [
+                t for t in self._task_counter.tasks.values() if t.function_name in ("handle_event", "handle_batch")
+            ]
+            for task in event_handler_tasks:
+                if task.running_for > self.event_handler_timeout:
                     self.warning(
-                        f"{self.name} Cancelling handle_event task {handle_event_task.task_name} because it's been running for {handle_event_task.running_for:.1f}s"
+                        f"{self.name} Cancelling event handler task {task.task_name} because it's been running for {task.running_for:.1f}s (max timeout is {self.event_handler_timeout})"
                     )
-                    await handle_event_task.cancel()
-            for handle_batch_task in handle_batch_tasks:
-                if handle_batch_task.running_for > self.scan.module_handle_batch_timeout:
-                    self.warning(
-                        f"{self.name} Cancelling handle_batch task {handle_batch_task.task_name} because it has been running for {handle_batch_task.running_for:.1f}s"
-                    )
-                    await handle_batch_task.cancel()
+                    await task.cancel()
             await asyncio.sleep(self._event_handler_watchdog_interval)
 
     async def queue_event(self, event):

@@ -96,24 +96,32 @@ async def test_task_scan_handle_event_timeout(bbot_scanner):
     class LongModule(BaseModule):
         watched_events = ["IP_ADDRESS"]
         handled_event = False
+        cancelled = False
         _name = "long"
 
         async def handle_event(self, event):
-            self.critical(event)
             self.handled_event = True
-            await self.helpers.sleep(99999999)
+            try:
+                await self.helpers.sleep(99999999)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
 
     # same thing but handle_batch
     class LongBatchModule(BaseModule):
         watched_events = ["IP_ADDRESS"]
         handled_event = False
+        canceled = False
         _name = "long_batch"
         _batch_size = 2
 
         async def handle_batch(self, *events):
-            self.critical(events)
             self.handled_event = True
-            await self.helpers.sleep(99999999)
+            try:
+                await self.helpers.sleep(99999999)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
 
     # scan with both modules
     scan = bbot_scanner(
@@ -132,6 +140,9 @@ async def test_task_scan_handle_event_timeout(bbot_scanner):
     # make sure both modules were called
     assert scan.modules["long"].handled_event
     assert scan.modules["long_batch"].handled_event
+    # they should also be cancelled
+    assert scan.modules["long"].cancelled
+    assert scan.modules["long_batch"].cancelled
 
 
 @pytest.mark.asyncio
