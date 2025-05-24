@@ -344,9 +344,9 @@ Many modules accept their own configuration options. These options have the abil
 In addition to the below module options, every module accepts the following options, which override the default values:
 
 <!-- BBOT UNIVERSAL MODULE OPTIONS -->
-**batch_size**: The number of events to process in a single batch
-**module_threads**: The number of threads to use for the module
-**module_timeout**: The maximum time to spend in the handle_event() or handle_batch() method
+**batch_size**: The number of events to process in a single batch (only applies to batch modules)
+**module_threads**: How many event handlers to run in parallel
+**module_timeout**: Max time to spend handling each event or batch of events
 
 <!-- END BBOT UNIVERSAL MODULE OPTIONS -->
 
