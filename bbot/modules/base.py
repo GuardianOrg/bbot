@@ -61,8 +61,6 @@ class BaseModule:
 
         batch_size (int): Size of batches processed by handle_batch(). Default is 1.
 
-        batch_wait (int): Seconds to wait before force-submitting a batch. Default is 10.
-
         api_failure_abort_threshold (int): Threshold for setting error state after failed HTTP requests (only takes effect when `api_request()` is used. Default is 5.
 
         _preserve_graph (bool): When set to True, accept events that may be duplicates but are necessary for construction of complete graph. Typically only enabled for output modules that need to maintain full chains of events, e.g. `neo4j` and `json`. Default is False.
@@ -102,7 +100,6 @@ class BaseModule:
 
     _module_threads = 1
     _batch_size = 1
-    batch_wait = 10
 
     # allow individual modules to override the global event handling timeouts
     _handle_event_timeout = None
