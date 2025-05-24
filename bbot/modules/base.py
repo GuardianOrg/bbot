@@ -455,31 +455,28 @@ class BaseModule:
             - If a "FINISHED" event is found, invokes 'finish()' method of the module.
         """
         finish = False
-        async with self._task_counter.count(f"{self.name}.handle_batch()") as counter:
-            submitted = False
-            if self.batch_size <= 1:
-                return
-            if self.num_incoming_events > 0:
-                events, finish = await self._events_waiting()
-                if events and not self.errored:
-                    counter.n = len(events)
-                    self.verbose(f"Handling batch of {len(events):,} events")
-                    event_types = {}
-                    for e in events:
-                        event_types[e.type] = event_types.get(e.type, 0) + 1
-                    event_types_sorted = sorted(event_types.items(), key=lambda x: x[1], reverse=True)
-                    event_types_str = ", ".join(f"{k}: {v}" for k, v in event_types_sorted)
-                    submitted = True
-                    context = f"{self.name}.handle_batch({event_types_str})"
-                    try:
-                        await self.run_task(self.handle_batch(*events), context)
-                    except asyncio.CancelledError:
-                        self.debug(f"{context} was cancelled")
-                    self.verbose(f"Finished handling batch of {len(events):,} events")
+        submitted = False
+        if self.batch_size <= 1:
+            return
+        if self.num_incoming_events > 0:
+            events, finish = await self._events_waiting()
+            if events and not self.errored:
+                self.verbose(f"Handling batch of {len(events):,} events")
+                event_types = {}
+                for e in events:
+                    event_types[e.type] = event_types.get(e.type, 0) + 1
+                event_types_sorted = sorted(event_types.items(), key=lambda x: x[1], reverse=True)
+                event_types_str = ", ".join(f"{k}: {v}" for k, v in event_types_sorted)
+                submitted = True
+                context = f"{self.name}.handle_batch({event_types_str})"
+                try:
+                    await self.run_task(self.handle_batch(*events), context)
+                except asyncio.CancelledError:
+                    self.debug(f"{context} was cancelled")
+                self.verbose(f"Finished handling batch of {len(events):,} events")
         if finish:
             context = f"{self.name}.finish()"
-            async with self.scan._acatch(context), self._task_counter.count(context):
-                await self.finish()
+            await self.run_task(self.finish(), context)
         return submitted
 
     def make_event(self, *args, **kwargs):
@@ -683,11 +680,6 @@ class BaseModule:
         async with self.scan._acatch(context=self._worker, unhandled_is_critical=True):
             try:
                 while not self.scan.stopping and not self.errored:
-                    # hold the reigns if our outgoing queue is full
-                    if self._qsize > 0 and self.outgoing_event_queue.qsize() >= self._qsize:
-                        await asyncio.sleep(0.1)
-                        continue
-
                     # if batch wasn't big enough, we wait for the next event before continuing
                     if self.batch_size > 1:
                         submitted = await self._handle_batch()
