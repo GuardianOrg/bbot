@@ -5,8 +5,8 @@ Below is a list of every default BBOT preset, including its YAML.
 
 Run all baddns modules and submodules.
 
-??? note "`baddns-intense.yml`"
-    ```yaml title="~/.bbot/presets/baddns-intense.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Run all baddns modules and submodules.
     
     
@@ -29,8 +29,8 @@ Modules: [4]("`baddns_direct`, `baddns_zone`, `baddns`, `httpx`")
 
 Enumerate cloud resources such as storage buckets, etc.
 
-??? note "`cloud-enum.yml`"
-    ```yaml title="~/.bbot/presets/cloud-enum.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Enumerate cloud resources such as storage buckets, etc.
     
     include:
@@ -48,8 +48,8 @@ Modules: [60]("`anubisdb`, `asn`, `azure_realm`, `azure_tenant`, `baddns_direct`
 
 Enumerate Git repositories, Docker images, etc.
 
-??? note "`code-enum.yml`"
-    ```yaml title="~/.bbot/presets/code-enum.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Enumerate Git repositories, Docker images, etc.
     
     flags:
@@ -64,8 +64,8 @@ Modules: [19]("`apkpure`, `code_repository`, `docker_pull`, `dockerhub`, `git_cl
 
 Recursive web directory brute-force (aggressive)
 
-??? note "`dirbust-heavy.yml`"
-    ```yaml title="~/.bbot/presets/web/dirbust-heavy.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Recursive web directory brute-force (aggressive)
     
     include:
@@ -115,8 +115,8 @@ Modules: [5]("`ffuf_shortnames`, `ffuf`, `httpx`, `iis_shortnames`, `wayback`")
 
 Basic web directory brute-force (surface-level directories only)
 
-??? note "`dirbust-light.yml`"
-    ```yaml title="~/.bbot/presets/web/dirbust-light.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Basic web directory brute-force (surface-level directories only)
     
     include:
@@ -140,8 +140,8 @@ Modules: [4]("`ffuf_shortnames`, `ffuf`, `httpx`, `iis_shortnames`")
 
 Comprehensive scan for all IIS/.NET specific modules and module settings
 
-??? note "`dotnet-audit.yml`"
-    ```yaml title="~/.bbot/presets/web/dotnet-audit.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Comprehensive scan for all IIS/.NET specific modules and module settings
     
     
@@ -177,8 +177,8 @@ Modules: [8]("`ajaxpro`, `badsecrets`, `dotnetnuke`, `ffuf_shortnames`, `ffuf`, 
 
 Enumerate email addresses from APIs, web crawling, etc.
 
-??? note "`email-enum.yml`"
-    ```yaml title="~/.bbot/presets/email-enum.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Enumerate email addresses from APIs, web crawling, etc.
     
     flags:
@@ -196,8 +196,8 @@ Modules: [8]("`dehashed`, `dnscaa`, `dnstlsrpt`, `emailformat`, `hunterio`, `pgp
 
 Scan only the provided targets as fast as possible - no extra discovery
 
-??? note "`fast.yml`"
-    ```yaml title="~/.bbot/presets/fast.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Scan only the provided targets as fast as possible - no extra discovery
     
     exclude_modules:
@@ -224,8 +224,8 @@ Modules: [0]("")
 
 Recursively enumerate IIS shortnames
 
-??? note "`iis-shortnames.yml`"
-    ```yaml title="~/.bbot/presets/web/iis-shortnames.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Recursively enumerate IIS shortnames
     
     flags:
@@ -246,8 +246,8 @@ Modules: [3]("`ffuf_shortnames`, `httpx`, `iis_shortnames`")
 
 Everything everywhere all at once
 
-??? note "`kitchen-sink.yml`"
-    ```yaml title="~/.bbot/presets/kitchen-sink.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Everything everywhere all at once
     
     include:
@@ -417,13 +417,13 @@ Category: web
 
 Modules: [5]("`httpx`, `lightfuzz`, `paramminer_getparams`, `portfilter`, `reflected_parameters`")
 
-## **nuclei**
+## **lightfuzz-heavy**
 
-Run nuclei scans against all discovered targets
+Discover web parameters and lightly fuzz them for vulnerabilities, with more intense discovery techniques, including POST parameters, which are more invasive. Uses all lightfuzz modules, and adds paramminer modules for parameter discovery.
 
-??? note "`nuclei.yml`"
-    ```yaml title="~/.bbot/presets/nuclei/nuclei.yml"
-    description: Run nuclei scans against all discovered targets
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
+    description: Discover web parameters and lightly fuzz them for vulnerabilities, with more intense discovery techniques, including POST parameters, which are more invasive. Uses all lightfuzz modules, and adds paramminer modules for parameter discovery.
     
     modules:
       - httpx
@@ -600,8 +600,8 @@ Modules: [6]("`httpx`, `hunt`, `paramminer_cookies`, `paramminer_getparams`, `pa
 
 Recursive web spider
 
-??? note "`spider.yml`"
-    ```yaml title="~/.bbot/presets/spider.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Recursive web spider
     
     modules:
@@ -629,8 +629,8 @@ Modules: [1]("`httpx`")
 
 Recursive web spider with more aggressive settings
 
-??? note "`spider-intense.yml`"
-    ```yaml title="~/.bbot/presets/spider-intense.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Recursive web spider with more aggressive settings
     
     include:
@@ -654,8 +654,8 @@ Modules: [1]("`httpx`")
 
 Enumerate subdomains via APIs, brute-force
 
-??? note "`subdomain-enum.yml`"
-    ```yaml title="~/.bbot/presets/subdomain-enum.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Enumerate subdomains via APIs, brute-force
     
     flags:
@@ -688,8 +688,8 @@ Modules: [53]("`anubisdb`, `asn`, `azure_realm`, `azure_tenant`, `baddns_direct`
 
 Detect technologies via Wappalyzer, Nuclei, and FingerprintX
 
-??? note "`tech-detect.yml`"
-    ```yaml title="~/.bbot/presets/tech-detect.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Detect technologies via Wappalyzer, Nuclei, and FingerprintX
     
     modules:
@@ -711,8 +711,8 @@ Modules: [4]("`fingerprintx`, `httpx`, `nuclei`, `wappalyzer`")
 
 Quick web scan
 
-??? note "`web-basic.yml`"
-    ```yaml title="~/.bbot/presets/web-basic.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Quick web scan
     
     include:
@@ -730,8 +730,8 @@ Modules: [18]("`azure_realm`, `baddns`, `badsecrets`, `bucket_amazon`, `bucket_a
 
 Take screenshots of webpages
 
-??? note "`web-screenshots.yml`"
-    ```yaml title="~/.bbot/presets/web-screenshots.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Take screenshots of webpages
     
     flags:
@@ -756,8 +756,8 @@ Modules: [3]("`gowitness`, `httpx`, `social`")
 
 Aggressive web scan
 
-??? note "`web-thorough.yml`"
-    ```yaml title="~/.bbot/presets/web-thorough.yml"
+??? note "`presets`"
+    ```yaml title="~/Downloads/code/bbot/bbot/presets"
     description: Aggressive web scan
     
     include:

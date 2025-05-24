@@ -101,10 +101,6 @@ class BaseModule:
     _module_threads = 1
     _batch_size = 1
 
-    # allow individual modules to override the global event handling timeouts
-    _handle_event_timeout = None
-    _handle_batch_timeout = None
-
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
 
@@ -404,6 +400,15 @@ class BaseModule:
         if module_threads is None:
             module_threads = self._module_threads
         return module_threads
+
+    @property
+    def event_handler_timeout(self):
+        module_timeout = self.config.get("module_timeout", None)
+        if module_timeout is not None:
+            return float(module_timeout)
+        return (
+            self._default_handle_event_timeout if self.batch_size <= 1 else self._default_handle_batch_timeout
+        )
 
     @property
     def auth_secret(self):
@@ -877,17 +882,6 @@ class BaseModule:
         task = asyncio.create_task(coro)
         async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task):
             return await task
-
-    @property
-    def event_handler_timeout(self):
-        if self.batch_size <= 1:
-            if self._handle_event_timeout is not None:
-                return self._handle_event_timeout
-            return self._default_handle_event_timeout
-        else:
-            if self._handle_batch_timeout is not None:
-                return self._handle_batch_timeout
-            return self._default_handle_batch_timeout
 
     async def _event_handler_watchdog(self):
         """

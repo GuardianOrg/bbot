@@ -181,6 +181,14 @@ def update_docs():
     assert len(bbot_output_module_table.splitlines()) > 10
     update_md_files("BBOT OUTPUT MODULES", bbot_output_module_table)
 
+    # BBOT universal module options
+    from bbot.scanner.preset.args import universal_module_options
+
+    universal_module_options_table = ""
+    for option, description in universal_module_options.items():
+        universal_module_options_table += f"**{option}**: {description}\n"
+    update_md_files("BBOT UNIVERSAL MODULE OPTIONS", universal_module_options_table)
+
     # BBOT module options
     bbot_module_options_table = DEFAULT_PRESET.module_loader.modules_options_table()
     assert len(bbot_module_options_table.splitlines()) > 100
