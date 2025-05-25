@@ -1,8 +1,9 @@
-import subprocess
-import shutil
 import io
+import shutil
 import zipfile
 import tarfile
+import subprocess
+from copy import copy
 from pathlib import Path
 
 from .base import ModuleTestBase
@@ -1129,15 +1130,20 @@ class TestTrufflehog(ModuleTestBase):
             cwd=temp_repo_path,
         )
 
-        old_filter_event = module_test.scan.modules["git_clone"].filter_event
+        # we need this test to work offline, so we patch git_clone to pull from a local file:// path
+        old_handle_event = module_test.scan.modules["git_clone"].handle_event
 
-        def new_filter_event(event):
-            event.data["url"] = event.data["url"].replace(
-                "https://github.com/blacklanternsecurity", f"file://{temp_path}"
-            )
-            return old_filter_event(event)
+        async def new_handle_event(event):
+            if event.type == "CODE_REPOSITORY":
+                event = copy(event)
+                data = dict(event.data)
+                data["url"] = event.data["url"].replace(
+                    "https://github.com/blacklanternsecurity", f"file://{temp_path}"
+                )
+                event.data = data
+            return await old_handle_event(event)
 
-        module_test.monkeypatch.setattr(module_test.scan.modules["git_clone"], "filter_event", new_filter_event)
+        module_test.monkeypatch.setattr(module_test.scan.modules["git_clone"], "handle_event", new_handle_event)
 
     def check(self, module_test, events):
         vuln_events = [

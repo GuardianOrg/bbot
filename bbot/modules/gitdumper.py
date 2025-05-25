@@ -79,6 +79,7 @@ class gitdumper(BaseModule):
             "staging",
             "test",
             "testing",
+            "trunk",
             "wip",
         ]
         url_patterns = [
