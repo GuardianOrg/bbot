@@ -18,7 +18,7 @@ class PresetPath:
         self.paths = [DEFAULT_PRESET_PATH]
 
     def find(self, filename):
-        filename_path = Path(filename).expanduser().resolve()
+        filename_path = Path(filename).expanduser()
         extension = filename_path.suffix.lower()
         file_candidates = set()
         extension_candidates = {".yaml", ".yml"}
@@ -39,7 +39,7 @@ class PresetPath:
                     if file.is_file():
                         log.verbose(f'Found preset matching "{filename}" at {file}')
                         self.add_path(file.parent)
-                        return file.resolve()
+                        return file
         raise ValidationError(
             f'Could not find preset at "{filename}" - file does not exist. Use -lp to list available presets'
         )
@@ -61,7 +61,7 @@ class PresetPath:
             return
         # preemptively remove any paths that are subdirectories of the new path
         self.paths = [p for p in self.paths if not p.is_relative_to(path)]
-        self.paths.append(path)
+        self.paths.insert(0, path)
 
     def __iter__(self):
         yield from self.paths
