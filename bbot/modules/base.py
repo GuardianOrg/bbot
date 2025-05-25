@@ -157,8 +157,8 @@ class BaseModule:
         self._tasks = []
         self._event_received = None
         # maximum runtime for each module's handle_event()
-        self._default_handle_event_timeout = self.scan.config.get("module_handle_event_timeout", 60 * 30)  # 30 minutes
-        self._default_handle_batch_timeout = self.scan.config.get("module_handle_batch_timeout", 60 * 60)  # 1 hour
+        self._default_handle_event_timeout = self.scan.config.get("module_handle_event_timeout", 60 * 60)  # 1 hour
+        self._default_handle_batch_timeout = self.scan.config.get("module_handle_batch_timeout", 60 * 60 * 2)  # 2 hours
         self._event_handler_watchdog_task = None
         self._event_handler_watchdog_interval = self.event_handler_timeout / 10
 
