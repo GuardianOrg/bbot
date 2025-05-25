@@ -406,9 +406,7 @@ class BaseModule:
         module_timeout = self.config.get("module_timeout", None)
         if module_timeout is not None:
             return float(module_timeout)
-        return (
-            self._default_handle_event_timeout if self.batch_size <= 1 else self._default_handle_batch_timeout
-        )
+        return self._default_handle_event_timeout if self.batch_size <= 1 else self._default_handle_batch_timeout
 
     @property
     def auth_secret(self):
@@ -1317,7 +1315,7 @@ class BaseModule:
                 new_url, new_kwargs = iter_key(url, page, page_size, offset, **requests_kwargs)
             result = await self.api_request(new_url, **new_kwargs)
             if result is None:
-                self.verbose(f"api_page_iter() got no response for {url}")
+                self.verbose(f"api_page_iter() got no response for {new_url}")
                 break
             try:
                 if _json:

@@ -12,7 +12,7 @@ log = logging.getLogger("bbot.presets.args")
 universal_module_options = {
     "batch_size": "The number of events to process in a single batch (only applies to batch modules)",
     "module_threads": "How many event handlers to run in parallel",
-    "module_timeout": "Max time to spend handling each event or batch of events",
+    "module_timeout": "Max time in seconds to spend handling each event or batch of events",
 }
 
 

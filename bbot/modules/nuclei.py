@@ -28,6 +28,7 @@ class nuclei(BaseModule):
         "directory_only": True,
         "retries": 0,
         "batch_size": 200,
+        "module_timeout": 21600,  # 6 hours
     }
     options_desc = {
         "version": "nuclei version",
@@ -43,6 +44,7 @@ class nuclei(BaseModule):
         "directory_only": "Filter out 'file' URL event (default True)",
         "retries": "number of times to retry a failed request (default 0)",
         "batch_size": "Number of targets to send to Nuclei per batch (default 200)",
+        "module_timeout": "Max time in seconds to spend handling each batch of events",
     }
     deps_ansible = [
         {
@@ -58,8 +60,6 @@ class nuclei(BaseModule):
     deps_pip = ["pyyaml~=6.0"]
     in_scope_only = True
     _batch_size = 200
-    # we let nuclei run for up to 6 hours
-    _handle_batch_timeout = 3600 * 6
 
     async def setup(self):
         # attempt to update nuclei templates
