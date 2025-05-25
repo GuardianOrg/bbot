@@ -470,7 +470,7 @@ class BaseModule:
                 submitted = True
                 context = f"{self.name}.handle_batch({event_types_str})"
                 try:
-                    await self.run_task(self.handle_batch(*events), context)
+                    await self.run_task(self.handle_batch(*events), context, n=len(events))
                 except asyncio.CancelledError:
                     self.debug(f"{context} was cancelled")
                 self.verbose(f"Finished handling batch of {len(events):,} events")
@@ -871,14 +871,14 @@ class BaseModule:
                     async with self.scan._acatch(context), self._task_counter.count(context):
                         await self.helpers.execute_sync_or_async(callback)
 
-    async def run_task(self, coro, name):
+    async def run_task(self, coro, name, n=1):
         """
         Start a task while tracking it in the module's task counter.
 
         This lets us keep a detailed module status and selectively cancel tasks when needed, like when handle_event exceeds its max runtime.
         """
         task = asyncio.create_task(coro)
-        async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task):
+        async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task, n=n):
             return await task
 
     async def _event_handler_watchdog(self):
