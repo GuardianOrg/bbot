@@ -37,7 +37,7 @@ bbot -t evilcorp.com -p subdomain-enum -rf passive
 <!-- BBOT SUBDOMAIN-ENUM PRESET EXPANDABLE -->
 
 <details>
-<summary><b><code>presets</code></b></summary>
+<summary><b><code>subdomain-enum.yml</code></b></summary>
 
 ```yaml
 description: Enumerate subdomains via APIs, brute-force
@@ -83,7 +83,7 @@ bbot -t evilcorp.com -p spider
 <!-- BBOT SPIDER PRESET EXPANDABLE -->
 
 <details>
-<summary><b><code>presets</code></b></summary>
+<summary><b><code>spider.yml</code></b></summary>
 
 ```yaml
 description: Recursive web spider
@@ -123,7 +123,7 @@ bbot -t evilcorp.com -p email-enum subdomain-enum spider
 <!-- BBOT EMAIL-ENUM PRESET EXPANDABLE -->
 
 <details>
-<summary><b><code>presets</code></b></summary>
+<summary><b><code>email-enum.yml</code></b></summary>
 
 ```yaml
 description: Enumerate email addresses from APIs, web crawling, etc.
@@ -153,7 +153,7 @@ bbot -t www.evilcorp.com -p web-thorough
 <!-- BBOT WEB-BASIC PRESET EXPANDABLE -->
 
 <details>
-<summary><b><code>presets</code></b></summary>
+<summary><b><code>web-basic.yml</code></b></summary>
 
 ```yaml
 description: Quick web scan
@@ -173,7 +173,7 @@ flags:
 <!-- BBOT WEB-THOROUGH PRESET EXPANDABLE -->
 
 <details>
-<summary><b><code>presets</code></b></summary>
+<summary><b><code>web-thorough.yml</code></b></summary>
 
 ```yaml
 description: Aggressive web scan
@@ -204,7 +204,7 @@ bbot -t evilcorp.com -p subdomain-enum cloud-enum code-enum email-enum spider we
 <!-- BBOT KITCHEN-SINK PRESET EXPANDABLE -->
 
 <details>
-<summary><b><code>presets</code></b></summary>
+<summary><b><code>kitchen-sink.yml</code></b></summary>
 
 ```yaml
 description: Everything everywhere all at once
