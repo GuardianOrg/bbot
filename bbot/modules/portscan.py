@@ -30,6 +30,7 @@ class portscan(BaseModule):
         "adapter_ip": "",
         "adapter_mac": "",
         "router_mac": "",
+        "module_timeout": 259200,  # 3 days
     }
     options_desc = {
         "top_ports": "Top ports to scan (default 100) (to override, specify 'ports')",
@@ -42,6 +43,7 @@ class portscan(BaseModule):
         "adapter_ip": "Send packets using this IP address. Not needed unless masscan's autodetection fails",
         "adapter_mac": "Send packets using this as the source MAC address. Not needed unless masscan's autodetection fails",
         "router_mac": "Send packets to this MAC address as the destination. Not needed unless masscan's autodetection fails",
+        "module_timeout": "Max time in seconds to spend handling each batch of events",
     }
     deps_common = ["masscan"]
     batch_size = 1000000

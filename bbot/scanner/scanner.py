@@ -245,8 +245,6 @@ class Scanner:
         self._cleanedup = False
         self._omitted_event_types = None
 
-        self.__loop = None
-        self._manager_worker_loop_tasks = []
         self.init_events_task = None
         self.ticker_task = None
         self.dispatcher_tasks = []
@@ -726,6 +724,7 @@ class Scanner:
                             scan_active_status.append(f"        - {task}:")
                     # scan_active_status.append(f"        incoming_queue_size: {m.num_incoming_events}")
                     # scan_active_status.append(f"        outgoing_queue_size: {m.outgoing_event_queue.qsize()}")
+
                 for line in scan_active_status:
                     self.debug(line)
 
@@ -834,8 +833,6 @@ class Scanner:
             tasks.append(self.ticker_task)
         # dispatcher
         tasks += self.dispatcher_tasks
-        # manager worker loops
-        tasks += self._manager_worker_loop_tasks
         self.helpers.cancel_tasks_sync(tasks)
         # process pool
         self.helpers.process_pool.shutdown(cancel_futures=True)

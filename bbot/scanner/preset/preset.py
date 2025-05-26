@@ -276,8 +276,6 @@ class Preset(metaclass=BasePreset):
         self.exclude_flags.update(set(exclude_flags))
         self.require_flags.update(set(require_flags))
 
-        # log.critical(f"{self.name}: verbose: {self.verbose}, debug: {self.debug}, silent: {self.silent}")
-
     @property
     def bbot_home(self):
         return Path(self.config.get("home", "~/.bbot")).expanduser().resolve()
