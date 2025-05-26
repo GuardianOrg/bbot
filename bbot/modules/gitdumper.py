@@ -123,7 +123,7 @@ class gitdumper(BaseModule):
         if dir_listing:
             urls = await self.recursive_dir_list(dir_listing)
             try:
-                await self.download_files(urls, repo_folder)
+                result = await self.download_files(urls, repo_folder)
             except asyncio.CancelledError:
                 self.verbose(f"Cancellation requested while downloading files from {repo_url}")
                 result = True
