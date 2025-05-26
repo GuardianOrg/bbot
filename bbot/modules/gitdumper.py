@@ -19,7 +19,7 @@ class gitdumper(BaseModule):
         "max_semanic_version": 10,
     }
     options_desc = {
-        "output_folder": "Folder to download repositories to",
+        "output_folder": "Folder to download repositories to. If not specified, downloaded repositories will be deleted when the scan completes, to minimize disk usage.",
         "fuzz_tags": "Fuzz for common git tag names (v0.0.1, 0.0.2, etc.) up to the max_semanic_version",
         "max_semanic_version": "Maximum version number to fuzz for (default < v10.10.10)",
     }
@@ -28,11 +28,11 @@ class gitdumper(BaseModule):
 
     async def setup(self):
         self.urls_downloaded = set()
-        output_folder = self.config.get("output_folder")
+        output_folder = self.config.get("output_folder", "")
         if output_folder:
             self.output_dir = Path(output_folder) / "git_repos"
         else:
-            self.output_dir = self.scan.home / "git_repos"
+            self.output_dir = self.helpers.temp_dir / "git_repos"
         self.helpers.mkdir(self.output_dir)
         self.unsafe_regex = self.helpers.re.compile(r"^\s*fsmonitor|sshcommand|askpass|editor|pager", re.IGNORECASE)
         self.ref_regex = self.helpers.re.compile(r"ref: refs/heads/([a-zA-Z\d_-]+)")
