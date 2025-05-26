@@ -341,14 +341,18 @@ interactsh_disable: false
 
 Many modules accept their own configuration options. These options have the ability to change their behavior. For example, the `portscan` module accepts options for `ports`, `rate`, etc. Below is a list of all possible module config options.
 
-In addition to the below module options, every module accepts the following options, which override the default values:
+### Universal Module Options
+
+In addition to the stated options for each module, the following universal options are also accepted:
 
 <!-- BBOT UNIVERSAL MODULE OPTIONS -->
 **batch_size**: The number of events to process in a single batch (only applies to batch modules)
 **module_threads**: How many event handlers to run in parallel
-**module_timeout**: Max time in seconds to spend handling each event or batch of events
+**module_timeout**: Max time in seconds to spend handling each event or batch of events. The default is 3600s (1 hour) for non-batch modules, and 7200s (2 hours) for batch modules.
 
 <!-- END BBOT UNIVERSAL MODULE OPTIONS -->
+
+### Module Options
 
 <!-- BBOT MODULE OPTIONS -->
 | Config Option                                  | Type     | Description                                                                                                                                                                                                                                                                                                                    | Default                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
