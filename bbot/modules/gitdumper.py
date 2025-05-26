@@ -16,13 +16,11 @@ class gitdumper(BaseModule):
     }
     options = {
         "output_folder": "",
-        "timeout": 3600,
         "fuzz_tags": False,
         "max_semanic_version": 10,
     }
     options_desc = {
         "output_folder": "Folder to download repositories to",
-        "timeout": "Timeout for downloading git objects in seconds (default 3600)",
         "fuzz_tags": "Fuzz for common git tag names (v0.0.1, 0.0.2, etc.) up to the max_semanic_version",
         "max_semanic_version": "Maximum version number to fuzz for (default < v10.10.10)",
     }
@@ -36,7 +34,6 @@ class gitdumper(BaseModule):
             self.output_dir = Path(output_folder) / "git_repos"
         else:
             self.output_dir = self.scan.home / "git_repos"
-        self.timeout = self.config.get("timeout", 3600)
         self.helpers.mkdir(self.output_dir)
         self.unsafe_regex = self.helpers.re.compile(r"^\s*fsmonitor|sshcommand|askpass|editor|pager", re.IGNORECASE)
         self.ref_regex = self.helpers.re.compile(r"ref: refs/heads/([a-zA-Z\d_-]+)")
@@ -126,12 +123,9 @@ class gitdumper(BaseModule):
         if dir_listing:
             urls = await self.recursive_dir_list(dir_listing)
             try:
-                result = await asyncio.wait_for(
-                    self.download_files(urls, repo_folder),
-                    timeout=self.timeout,
-                )
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                self.verbose(f"Timeout of {self.timeout}s reached while downloading git objects from {repo_url}")
+                await self.download_files(urls, repo_folder)
+            except asyncio.CancelledError:
+                self.verbose(f"Cancellation requested while downloading files from {repo_url}")
                 result = True
         else:
             result = await self.git_fuzz(repo_url, repo_folder)
@@ -183,12 +177,9 @@ class gitdumper(BaseModule):
         if result:
             await self.download_current_branch(repo_url, repo_folder)
             try:
-                await asyncio.wait_for(
-                    self.download_git_objects(repo_url, repo_folder),
-                    timeout=self.timeout,
-                )
-            except asyncio.TimeoutError:
-                self.verbose(f"Timeout of {self.timeout}s reached while downloading git objects from {repo_url}")
+                await self.download_git_objects(repo_url, repo_folder)
+            except asyncio.CancelledError:
+                self.verbose(f"Cancellation requested while downloading git objects from {repo_url}")
             await self.download_git_packs(repo_url, repo_folder)
             return True
         else:
