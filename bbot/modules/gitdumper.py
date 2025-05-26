@@ -130,7 +130,7 @@ class gitdumper(BaseModule):
                     self.download_files(urls, repo_folder),
                     timeout=self.timeout,
                 )
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 self.verbose(f"Timeout of {self.timeout}s reached while downloading git objects from {repo_url}")
                 result = True
         else:
