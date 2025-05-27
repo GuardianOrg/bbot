@@ -1,3 +1,4 @@
+import asyncio
 import regex as re
 from pathlib import Path
 from subprocess import CalledProcessError
@@ -122,7 +123,11 @@ class gitdumper(BaseModule):
         dir_listing = await self.directory_listing_enabled(repo_url)
         if dir_listing:
             urls = await self.recursive_dir_list(dir_listing)
-            result = await self.download_files(urls, repo_folder)
+            try:
+                result = await self.download_files(urls, repo_folder)
+            except asyncio.CancelledError:
+                self.verbose(f"Cancellation requested while downloading files from {repo_url}")
+                result = True
         else:
             result = await self.git_fuzz(repo_url, repo_folder)
         if result:
@@ -172,7 +177,10 @@ class gitdumper(BaseModule):
         result = await self.download_files(url_list, repo_folder)
         if result:
             await self.download_current_branch(repo_url, repo_folder)
-            await self.download_git_objects(repo_url, repo_folder)
+            try:
+                await self.download_git_objects(repo_url, repo_folder)
+            except asyncio.CancelledError:
+                self.verbose(f"Cancellation requested while downloading git objects from {repo_url}")
             await self.download_git_packs(repo_url, repo_folder)
             return True
         else:
