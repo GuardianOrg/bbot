@@ -153,15 +153,16 @@ class serial(BaseLightfuzz):
                         error in response.text for error in general_errors
                     )  # ensure the 200 is not actually an error
                 ):
+
                     def get_title(text):
-                        soup = self.lightfuzz.helpers.beautifulsoup(text, 'html.parser')
+                        soup = self.lightfuzz.helpers.beautifulsoup(text, "html.parser")
                         if soup and soup.title and soup.title.string:
                             return f"'{self.lightfuzz.helpers.truncate_string(soup.title.string, 50)}'"
-                        return ''
+                        return ""
 
                     baseline_title = get_title(payload_baseline.baseline.text)
                     probe_title = get_title(response.text)
-                    
+
                     self.results.append(
                         {
                             "type": "FINDING",
