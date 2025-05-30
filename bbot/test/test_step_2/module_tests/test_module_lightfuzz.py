@@ -1040,8 +1040,6 @@ class Test_Lightfuzz_sqli_cookies(Test_Lightfuzz_sqli):
         </html>
         """
 
-        print("@@@@@???")
-        print(request.cookies)
         if request.cookies.get("test") is not None:
             header_value = request.cookies.get("test")
 
@@ -1226,7 +1224,7 @@ class Test_Lightfuzz_serial_errorresolution(ModuleTestBase):
             if e.type == "FINDING":
                 if (
                     e.data["description"]
-                    == "POSSIBLE Unsafe Deserialization. Parameter: [TextBox1] Parameter Type: [POSTPARAM] Technique: [Error Resolution] Serialization Payload: [dotnet_base64]"
+                    == "POSSIBLE Unsafe Deserialization. Parameter: [TextBox1] Parameter Type: [POSTPARAM] Technique: [Error Resolution (Baseline: [500]  -> Probe: [200] )] Serialization Payload: [dotnet_base64]"
                 ):
                     lightfuzz_serial_detect_errorresolution = True
 
@@ -1322,11 +1320,14 @@ class Test_Lightfuzz_serial_errorresolution_existingvalue_valid(Test_Lightfuzz_s
                     ):
                         excavate_extracted_form_parameter_details = True
             if e.type == "FINDING":
+                print("@@@@@")
+                print(e.data["description"])
+                print("@@@@@")
                 if e.data["description"] == "HTTP response (body) contains a possible serialized object (DOTNET)":
                     excavate_detect_serialization_value = True
                 if (
                     e.data["description"]
-                    == "POSSIBLE Unsafe Deserialization. Parameter: [TextBox1] Parameter Type: [POSTPARAM] Original Value: [AAEAAAD/////AQAAAAAAAAAGAQAAAAdndXN0YXZvCw==] Technique: [Error Resolution] Serialization Payload: [dotnet_base64]"
+                    == "POSSIBLE Unsafe Deserialization. Parameter: [TextBox1] Parameter Type: [POSTPARAM] Original Value: [AAEAAAD/////AQAAAAAAAAAGAQAAAAdndXN0YXZvCw==] Technique: [Error Resolution (Baseline: [500]  -> Probe: [200] )] Serialization Payload: [dotnet_base64]"
                 ):
                     lightfuzz_serial_detect_errorresolution = True
 
