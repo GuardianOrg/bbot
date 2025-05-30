@@ -1320,9 +1320,6 @@ class Test_Lightfuzz_serial_errorresolution_existingvalue_valid(Test_Lightfuzz_s
                     ):
                         excavate_extracted_form_parameter_details = True
             if e.type == "FINDING":
-                print("@@@@@")
-                print(e.data["description"])
-                print("@@@@@")
                 if e.data["description"] == "HTTP response (body) contains a possible serialized object (DOTNET)":
                     excavate_detect_serialization_value = True
                 if (
