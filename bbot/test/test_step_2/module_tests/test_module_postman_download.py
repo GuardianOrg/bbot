@@ -1,8 +1,13 @@
 from .base import ModuleTestBase
+from bbot.test.bbot_fixtures import bbot_test_dir
 
 
 class TestPostman_Download(ModuleTestBase):
-    config_overrides = {"modules": {"postman_download": {"api_key": "asdf"}}}
+    config_overrides = {
+        "modules": {
+            "postman_download": {"api_key": "asdf", "output_folder": str(bbot_test_dir / "test_postman_files")}
+        }
+    }
     modules_overrides = ["postman", "postman_download", "speculate"]
 
     async def setup_before_prep(self, module_test):

@@ -14,7 +14,7 @@ class trufflehog(BaseModule):
     }
 
     options = {
-        "version": "3.88.20",
+        "version": "3.88.34",
         "config": "",
         "only_verified": True,
         "concurrency": 8,
@@ -88,8 +88,7 @@ class trufflehog(BaseModule):
 
         if event.type == "CODE_REPOSITORY":
             path = event.data["url"]
-            if "git" in event.tags:
-                module = "github-experimental"
+            module = "github-experimental"
         elif event.type == "FILESYSTEM":
             path = event.data["path"]
             if "git" in event.tags:

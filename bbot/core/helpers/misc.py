@@ -2,6 +2,7 @@ import os
 import sys
 import copy
 import json
+import math
 import random
 import string
 import asyncio
@@ -9,6 +10,7 @@ import logging
 import ipaddress
 import regex as re
 import subprocess as sp
+
 from pathlib import Path
 from contextlib import suppress
 from unidecode import unidecode  # noqa F401
@@ -797,17 +799,14 @@ def recursive_decode(data, max_depth=5):
     return data
 
 
-rand_pool = string.ascii_lowercase
-rand_pool_digits = rand_pool + string.digits
-
-
-def rand_string(length=10, digits=True):
+def rand_string(length=10, digits=True, numeric_only=False):
     """
     Generates a random string of specified length.
 
     Args:
         length (int, optional): The length of the random string. Defaults to 10.
         digits (bool, optional): Whether to include digits in the string. Defaults to True.
+        numeric_only (bool, optional): Whether to generate a numeric-only string. Defaults to False.
 
     Returns:
         str: A random string of the specified length.
@@ -819,11 +818,17 @@ def rand_string(length=10, digits=True):
         'ap4rsdtg5iw7ey7y3oa5'
         >>> rand_string(30, digits=False)
         'xdmyxtglqfzqktngkesyulwbfrihva'
+        >>> rand_string(15, numeric_only=True)
+        '934857349857395'
     """
-    pool = rand_pool
-    if digits:
-        pool = rand_pool_digits
-    return "".join([random.choice(pool) for _ in range(int(length))])
+    if numeric_only:
+        pool = string.digits
+    elif digits:
+        pool = string.ascii_lowercase + string.digits
+    else:
+        pool = string.ascii_lowercase
+
+    return "".join(random.choice(pool) for _ in range(length))
 
 
 def truncate_string(s, n):
@@ -885,7 +890,7 @@ def extract_params_xml(xml_data, compare_mode="getparam"):
         xml_data (str): XML-formatted string containing elements.
 
     Returns:
-        set: A set of tuples containing the tags and their corresponding text values present in the XML object.
+        set: A set of tuples containing the tags and their corresponding sanitized text values present in the XML object.
 
     Raises:
         Returns an empty set if ParseError occurs.
@@ -907,7 +912,10 @@ def extract_params_xml(xml_data, compare_mode="getparam"):
     while stack:
         current_element = stack.pop()
         if validate_parameter(current_element.tag, compare_mode):
-            tag_value_pairs.add((current_element.tag, current_element.text))
+            # Sanitize the text value
+            text_value = current_element.text.strip() if current_element.text else None
+            sanitized_value = quote(text_value, safe="") if text_value else None
+            tag_value_pairs.add((current_element.tag, sanitized_value))
         for child in current_element:
             stack.append(child)
     return tag_value_pairs
@@ -921,6 +929,7 @@ valid_chars_dict = {
     "getparam": {chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="},
     "postparam": {chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="},
     "cookie": {chr(c) for c in range(33, 127) if chr(c) not in '()<>@,;:"/[]?={} \t'},
+    "bodyjson": set(chr(c) for c in range(33, 127) if chr(c) not in ":/?#[]@!$&'()*+,;="),
 }
 
 
@@ -1874,6 +1883,7 @@ def make_table(rows, header, **kwargs):
         | row2      | row2      |
         +-----------+-----------+
     """
+
     from tabulate import tabulate
 
     # fix IndexError: list index out of range
@@ -2772,6 +2782,21 @@ def clean_dict(d, *key_names, fuzzy=False, exclude_keys=None, _prev_key=None):
     return d
 
 
+def calculate_entropy(data):
+    """Calculate the Shannon entropy of a byte sequence"""
+    if not data:
+        return 0
+    frequency = {}
+    for byte in data:
+        if byte in frequency:
+            frequency[byte] += 1
+        else:
+            frequency[byte] = 1
+    data_len = len(data)
+    entropy = -sum((count / data_len) * math.log2(count / data_len) for count in frequency.values())
+    return entropy
+
+
 top_ports_cache = None
 
 
@@ -2825,3 +2850,15 @@ def get_python_constraints():
 
     dist = distribution("bbot")
     return [clean_requirement(r) for r in dist.requires]
+
+
+def is_printable(s):
+    """
+    Check if a string is printable
+    """
+    if not isinstance(s, str):
+        raise ValueError(f"Expected a string, got {type(s)}")
+
+    # Exclude control characters that break display/printing
+    s = set(s)
+    return all(ord(c) >= 32 or c in "\t\n\r" for c in s)

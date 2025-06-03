@@ -1,15 +1,24 @@
-import subprocess
-import shutil
 import io
+import shutil
 import zipfile
 import tarfile
+import subprocess
+from copy import copy
 from pathlib import Path
 
 from .base import ModuleTestBase
+from bbot.test.bbot_fixtures import bbot_test_dir
 
 
 class TestTrufflehog(ModuleTestBase):
-    config_overrides = {"modules": {"postman_download": {"api_key": "asdf"}}}
+    download_dir = bbot_test_dir / "test_trufflehog"
+    config_overrides = {
+        "modules": {
+            "postman_download": {"api_key": "asdf", "output_folder": str(download_dir)},
+            "docker_pull": {"output_folder": str(download_dir)},
+            "git_clone": {"output_folder": str(download_dir)},
+        }
+    }
     modules_overrides = [
         "github_org",
         "speculate",
@@ -1129,15 +1138,20 @@ class TestTrufflehog(ModuleTestBase):
             cwd=temp_repo_path,
         )
 
-        old_filter_event = module_test.scan.modules["git_clone"].filter_event
+        # we need this test to work offline, so we patch git_clone to pull from a local file:// path
+        old_handle_event = module_test.scan.modules["git_clone"].handle_event
 
-        def new_filter_event(event):
-            event.data["url"] = event.data["url"].replace(
-                "https://github.com/blacklanternsecurity", f"file://{temp_path}"
-            )
-            return old_filter_event(event)
+        async def new_handle_event(event):
+            if event.type == "CODE_REPOSITORY":
+                event = copy(event)
+                data = dict(event.data)
+                data["url"] = event.data["url"].replace(
+                    "https://github.com/blacklanternsecurity", f"file://{temp_path}"
+                )
+                event.data = data
+            return await old_handle_event(event)
 
-        module_test.monkeypatch.setattr(module_test.scan.modules["git_clone"], "filter_event", new_filter_event)
+        module_test.monkeypatch.setattr(module_test.scan.modules["git_clone"], "handle_event", new_handle_event)
 
     def check(self, module_test, events):
         vuln_events = [
@@ -1201,7 +1215,15 @@ class TestTrufflehog(ModuleTestBase):
 
 
 class TestTrufflehog_NonVerified(TestTrufflehog):
-    config_overrides = {"modules": {"trufflehog": {"only_verified": False}, "postman_download": {"api_key": "asdf"}}}
+    download_dir = bbot_test_dir / "test_trufflehog_nonverified"
+    config_overrides = {
+        "modules": {
+            "trufflehog": {"only_verified": False},
+            "docker_pull": {"output_folder": str(download_dir)},
+            "postman_download": {"api_key": "asdf", "output_folder": str(download_dir)},
+            "git_clone": {"output_folder": str(download_dir)},
+        }
+    }
 
     def check(self, module_test, events):
         finding_events = [
@@ -1279,7 +1301,11 @@ class TestTrufflehog_HTTPResponse(ModuleTestBase):
 class TestTrufflehog_RAWText(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/test.pdf"]
     modules_overrides = ["httpx", "trufflehog", "filedownload", "extractous"]
-    config_overrides = {"modules": {"trufflehog": {"only_verified": False}}}
+
+    download_dir = bbot_test_dir / "test_trufflehog_rawtext"
+    config_overrides = {
+        "modules": {"trufflehog": {"only_verified": False}, "filedownload": {"output_folder": str(download_dir)}}
+    }
 
     async def setup_before_prep(self, module_test):
         expect_args = {

@@ -140,7 +140,7 @@ class TestExcavate2(TestExcavate):
     def check(self, module_test, events):
         root_relative_detection = False
         page_relative_detection_1 = False
-        page_relative_detection_1 = False
+        page_relative_detection_2 = False
         root_page_confusion_1 = False
         root_page_confusion_2 = False
 
@@ -459,25 +459,37 @@ class TestExcavateParameterExtraction(TestExcavate):
         </script>
     </head>
     <body>
-    <body>
         <h1>Simple GET Form</h1>
         <p>Use the form below to submit a GET request:</p>
         <form action="/search" method="get">
             <label for="searchQuery">Search Query:</label>
-            <input type="text" id="searchQuery" name="q" value="flowers"><br><br>
+            <input type="text" id="searchQuery" name="q1" value="flowers"><br><br>
+            <input type="text" id="searchQueryspaces" name="q4" value="trees and forests"><br><br>
             <input type="submit" value="Search">
         </form>
         <h1>Simple POST Form</h1>
         <p>Use the form below to submit a POST request:</p>
         <form action="/search" method="post">
             <label for="searchQuery">Search Query:</label>
-            <input type="text" id="searchQuery" name="q" value="boats"><br><br>
+            <input type="text" id="searchQuery" name="q2" value="boats"><br><br>
+            <input type="text" id="searchQuery2" name="q5" value="submarines"><br><br>
+            <input type="submit" value="Search">
+        </form>
+        <h1>Simple Generic Form</h1>
+        <p>Use the form below to submit a request:</p>
+        <form action="/search">
+            <label for="searchQuery">Search Query:</label>
+            <input type="text" id="searchQuery" name="q3" value="candles"><br><br>
             <input type="submit" value="Search">
         </form>
         <p>Links</p>
         <a href="/validPath?id=123&age=456">href</a>
         <img src="http://127.0.0.1:8888/validPath?size=m&fit=slim">img</a>
-    </body>
+        <form class="login-form" name="change-email-form" action="/my-account/change-email" method="POST">
+        <select id=blog-post-author-display name=blog-post-author-display form=blog-post-author-display-form>
+        <option value=user.name selected>Name</option>
+        <input required type="hidden" name="csrf" value="O0A5UIhlB2ezuMGC1oWr6XA6GhG4sUVj">
+        </form>
     </body>
     </html>
     """
@@ -490,12 +502,19 @@ class TestExcavateParameterExtraction(TestExcavate):
         found_jquery_post = False
         found_form_get = False
         found_form_post = False
+        found_form_generic = False
         found_jquery_get_original_value = False
         found_jquery_post_original_value = False
         found_form_get_original_value = False
         found_form_post_original_value = False
+        found_form_generic_original_value = False
         found_htmltags_a = False
         found_htmltags_img = False
+        found_select_noquotes = False
+        avoid_truncated_values = True
+        found_form_input_with_spaces = False
+        found_form_get_additional_params = False
+        found_form_post_additional_params = False
 
         for e in events:
             if e.type == "WEB_PARAMETER":
@@ -509,15 +528,24 @@ class TestExcavateParameterExtraction(TestExcavate):
                     if e.data["original_value"] == "value2":
                         found_jquery_post_original_value = True
 
-                if e.data["description"] == "HTTP Extracted Parameter [q] (GET Form Submodule)":
+                if e.data["description"] == "HTTP Extracted Parameter [q1] (GET Form Submodule)":
                     found_form_get = True
                     if e.data["original_value"] == "flowers":
                         found_form_get_original_value = True
+                        if "q4" in e.data["additional_params"].keys():
+                            found_form_get_additional_params = True
 
-                if e.data["description"] == "HTTP Extracted Parameter [q] (POST Form Submodule)":
+                if e.data["description"] == "HTTP Extracted Parameter [q2] (POST Form Submodule)":
                     found_form_post = True
                     if e.data["original_value"] == "boats":
                         found_form_post_original_value = True
+                        if "q5" in e.data["additional_params"].keys():
+                            found_form_post_additional_params = True
+
+                if e.data["description"] == "HTTP Extracted Parameter [q3] (Generic Form Submodule)":
+                    found_form_generic = True
+                    if e.data["original_value"] == "candles":
+                        found_form_generic_original_value = True
 
                 if e.data["description"] == "HTTP Extracted Parameter [age] (HTML Tags Submodule)":
                     if e.data["original_value"] == "456":
@@ -529,16 +557,164 @@ class TestExcavateParameterExtraction(TestExcavate):
                         if "fit" in e.data["additional_params"].keys():
                             found_htmltags_img = True
 
+                if (
+                    e.data["description"]
+                    == "HTTP Extracted Parameter [blog-post-author-display] (POST Form Submodule)"
+                ):
+                    if e.data["original_value"] == "user.name":
+                        if "csrf" in e.data["additional_params"].keys():
+                            found_select_noquotes = True
+
+                if e.data["description"] == "HTTP Extracted Parameter [q4] (GET Form Submodule)":
+                    if e.data["original_value"] == "trees and forests":
+                        found_form_input_with_spaces = True
+                    if e.data["original_value"] == "trees":
+                        avoid_truncated_values = False
+
         assert found_jquery_get, "Did not extract Jquery GET parameters"
         assert found_jquery_post, "Did not extract Jquery POST parameters"
         assert found_form_get, "Did not extract Form GET parameters"
         assert found_form_post, "Did not extract Form POST parameters"
+        assert found_form_generic, "Did not extract Form (Generic) parameters"
+        assert found_form_input_with_spaces, "Did not extract Form input with spaces"
+        assert avoid_truncated_values, "Emitted a parameter with spaces without the entire value"
         assert found_jquery_get_original_value, "Did not extract Jquery GET parameter original_value"
         assert found_jquery_post_original_value, "Did not extract Jquery POST parameter original_value"
         assert found_form_get_original_value, "Did not extract Form GET parameter original_value"
         assert found_form_post_original_value, "Did not extract Form POST parameter original_value"
+        assert found_form_generic_original_value, "Did not extract Form (Generic) parameter original_value"
         assert found_htmltags_a, "Did not extract parameter(s) from a-tag"
         assert found_htmltags_img, "Did not extract parameter(s) from img-tag"
+        assert found_select_noquotes, "Did not extract parameter(s) from select-tag"
+        assert found_form_get_additional_params, "Did not extract additional parameters from GET form"
+        assert found_form_post_additional_params, "Did not extract additional parameters from POST form"
+
+
+class TestExcavateParameterExtraction_postform_noaction(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+
+    # hunt is added as parameter extraction is only activated by one or more modules that consume WEB_PARAMETER
+    modules_overrides = ["httpx", "excavate", "hunt"]
+    postform_extract_html = """
+<body>
+    <h1>Post for without action</h1>
+    <form method="post">
+        <label for="state">Encrypted State:</label>
+        <input type="text" name="state" id="state" value="voCcc4U5jnFWOYYF4Oueau3l8gDsTecHMxniZJSKvh4bSA0WCgEYAxFkdWJzbGJ+" size="100">
+        <br><br>
+        <input type="submit" value="Decrypt">
+    </form>
+</body>
+    """
+
+    async def setup_after_prep(self, module_test):
+        respond_args = {"response_data": self.postform_extract_html, "headers": {"Content-Type": "text/html"}}
+        module_test.set_expect_requests(respond_args=respond_args)
+
+    def check(self, module_test, events):
+        excavate_formnoaction_extraction = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if "HTTP Extracted Parameter [state] (POST Form (no action) Submodule)" in e.data["description"]:
+                    excavate_formnoaction_extraction = True
+        assert excavate_formnoaction_extraction, "Excavate failed to extract web parameter"
+
+
+class TestExcavateParameterExtraction_postform_htmlencodedaction(TestExcavateParameterExtraction_postform_noaction):
+    postform_extract_html = """
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+    <body onload="document.forms[0].submit()">
+        <noscript>
+            <p>
+                <strong>Note:</strong> Since your browser does not support JavaScript,
+                you must press the Continue button once to proceed.
+            </p>
+        </noscript>
+        <form action="https&#x3a;&#x2f;&#x2f;127.0.0.1&#x3a;8080&#x2f;sso-web&#x2f;singleSignOn.action" method="post">
+            <div>
+                <input type="hidden" name="value" value="PD94"/>                              
+            </div>
+            <noscript>
+                <div>
+                    <input type="submit" value="Continue"/>
+                </div>
+            </noscript>
+        </form>
+    </body>
+</html>
+    """
+
+    def check(self, module_test, events):
+        excavate_handle_htmlencoded_action = True
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if (
+                    "HTTP Extracted Parameter [value] (POST Form Submodule)" in e.data["description"]
+                    and e.data["url"] == "https://127.0.0.1:8080/sso-web/singleSignOn.action"
+                ):
+                    excavate_handle_htmlencoded_action = True
+        assert excavate_handle_htmlencoded_action, "Excavate failed to extract web parameter"
+
+
+class TestExcavateParameterExtraction_additionalparams(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+
+    # hunt is added as parameter extraction is only activated by one or more modules that consume WEB_PARAMETER
+    modules_overrides = ["httpx", "excavate", "hunt"]
+    postformnoaction_extract_multiparams_html = """
+<body>
+    <h1>Post for without action</h1>
+ <form id="templateForm" method="POST">
+                        <input required type="hidden" name="csrf" value="MwARfZ19btvV2OjHIvTU5vVSGp9OyrcI">
+                        <label>Template:</label>
+                        <textarea required rows="12" cols="300" name="template">somenonsense</textarea>
+                        <button class="button" type="submit" name="template-action" value="save">
+                            Save
+                        </button>
+                    </form>
+</body>
+    """
+
+    async def setup_after_prep(self, module_test):
+        respond_args = {
+            "response_data": self.postformnoaction_extract_multiparams_html,
+            "headers": {"Content-Type": "text/html"},
+        }
+        module_test.set_expect_requests(respond_args=respond_args)
+
+    def check(self, module_test, events):
+        excavate_additionalparam_extraction_param1 = False
+        excavate_additionalparam_extraction_param2 = False
+        excavate_additionalparam_extraction_param3 = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if (
+                    e.data["name"] == "template-action"
+                    and "csrf" in e.data["additional_params"].keys()
+                    and "template" in e.data["additional_params"].keys()
+                ):
+                    excavate_additionalparam_extraction_param1 = True
+                if (
+                    e.data["name"] == "template"
+                    and "csrf" in e.data["additional_params"].keys()
+                    and "template-action" in e.data["additional_params"].keys()
+                ):
+                    excavate_additionalparam_extraction_param2 = True
+                if (
+                    e.data["name"] == "csrf"
+                    and "template" in e.data["additional_params"].keys()
+                    and "template-action" in e.data["additional_params"].keys()
+                ):
+                    excavate_additionalparam_extraction_param3 = True
+        assert excavate_additionalparam_extraction_param1, (
+            "Excavate failed to extract web parameter with correct additional data (param 1)"
+        )
+        assert excavate_additionalparam_extraction_param2, (
+            "Excavate failed to extract web parameter with correct additional data (param 2)"
+        )
+        assert excavate_additionalparam_extraction_param3, (
+            "Excavate failed to extract web parameter with correct additional data (param 3)"
+        )
 
 
 class TestExcavateParameterExtraction_getparam(ModuleTestBase):
@@ -563,10 +739,91 @@ class TestExcavateParameterExtraction_getparam(ModuleTestBase):
         assert excavate_getparam_extraction, "Excavate failed to extract web parameter"
 
 
+class TestExcavateParameterExtraction_relativeurl(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+
+    # hunt is added as parameter extraction is only activated by one or more modules that consume WEB_PARAMETER
+    modules_overrides = ["httpx", "excavate", "hunt"]
+    config_overrides = {"web": {"spider_distance": 2, "spider_depth": 3}}
+
+    # Secondary page that has a relative link to a traversal URL
+    secondary_page_html = """
+    <html>
+        <a href="../root.html">Go to root</a>
+    </html>
+    """
+
+    # Primary page that leads to the secondary page
+    primary_page_html = """
+    <html>
+        <a href="/secondary">Go to secondary page</a>
+    </html>
+    """
+
+    # Root page content
+    root_page_html = "<html>Root page</html>"
+
+    async def setup_after_prep(self, module_test):
+        module_test.httpserver.expect_request("/").respond_with_data(self.primary_page_html)
+        module_test.httpserver.expect_request("/secondary").respond_with_data(self.secondary_page_html)
+        module_test.httpserver.expect_request("/root.html").respond_with_data(self.root_page_html)
+
+    def check(self, module_test, events):
+        # Validate that the traversal was successful and WEB_PARAMETER was extracted
+        traversed_to_root = False
+        parameter_extraction_found = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if "HTTP Extracted Parameter" in e.data["description"]:
+                    parameter_extraction_found = True
+
+            if e.type == "URL":
+                if "root.html" in e.parsed_url.path:
+                    traversed_to_root = True
+
+        assert traversed_to_root, "Failed to follow the relative traversal to /root.html"
+        assert parameter_extraction_found, "Excavate failed to extract parameter after traversal"
+
+
+class TestExcavateParameterExtraction_getparam_novalue(TestExcavateParameterExtraction_getparam):
+    getparam_extract_html = """
+                   <section class=search>
+                        <form action="/catalog" method=GET>
+                            <input type=text id="searchBar" placeholder="Search products" name="searchTerm">
+                            <input type=text id="searchBar2" placeholder="Search products2" name="searchTerm2">
+                            <script>
+                                var searchText = '';
+                                document.getElementById('searchBar').value = searchText;
+                            </script>
+                            <button type=submit class=button>Search</button>
+                        </form>
+                    </section>
+    """
+
+    def check(self, module_test, events):
+        excavate_getparam_extraction = False
+        found_no_value_additional_params = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if "HTTP Extracted Parameter [searchTerm] (GET Form Submodule)" in e.data["description"]:
+                    excavate_getparam_extraction = True
+                    if "searchTerm2" in e.data["additional_params"].keys():
+                        found_no_value_additional_params = True
+        assert excavate_getparam_extraction, "Excavate failed to extract web parameter"
+        assert found_no_value_additional_params, (
+            "Excavate failed to extract additional parameters for input tag with no value"
+        )
+
+
 class TestExcavateParameterExtraction_json(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/"]
     modules_overrides = ["httpx", "excavate", "paramminer_getparams"]
-    config_overrides = {"modules": {"paramminer_getparams": {"wordlist": tempwordlist([]), "recycle_words": True}}}
+    config_overrides = {
+        "modules": {
+            "excavate": {"speculate_params": True},
+            "paramminer_getparams": {"wordlist": tempwordlist([]), "recycle_words": True},
+        }
+    }
     getparam_extract_json = """
     {
   "obscureParameter": 1,
@@ -593,7 +850,12 @@ class TestExcavateParameterExtraction_json(ModuleTestBase):
 class TestExcavateParameterExtraction_xml(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/"]
     modules_overrides = ["httpx", "excavate", "paramminer_getparams"]
-    config_overrides = {"modules": {"paramminer_getparams": {"wordlist": tempwordlist([]), "recycle_words": True}}}
+    config_overrides = {
+        "modules": {
+            "excavate": {"speculate_params": True},
+            "paramminer_getparams": {"wordlist": tempwordlist([]), "recycle_words": True},
+        }
+    }
     getparam_extract_xml = """
     <data>
      <obscureParameter>1</obscureParameter>
@@ -615,6 +877,99 @@ class TestExcavateParameterExtraction_xml(ModuleTestBase):
                 ):
                     excavate_xml_extraction = True
         assert excavate_xml_extraction, "Excavate failed to extract xml parameter"
+
+
+class TestExcavateParameterExtraction_xml_invalid(TestExcavateParameterExtraction_xml):
+    getparam_extract_xml = """
+    <data>
+     <obscureParameter>1</obscureParameter>
+         <newlines>invalid\nwith\nnewlines</newlines>
+     </data>
+    """
+
+    async def setup_after_prep(self, module_test):
+        respond_args = {"response_data": self.getparam_extract_xml, "headers": {"Content-Type": "application/xml"}}
+        module_test.set_expect_requests(respond_args=respond_args)
+
+    def check(self, module_test, events):
+        excavate_xml_extraction = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if (
+                    "HTTP Extracted Parameter (speculative from xml content) [newlines]" in e.data["description"]
+                    and "\n" not in e.data["original_value"]
+                ):
+                    excavate_xml_extraction = True
+        assert excavate_xml_extraction, "Excavate failed to extract xml parameter"
+
+
+class TestExcavateParameterExtraction_inputtagnovalue(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+
+    # hunt is added as parameter extraction is only activated by one or more modules that consume WEB_PARAMETER
+    modules_overrides = ["httpx", "excavate", "hunt"]
+    getparam_extract_html = """
+<form action=/ method=GET><input type=text name="novalue"><button type=submit class=button>Submit</button></form>
+    """
+
+    async def setup_after_prep(self, module_test):
+        respond_args = {"response_data": self.getparam_extract_html, "headers": {"Content-Type": "text/html"}}
+        module_test.set_expect_requests(respond_args=respond_args)
+
+    def check(self, module_test, events):
+        excavate_getparam_extraction = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if "HTTP Extracted Parameter [novalue] (GET Form Submodule)" in e.data["description"]:
+                    excavate_getparam_extraction = True
+        assert excavate_getparam_extraction, "Excavate failed to extract web parameter"
+
+
+class TestExcavateParameterExtraction_jqueryjsonajax(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["httpx", "excavate", "hunt"]
+    jsonajax_extract_html = """
+    <html>
+    <script>
+    function doLogin(e) {
+      e.preventDefault();
+      var username = $("#usernamefield").val();
+      var password = $("#passwordfield").val();
+      $.ajax({
+        url: '/api/auth',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ username: username, password: password }),
+        success: function (r) {
+          window.location.replace("/demo");
+        },
+        error: function (r) {
+          if (r.status == 401) {
+            notify("Access denied");
+          } else {
+            notify(r.responseText);
+          }
+        }
+      });
+    }
+    </html>
+<form action=/ method=GET><input type=text name="novalue"><button type=submit class=button>Submit</button></form>
+    """
+
+    async def setup_after_prep(self, module_test):
+        respond_args = {"response_data": self.jsonajax_extract_html, "headers": {"Content-Type": "text/html"}}
+        module_test.set_expect_requests(respond_args=respond_args)
+
+    def check(self, module_test, events):
+        excavate_ajaxpost_extraction = False
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if (
+                    "HTTP Extracted Parameter [username] (JQuery Extractor Submodule)" == e.data["description"]
+                    and e.data["original_value"] is None
+                ):
+                    excavate_ajaxpost_extraction = True
+        assert excavate_ajaxpost_extraction, "Excavate failed to extract web parameter"
 
 
 class excavateTestRule(ExcavateRule):
@@ -737,11 +1092,6 @@ class TestExcavateParameterExtraction_targeturl(ModuleTestBase):
         "url_querystring_remove": False,
         "url_querystring_collapse": False,
         "interactsh_disable": True,
-        "modules": {
-            "excavate": {
-                "retain_querystring": True,
-            }
-        },
     }
 
     async def setup_after_prep(self, module_test):
@@ -768,13 +1118,7 @@ class TestExcavate_retain_querystring(ModuleTestBase):
         "url_querystring_remove": False,
         "url_querystring_collapse": False,
         "interactsh_disable": True,
-        "web_spider_depth": 4,
-        "web_spider_distance": 4,
-        "modules": {
-            "excavate": {
-                "retain_querystring": True,
-            }
-        },
+        "web": {"spider_distance": 4, "spider_depth": 4},
     }
 
     async def setup_after_prep(self, module_test):
@@ -797,16 +1141,10 @@ class TestExcavate_retain_querystring(ModuleTestBase):
 
 class TestExcavate_retain_querystring_not(TestExcavate_retain_querystring):
     config_overrides = {
-        "url_querystring_remove": False,
+        "url_querystring_remove": True,
         "url_querystring_collapse": False,
         "interactsh_disable": True,
-        "web_spider_depth": 4,
-        "web_spider_distance": 4,
-        "modules": {
-            "excavate": {
-                "retain_querystring": True,
-            }
-        },
+        "web": {"spider_distance": 4, "spider_depth": 4},
     }
 
     def check(self, module_test, events):
@@ -1020,6 +1358,43 @@ A href <a href='/donot_detect.js'>Click me</a>"""
         )
 
 
+class TestExcavateHeaders_blacklist(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["excavate", "httpx", "hunt"]
+    config_overrides = {"web": {"spider_distance": 1, "spider_depth": 1}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpserver.expect_request("/").respond_with_data(
+            "<html><p>test</p></html>",
+            status=200,
+            headers={
+                "Set-Cookie": [
+                    "COOKIE1=aaaa; Secure; HttpOnly",
+                    "TS0113CC91=bbbb; Secure; HttpOnly; SameSite=None",
+                    "PHPSESSID=cccc; Secure; HttpOnly; SameSite=None",
+                ]
+            },
+        )
+
+    def check(self, module_test, events):
+        found_first_cookie = False
+        found_second_cookie = False
+        found_third_cookie = False
+
+        for e in events:
+            if e.type == "WEB_PARAMETER":
+                if e.data["name"] == "COOKIE1":
+                    found_first_cookie = True
+                if e.data["name"] == "PHPSESSID":
+                    found_second_cookie = True
+                if e.data["name"] == "TS0113CC91":
+                    found_third_cookie = True
+
+        assert found_first_cookie is True
+        assert found_second_cookie is False
+        assert found_third_cookie is False
+
+
 class TestExcavateBadURLs(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/"]
     modules_overrides = ["excavate", "httpx", "hunt"]
@@ -1043,3 +1418,17 @@ class TestExcavateBadURLs(ModuleTestBase):
 
         url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
         assert sorted([e.data for e in url_events]) == sorted(["https://ssl/", "http://127.0.0.1:8888/"])
+
+
+class TestExcavateURL_InvalidPort(TestExcavate):
+    modules_overrides = ["excavate", "httpx", "hunt"]
+
+    async def setup_before_prep(self, module_test):
+        # Test URL with invalid port (greater than 65535)
+        module_test.httpserver.expect_request("/").respond_with_data(
+            '<div><img loading="lazy" src="https://asdffoo.test.notreal:9212952841/whatever.jpg" width="576" height="382" alt="...." /></div>'
+        )
+
+    def check(self, module_test, events):
+        # Verify we got the hostname
+        assert any(e.data == "asdffoo.test.notreal" for e in events)

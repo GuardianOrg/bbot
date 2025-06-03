@@ -1,12 +1,15 @@
-description: Discover new web parameters via brute-force
+description: Discover new web parameters via brute-force, and analyze them with additional modules
 
 flags:
   - web-paramminer
 
 modules:
   - httpx
+  - reflected_parameters
+  - hunt
 
-config:
-  web:
-    spider_distance: 1
-    spider_depth: 4
+conditions:
+  - |
+    {% if config.web.spider_distance == 0 %}
+      {{ warn("The paramminer preset works much better with spider enabled! Consider adding 'spider' or 'spider-intense' preset.") }}
+    {% endif %}

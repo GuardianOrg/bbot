@@ -89,6 +89,63 @@ async def test_scan(
 
 
 @pytest.mark.asyncio
+async def test_task_scan_handle_event_timeout(bbot_scanner):
+    from bbot.modules.base import BaseModule
+
+    # make a module that takes a long time to handle an event
+    class LongModule(BaseModule):
+        watched_events = ["IP_ADDRESS"]
+        handled_event = False
+        cancelled = False
+        _name = "long"
+
+        async def handle_event(self, event):
+            self.handled_event = True
+            try:
+                await self.helpers.sleep(99999999)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    # same thing but handle_batch
+    class LongBatchModule(BaseModule):
+        watched_events = ["IP_ADDRESS"]
+        handled_event = False
+        canceled = False
+        _name = "long_batch"
+        _batch_size = 2
+
+        async def handle_batch(self, *events):
+            self.handled_event = True
+            try:
+                await self.helpers.sleep(99999999)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    # scan with both modules
+    scan = bbot_scanner(
+        "127.0.0.1",
+        config={
+            "module_handle_event_timeout": 5,
+            "module_handle_batch_timeout": 5,
+        },
+    )
+    await scan._prep()
+    scan.modules["long"] = LongModule(scan=scan)
+    scan.modules["long_batch"] = LongBatchModule(scan=scan)
+    events = [e async for e in scan.async_start()]
+    assert events
+    assert any(e.data == "127.0.0.1" for e in events)
+    # make sure both modules were called
+    assert scan.modules["long"].handled_event
+    assert scan.modules["long_batch"].handled_event
+    # they should also be cancelled
+    assert scan.modules["long"].cancelled
+    assert scan.modules["long_batch"].cancelled
+
+
+@pytest.mark.asyncio
 async def test_url_extension_handling(bbot_scanner):
     scan = bbot_scanner(config={"url_extension_blacklist": ["css"], "url_extension_httpx_only": ["js"]})
     await scan._prep()
