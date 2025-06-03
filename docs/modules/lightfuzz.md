@@ -36,8 +36,6 @@ Lightfuzz is divided into numerous "submodules". These would typically be ran al
     - Identifies cryptographic parameters that have a tangable effect on the application
     - Can identify padding oracle vulnerabilities
     - Can identify hash length extention vulnerabilities
-### `nosqli` (NoSQL Injection)
-    - Can identify some NoSQL Injection vulnerabilities
 ### `path` (Path Traversal)
     - Can find arbitrary file read / local-file include vulnerabilities, based on relative path traversal or with absolute paths
 ### `serial` (Deserialization)
