@@ -68,13 +68,13 @@ class gowitness(BaseModule):
         else:
             self.base_path = self.scan.home / "gowitness"
         self.chrome_path = None
-        custom_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
-        if custom_chrome_path.is_file():
-            self.chrome_path = custom_chrome_path
-        config_chrome_path = self.config.get("chrome_path")
-        if config_chrome_path:
-            custom_chrome_path = config_chrome_path
-            self.chrome_path = Path(config_chrome_path)
+
+        chrome_search_path = os.environ.get("PATH")
+        config_chrome_path = Path(self.config.get("chrome_path"))
+        if config_chrome_path.is_file():
+            chrome_search_path = f"{config_chrome_path.parent}:{chrome_search_path}"
+        elif config_chrome_path.is_dir():
+            chrome_search_path = f"{config_chrome_path}:{chrome_search_path}"
 
         # fix ubuntu-specific sandbox bug
         chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
@@ -83,12 +83,14 @@ class gowitness(BaseModule):
 
         # make sure we have a working chrome install
         chrome_test_pass = False
+        custom_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
         for binary in ("Google Chrome", "chrome", "chromium", "chromium-browser", custom_chrome_path):
-            binary_path = self.helpers.which(binary, path=custom_chrome_path)
+            binary_path = self.helpers.which(binary, path=chrome_search_path)
             if binary_path and Path(binary_path).is_file():
                 chrome_test_proc = await self.run_process([binary_path, "--version"])
                 if getattr(chrome_test_proc, "returncode", 1) == 0:
                     self.verbose(f"Found chrome executable at {binary_path}")
+                    self.chrome_path = binary_path
                     chrome_test_pass = True
                     break
         if not chrome_test_pass:
