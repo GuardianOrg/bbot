@@ -70,11 +70,13 @@ class gowitness(BaseModule):
         self.chrome_path = None
 
         chrome_search_path = os.environ.get("PATH")
-        config_chrome_path = Path(self.config.get("chrome_path"))
-        if config_chrome_path.is_file():
-            chrome_search_path = f"{config_chrome_path.parent}:{chrome_search_path}"
-        elif config_chrome_path.is_dir():
-            chrome_search_path = f"{config_chrome_path}:{chrome_search_path}"
+        config_chrome_path = self.config.get("chrome_path")
+        if config_chrome_path:
+            config_chrome_path = Path(config_chrome_path)
+            if config_chrome_path.is_file():
+                chrome_search_path = f"{config_chrome_path.parent}:{chrome_search_path}"
+            elif config_chrome_path.is_dir():
+                chrome_search_path = f"{config_chrome_path}:{chrome_search_path}"
 
         # fix ubuntu-specific sandbox bug
         chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
