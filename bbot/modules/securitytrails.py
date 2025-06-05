@@ -16,7 +16,6 @@ class securitytrails(subdomain_enum_apikey):
 
     base_url = "https://api.securitytrails.com/v1"
     ping_url = f"{base_url}/ping?apikey={{api_key}}"
-    ping_retry_on_http_429 = False
 
     async def setup(self):
         self.limit = 100

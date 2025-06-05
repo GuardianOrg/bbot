@@ -103,6 +103,8 @@ class BaseModule:
 
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
+    # whether to retry on 429s when first pinging the API at scan start
+    _ping_retry_on_http_429 = False
 
     default_discovery_context = "{module} discovered {event.type}: {event.data}"
 
@@ -381,7 +383,7 @@ class BaseModule:
         """
         if url is None:
             url = getattr(self, "ping_url", "")
-        retry_on_http_429 = getattr(self, "ping_retry_on_http_429", True)
+        retry_on_http_429 = getattr(self, "_ping_retry_on_http_429", False)
         if url:
             r = await self.api_request(url, retry_on_http_429=retry_on_http_429)
             if getattr(r, "status_code", 0) != 200:
