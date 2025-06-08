@@ -80,7 +80,9 @@ class gowitness(BaseModule):
             self.chrome_path = config_chrome_path
         else:
             if platform.system() == "Darwin":
-                bbot_chrome_path = self.helpers.tools_dir / "chrome-mac" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"
+                bbot_chrome_path = (
+                    self.helpers.tools_dir / "chrome-mac" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"
+                )
             else:
                 bbot_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
             if bbot_chrome_path.is_file():
