@@ -2,6 +2,7 @@ import os
 import asyncio
 import aiosqlite
 import multiprocessing
+import platform
 from pathlib import Path
 from contextlib import suppress
 from shutil import copyfile, copymode
@@ -23,6 +24,7 @@ class gowitness(BaseModule):
         "output_path": "",
         "social": False,
         "idle_timeout": 1800,
+        "chrome_path": "",
     }
     options_desc = {
         "version": "Gowitness version",
@@ -33,6 +35,7 @@ class gowitness(BaseModule):
         "output_path": "Where to save screenshots",
         "social": "Whether to screenshot social media webpages",
         "idle_timeout": "Skip the current gowitness batch if it stalls for longer than this many seconds",
+        "chrome_path": "Path to chrome executable",
     }
     deps_common = ["chromium"]
     deps_pip = ["aiosqlite"]
@@ -67,28 +70,53 @@ class gowitness(BaseModule):
             self.base_path = Path(output_path) / "gowitness"
         else:
             self.base_path = self.scan.home / "gowitness"
+
         self.chrome_path = None
-        custom_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
-        if custom_chrome_path.is_file():
-            self.chrome_path = custom_chrome_path
+        config_chrome_path = self.config.get("chrome_path")
+        if config_chrome_path:
+            config_chrome_path = Path(config_chrome_path)
+            if not config_chrome_path.is_file():
+                return False, f"Could not find custom Chrome path at {config_chrome_path}"
+            self.chrome_path = config_chrome_path
+        else:
+            if platform.system() == "Darwin":
+                bbot_chrome_path = (
+                    self.helpers.tools_dir / "chrome-mac" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"
+                )
+            else:
+                bbot_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
+            if bbot_chrome_path.is_file():
+                self.chrome_path = bbot_chrome_path
+
+        # make sure our chrome path works
+        chrome_test_pass = False
+        if self.chrome_path and self.chrome_path.is_file():
+            chrome_test_proc = await self.run_process([str(self.chrome_path), "--version"])
+            if getattr(chrome_test_proc, "returncode", 1) == 0:
+                self.verbose(f"Found chrome executable at {self.chrome_path}")
+                chrome_test_pass = True
+
+        if not chrome_test_pass:
+            # last resort - try to find a working chrome install
+            for binary in ("Google Chrome", "chrome", "chromium", "chromium-browser"):
+                binary_path = self.helpers.which(binary)
+                if binary_path and Path(binary_path).is_file():
+                    chrome_test_proc = await self.run_process([str(binary_path), "--version"])
+                    if getattr(chrome_test_proc, "returncode", 1) == 0:
+                        self.verbose(f"Found chrome executable at {binary_path}")
+                        chrome_test_pass = True
+                        break
+
+        if not chrome_test_pass:
+            return (
+                False,
+                "Failed to set up Google chrome. Please install manually and set `chrome_path`, or try again with --force-deps.",
+            )
 
         # fix ubuntu-specific sandbox bug
         chrome_devel_sandbox = self.helpers.tools_dir / "chrome-linux" / "chrome_sandbox"
         if chrome_devel_sandbox.is_file():
             os.environ["CHROME_DEVEL_SANDBOX"] = str(chrome_devel_sandbox)
-
-        # make sure we have a working chrome install
-        chrome_test_pass = False
-        for binary in ("chrome", "chromium", "chromium-browser", custom_chrome_path):
-            binary_path = self.helpers.which(binary)
-            if binary_path and Path(binary_path).is_file():
-                chrome_test_proc = await self.run_process([binary_path, "--version"])
-                if getattr(chrome_test_proc, "returncode", 1) == 0:
-                    self.verbose(f"Found chrome executable at {binary_path}")
-                    chrome_test_pass = True
-                    break
-        if not chrome_test_pass:
-            return False, "Failed to set up Google chrome. Please install manually or try again with --force-deps."
 
         self.db_path = self.base_path / "gowitness.sqlite3"
         self.screenshot_path = self.base_path / "screenshots"

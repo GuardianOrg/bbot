@@ -1309,7 +1309,7 @@ def make_netloc(host, port=None):
     return f"{host}:{port}"
 
 
-def which(*executables):
+def which(*executables, path=None):
     """Finds the full path of the first available executable from a list of executables.
 
     Args:
@@ -1325,7 +1325,7 @@ def which(*executables):
     import shutil
 
     for e in executables:
-        location = shutil.which(e)
+        location = shutil.which(e, path=path)
         if location:
             return location
 
