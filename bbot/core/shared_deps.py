@@ -114,7 +114,7 @@ DEP_CHROMIUM = [
             "url": "https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Mac%2FLAST_CHANGE?alt=media",
             "return_content": True,
         },
-        "register": "chromium_version",
+        "register": "chromium_version_darwin_x86_64",
         "when": "ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'x86_64'",
     },
     {
@@ -123,7 +123,7 @@ DEP_CHROMIUM = [
             "url": "https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Mac_Arm%2FLAST_CHANGE?alt=media",
             "return_content": True,
         },
-        "register": "chromium_version",
+        "register": "chromium_version_darwin_arm64",
         "when": "ansible_facts['os_family'] == 'Darwin' and ansible_facts['architecture'] == 'arm64'",
     },
     {
@@ -140,7 +140,7 @@ DEP_CHROMIUM = [
     {
         "name": "Download Chromium (Darwin x86_64)",
         "unarchive": {
-            "src": "https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Mac%2F{{ chromium_version.content }}%2Fchrome-mac.zip?alt=media",
+            "src": "https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Mac%2F{{ chromium_version_darwin_x86_64.content }}%2Fchrome-mac.zip?alt=media",
             "remote_src": True,
             "dest": "#{BBOT_TOOLS}",
             "creates": "#{BBOT_TOOLS}/chrome-mac",
@@ -150,7 +150,7 @@ DEP_CHROMIUM = [
     {
         "name": "Download Chromium (Darwin arm64)",
         "unarchive": {
-            "src": "https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Mac_Arm%2F{{ chromium_version.content }}%2Fchrome-mac.zip?alt=media",
+            "src": "https://www.googleapis.com/download/storage/v1/b/chromium-browser-snapshots/o/Mac_Arm%2F{{ chromium_version_darwin_arm64.content }}%2Fchrome-mac.zip?alt=media",
             "remote_src": True,
             "dest": "#{BBOT_TOOLS}",
             "creates": "#{BBOT_TOOLS}/chrome-mac",
