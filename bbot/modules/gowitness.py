@@ -2,6 +2,7 @@ import os
 import asyncio
 import aiosqlite
 import multiprocessing
+import platform
 from pathlib import Path
 from contextlib import suppress
 from shutil import copyfile, copymode
@@ -78,7 +79,10 @@ class gowitness(BaseModule):
                 return False, f"Could not find custom Chrome path at {config_chrome_path}"
             self.chrome_path = config_chrome_path
         else:
-            bbot_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
+            if platform.system() == "Darwin":
+                bbot_chrome_path = self.helpers.tools_dir / "chrome-mac" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"
+            else:
+                bbot_chrome_path = self.helpers.tools_dir / "chrome-linux" / "chrome"
             if bbot_chrome_path.is_file():
                 self.chrome_path = bbot_chrome_path
 
