@@ -196,7 +196,7 @@ class DepsInstaller:
         deps_common = preloaded["deps"]["common"]
         if deps_common:
             for dep_common in deps_common:
-                if self.setup_status.get(dep_common, False) is True:
+                if self.setup_status.get(dep_common, False) is True and self.deps_behavior != "force_install":
                     log.debug(
                         f'Skipping installation of dependency "{dep_common}" for module "{module}" since it is already installed'
                     )
