@@ -201,6 +201,7 @@ adjectives = [
     "reckless",
     "reductive",
     "ripped",
+    "ruthless",
     "sadistic",
     "satanic",
     "savvy",
