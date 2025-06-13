@@ -334,6 +334,18 @@ class iis_shortnames(BaseModule):
                     for url_hint in url_hint_list:
                         if "." in url_hint:
                             hint_type = "shortname-endpoint"
+                            # Check if it's a ZIP file
+                            if url_hint.lower().endswith(".zip"):
+                                await self.emit_event(
+                                    {
+                                        "host": str(event.host),
+                                        "url": event.data,
+                                        "description": f"Possible backup file (zip) in web root: {normalized_url}{url_hint}",
+                                    },
+                                    "FINDING",
+                                    event,
+                                    context=f"{{module}} discovered possible backup file in web root: {url_hint}",
+                                )
                         else:
                             hint_type = "shortname-directory"
 
