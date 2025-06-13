@@ -166,6 +166,10 @@ class iis_shortnames(BaseModule):
 
         cl = ext_char_list if extension_mode is True else char_list
 
+        self.debug(
+            f"Solving shortname recursive for {target} with prefix {prefix} and extension mode {extension_mode}"
+        )
+
         urls_and_kwargs = []
 
         for c in cl:
