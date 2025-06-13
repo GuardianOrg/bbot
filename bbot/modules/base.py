@@ -61,8 +61,6 @@ class BaseModule:
 
         batch_size (int): Size of batches processed by handle_batch(). Default is 1.
 
-        batch_wait (int): Seconds to wait before force-submitting a batch. Default is 10.
-
         api_failure_abort_threshold (int): Threshold for setting error state after failed HTTP requests (only takes effect when `api_request()` is used. Default is 5.
 
         _preserve_graph (bool): When set to True, accept events that may be duplicates but are necessary for construction of complete graph. Typically only enabled for output modules that need to maintain full chains of events, e.g. `neo4j` and `json`. Default is False.
@@ -102,10 +100,11 @@ class BaseModule:
 
     _module_threads = 1
     _batch_size = 1
-    batch_wait = 10
 
     # disable the module after this many failed attempts in a row
     _api_failure_abort_threshold = 3
+    # whether to retry on 429s when first pinging the API at scan start
+    _ping_retry_on_http_429 = False
 
     default_discovery_context = "{module} discovered {event.type}: {event.data}"
 
@@ -159,6 +158,13 @@ class BaseModule:
 
         self._tasks = []
         self._event_received = None
+        # maximum runtime for each module's handle_event()
+        self._default_handle_event_timeout = self.scan.config.get("module_handle_event_timeout", 60 * 60)  # 1 hour
+        self._default_handle_batch_timeout = self.scan.config.get(
+            "module_handle_batch_timeout", 60 * 60 * 2
+        )  # 2 hours
+        self._event_handler_watchdog_task = None
+        self._event_handler_watchdog_interval = self.event_handler_timeout / 10
 
         # used for optional "per host" tracking
         self._per_host_tracker = set()
@@ -377,8 +383,9 @@ class BaseModule:
         """
         if url is None:
             url = getattr(self, "ping_url", "")
+        retry_on_http_429 = getattr(self, "_ping_retry_on_http_429", False)
         if url:
-            r = await self.api_request(url)
+            r = await self.api_request(url, retry_on_http_429=retry_on_http_429)
             if getattr(r, "status_code", 0) != 200:
                 response_text = getattr(r, "text", "no response from server")
                 raise ValueError(response_text)
@@ -398,6 +405,13 @@ class BaseModule:
         if module_threads is None:
             module_threads = self._module_threads
         return module_threads
+
+    @property
+    def event_handler_timeout(self):
+        module_timeout = self.config.get("module_timeout", None)
+        if module_timeout is not None:
+            return float(module_timeout)
+        return self._default_handle_event_timeout if self.batch_size <= 1 else self._default_handle_batch_timeout
 
     @property
     def auth_secret(self):
@@ -446,23 +460,28 @@ class BaseModule:
             - If a "FINISHED" event is found, invokes 'finish()' method of the module.
         """
         finish = False
-        async with self._task_counter.count(f"{self.name}.handle_batch()") as counter:
-            submitted = False
-            if self.batch_size <= 1:
-                return
-            if self.num_incoming_events > 0:
-                events, finish = await self._events_waiting()
-                if events and not self.errored:
-                    counter.n = len(events)
-                    self.verbose(f"Handling batch of {len(events):,} events")
-                    submitted = True
-                    async with self.scan._acatch(f"{self.name}.handle_batch()"):
-                        await self.handle_batch(*events)
-                    self.verbose(f"Finished handling batch of {len(events):,} events")
+        submitted = False
+        if self.batch_size <= 1:
+            return
+        if self.num_incoming_events > 0:
+            events, finish = await self._events_waiting()
+            if events and not self.errored:
+                self.verbose(f"Handling batch of {len(events):,} events")
+                event_types = {}
+                for e in events:
+                    event_types[e.type] = event_types.get(e.type, 0) + 1
+                event_types_sorted = sorted(event_types.items(), key=lambda x: x[1], reverse=True)
+                event_types_str = ", ".join(f"{k}: {v}" for k, v in event_types_sorted)
+                submitted = True
+                context = f"{self.name}.handle_batch({event_types_str})"
+                try:
+                    await self.run_task(self.handle_batch(*events), context, n=len(events))
+                except asyncio.CancelledError:
+                    self.debug(f"{context} was cancelled")
+                self.verbose(f"Finished handling batch of {len(events):,} events")
         if finish:
             context = f"{self.name}.finish()"
-            async with self.scan._acatch(context), self._task_counter.count(context):
-                await self.finish()
+            await self.run_task(self.finish(), context)
         return submitted
 
     def make_event(self, *args, **kwargs):
@@ -535,8 +554,10 @@ class BaseModule:
             if v is not None:
                 emit_kwargs[o] = v
         event = self.make_event(*args, **event_kwargs)
-        if event:
-            await self.queue_outgoing_event(event, **emit_kwargs)
+        if event is not None:
+            children = event.children
+            for e in [event] + children:
+                await self.queue_outgoing_event(e, **emit_kwargs)
         return event
 
     async def _events_waiting(self, batch_size=None):
@@ -592,6 +613,10 @@ class BaseModule:
             asyncio.create_task(self._worker(), name=f"{self.scan.name}.{self.name}._worker()")
             for _ in range(self.module_threads)
         ]
+        self._event_handler_watchdog_task = asyncio.create_task(
+            self._event_handler_watchdog(),
+            name=f"{self.scan.name}.{self.name}._event_handler_watchdog()",
+        )
 
     async def _setup(self):
         """
@@ -660,11 +685,6 @@ class BaseModule:
         async with self.scan._acatch(context=self._worker, unhandled_is_critical=True):
             try:
                 while not self.scan.stopping and not self.errored:
-                    # hold the reigns if our outgoing queue is full
-                    if self._qsize > 0 and self.outgoing_event_queue.qsize() >= self._qsize:
-                        await asyncio.sleep(0.1)
-                        continue
-
                     # if batch wasn't big enough, we wait for the next event before continuing
                     if self.batch_size > 1:
                         submitted = await self._handle_batch()
@@ -687,14 +707,20 @@ class BaseModule:
                         if acceptable:
                             if event.type == "FINISHED":
                                 context = f"{self.name}.finish()"
-                                async with self.scan._acatch(context), self._task_counter.count(context):
-                                    await self.finish()
+                                try:
+                                    await self.run_task(self.finish(), context)
+                                except asyncio.CancelledError:
+                                    self.debug(f"{context} was cancelled")
+                                    continue
                             else:
                                 context = f"{self.name}.handle_event({event})"
                                 self.scan.stats.event_consumed(event, self)
                                 self.debug(f"Handling {event}")
-                                async with self.scan._acatch(context), self._task_counter.count(context):
-                                    await self.handle_event(event)
+                                try:
+                                    await self.run_task(self.handle_event(event), context)
+                                except asyncio.CancelledError:
+                                    self.debug(f"{context} was cancelled")
+                                    continue
                                 self.debug(f"Finished handling {event}")
                         else:
                             self.debug(f"Not accepting {event} because {reason}")
@@ -849,6 +875,36 @@ class BaseModule:
                 if callable(callback):
                     async with self.scan._acatch(context), self._task_counter.count(context):
                         await self.helpers.execute_sync_or_async(callback)
+
+    async def run_task(self, coro, name, n=1):
+        """
+        Start a task while tracking it in the module's task counter.
+
+        This lets us keep a detailed module status and selectively cancel tasks when needed, like when handle_event exceeds its max runtime.
+        """
+        task = asyncio.create_task(coro)
+        async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task, n=n):
+            return await task
+
+    async def _event_handler_watchdog(self):
+        """
+        Watches handle_event and handle_batch tasks and cancels them if they exceed their max runtime.
+        """
+        while not self.scan.stopping and not self.errored:
+            # if there are events in the outgoing queue, we leave the tasks alone
+            if self.outgoing_event_queue.qsize() > 0:
+                await self.helpers.sleep(self._event_handler_watchdog_interval)
+                continue
+            event_handler_tasks = [
+                t for t in self._task_counter.tasks.values() if t.function_name in ("handle_event", "handle_batch")
+            ]
+            for task in event_handler_tasks:
+                if task.running_for > self.event_handler_timeout:
+                    self.warning(
+                        f"{self.name} Cancelling event handler task {task.task_name} because it's been running for {task.running_for:.1f}s (max timeout is {self.event_handler_timeout})"
+                    )
+                    await task.cancel()
+            await asyncio.sleep(self._event_handler_watchdog_interval)
 
     async def queue_event(self, event):
         """
@@ -1147,6 +1203,7 @@ class BaseModule:
             - cancelling after too many failed attempts
         """
         url = args[0] if args else kwargs.pop("url", "")
+        retry_on_http_429 = kwargs.pop("retry_on_http_429", True)
 
         # loop until we have a successful request
         for _ in range(self.api_retries):
@@ -1172,7 +1229,7 @@ class BaseModule:
                 else:
                     # sleep for a bit if we're being rate limited
                     retry_after = self._get_retry_after(r)
-                    if retry_after or status_code == 429:
+                    if (retry_after or status_code == 429) and retry_on_http_429:
                         sleep_interval = int(retry_after) if retry_after is not None else self._429_sleep_interval
                         if retry_after and retry_after > self._429_max_sleep_interval:
                             self.verbose(
@@ -1264,7 +1321,7 @@ class BaseModule:
                 new_url, new_kwargs = iter_key(url, page, page_size, offset, **requests_kwargs)
             result = await self.api_request(new_url, **new_kwargs)
             if result is None:
-                self.verbose(f"api_page_iter() got no response for {url}")
+                self.verbose(f"api_page_iter() got no response for {new_url}")
                 break
             try:
                 if _json:
@@ -1706,10 +1763,13 @@ class BaseInterceptModule(BaseModule):
                         context = f"{self.name}.handle_event({event, kwargs})"
                         self.scan.stats.event_consumed(event, self)
                         self.debug(f"Intercepting {event}")
-                        async with self.scan._acatch(context), self._task_counter.count(context):
-                            forward_event = await self.handle_event(event, **kwargs)
-                            with suppress(ValueError, TypeError):
-                                forward_event, forward_event_reason = forward_event
+                        try:
+                            forward_event = await self.run_task(self.handle_event(event, **kwargs), context)
+                        except asyncio.CancelledError:
+                            self.debug(f"{context} was cancelled")
+                            continue
+                        with suppress(ValueError, TypeError):
+                            forward_event, forward_event_reason = forward_event
 
                         if forward_event is False:
                             self.debug(f"Not forwarding {event} because {forward_event_reason}")

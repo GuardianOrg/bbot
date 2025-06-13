@@ -114,27 +114,64 @@ scan_name_regex = re.compile(r"[a-z]{3,20}_[a-z]{3,20}")
 
 # For use with excavate parameters extractor
 input_tag_regex = re.compile(
-    r"<input[^>]+?name=[\"\']?([\.$\w]+)[\"\']?(?:[^>]*?value=[\"\']([=+\/\w]*)[\"\'])?[^>]*>"
+    r"<input[^>]*?\sname=[\"\']?([\-\._=+\/\w]+)[\"\']?[^>]*?\svalue=[\"\']?([:%\-\._=+\/\w\s]*)[\"\']?[^>]*?>"
 )
-jquery_get_regex = re.compile(r"url:\s?[\"\'].+?\?(\w+)=")
-jquery_post_regex = re.compile(r"\$.post\([\'\"].+[\'\"].+\{(.+)\}")
+input_tag_regex2 = re.compile(
+    r"<input[^>]*?\svalue=[\"\']?([:\-%\._=+\/\w\s]*)[\"\']?[^>]*?\sname=[\"\']?([\-\._=+\/\w]+)[\"\']?[^>]*?>"
+)
+input_tag_novalue_regex = re.compile(r"<input(?![^>]*\b\svalue=)[^>]*?\sname=[\"\']?([\-\._=+\/\w]*)[\"\']?[^>]*?>")
+# jquery_get_regex = re.compile(r"url:\s?[\"\'].+?\?(\w+)=")
+# jquery_get_regex = re.compile(r"\$.get\([\'\"].+[\'\"].+\{(.+)\}")
+# jquery_post_regex = re.compile(r"\$.post\([\'\"].+[\'\"].+\{(.+)\}")
 a_tag_regex = re.compile(r"<a[^>]*href=[\"\']([^\"\'?>]*)\?([^&\"\'=]+)=([^&\"\'=]+)")
 img_tag_regex = re.compile(r"<img[^>]*src=[\"\']([^\"\'?>]*)\?([^&\"\'=]+)=([^&\"\'=]+)")
 get_form_regex = re.compile(
-    r"<form[^>]+(?:action=[\"']?([^\s\'\"]+)[\"\']?)?[^>]*method=[\"']?[gG][eE][tT][\"']?[^>]*>([\s\S]*?)<\/form>",
+    r"<form[^>]*\bmethod=[\"']?[gG][eE][tT][\"']?[^>]*\baction=[\"']?([^\s\"'<>]+)[\"']?[^>]*>([\s\S]*?)<\/form>",
+    re.DOTALL,
+)
+get_form_regex2 = re.compile(
+    r"<form[^>]*\baction=[\"']?([^\s\"'<>]+)[\"']?[^>]*\bmethod=[\"']?[gG][eE][tT][\"']?[^>]*>([\s\S]*?)<\/form>",
     re.DOTALL,
 )
 post_form_regex = re.compile(
-    r"<form[^>]+(?:action=[\"']?([^\s\'\"]+)[\"\']?)?[^>]*method=[\"']?[pP][oO][sS][tT][\"']?[^>]*>([\s\S]*?)<\/form>",
+    r"<form[^>]*\bmethod=[\"']?[pP][oO][sS][tT][\"']?[^>]*\baction=[\"']?([^\s\"'<>]+)[\"']?[^>]*>([\s\S]*?)<\/form>",
     re.DOTALL,
 )
+post_form_regex2 = re.compile(
+    r"<form[^>]*\baction=[\"']?([^\s\"'<>]+)[\"']?[^>]*\bmethod=[\"']?[pP][oO][sS][tT][\"']?[^>]*>([\s\S]*?)<\/form>",
+    re.DOTALL,
+)
+post_form_regex_noaction = re.compile(
+    r"<form[^>]*(?:\baction=[\"']?([^\s\"'<>]+)[\"']?)?[^>]*\bmethod=[\"']?[pP][oO][sS][tT][\"']?[^>]*>([\s\S]*?)<\/form>",
+    re.DOTALL,
+)
+generic_form_regex = re.compile(
+    r"<form(?![^>]*\bmethod=)[^>]+(?:\baction=[\"']?([^\s\"'<>]+)[\"']?)[^>]*>([\s\S]*?)<\/form>",
+    re.IGNORECASE | re.DOTALL,
+)
+
 select_tag_regex = re.compile(
-    r"<select[^>]+?name=[\"\']?(\w+)[\"\']?[^>]*>(?:\s*<option[^>]*?value=[\"\'](\w*)[\"\']?[^>]*>)?"
+    r"<select[^>]+?name=[\"\']?([_\-\.\w]+)[\"\']?[^>]*>(?:\s*<option[^>]*?value=[\"\']?([_\.\-\w]*)[\"\']?[^>]*>)?",
+    re.IGNORECASE | re.DOTALL,
 )
+
 textarea_tag_regex = re.compile(
-    r'<textarea[^>]*\bname=["\']?(\w+)["\']?[^>]*>(.*?)</textarea>', re.IGNORECASE | re.DOTALL
+    r"<textarea[^>]*?\sname=[\"\']?([\-\._=+\/\w]+)[\"\']?[^>]*?\svalue=[\"\']?([:%\-\._=+\/\w]*)[\"\']?[^>]*?>"
 )
-tag_attribute_regex = re.compile(r"<[^>]*(?:href|action|src)\s*=\s*[\"\']?(?!mailto:)([^\s\'\"\>]+)[\"\']?[^>]*>")
+textarea_tag_regex2 = re.compile(
+    r"<textarea[^>]*?\svalue=[\"\']?([:\-%\._=+\/\w]*)[\"\']?[^>]*?\sname=[\"\']?([\-\._=+\/\w]+)[\"\']?[^>]*?>"
+)
+textarea_tag_novalue_regex = re.compile(
+    r'<textarea[^>]*\bname=["\']?([_\-\.\w]+)["\']?[^>]*>(.*?)</textarea>', re.IGNORECASE | re.DOTALL
+)
+
+button_tag_regex = re.compile(
+    r"<button[^>]*?name=[\"\']?([\-\._=+\/\w]+)[\"\']?[^>]*?value=[\"\']?([%\-\._=+\/\w]*)[\"\']?[^>]*?>"
+)
+button_tag_regex2 = re.compile(
+    r"<button[^>]*?value=[\"\']?([\-%\._=+\/\w]*)[\"\']?[^>]*?name=[\"\']?([\-\._=+\/\w]+)[\"\']?[^>]*?>"
+)
+tag_attribute_regex = re.compile(r"<[^>]*(?:href|action|src)\s*=\s*[\"\']?(?!mailto:)([^\'\"\>]+)[\"\']?[^>]*>")
 
 valid_netloc = r"[^\s!@#$%^&()=/?\\'\";~`<>]+"
 

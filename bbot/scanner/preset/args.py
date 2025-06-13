@@ -9,9 +9,18 @@ from bbot.core.helpers.misc import chain_lists, get_closest_match, get_keys_in_d
 log = logging.getLogger("bbot.presets.args")
 
 
+universal_module_options = {
+    "batch_size": "The number of events to process in a single batch (only applies to batch modules)",
+    "module_threads": "How many event handlers to run in parallel",
+    "module_timeout": "Max time in seconds to spend handling each event or batch of events",
+}
+
+
 class BBOTArgs:
     # module config options to exclude from validation
-    exclude_from_validation = re.compile(r".*modules\.[a-z0-9_]+\.(?:batch_size|module_threads)$")
+    exclude_from_validation = re.compile(
+        r".*modules\.[a-z0-9_]+\.(?:" + "|".join(universal_module_options.keys()) + ")$"
+    )
 
     scan_examples = [
         (
@@ -167,6 +176,9 @@ class BBOTArgs:
 
         if self.parsed.custom_headers:
             args_preset.core.merge_custom({"web": {"http_headers": self.parsed.custom_headers}})
+
+        if self.parsed.custom_cookies:
+            args_preset.core.merge_custom({"web": {"http_cookies": self.parsed.custom_cookies}})
 
         if self.parsed.custom_yara_rules:
             args_preset.core.merge_custom(
@@ -375,6 +387,13 @@ class BBOTArgs:
             default=[],
             help="List of custom headers as key value pairs (header=value).",
         )
+        misc.add_argument(
+            "-C",
+            "--custom-cookies",
+            nargs="+",
+            default=[],
+            help="List of custom cookies as key value pairs (cookie=value).",
+        )
         misc.add_argument("--custom-yara-rules", "-cy", help="Add custom yara rules to excavate")
 
         misc.add_argument("--user-agent", "-ua", help="Set the user-agent for all HTTP requests")
@@ -419,6 +438,22 @@ class BBOTArgs:
                 )
             custom_headers_dict[k] = v
         self.parsed.custom_headers = custom_headers_dict
+
+        # Custom Cookie Parsing / Validation
+        custom_cookies_dict = {}
+        custom_cookie_example = "Example: --custom-cookies foo=bar foo2=bar2"
+
+        for i in self.parsed.custom_cookies:
+            parts = i.split("=", 1)
+            if len(parts) != 2:
+                raise ValidationError(f"Custom cookies not formatted correctly (missing '='). {custom_cookie_example}")
+            k, v = parts
+            if not k or not v:
+                raise ValidationError(
+                    f"Custom cookies not formatted correctly (missing cookie name or value). {custom_cookie_example}"
+                )
+            custom_cookies_dict[k] = v
+        self.parsed.custom_cookies = custom_cookies_dict
 
         # --fast-mode
         if self.parsed.fast_mode:

@@ -8,7 +8,7 @@ from socksio.exceptions import SOCKSError
 from contextlib import asynccontextmanager
 
 from bbot.core.engine import EngineServer
-from bbot.core.helpers.misc import bytes_to_human, human_to_bytes, get_exception_chain
+from bbot.core.helpers.misc import bytes_to_human, human_to_bytes, get_exception_chain, truncate_string
 
 log = logging.getLogger("bbot.core.helpers.web.engine")
 
@@ -202,6 +202,14 @@ class HTTPEngine(EngineServer):
                 raise
             else:
                 log.trace(f"Error with request to URL: {url}: {e}")
+                log.trace(traceback.format_exc())
+        except httpx.InvalidURL as e:
+            if raise_error:
+                raise
+            else:
+                log.warning(
+                    f"Invalid URL (possibly due to dangerous redirect) on request to : {url}: {truncate_string(e, 200)}"
+                )
                 log.trace(traceback.format_exc())
         except ssl.SSLError as e:
             msg = f"SSL error with request to URL: {url}: {e}"

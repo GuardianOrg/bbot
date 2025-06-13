@@ -133,6 +133,12 @@ deps:
 # Load BBOT modules from these custom paths
 module_dirs: []
 
+# maximum runtime in seconds for each module's handle_event() is 60 minutes
+# when the timeout is reached, the offending handle_event() will be cancelled and the module will move on to the next event
+module_handle_event_timeout: 3600
+# handle_batch() default timeout is 2 hours
+module_handle_batch_timeout: 7200
+
 # Infer certain events from others, e.g. IPs from IP ranges, DNS_NAMEs from URLs, etc.
 speculate: True
 # Passively search event data for URLs, hostnames, emails, etc.
@@ -227,7 +233,32 @@ url_extension_static:
   - bz2
   - 7z
   - rar
-  
+
+parameter_blacklist:
+  - __VIEWSTATE
+  - __EVENTARGUMENT
+  - __EVENTVALIDATION
+  - __EVENTTARGET
+  - __EVENTARGUMENT
+  - __VIEWSTATEGENERATOR
+  - __SCROLLPOSITIONY
+  - __SCROLLPOSITIONX
+  - ASP.NET_SessionId
+  - PHPSESSID
+  - __cf_bm
+  - f5_cspm
+
+parameter_blacklist_prefixes:
+  - TS01
+  - BIGipServer
+  - incap_
+  - visid_incap_
+  - AWSALB
+  - utm_
+  - ApplicationGatewayAffinity
+  - JSESSIONID
+  - ARRAffinity
+
 # Don't output these types of events (they are still distributed to modules)
 omit_event_types:
   - HTTP_RESPONSE
