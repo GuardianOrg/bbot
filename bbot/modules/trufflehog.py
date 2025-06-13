@@ -1,4 +1,5 @@
 import json
+from functools import partial
 from bbot.modules.base import BaseModule
 
 
@@ -13,7 +14,7 @@ class trufflehog(BaseModule):
     }
 
     options = {
-        "version": "3.88.2",
+        "version": "3.89.1",
         "config": "",
         "only_verified": True,
         "concurrency": 8,
@@ -87,8 +88,7 @@ class trufflehog(BaseModule):
 
         if event.type == "CODE_REPOSITORY":
             path = event.data["url"]
-            if "git" in event.tags:
-                module = "github-experimental"
+            module = "github-experimental"
         elif event.type == "FILESYSTEM":
             path = event.data["path"]
             if "git" in event.tags:
@@ -174,7 +174,7 @@ class trufflehog(BaseModule):
             command.append("--delete-cached-data")
             command.append("--token=" + self.github_token)
 
-        stats_file = self.helpers.tempfile_tail(callback=self.log_trufflehog_status)
+        stats_file = self.helpers.tempfile_tail(callback=partial(self.log_trufflehog_status, path))
         try:
             with open(stats_file, "w") as stats_fh:
                 async for line in self.helpers.run_live(command, stderr=stats_fh):
@@ -200,7 +200,7 @@ class trufflehog(BaseModule):
         finally:
             stats_file.unlink()
 
-    def log_trufflehog_status(self, line):
+    def log_trufflehog_status(self, path, line):
         try:
             line = json.loads(line)
         except Exception:
@@ -209,4 +209,5 @@ class trufflehog(BaseModule):
         message = line.get("msg", "")
         ts = line.get("ts", "")
         status = f"Message: {message} | Timestamp: {ts}"
-        self.info(status)
+        self.verbose(f"Current scan target: {path}")
+        self.verbose(status)

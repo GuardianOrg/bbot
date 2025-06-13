@@ -1,5 +1,6 @@
 import os
 import ssl
+import time
 import shutil
 import pytest
 import asyncio
@@ -53,6 +54,12 @@ def silence_live_logging():
             handler.setLevel(logging.CRITICAL)
 
 
+def stop_server(server):
+    server.stop()
+    while server.is_running():
+        time.sleep(0.1)  # Wait a bit before checking again
+
+
 @pytest.fixture
 def bbot_httpserver():
     server = HTTPServer(host="127.0.0.1", port=8888, threaded=True)
@@ -61,11 +68,7 @@ def bbot_httpserver():
     yield server
 
     server.clear()
-    if server.is_running():
-        server.stop()
-
-    # this is to check if the client has made any request where no
-    # `assert_request` was called on it from the test
+    stop_server(server)  # Ensure the server is fully stopped
 
     server.check_assertions()
     server.clear()
@@ -84,11 +87,7 @@ def bbot_httpserver_ssl():
     yield server
 
     server.clear()
-    if server.is_running():
-        server.stop()
-
-    # this is to check if the client has made any request where no
-    # `assert_request` was called on it from the test
+    stop_server(server)  # Ensure the server is fully stopped
 
     server.check_assertions()
     server.clear()
@@ -129,7 +128,7 @@ class Interactsh_mock:
     def __init__(self, name):
         self.name = name
         self.log = logging.getLogger(f"bbot.interactsh.{self.name}")
-        self.interactions = []
+        self.interactions = asyncio.Queue()  # Use an asyncio queue for async access
         self.correlation_id = "deadbeef-dead-beef-dead-beefdeadbeef"
         self.stop = False
         self.poll_task = None
@@ -138,7 +137,7 @@ class Interactsh_mock:
         self.log.info(f"Mocking interaction to subdomain tag: {subdomain_tag}")
         if msg is not None:
             self.log.info(msg)
-        self.interactions.append(subdomain_tag)
+        self.interactions.put_nowait(subdomain_tag)  # Add to the thread-safe queue
 
     async def register(self, callback=None):
         if callable(callback):
@@ -146,27 +145,32 @@ class Interactsh_mock:
         return "fakedomain.fakeinteractsh.com"
 
     async def deregister(self, callback=None):
+        await asyncio.sleep(1)
         self.stop = True
         if self.poll_task is not None:
             self.poll_task.cancel()
-            with suppress(BaseException):
+            with suppress(asyncio.CancelledError):
                 await self.poll_task
 
     async def poll_loop(self, callback=None):
         while not self.stop:
             data_list = await self.poll(callback)
             if not data_list:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
                 continue
+        await asyncio.sleep(1)
+        await self.poll(callback)
 
     async def poll(self, callback=None):
         poll_results = []
-        for subdomain_tag in self.interactions:
-            result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": "HTTP"}
-            poll_results.append(result)
-            if callback is not None:
-                await execute_sync_or_async(callback, result)
-        self.interactions = []
+        while not self.interactions.empty():
+            subdomain_tag = await self.interactions.get()  # Get the first element from the asyncio queue
+            for protocol in ["HTTP", "DNS"]:
+                result = {"full-id": f"{subdomain_tag}.fakedomain.fakeinteractsh.com", "protocol": protocol}
+                poll_results.append(result)
+                if callback is not None:
+                    await execute_sync_or_async(callback, result)
+            await asyncio.sleep(0.1)
         return poll_results
 
 

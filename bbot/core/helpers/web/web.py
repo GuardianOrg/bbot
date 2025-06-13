@@ -57,7 +57,7 @@ class WebHelper(EngineClient):
         self.ssl_verify = self.config.get("ssl_verify", False)
         engine_debug = self.config.get("engine", {}).get("debug", False)
         super().__init__(
-            server_kwargs={"config": self.config, "target": self.parent_helper.preset.target.minimal},
+            server_kwargs={"config": self.config, "target": self.parent_helper.preset.target},
             debug=engine_debug,
         )
 
@@ -95,7 +95,7 @@ class WebHelper(EngineClient):
             files (dict, optional): Dictionary of 'name': file-like-objects for multipart encoding upload.
             auth (tuple, optional): Auth tuple to enable Basic/Digest/Custom HTTP auth.
             timeout (float, optional): The maximum time to wait for the request to complete.
-            proxies (dict, optional): Dictionary mapping protocol schemes to proxy URLs.
+            proxy (str, optional): HTTP proxy URL.
             allow_redirects (bool, optional): Enables or disables redirection. Defaults to None.
             stream (bool, optional): Enables or disables response streaming.
             raise_error (bool, optional): Whether to raise exceptions for HTTP connect, timeout errors. Defaults to False.
@@ -232,7 +232,7 @@ class WebHelper(EngineClient):
         if success:
             return filename
 
-    async def wordlist(self, path, lines=None, **kwargs):
+    async def wordlist(self, path, lines=None, zip=False, zip_filename=None, **kwargs):
         """
         Asynchronous function for retrieving wordlists, either from a local path or a URL.
         Allows for optional line-based truncation and caching. Returns the full path of the wordlist
@@ -242,6 +242,9 @@ class WebHelper(EngineClient):
             path (str): The local or remote path of the wordlist.
             lines (int, optional): Number of lines to read from the wordlist.
                 If specified, will return a truncated wordlist with this many lines.
+            zip (bool, optional): Whether to unzip the file after downloading. Defaults to False.
+            zip_filename (str, optional): The name of the file to extract from the ZIP archive.
+                Required if zip is True.
             cache_hrs (float, optional): Number of hours to cache the downloaded wordlist.
                 Defaults to 720 hours (30 days) for remote wordlists.
             **kwargs: Additional keyword arguments to pass to the 'download' function for remote wordlists.
@@ -259,6 +262,8 @@ class WebHelper(EngineClient):
             Fetching and truncating to the first 100 lines
             >>> wordlist_path = await self.helpers.wordlist("/root/rockyou.txt", lines=100)
         """
+        import zipfile
+
         if not path:
             raise WordlistError(f"Invalid wordlist: {path}")
         if "cache_hrs" not in kwargs:
@@ -271,6 +276,18 @@ class WebHelper(EngineClient):
             filename = Path(path).resolve()
             if not filename.is_file():
                 raise WordlistError(f"Unable to find wordlist at {path}")
+
+        if zip:
+            if not zip_filename:
+                raise WordlistError("zip_filename must be specified when zip is True")
+            try:
+                with zipfile.ZipFile(filename, "r") as zip_ref:
+                    if zip_filename not in zip_ref.namelist():
+                        raise WordlistError(f"File {zip_filename} not found in the zip archive {filename}")
+                    zip_ref.extract(zip_filename, filename.parent)
+                    filename = filename.parent / zip_filename
+            except Exception as e:
+                raise WordlistError(f"Error unzipping file {filename}: {e}")
 
         if lines is None:
             return filename
@@ -332,10 +349,12 @@ class WebHelper(EngineClient):
             curl_command.append("-k")
 
         headers = kwargs.get("headers", {})
+        cookies = kwargs.get("cookies", {})
 
         ignore_bbot_global_settings = kwargs.get("ignore_bbot_global_settings", False)
 
         if ignore_bbot_global_settings:
+            http_timeout = 20  # setting 20 as a worse-case setting
             log.debug("ignore_bbot_global_settings enabled. Global settings will not be applied")
         else:
             http_timeout = self.parent_helper.web_config.get("http_timeout", 20)
@@ -344,17 +363,24 @@ class WebHelper(EngineClient):
             if "User-Agent" not in headers:
                 headers["User-Agent"] = user_agent
 
-            # only add custom headers if the URL is in-scope
+            # only add custom headers / cookies if the URL is in-scope
             if self.parent_helper.preset.in_scope(url):
                 for hk, hv in self.web_config.get("http_headers", {}).items():
-                    headers[hk] = hv
+                    # Only add the header if it doesn't already exist in the headers dictionary
+                    if hk not in headers:
+                        headers[hk] = hv
 
-            # add the timeout
-            if "timeout" not in kwargs:
-                timeout = http_timeout
+                for ck, cv in self.web_config.get("http_cookies", {}).items():
+                    # don't clobber cookies
+                    if ck not in cookies:
+                        cookies[ck] = cv
 
-            curl_command.append("-m")
-            curl_command.append(str(timeout))
+        # add the timeout
+        if "timeout" not in kwargs:
+            timeout = http_timeout
+
+        curl_command.append("-m")
+        curl_command.append(str(timeout))
 
         for k, v in headers.items():
             if isinstance(v, list):
@@ -400,7 +426,7 @@ class WebHelper(EngineClient):
         if raw_body:
             curl_command.append("-d")
             curl_command.append(raw_body)
-
+        log.verbose(f"Running curl command: {curl_command}")
         output = (await self.parent_helper.run(curl_command)).stdout
         return output
 

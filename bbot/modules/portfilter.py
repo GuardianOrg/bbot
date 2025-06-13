@@ -2,7 +2,7 @@ from bbot.modules.base import BaseInterceptModule
 
 
 class portfilter(BaseInterceptModule):
-    watched_events = ["OPEN_TCP_PORT"]
+    watched_events = ["OPEN_TCP_PORT", "URL_UNVERIFIED", "URL"]
     flags = ["passive", "safe"]
     meta = {
         "description": "Filter out unwanted open ports from cloud/CDN targets",
@@ -18,6 +18,8 @@ class portfilter(BaseInterceptModule):
         "allowed_cdn_ports": "Comma-separated list of ports that are allowed to be scanned for CDNs",
     }
 
+    _priority = 4
+
     async def setup(self):
         self.cdn_tags = [t.strip() for t in self.config.get("cdn_tags", "").split(",")]
         self.allowed_cdn_ports = self.config.get("allowed_cdn_ports", "").strip()
@@ -28,7 +30,7 @@ class portfilter(BaseInterceptModule):
                 return False, f"Error parsing allowed CDN ports '{self.allowed_cdn_ports}': {e}"
         return True
 
-    async def handle_event(self, event):
+    async def handle_event(self, event, **kwargs):
         # if the port isn't in our list of allowed CDN ports
         if event.port not in self.allowed_cdn_ports:
             for cdn_tag in self.cdn_tags:
