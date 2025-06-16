@@ -20,17 +20,15 @@ class aspnet_bin_exposure(BaseModule):
         "AjaxControlToolkit.dll",
     ]
 
-    async def setup(self):
-        self.scanned_tracker = set()
-        return True
-
     @staticmethod
     def normalize_url(url):
         return str(url.rstrip("/") + "/").lower()
 
+    def _incoming_dedup_hash(self, event):
+        return hash(self.normalize_url(event.data))
+
     async def handle_event(self, event):
         normalized_url = self.normalize_url(event.data)
-        self.scanned_tracker.add(normalized_url)
         for test_dll in self.test_dlls:
             for technique in ["b/(S(X))in/###DLL_PLACEHOLDER###/(S(X))/", "(S(X))/b/(S(X))in/###DLL_PLACEHOLDER###"]:
                 test_url = f"{normalized_url}{technique.replace('###DLL_PLACEHOLDER###', test_dll)}"
@@ -78,7 +76,5 @@ class aspnet_bin_exposure(BaseModule):
 
     async def filter_event(self, event):
         if "dir" in event.tags:
-            if self.normalize_url(event.data) not in self.scanned_tracker:
-                return True
-            return False
+            return True
         return False
