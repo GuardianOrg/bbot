@@ -289,6 +289,7 @@ adjectives = [
     "zesty",
 ]
 
+
 names = [
     "aaron",
     "abigail",
@@ -671,8 +672,8 @@ names = [
     "tony",
     "tracy",
     "travis",
-    "trent",
     "treebeard",
+    "trent",
     "triss",
     "tyler",
     "tyrell",
@@ -702,7 +703,6 @@ names = [
     "zach",
     "zachary",
 ]
-
 
 def random_name():
     name = random.choice(names)
