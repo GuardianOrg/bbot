@@ -185,7 +185,9 @@ async def _spawn_proc(self, *command, **kwargs):
     try:
         command, kwargs = self._prepare_command_kwargs(command, kwargs)
     except SubprocessError as e:
-        log.warning(e)
+        command_str = " ".join(command)
+        log.warning(f"Error running command: '{command_str}': {e}")
+        log.trace(traceback.format_exc())
         return None, None, None
     _input = kwargs.pop("input", None)
     if _input is not None:
