@@ -182,6 +182,7 @@ async def _spawn_proc(self, *command, **kwargs):
         >>> _spawn_proc("ls", "-l", input="data")
         (<Process ...>, "data", ["ls", "-l"])
     """
+    command = [str(s) for s in command]
     try:
         command, kwargs = self._prepare_command_kwargs(command, kwargs)
     except SubprocessError as e:
@@ -281,7 +282,6 @@ def _prepare_command_kwargs(self, command, kwargs):
 
     if len(command) == 1 and isinstance(command[0], (list, tuple)):
         command = command[0]
-    command = [str(s) for s in command]
 
     if not command:
         raise SubprocessError("Must specify a command")
