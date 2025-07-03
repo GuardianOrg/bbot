@@ -20,7 +20,6 @@ class graphql_introspection(BaseModule):
         "graphql_endpoint_urls": "List of GraphQL endpoint to suffix to the target URL",
         "output_folder": "Folder to save the GraphQL schemas to",
     }
-    per_domain_only = True
 
     async def setup(self):
         output_folder = self.config.get("output_folder", "")
@@ -117,8 +116,10 @@ fragment TypeRef on __Type {
                 },
             }
             response = await self.helpers.request(**request_args)
-            if response.status_code != 200:
-                self.debug(f"Failed to get GraphQL schema for {url} (status code {response.status_code})")
+            if not response or response.status_code != 200:
+                self.debug(
+                    f"Failed to get GraphQL schema for {url} (status code {response.status_code})"
+                )
                 continue
             try:
                 response_json = response.json()
