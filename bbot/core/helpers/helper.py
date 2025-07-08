@@ -69,7 +69,7 @@ class ConfigAwareHelper:
         self.mkdir(self.cache_dir)
         self.mkdir(self.temp_dir)
         # remove temp dir on exit
-        misc.rm_at_exit(self.temp_dir)
+        misc.rmtree_at_exit(self.temp_dir)
         self.mkdir(self.tools_dir)
         self.mkdir(self.lib_dir)
 
