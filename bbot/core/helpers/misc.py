@@ -1212,13 +1212,6 @@ def rm_at_exit(path):
     atexit.register(delete_file, path)
 
 
-def rmtree_at_exit(path):
-    """Registers a directory to be automatically deleted when the program exits.
-    """
-    import atexit
-    atexit.register(rm_rf, path, ignore_errors=True)
-
-
 def delete_file(path):
     """Deletes a file at the given path.
 

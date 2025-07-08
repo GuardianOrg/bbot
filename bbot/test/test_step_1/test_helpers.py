@@ -954,3 +954,20 @@ async def test_parameter_validation(helpers):
             assert p in cookie_valid_params and p not in cookie_invalid_params
         else:
             assert p in cookie_invalid_params and p not in cookie_valid_params
+
+
+@pytest.mark.asyncio
+async def test_rmtree_at_exit(helpers):
+    from bbot.scanner import Scanner
+
+    scan = Scanner("127.0.0.1", modules=["httpx"])
+    await scan._prep()
+
+    # temp dir should exist
+    assert scan.helpers.temp_dir.exists()
+
+    events = [e async for e in scan.async_start()]
+    assert events
+
+    # temp dir should be removed
+    assert not scan.helpers.temp_dir.exists()
