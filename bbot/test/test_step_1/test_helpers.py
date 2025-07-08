@@ -957,7 +957,7 @@ async def test_parameter_validation(helpers):
 
 
 @pytest.mark.asyncio
-async def test_rmtree_at_exit(helpers):
+async def test_rm_temp_dir_at_exit(helpers):
     from bbot.scanner import Scanner
 
     scan = Scanner("127.0.0.1", modules=["httpx"])
