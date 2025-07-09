@@ -1642,7 +1642,7 @@ def filesize(f):
     return 0
 
 
-def rm_rf(f):
+def rm_rf(f, ignore_errors=False):
     """Recursively delete a directory
 
     Args:
@@ -1653,7 +1653,7 @@ def rm_rf(f):
     """
     import shutil
 
-    shutil.rmtree(f)
+    shutil.rmtree(f, ignore_errors=ignore_errors)
 
 
 def clean_old(d, keep=10, filter=lambda x: True, key=latest_mtime, reverse=True, raise_error=False):
