@@ -29,12 +29,14 @@ class emailformat(BaseModule):
         encrypted_emails = await self.helpers.re.findall(self.cfemail_regex, r.text)
 
         for enc in encrypted_emails:
-            if len(enc) < 2 or len(enc) % 2 != 0:
+            enc_len = len(enc)
+
+            if enc_len < 2 or enc_len % 2 != 0:
                 continue
 
             key = int(enc[:2], 16)
 
-            email = "".join([chr(int(enc[i : i + 2], 16) ^ key) for i in range(2, len(enc), 2)]).lower()
+            email = "".join([chr(int(enc[i : i + 2], 16) ^ key) for i in range(2, enc_len, 2)]).lower()
 
             if email.endswith(query):
                 await self.emit_event(
