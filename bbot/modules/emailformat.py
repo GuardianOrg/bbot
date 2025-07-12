@@ -15,6 +15,10 @@ class emailformat(BaseModule):
 
     base_url = "https://www.email-format.com"
 
+    async def setup(self):
+        self.cfemail_regex = self.helpers.re.compile(r'data-cfemail="([0-9a-z]+)"')
+        return True
+
     async def handle_event(self, event):
         _, query = self.helpers.split_domain(event.data)
         url = f"{self.base_url}/d/{self.helpers.quote(query)}/"
@@ -22,8 +26,7 @@ class emailformat(BaseModule):
         if not r:
             return
 
-        cfemail_regex = self.helpers.re.compile(r'data-cfemail="([0-9a-z]+)"')
-        encrypted_emails = await self.helpers.re.findall(cfemail_regex, r.text)
+        encrypted_emails = await self.helpers.re.findall(self.cfemail_regex, r.text)
 
         for enc in encrypted_emails:
             if len(enc) < 2 or len(enc) % 2 != 0:
