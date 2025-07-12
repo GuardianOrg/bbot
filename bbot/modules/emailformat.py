@@ -21,7 +21,17 @@ class emailformat(BaseModule):
         r = await self.api_request(url)
         if not r:
             return
-        for email in await self.helpers.re.extract_emails(r.text):
+
+        encrypted_emails = await self.helpers.re.findall(r'data-cfemail="([0-9a-z]+)"', r.text)
+
+        for enc in encrypted_emails:
+            if len(enc) < 2 or len(enc) % 2 != 0:
+                continue
+
+            key = int(enc[:2], 16)
+
+            email = "".join([chr(int(enc[i : i + 2], 16) ^ key) for i in range(0, len(enc), 2)]).lower()
+
             if email.endswith(query):
                 await self.emit_event(
                     email,
