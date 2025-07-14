@@ -888,9 +888,7 @@ class Scanner:
                 await mod._cleanup()
             with contextlib.suppress(Exception):
                 self.home.rmdir()
-            self.critical(f"Removing temp dir: {self.temp_dir}")
             self.helpers.rm_rf(self.temp_dir, ignore_errors=True)
-            self.critical(f"Removed temp dir: {self.temp_dir} (exists: {self.temp_dir.exists()})")
             self.helpers.clean_old_scans()
 
     def in_scope(self, *args, **kwargs):
