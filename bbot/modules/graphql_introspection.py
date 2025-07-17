@@ -13,7 +13,7 @@ class graphql_introspection(BaseModule):
         "author": "@mukesh-dream11",
     }
     options = {
-        "graphql_endpoint_urls": ["", "graphql", "v1/graphql"],
+        "graphql_endpoint_urls": ["/", "/graphql", "/v1/graphql"],
         "output_folder": "",
     }
     options_desc = {
@@ -30,12 +30,15 @@ class graphql_introspection(BaseModule):
         self.helpers.mkdir(self.output_dir)
         return True
 
-    async def handle_event(self, event):
-        if self.helpers.url_depth(event.data) > 1:
-            return
+    async def filter_event(self, event):
+        # Dedup by the base URL
+        base_url = event.parsed_url._replace(path="/", query="", fragment="").geturl()
+        return hash(base_url)
 
+    async def handle_event(self, event):
+        base_url = event.parsed_url._replace(path="/", query="", fragment="").geturl().rstrip("/")
         for endpoint_url in self.config.get("graphql_endpoint_urls", []):
-            url = f"{event.data}{endpoint_url}"
+            url = f"{base_url}{endpoint_url}"
             request_args = {
                 "url": url,
                 "method": "POST",
@@ -125,15 +128,16 @@ fragment TypeRef on __Type {
                 self.debug(f"Failed to parse JSON for {url}")
                 continue
             if response_json.get("data", {}).get("__schema", {}).get("types", []):
-                schema_output_dir = url.rstrip("/").replace(":", "-").replace("/", "-")
+                schema_output_dir = self.helpers.tagify(url)
                 schema_output_dir = self.output_dir / schema_output_dir
                 self.helpers.mkdir(schema_output_dir)
 
                 filename = "schema.json"
-                with open(schema_output_dir / filename, "w") as f:
+                filename = schema_output_dir / filename
+                with open(filename, "w") as f:
                     json.dump(response_json, f)
                 await self.emit_event(
-                    {"url": url, "description": "GraphQL schema"},
+                    {"url": url, "description": "GraphQL schema", "path": str(filename.relative_to(self.scan.home))},
                     "FINDING",
                     event,
                     context=f"{{module}} found GraphQL schema at {url}",
