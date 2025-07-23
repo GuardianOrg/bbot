@@ -1494,7 +1494,8 @@ def mkdir(path, check_writable=True, raise_error=True):
         if raise_error:
             raise errors.DirectoryCreationError(f"Failed to create directory at {path}: {e}")
     finally:
-        touchfile.unlink(missing_ok=True)
+        with suppress(Exception):
+            touchfile.unlink()
     return False
 
 
