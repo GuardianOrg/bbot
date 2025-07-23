@@ -53,6 +53,44 @@ class DepsInstaller:
                 "when": "ansible_facts['distribution'] == 'Fedora'",
             },
         ],
+        # to compile just about any tool, we need the openssl dev headers
+        "openssl": [
+            {
+                "name": "Install OpenSSL library and development headers (Debian/Ubuntu)",
+                "package": {"name": ["libssl-dev", "openssl"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'Debian'",
+                "ignore_errors": True,
+            },
+            {
+                "name": "Install OpenSSL library and development headers (RedHat/CentOS/Fedora)",
+                "package": {"name": ["openssl", "openssl-devel"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'RedHat' or ansible_facts['os_family'] == 'Suse' ",
+                "ignore_errors": True,
+            },
+            {
+                "name": "Install OpenSSL library and development headers (Arch)",
+                "package": {"name": ["openssl"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'Archlinux'",
+                "ignore_errors": True,
+            },
+            {
+                "name": "Install OpenSSL library and development headers (Alpine)",
+                "package": {"name": ["openssl", "openssl-dev"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'Alpine'",
+                "ignore_errors": True,
+            },
+            {
+                "name": "Install OpenSSL library and development headers (FreeBSD)",
+                "package": {"name": ["openssl"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'FreeBSD'",
+                "ignore_errors": True,
+            },
+        ],
     }
 
     def __init__(self, parent_helper):
