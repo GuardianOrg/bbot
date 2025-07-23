@@ -198,7 +198,7 @@ class trufflehog(BaseModule):
 
                     yield (decoder_name, detector_name, raw_result, rawv2_result, verified, source_metadata)
         finally:
-            stats_file.unlink()
+            stats_file.unlink(missing_ok=True)
 
     def log_trufflehog_status(self, path, line):
         try:
