@@ -32,6 +32,20 @@ class DepsInstaller:
         "bash": "bash",
         "which": "which",
         "tar": "tar",
+        "xz": [
+            {
+                "name": "Install xz-utils (Debian)",
+                "package": {"name": ["xz-utils"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] == 'Debian'",
+            },
+            {
+                "name": "Install xz (Non-Debian)",
+                "package": {"name": ["xz"], "state": "present"},
+                "become": True,
+                "when": "ansible_facts['os_family'] != 'Debian'",
+            },
+        ],
         # debian why are you like this
         "7z": [
             {
