@@ -223,11 +223,6 @@ class DepsInstaller:
         success = True
         preloaded = self.all_modules_preloaded[module]
 
-        # ansible tasks
-        ansible_tasks = preloaded["deps"]["ansible"]
-        if ansible_tasks:
-            success &= self.tasks(module, ansible_tasks)
-
         # apt
         deps_apt = preloaded["deps"]["apt"]
         if deps_apt:
@@ -257,6 +252,11 @@ class DepsInstaller:
                 result = self.tasks(module, ansible_tasks)
                 self.setup_status[dep_common] = result
                 success &= result
+
+        # ansible tasks
+        ansible_tasks = preloaded["deps"]["ansible"]
+        if ansible_tasks:
+            success &= self.tasks(module, ansible_tasks)
 
         return success
 
