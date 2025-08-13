@@ -138,7 +138,10 @@ class Scanner:
 
         from .preset import Preset
 
-        base_preset = Preset(*targets, scan_name=name, **kwargs)
+        if name is not None:
+            kwargs["scan_name"] = name
+
+        base_preset = Preset(*targets, **kwargs)
 
         if custom_preset is not None:
             if not isinstance(custom_preset, Preset):
