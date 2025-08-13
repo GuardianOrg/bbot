@@ -23,6 +23,12 @@ def test_ip_regexes():
         "2001:db8:g::",  # includes non-hex character,
         "2001.db8.80",  # weird dot separated thing that might actually resolve as a DNS_NAME
         "9e:3e:53:29:43:64",  # MAC address, poor regex patterning will often detect these.
+        "2001:db8:1:2:3:4:5:6",  # only 7 groups, no zero-compression
+        "2001:db8:1:2:3:4:5:6:7",  # too many groups
+        "2001:db8::1::1",  # multiple ::
+        "2001:db8::zzzz",  # non-hex character
+        "2001:db8::12345",  # hex value too long
+        ":2001:db8::1",  # starts with :
     ]
 
     good_ip = [
@@ -46,6 +52,18 @@ def test_ip_regexes():
         "1::1",
         "ffff::ffff",
         "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "2001:db8::ff00:42:8329",
+        "2001:0db8:0000:0000:0000:0000:0000:0001",
+        "2001:db8:0:0:0:0:0:1",
+        "2001:db8::1",
+        "2001:db8::dead:beef",
+        "2001:db8:1:2:3:4:5:6",
+        "2001:db8:1:2:3:4:5:ffff",
+        "::",
+        "::ffff",
+        "::dead:beef",
+        "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+        "0000:0000:0000:0000:0000:0000:0000:0000",
     ]
 
     ip_address_regexes = regexes.event_type_regexes["IP_ADDRESS"]
