@@ -23,11 +23,26 @@ num_regex = re.compile(r"\d+")
 _ipv4_regex = r"(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}"
 ipv4_regex = re.compile(_ipv4_regex, re.I)
 
-# IPv6 is complicated, so we have accommodate alternative patterns,
-# :(:[A-F0-9]{1,4}){1,7} == ::1, ::ffff:1
-# ([A-F0-9]{1,4}:){1,7}: == 2001::, 2001:db8::, 2001:db8:0:1:2:3::
-# ([A-F0-9]{1,4}:){1,6}:([A-F0-9]{1,4}) == 2001::1, 2001:db8::1, 2001:db8:0:1:2:3::1
-# ([A-F0-9]{1,4}:){7,7}([A-F0-9]{1,4}) == 1:1:1:1:1:1:1:1, ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+# IPv6 regex — matches a standalone bare IPv6 address.
+#
+# What it matches:
+#   Full 8-hextet addresses, or
+#   Compressed forms with a single "::" replacing one or more zero hextets.
+#   (A hextet is 1–4 hex digits; fully expanded there are 8 total.)
+#
+# How it works:
+#   Token boundaries are enforced using negative lookbehind/ahead (?<![A-F0-9:]) … (?![A-F0-9:]) so we only grab a standalone IPv6 address
+#   and not a slice of a longer hex/colon run (e.g., MACs).
+#   Inside, we enumerate all valid variations: either 8 hextets with no compression,
+#   or "N left hextets :: M right hextets" with N+M ≤ 8. This covers leading/middle/trailing
+#   compression and the all-zeros case "::".
+#
+# Limitations:
+#   Matches the address only (not surrounding [ ] if present).
+#   Does not match IPv4-embedded forms (e.g., ::ffff:192.0.2.1).
+#   Does not match zone IDs (e.g., %eth0).
+#   Pure syntax check; will not validate special ranges.
+
 
 _ipv6_regex = r"(?<![A-F0-9:])(?:(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}|(?:[A-F0-9]{1,4}:){1,7}:|(?:[A-F0-9]{1,4}:){1,6}:[A-F0-9]{1,4}|(?:[A-F0-9]{1,4}:){1,5}(?::[A-F0-9]{1,4}){1,2}|(?:[A-F0-9]{1,4}:){1,4}(?::[A-F0-9]{1,4}){1,3}|(?:[A-F0-9]{1,4}:){1,3}(?::[A-F0-9]{1,4}){1,4}|(?:[A-F0-9]{1,4}:){1,2}(?::[A-F0-9]{1,4}){1,5}|[A-F0-9]{1,4}:(?::[A-F0-9]{1,4}){1,6}|:(?::[A-F0-9]{1,4}){1,7}|::)(?![A-F0-9:])"
 ipv6_regex = re.compile(_ipv6_regex, re.I)
