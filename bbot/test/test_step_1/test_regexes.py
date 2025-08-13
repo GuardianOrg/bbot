@@ -61,7 +61,7 @@ def test_ip_regexes():
         "2001:db8:1:2:3:4:5:ffff",
         "::",
         "::ffff",
-        "::dead:beef"
+        "::dead:beef",
     ]
 
     ip_address_regexes = regexes.event_type_regexes["IP_ADDRESS"]
