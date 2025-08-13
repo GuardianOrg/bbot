@@ -181,7 +181,7 @@ split_host_port_regex = re.compile(_split_host_port_regex, re.I)
 _extract_open_port_regex = r"(?:(?:\[([0-9a-f:]+)\])|([^\s:]+))(?::(\d{1,5}))?"
 extract_open_port_regex = re.compile(_extract_open_port_regex)
 
-_extract_host_regex = r"(?:[a-z0-9]{1,20}://)?(?:[^?]*@)?(" + valid_netloc + ")"
+_extract_host_regex = r"(?!:)(?:[a-z0-9]{1,20}://)?(?:[^?]*@)?(" + valid_netloc + ")"
 extract_host_regex = re.compile(_extract_host_regex, re.I)
 
 # for use in recursive_decode()
