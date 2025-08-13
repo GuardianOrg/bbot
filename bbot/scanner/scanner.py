@@ -99,6 +99,7 @@ class Scanner:
     def __init__(
         self,
         *targets,
+        name=None,
         scan_id=None,
         dispatcher=None,
         **kwargs,
@@ -137,7 +138,7 @@ class Scanner:
 
         from .preset import Preset
 
-        base_preset = Preset(*targets, **kwargs)
+        base_preset = Preset(*targets, scan_name=name, **kwargs)
 
         if custom_preset is not None:
             if not isinstance(custom_preset, Preset):
