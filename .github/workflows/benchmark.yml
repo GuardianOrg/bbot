@@ -105,10 +105,25 @@ jobs:
             console.error('Failed to post benchmark results:', error);
             
             // Post a fallback comment
+            const fallbackMessage = [
+              '# 🚀 Performance Benchmark Report',
+              '',
+              '> ⚠️ **Failed to generate detailed benchmark comparison**',
+              '> ',
+              '> The benchmark comparison failed to run. This might be because:',
+              '> - Benchmark tests don\'t exist on the base branch yet',
+              '> - Dependencies are missing', 
+              '> - Test execution failed',
+              '> ',
+              '> Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.',
+              '> ',
+              '> 📁 Benchmark artifacts may be available for download from the workflow run.'
+            ].join('\\n');
+            
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: '# 🚀 Performance Benchmark Report\\n\\n> ⚠️ **Failed to generate detailed benchmark comparison**\\n> \\n> The benchmark comparison failed to run. This might be because:\\n> - Benchmark tests don\\'t exist on the base branch yet\\n> - Dependencies are missing\\n> - Test execution failed\\n> \\n> Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\\n> \\n> 📁 Benchmark artifacts may be available for download from the workflow run.'
+              body: fallbackMessage
             });
           } 
