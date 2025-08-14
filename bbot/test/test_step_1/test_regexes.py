@@ -81,8 +81,7 @@ def test_ip_regexes():
                 if ip.startswith("["):
                     assert ip == "[2001:db8::]:80"
                 else:
-                    if not ip == "cafe:80":
-                        assert ip == "203.0.113.0:80"
+                    assert ip in ("cafe:80", "203.0.113.0:80")
                 continue
             if event_type == "DNS_NAME":
                 if ip.startswith("2001"):
