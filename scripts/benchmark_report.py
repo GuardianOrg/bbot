@@ -233,11 +233,11 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
     if improvements > 0 or regressions > 0:
         table += f"```diff\n"
         if improvements > 0:
-            table += f"+ {improvements} performance improvement{'s' if improvements != 1 else ''} 🚀\n"
+            table += f"+ {improvements} improvement{'s' if improvements != 1 else ''} 🚀\n"
         if regressions > 0:
-            table += f"- {regressions} performance regression{'s' if regressions != 1 else ''} ⚠️\n"
+            table += f"! {regressions} regression{'s' if regressions != 1 else ''} ⚠️\n"
         if no_change > 0:
-            table += f"  {no_change} test{'s' if no_change != 1 else ''} unchanged ✅\n"
+            table += f"  {no_change} unchanged ✅\n"
         table += "```\n\n"
     else:
         table += "✅ **No significant performance changes detected** (all changes <5%)\n\n"
@@ -256,18 +256,10 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
 
 def generate_report(current_data: Dict, base_data: Dict, current_branch: str, base_branch: str) -> str:
     """Generate complete benchmark comparison report."""
-
-    # Start building report with a nice header
-    report = f"""# 🚀 Performance Benchmark Report
-
-**Branch Comparison:** `{base_branch}` → `{current_branch}`
-
----
-
-"""
-
+    
     if not current_data:
-        report += """
+        report = """## Performance Benchmark Report
+
 > ⚠️ **No current benchmark data available**
 > 
 > This might be because:
@@ -277,9 +269,10 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 
 """
         return report
-
+    
     if not base_data:
-        report += f"""
+        report = f"""## Performance Benchmark Report
+
 > ℹ️ **No baseline benchmark data available**
 > 
 > Showing current results for `{current_branch}` only.
@@ -292,30 +285,13 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
         # Add comparison
         comparison = generate_comparison_table(current_data, base_data, current_branch, base_branch)
         if comparison:
-            report += comparison
-
-    # Add environment info with nice formatting
+            report = comparison
+    
+    # Add simple footer with python version
     machine_info = current_data.get("machine_info", {})
-    commit_info = current_data.get("commit_info", {})
-
-    report += """---
-
-<details>
-<summary>🖥️ <strong>Test Environment</strong></summary>
-
-"""
-
-    report += f"- **🐍 Python**: `{machine_info.get('python_version', 'Unknown')}`\n"
-    report += f"- **💻 Platform**: `{machine_info.get('platform', 'Unknown')}`\n"
-    report += f"- **⚙️ CPU**: `{machine_info.get('processor', 'Unknown')}`\n"
-
-    if commit_info:
-        report += f"- **📝 Commit**: `{commit_info.get('id', 'Unknown')[:8]}`\n"
-
-    report += "\n</details>\n\n"
-
-    # Add footer
-    report += """---"""
+    python_version = machine_info.get("python_version", "Unknown")
+    
+    report += f"\n---\n🐍 Python Version {python_version}"
 
     return report
 
