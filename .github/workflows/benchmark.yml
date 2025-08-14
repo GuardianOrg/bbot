@@ -8,6 +8,10 @@ on:
       - 'pyproject.toml'
       - '.github/workflows/benchmark.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -22,27 +26,14 @@ jobs:
         fetch-depth: 0  # Need full history for branch comparison
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
-
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        version: 1.6.1
-        virtualenvs-create: true
-        virtualenvs-in-project: true
-
-    - name: Cache Poetry dependencies
-      uses: actions/cache@v3
-      with:
-        path: .venv
-        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
-        restore-keys: |
-          venv-${{ runner.os }}-
+        python-version: "3.11"
 
     - name: Install dependencies
-      run: poetry install --with dev
+      run: |
+        pip install poetry
+        poetry install --with dev
 
     - name: Install system dependencies
       run: |
@@ -61,7 +52,7 @@ jobs:
 
     # Upload benchmark results as artifacts
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results
         path: |
