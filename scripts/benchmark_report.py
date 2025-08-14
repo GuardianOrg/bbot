@@ -249,11 +249,7 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
             table += f"{change}\n"
         table += "\n"
 
-    # Add top performers
-    if performance_summary:
-        fastest_test = max(performance_summary, key=lambda x: x["current_ops"])
-        table += f"### ⚡ Fastest Operation\n"
-        table += f"**{fastest_test['name']}** - {format_ops(fastest_test['current_ops'])}\n\n"
+
 
     return table
 
@@ -264,7 +260,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     # Start building report with a nice header
     report = f"""# 🚀 Performance Benchmark Report
 
-**Branch Comparison:** `dev` → `benchmark-tests`
+**Branch Comparison:** `{base_branch}` → `{current_branch}`
 
 ---
 
