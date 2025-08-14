@@ -1,0 +1,123 @@
+name: Performance Benchmarks
+
+on:
+  pull_request:
+    branches: [ main, dev ]
+    paths:
+      - 'bbot/**/*.py'
+      - 'pyproject.toml'
+      - '.github/workflows/benchmark.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Need full history for branch comparison
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.6.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Cache Poetry dependencies
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-
+
+    - name: Install dependencies
+      run: poetry install --with dev
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libmagic1
+
+    # Generate benchmark comparison report using our branch-based script
+    - name: Generate benchmark comparison report
+      run: |
+        poetry run python scripts/benchmark_report.py \
+          --base ${{ github.base_ref }} \
+          --current ${{ github.head_ref }} \
+          --output benchmark_report.md \
+          --keep-results
+      continue-on-error: true
+
+    # Upload benchmark results as artifacts
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: |
+          benchmark_report.md
+          base_benchmark_results.json
+          current_benchmark_results.json
+        retention-days: 30
+
+    # Comment on PR with benchmark results
+    - name: Comment benchmark results on PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          try {
+            const report = fs.readFileSync('benchmark_report.md', 'utf8');
+            
+            // Find existing benchmark comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const existingComment = comments.data.find(comment => 
+              comment.body.includes('# 🚀 Performance Benchmark Report')
+            );
+            
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: report
+              });
+              console.log('Updated existing benchmark comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+              console.log('Created new benchmark comment');
+            }
+          } catch (error) {
+            console.error('Failed to post benchmark results:', error);
+            
+            // Post a fallback comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '# 🚀 Performance Benchmark Report\\n\\n> ⚠️ **Failed to generate detailed benchmark comparison**\\n> \\n> The benchmark comparison failed to run. This might be because:\\n> - Benchmark tests don\\'t exist on the base branch yet\\n> - Dependencies are missing\\n> - Test execution failed\\n> \\n> Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.\\n> \\n> 📁 Benchmark artifacts may be available for download from the workflow run.'
+            });
+          } 

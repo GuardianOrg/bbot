@@ -146,84 +146,183 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
     if not current_benchmarks:
         return ""
     
-    table = f"""## 📊 Performance Comparison: `{base_branch}` → `{current_branch}`
+    # Count changes for summary
+    improvements = 0
+    regressions = 0
+    no_change = 0
+    
+    table = f"""## 📊 Performance Benchmark Results
 
-| Test Name | {base_branch} | {current_branch} | Change | Status |
-|-----------|---------|----------|--------|--------|
-"""
+> Comparing **`{base_branch}`** (baseline) vs **`{current_branch}`** (current)
+
+<details>
+<summary>📈 <strong>Detailed Results</strong></summary>
+
+| 🧪 Test Name | 📏 Base | 📏 Current | 📈 Change | 🎯 Status |
+|--------------|---------|------------|-----------|-----------|"""
     
     significant_changes = []
+    performance_summary = []
     
     for current_bench in current_benchmarks:
         name = current_bench.get('name', 'Unknown')
-        test_name = name.replace('test_bloom_filter_', '')
+        test_name = name.replace('test_bloom_filter_', '').replace('_', ' ').title()
         
         current_stats = current_bench.get('stats', {})
         current_mean = current_stats.get('mean', 0)
+        current_ops = current_stats.get('ops', 0)
         
         base_bench = base_lookup.get(name)
         if base_bench:
             base_stats = base_bench.get('stats', {})
             base_mean = base_stats.get('mean', 0)
+            base_ops = base_stats.get('ops', 0)
             
             change_percent, emoji = calculate_change_percentage(base_mean, current_mean)
             
-            table += f"| {test_name} | {format_time(base_mean)} | {format_time(current_mean)} | {change_percent:+.1f}% | {emoji} |\n"
+            # Create visual change indicator
+            if abs(change_percent) > 10:
+                change_bar = "🔴🔴🔴" if change_percent > 0 else "🟢🟢🟢"
+            elif abs(change_percent) > 5:
+                change_bar = "🟡🟡" if change_percent > 0 else "🟢🟢"
+            else:
+                change_bar = "⚪"
+            
+            table += f"\n| **{test_name}** | `{format_time(base_mean)}` | `{format_time(current_mean)}` | **{change_percent:+.1f}%** {change_bar} | {emoji} |"
             
             # Track significant changes
             if abs(change_percent) > 5:
-                direction = "slower" if change_percent > 0 else "faster"
+                direction = "🐌 slower" if change_percent > 0 else "🚀 faster"
                 significant_changes.append(f"- **{test_name}**: {abs(change_percent):.1f}% {direction}")
+                if change_percent > 0:
+                    regressions += 1
+                else:
+                    improvements += 1
+            else:
+                no_change += 1
+            
+            # Add to performance summary
+            ops_change = ((current_ops - base_ops) / base_ops) * 100 if base_ops > 0 else 0
+            performance_summary.append({
+                'name': test_name,
+                'time_change': change_percent,
+                'ops_change': ops_change,
+                'current_ops': current_ops
+            })
         else:
-            table += f"| {test_name} | - | {format_time(current_mean)} | New | 🆕 |\n"
-            significant_changes.append(f"- **{test_name}**: New test")
+            table += f"\n| **{test_name}** | `-` | `{format_time(current_mean)}` | **New** 🆕 | 🆕 |"
+            significant_changes.append(f"- **{test_name}**: New test 🆕")
     
-    # Add summary of significant changes
-    if significant_changes:
-        table += f"\n### 🔍 Significant Changes (>5%)\n"
-        table += "\n".join(significant_changes)
-        table += "\n"
+    table += "\n\n</details>\n\n"
+    
+    # Add performance summary
+    table += "## 🎯 Performance Summary\n\n"
+    
+    if improvements > 0 or regressions > 0:
+        table += f"```diff\n"
+        if improvements > 0:
+            table += f"+ {improvements} performance improvement{'s' if improvements != 1 else ''} 🚀\n"
+        if regressions > 0:
+            table += f"- {regressions} performance regression{'s' if regressions != 1 else ''} ⚠️\n"
+        if no_change > 0:
+            table += f"  {no_change} test{'s' if no_change != 1 else ''} unchanged ✅\n"
+        table += "```\n\n"
     else:
-        table += "\n✅ **No significant performance changes detected**\n"
+        table += "✅ **No significant performance changes detected** (all changes <5%)\n\n"
     
-    return table + "\n"
+    # Add significant changes section
+    if significant_changes:
+        table += "### 🔍 Significant Changes (>5%)\n\n"
+        for change in significant_changes:
+            table += f"{change}\n"
+        table += "\n"
+    
+    # Add top performers
+    if performance_summary:
+        fastest_test = max(performance_summary, key=lambda x: x['current_ops'])
+        table += f"### ⚡ Fastest Operation\n"
+        table += f"**{fastest_test['name']}** - {format_ops(fastest_test['current_ops'])}\n\n"
+    
+    return table
 
 
 def generate_report(current_data: Dict, base_data: Dict, current_branch: str, base_branch: str) -> str:
     """Generate complete benchmark comparison report."""
     
-    # Start building report
-    report = f"## 🚀 Performance Benchmark Report\n\n"
-    report += f"Comparing performance between `{base_branch}` (baseline) and `{current_branch}` (current).\n\n"
+    # Start building report with a nice header
+    report = f"""# 🚀 Performance Benchmark Report
+
+<div align="center">
+
+**Branch Comparison:** `{base_branch}` → `{current_branch}`
+
+![Performance](https://img.shields.io/badge/Performance-Benchmark-blue?style=for-the-badge&logo=github)
+![Status](https://img.shields.io/badge/Status-Complete-green?style=for-the-badge)
+
+</div>
+
+---
+
+"""
     
     if not current_data:
-        report += "⚠️ No current benchmark data available.\n"
+        report += """
+> ⚠️ **No current benchmark data available**
+> 
+> This might be because:
+> - Benchmarks failed to run
+> - No benchmark tests found
+> - Dependencies missing
+
+"""
         return report
     
     if not base_data:
-        report += "⚠️ No baseline benchmark data available. Showing current results only.\n\n"
+        report += f"""
+> ℹ️ **No baseline benchmark data available**
+> 
+> Showing current results for `{current_branch}` only.
+
+"""
         current_benchmarks = current_data.get('benchmarks', [])
         if current_benchmarks:
-            report += generate_benchmark_table(current_benchmarks, f"Current Results ({current_branch})")
+            report += generate_benchmark_table(current_benchmarks, f"📊 Current Results (`{current_branch}`)")
     else:
         # Add comparison
         comparison = generate_comparison_table(current_data, base_data, current_branch, base_branch)
         if comparison:
             report += comparison
     
-    # Add environment info
+    # Add environment info with nice formatting
     machine_info = current_data.get('machine_info', {})
     commit_info = current_data.get('commit_info', {})
     
-    report += "### 🖥️ Test Environment\n"
-    report += f"- **Python**: {machine_info.get('python_version', 'Unknown')}\n"
-    report += f"- **Platform**: {machine_info.get('platform', 'Unknown')}\n"
-    report += f"- **CPU**: {machine_info.get('processor', 'Unknown')}\n"
+    report += """---
+
+<details>
+<summary>🖥️ <strong>Test Environment</strong></summary>
+
+"""
+    
+    report += f"- **🐍 Python**: `{machine_info.get('python_version', 'Unknown')}`\n"
+    report += f"- **💻 Platform**: `{machine_info.get('platform', 'Unknown')}`\n"
+    report += f"- **⚙️ CPU**: `{machine_info.get('processor', 'Unknown')}`\n"
     
     if commit_info:
-        report += f"- **Commit**: `{commit_info.get('id', 'Unknown')[:8]}`\n"
+        report += f"- **📝 Commit**: `{commit_info.get('id', 'Unknown')[:8]}`\n"
     
-    report += "\n*Benchmarks measure bloom filter operations critical for DNS brute-forcing performance.*\n"
+    report += "\n</details>\n\n"
+    
+    # Add footer
+    report += """---
+
+<div align="center">
+
+> 🧪 *Benchmarks measure bloom filter operations critical for DNS brute-forcing performance*
+> 
+> Generated by BBOT Performance Testing Suite
+
+</div>"""
     
     return report
 
