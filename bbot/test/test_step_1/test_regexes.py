@@ -29,6 +29,9 @@ def test_ip_regexes():
         "2001:db8::zzzz",  # non-hex character
         "2001:db8::12345",  # hex value too long
         ":2001:db8::1",  # starts with :
+        ":2001:db8::",  # starts with :
+        "cafe:80",  # looks like open port
+        "12:34:56:78:9A:BC",  # mac address
     ]
 
     good_ip = [
@@ -62,6 +65,7 @@ def test_ip_regexes():
         "::",
         "::ffff",
         "::dead:beef",
+        "::DEAD:BEEF",
     ]
 
     ip_address_regexes = regexes.event_type_regexes["IP_ADDRESS"]
@@ -77,7 +81,8 @@ def test_ip_regexes():
                 if ip.startswith("["):
                     assert ip == "[2001:db8::]:80"
                 else:
-                    assert ip == "203.0.113.0:80"
+                    if not ip == "cafe:80":
+                        assert ip == "203.0.113.0:80"
                 continue
             if event_type == "DNS_NAME":
                 if ip.startswith("2001"):

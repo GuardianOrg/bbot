@@ -47,8 +47,7 @@ ipv4_regex = re.compile(_ipv4_regex, re.I)
 # - Does not match zone IDs (e.g., %eth0).
 # - Pure syntax check; will not validate special ranges.
 
-
-_ipv6_regex = r"(?<![A-F0-9:])(?:(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}|(?:[A-F0-9]{1,4}:){1,7}:|(?:[A-F0-9]{1,4}:){1,6}:[A-F0-9]{1,4}|(?:[A-F0-9]{1,4}:){1,5}(?::[A-F0-9]{1,4}){1,2}|(?:[A-F0-9]{1,4}:){1,4}(?::[A-F0-9]{1,4}){1,3}|(?:[A-F0-9]{1,4}:){1,3}(?::[A-F0-9]{1,4}){1,4}|(?:[A-F0-9]{1,4}:){1,2}(?::[A-F0-9]{1,4}){1,5}|[A-F0-9]{1,4}:(?::[A-F0-9]{1,4}){1,6}|:(?::[A-F0-9]{1,4}){1,7}|::)(?![A-F0-9:])"
+_ipv6_regex = r"(?:(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}|(?:[A-F0-9]{1,4}:){1,7}:|(?:[A-F0-9]{1,4}:){1,6}:[A-F0-9]{1,4}|(?:[A-F0-9]{1,4}:){1,5}(?::[A-F0-9]{1,4}){1,2}|(?:[A-F0-9]{1,4}:){1,4}(?::[A-F0-9]{1,4}){1,3}|(?:[A-F0-9]{1,4}:){1,3}(?::[A-F0-9]{1,4}){1,4}|(?:[A-F0-9]{1,4}:){1,2}(?::[A-F0-9]{1,4}){1,5}|[A-F0-9]{1,4}:(?::[A-F0-9]{1,4}){1,6}|:(?::[A-F0-9]{1,4}){1,7}|::)"
 ipv6_regex = re.compile(_ipv6_regex, re.I)
 
 _ip_range_regexes = (
@@ -192,7 +191,7 @@ button_tag_regex2 = re.compile(
 )
 tag_attribute_regex = re.compile(r"<[^>]*(?:href|action|src)\s*=\s*[\"\']?(?!mailto:)([^\'\"\>]+)[\"\']?[^>]*>")
 
-valid_netloc = r"[^\s!@#$%^&()=/?\\'\";~`<>]+"
+valid_netloc = r"(?!:)[^\s!@#$%^&()=/?\\'\";~`<>]+"
 
 _split_host_port_regex = r"(?:(?P<scheme>[a-z0-9]{1,20})://)?(?:[^?]*@)?(?P<netloc>" + valid_netloc + ")"
 split_host_port_regex = re.compile(_split_host_port_regex, re.I)
@@ -200,7 +199,7 @@ split_host_port_regex = re.compile(_split_host_port_regex, re.I)
 _extract_open_port_regex = r"(?:(?:\[([0-9a-f:]+)\])|([^\s:]+))(?::(\d{1,5}))?"
 extract_open_port_regex = re.compile(_extract_open_port_regex)
 
-_extract_host_regex = r"(?!:)(?:[a-z0-9]{1,20}://)?(?:[^?]*@)?(" + valid_netloc + ")"
+_extract_host_regex = r"(?:[a-z0-9]{1,20}://)?(?:[^?]*@)?(" + valid_netloc + ")"
 extract_host_regex = re.compile(_extract_host_regex, re.I)
 
 # for use in recursive_decode()
