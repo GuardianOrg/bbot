@@ -47,6 +47,14 @@ def checkout_branch(branch: str, repo_path: Path = None):
 def run_benchmarks(output_file: Path, repo_path: Path = None) -> bool:
     """Run benchmarks and save results to JSON file."""
     print(f"Running benchmarks, saving to {output_file}")
+    
+    # Check if benchmarks directory exists
+    benchmarks_dir = repo_path / "bbot/test/benchmarks" if repo_path else Path("bbot/test/benchmarks")
+    if not benchmarks_dir.exists():
+        print(f"Benchmarks directory not found: {benchmarks_dir}")
+        print("This branch likely doesn't have benchmark tests yet.")
+        return False
+    
     try:
         cmd = [
             "poetry", "run", "python", "-m", "pytest", 
