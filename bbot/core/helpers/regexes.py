@@ -25,7 +25,6 @@ ipv4_regex = re.compile(_ipv4_regex, re.I)
 
 # IPv6 regex breakdown:
 #
-# (?<![A-F0-9:])                 # Left boundary: don’t start inside a hex/colon run.
 # (?:                            # —— address body ——
 # We have to individually account for all possible variations of: "N left hextets :: M right hextets" with N+M ≤ 8 or fully expanded 8 hextets.
 #   (?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}        # 8 hextets, no compression.
@@ -39,10 +38,8 @@ ipv4_regex = re.compile(_ipv4_regex, re.I)
 # | :(?::[A-F0-9]{1,4}){1,7}                        # 0 left,    "::", 1–7 right.
 # | ::                                              # all zeros.
 # )
-# (?![A-F0-9:])                  # Right boundary.
 #
 # Notes:
-# - The boundary lookarounds keep matches from being substrings of longer hex/colon text.
 # - Does not match IPv4-embedded forms (e.g., ::ffff:192.0.2.1).
 # - Does not match zone IDs (e.g., %eth0).
 # - Pure syntax check; will not validate special ranges.
