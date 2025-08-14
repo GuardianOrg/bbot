@@ -6,9 +6,6 @@ from bbot.core.helpers import regexes
 from bbot.errors import ValidationError
 from bbot.core.event.helpers import EventSeed
 
-# NOTE: :2001:db8:: will currently cause an exception...
-# e.g. raised unknown error: split_port() failed to parse netloc ":2001:db8::"
-
 
 def test_ip_regexes():
     bad_ip = [
