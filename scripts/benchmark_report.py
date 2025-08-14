@@ -264,14 +264,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     # Start building report with a nice header
     report = f"""# 🚀 Performance Benchmark Report
 
-<div align="center">
-
-**Branch Comparison:** `{base_branch}` → `{current_branch}`
-
-![Performance](https://img.shields.io/badge/Performance-Benchmark-blue?style=for-the-badge&logo=github)
-![Status](https://img.shields.io/badge/Status-Complete-green?style=for-the-badge)
-
-</div>
+**Branch Comparison:** `dev` → `benchmark-tests`
 
 ---
 
