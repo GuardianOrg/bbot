@@ -191,7 +191,9 @@ button_tag_regex2 = re.compile(
 )
 tag_attribute_regex = re.compile(r"<[^>]*(?:href|action|src)\s*=\s*[\"\']?(?!mailto:)([^\'\"\>]+)[\"\']?[^>]*>")
 
-valid_netloc = r"(?!:)[^\s!@#$%^&()=/?\\'\";~`<>]+"
+_invalid_netloc_chars = r"\s!@#$%^&()=/?\\'\";~`<>"
+# first char must not be a colon, even though it's a valid char for a netloc
+valid_netloc = r"[^" + (_invalid_netloc_chars + ":") + r"]{1}[^" + _invalid_netloc_chars + "]*"
 
 _split_host_port_regex = r"(?:(?P<scheme>[a-z0-9]{1,20})://)?(?:[^?]*@)?(?P<netloc>" + valid_netloc + ")"
 split_host_port_regex = re.compile(_split_host_port_regex, re.I)
