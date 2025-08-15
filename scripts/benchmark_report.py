@@ -269,7 +269,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 
 """
         return report
-    
+        
     if not base_data:
         report = f"""## Performance Benchmark Report
 
@@ -280,7 +280,11 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 """
         current_benchmarks = current_data.get("benchmarks", [])
         if current_benchmarks:
-            report += generate_benchmark_table(current_benchmarks, f"📊 Current Results (`{current_branch}`)")
+            report += f"""<details>
+<summary>📊 Current Results (`{current_branch}`) - Click to expand</summary>
+
+{generate_benchmark_table(current_benchmarks, f"📊 Current Results (`{current_branch}`)")}
+</details>"""
     else:
         # Add comparison
         comparison = generate_comparison_table(current_data, base_data, current_branch, base_branch)
