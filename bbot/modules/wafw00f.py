@@ -22,7 +22,7 @@ class wafw00f(BaseModule):
         "author": "@liquidsec",
     }
 
-    deps_pip = ["wafw00f~=2.2.0"]
+    deps_pip = ["wafw00f~=2.3.1"]
 
     options = {"generic_detect": True}
     options_desc = {"generic_detect": "When no specific WAF detections are made, try to perform a generic detect"}
