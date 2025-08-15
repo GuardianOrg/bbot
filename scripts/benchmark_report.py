@@ -165,7 +165,9 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
 > Comparing **`{base_branch}`** (baseline) vs **`{current_branch}`** (current)
 
 <details>
-<summary>📈 <strong>Detailed Results</strong></summary>
+<summary>📈 <strong>Detailed Results</strong> (All Benchmarks)</summary>
+
+> 📋 **Complete results for all benchmarks** - includes both significant and insignificant changes
 
 | 🧪 Test Name | 📏 Base | 📏 Current | 📈 Change | 🎯 Status |
 |--------------|---------|------------|-----------|-----------|"""
