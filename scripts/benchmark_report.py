@@ -285,7 +285,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
             report += f"""<details>
 <summary>📊 Current Results (`{current_branch}`) - Click to expand</summary>
 
-{generate_benchmark_table(current_benchmarks, f"📊 Current Results (`{current_branch}`)")}
+{generate_benchmark_table(current_benchmarks, "Results")}
 </details>"""
     else:
         # Add comparison
