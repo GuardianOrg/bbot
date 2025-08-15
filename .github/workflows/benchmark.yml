@@ -78,7 +78,7 @@ jobs:
             });
             
             const existingComment = comments.data.find(comment => 
-              comment.body.includes('# 🚀 Performance Benchmark Report')
+              comment.body.includes('## Performance Benchmark Report')
             );
             
             if (existingComment) {
@@ -105,7 +105,7 @@ jobs:
             
             // Post a fallback comment
             const fallbackMessage = [
-              '# 🚀 Performance Benchmark Report',
+              '## Performance Benchmark Report',
               '',
               '> ⚠️ **Failed to generate detailed benchmark comparison**',
               '> ',
