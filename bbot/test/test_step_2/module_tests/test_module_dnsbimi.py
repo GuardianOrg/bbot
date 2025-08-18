@@ -6,7 +6,7 @@ raw_bimi_txt_default = (
 raw_bimi_txt_nondefault = '"v=BIMI1; l=https://nondefault.thirdparty.tld/brand/logo.svg;a=https://nondefault.thirdparty.tld/brand/certificate.pem;"'
 
 
-class TestBIMI(ModuleTestBase):
+class TestDnsbimi(ModuleTestBase):
     targets = ["test.localdomain"]
     modules_overrides = ["dnsbimi", "speculate"]
     config_overrides = {
