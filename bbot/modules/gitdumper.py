@@ -268,3 +268,4 @@ class gitdumper(BaseModule):
         except CalledProcessError as e:
             # Still emit the event even if the checkout fails
             self.debug(f"Error running git checkout in {folder}. STDERR: {repr(e.stderr)}")
+``
