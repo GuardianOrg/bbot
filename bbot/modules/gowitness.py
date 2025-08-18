@@ -161,7 +161,6 @@ class gowitness(BaseModule):
                 key = e.data["url"]
             event_dict[key] = e
         stdin = "\n".join(list(event_dict))
-        self.hugeinfo(f"Gowitness input: {stdin}")
 
         try:
             async for line in self.run_process_live(self.command, input=stdin, idle_timeout=self.idle_timeout):
@@ -182,7 +181,6 @@ class gowitness(BaseModule):
             # NOTE: this prevents long filenames from causing problems in BBOT, but gowitness will still fail to save it.
             filename = self.helpers.truncate_filename(filename)
             webscreenshot_data = {"path": str(filename), "url": final_url}
-            self.hugewarning(event_dict)
             parent_event = event_dict[url]
             await self.emit_event(
                 webscreenshot_data,
