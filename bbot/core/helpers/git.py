@@ -1,18 +1,12 @@
 import regex as re
 
-GIT_CONFIG_UNSAFE_REGEX = re.compile(r"^.*(?:fsmonitor|sshcommand|askpass|editor|pager)\s*=.+", re.IGNORECASE)
 
-
-def sanitize_git_repo(repo_folder, remove_index=True):
-    # sanitize git config, removing unsafe options that could be used to execute code
+def sanitize_git_repo(repo_folder):
+    # sanitizing the git config is infeasible since there are too many different ways to do evil things
+    # instead, we move it out of .git and into the repo folder, so we don't miss any secrets etc. inside
     config_file = repo_folder / ".git" / "config"
     if config_file.exists():
-        with config_file.open("r", encoding="utf-8", errors="ignore") as file:
-            content = file.read()
-            sanitized = re.sub(GIT_CONFIG_UNSAFE_REGEX, r"# \g<0>", content)
-        with config_file.open("w", encoding="utf-8") as file:
-            file.write(sanitized)
+        config_file.rename(repo_folder / "git_config")
     # remove the index file
-    if remove_index:
-        index_file = repo_folder / ".git" / "index"
-        index_file.unlink(missing_ok=True)
+    index_file = repo_folder / ".git" / "index"
+    index_file.unlink(missing_ok=True)
