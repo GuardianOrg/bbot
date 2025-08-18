@@ -28,7 +28,7 @@ class subdomaincenter(subdomain_enum):
             response = await self.helpers.request(url, timeout=self.http_timeout + 30)
             status_code = getattr(response, "status_code", 0)
             if status_code == 429:
-                await self.sleep(20)
+                await self.sleep(self.scan.web_config.get("429_sleep_interval", 20))
             else:
                 break
         return response
