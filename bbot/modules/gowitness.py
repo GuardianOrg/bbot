@@ -259,9 +259,7 @@ class gowitness(BaseModule):
                 con.row_factory = aiosqlite.Row
                 con.text_factory = self.helpers.smart_decode
                 async with con.execute("SELECT * FROM results") as cur:
-                    self.critical(f"CUR: {cur}")
                     async for row in cur:
-                        self.critical(f"SCREENSHOT: {row}")
                         row = dict(row)
                         _id = row["id"]
                         if _id not in self.screenshots_taken:
@@ -276,7 +274,6 @@ class gowitness(BaseModule):
                 con.row_factory = aiosqlite.Row
                 async with con.execute("SELECT * FROM network_logs") as cur:
                     async for row in cur:
-                        self.critical(f"NETWORK LOG: {row}")
                         row = dict(row)
                         url = row["url"]
                         if url not in self.connections_logged:
@@ -291,7 +288,6 @@ class gowitness(BaseModule):
                 con.row_factory = aiosqlite.Row
                 async with con.execute("SELECT * FROM technologies") as cur:
                     async for row in cur:
-                        self.critical(f"TECHNOLOGY: {row}")
                         _id = row["id"]
                         if _id not in self.technologies_found:
                             self.technologies_found.add(_id)
