@@ -24,7 +24,7 @@ class TestExcavate(ModuleTestBase):
         \\x3dwww6.test.notreal
         %0awww7.test.notreal
         \\u000awww8.test.notreal
-        # these ones shouldn't get emitted because they're .js (url_extension_httpx_only)
+        # these ones shouldn't get emitted because they're .js (modules must opt in with receive_js_url)
         <a href="/a_relative.js">
         <link href="/link_relative.js">
         # these ones should

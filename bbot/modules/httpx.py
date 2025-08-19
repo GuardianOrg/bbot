@@ -50,6 +50,7 @@ class httpx(BaseModule):
     _shuffle_incoming_queue = False
     _batch_size = 500
     _priority = 2
+    accept_js_url = True
 
     async def setup(self):
         self.threads = self.config.get("threads", 50)

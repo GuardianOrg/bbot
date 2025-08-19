@@ -94,10 +94,6 @@ class ScanIngress(BaseInterceptModule):
         # special handling of URL extensions
         url_extension = getattr(event, "url_extension", None)
         if url_extension is not None:
-            if url_extension in self.scan.url_extension_httpx_only:
-                event.add_tag("httpx-only")
-                event._omit = True
-
             # blacklist by extension
             if url_extension in self.scan.url_extension_blacklist:
                 self.debug(
