@@ -8,8 +8,8 @@ class retirejs(BaseModule):
     flags = ["active", "safe", "web-thorough"]
     meta = {
         "description": "Detect vulnerable/out-of-date JavaScript libraries",
-        "created_date": "2025-01-08",
-        "author": "@user",
+        "created_date": "2025-08-19",
+        "author": "@liquidsec",
     }
     scope_distance_modifier = 1
     options = {
