@@ -15,7 +15,7 @@ class subdomaincenter(subdomain_enum):
 
     async def request_url(self, query):
         url = f"{self.base_url}/?domain={self.helpers.quote(query)}"
-        response = await self.api_request(url, timeout=self.http_timeout)
+        response = await self.api_request(url)
         return response
 
     async def parse_results(self, r, query):
