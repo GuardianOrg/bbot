@@ -20,7 +20,7 @@ class retirejs(BaseModule):
     }
 
     deps_ansible = [
-        # --- Check if Node.js and npm are already installed ---
+        # Check if Node.js and npm are already installed
         {
             "name": "Check if Node.js is installed",
             "command": "which node",
@@ -33,32 +33,32 @@ class retirejs(BaseModule):
             "register": "npm_installed",
             "ignore_errors": True,
         },
-        # --- Install Node.js + npm ---
+        # Install Node.js + npm
         {
             "name": "Install Node.js and npm",
             "package": {"name": ["nodejs", "npm"], "state": "present"},
             "become": True,
             "when": "node_installed.rc != 0 or npm_installed.rc != 0",
         },
-        # --- Create retire.js local directory ---
+        # Create retire.js local directory
         {
             "name": "Create retire.js directory in BBOT_TOOLS",
             "file": {"path": "#{BBOT_TOOLS}/retirejs", "state": "directory", "mode": "0755"},
         },
-        # --- Check if retire.js is already installed locally ---
+        # Check if retire.js is already installed locally
         {
             "name": "Check if retire.js is installed locally",
             "command": "test -f #{BBOT_TOOLS}/retirejs/node_modules/.bin/retire",
             "register": "retire_local_installed",
             "ignore_errors": True,
         },
-        # --- Install retire.js locally ---
+        # Install retire.js locally
         {
             "name": "Install retire.js locally",
             "shell": "cd #{BBOT_TOOLS}/retirejs && npm install retire@#{BBOT_MODULES_RETIREJS_VERSION}",
             "when": "retire_local_installed.rc != 0",
         },
-        # --- Create retire cache directory ---
+        # Create retire cache directory
         {
             "name": "Create retire cache directory",
             "file": {"path": "#{BBOT_CACHE}/retire_cache", "state": "directory", "mode": "0755"},
