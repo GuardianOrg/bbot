@@ -81,7 +81,7 @@ class retirejs(BaseModule):
                 js_file_body_saved = self.helpers.tempfile(js_file_body, pipe=False, extension="js")
                 results = await self.execute_retirejs(js_file_body_saved)
                 if not results:
-                    self.warning(f"no output from retire.js")
+                    self.warning("no output from retire.js")
                     return
                 results_json = json.loads(results)
                 if results_json.get("data"):
