@@ -136,9 +136,9 @@ return Handlebars;
 class TestRetireJSNoExcavate(ModuleTestBase):
     targets = ["http://127.0.0.1:8888"]
     modules_overrides = ["httpx", "retirejs"]
+    force_start = True  # Allow scan to continue even if modules fail setup
     config_overrides = {
         "excavate": False,
-        "force_start": True,  # Allow scan to continue even if modules fail setup
     }
 
     def check(self, module_test, events):
@@ -151,7 +151,8 @@ class TestRetireJSNoExcavate(ModuleTestBase):
             if setup_status is not None:
                 success, error_msg = setup_status
                 assert success is False, "retirejs setup should have failed without excavate"
-                assert "excavate" in error_msg.lower(), f"Error should mention excavate: {error_msg}"
+                expected_error = "retirejs will not function without excavate enabled"
+                assert error_msg == expected_error, f"Expected error message '{expected_error}', but got '{error_msg}'"
 
         # No retirejs findings should be generated since setup failed
         retirejs_findings = [e for e in events if e.type == "FINDING" and getattr(e, "module", None) == "retirejs"]
