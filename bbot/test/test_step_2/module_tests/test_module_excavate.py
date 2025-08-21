@@ -24,14 +24,13 @@ class TestExcavate(ModuleTestBase):
         \\x3dwww6.test.notreal
         %0awww7.test.notreal
         \\u000awww8.test.notreal
-        # these ones shouldn't get emitted because they're .js (modules must opt in with receive_js_url)
-        <a href="/a_relative.js">
-        <link href="/link_relative.js">
-        # these ones should
         <a href="/a_relative.txt">
         <link href="/link_relative.txt">
         <a href="mailto:bob@evilcorp.org?subject=help">Help</a>
         <li class="toctree-l3"><a class="reference internal" href="miscellaneous.html#x50-uart-driver">16x50 UART Driver</a></li>
+        # these ones should get emitted as URL_UNVERIFIED events (processed by httpx which has accept_js_url=True)
+        <a href="/a_relative.js">
+        <link href="/link_relative.js">
         """
         expect_args = {"method": "GET", "uri": "/"}
         respond_args = {"response_data": response_data}
@@ -63,8 +62,9 @@ class TestExcavate(ModuleTestBase):
         assert "www6.test.notreal" in event_data
         assert "www7.test.notreal" in event_data
         assert "www8.test.notreal" in event_data
-        assert "http://127.0.0.1:8888/a_relative.js" not in event_data
-        assert "http://127.0.0.1:8888/link_relative.js" not in event_data
+        # .js files should be emitted as URL_UNVERIFIED events (they are processed by httpx which has accept_js_url=True)
+        assert "http://127.0.0.1:8888/a_relative.js" in event_data
+        assert "http://127.0.0.1:8888/link_relative.js" in event_data
         assert "http://127.0.0.1:8888/a_relative.txt" in event_data
         assert "http://127.0.0.1:8888/link_relative.txt" in event_data
 
