@@ -20,43 +20,31 @@ class retirejs(BaseModule):
     }
 
     deps_ansible = [
-        # Check if Node.js and npm are already installed
-        {
-            "name": "Check if Node.js is installed",
-            "command": "which node",
-            "register": "node_installed",
-            "ignore_errors": True,
-        },
-        {
-            "name": "Check if npm is installed",
-            "command": "which npm",
-            "register": "npm_installed",
-            "ignore_errors": True,
-        },
-        # Install Node.js + npm
+        # Install Node.js and npm
         {
             "name": "Install Node.js and npm",
             "package": {"name": ["nodejs", "npm"], "state": "present"},
             "become": True,
-            "when": "node_installed.rc != 0 or npm_installed.rc != 0",
+            "timeout": 300,
+            "ignore_errors": True,
         },
         # Create retire.js local directory
         {
             "name": "Create retire.js directory in BBOT_TOOLS",
             "file": {"path": "#{BBOT_TOOLS}/retirejs", "state": "directory", "mode": "0755"},
         },
-        # Check if retire.js is already installed locally
-        {
-            "name": "Check if retire.js is installed locally",
-            "command": "test -f #{BBOT_TOOLS}/retirejs/node_modules/.bin/retire",
-            "register": "retire_local_installed",
-            "ignore_errors": True,
-        },
         # Install retire.js locally
         {
             "name": "Install retire.js locally",
-            "shell": "cd #{BBOT_TOOLS}/retirejs && npm install retire@#{BBOT_MODULES_RETIREJS_VERSION}",
-            "when": "retire_local_installed.rc != 0",
+            "shell": "cd #{BBOT_TOOLS}/retirejs && npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
+            "args": {"creates": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire"},
+            "timeout": 600,
+            "environment": {
+                "NODE_ENV": "production",
+                "npm_config_yes": "true",
+                "npm_config_audit": "false",
+            },
+            "ignore_errors": False,
         },
         # Create retire cache directory
         {
