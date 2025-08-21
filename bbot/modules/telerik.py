@@ -263,11 +263,11 @@ class telerik(BaseModule):
                                     str(root_tool_path / "testfile.txt"),
                                     result.url,
                                 ]
-                                
+
                                 # Add proxy if set in the scan config
                                 if self.scan.http_proxy:
                                     command.append(self.scan.http_proxy)
-                                
+
                                 output = await self.run_process(command)
                                 description = f"[CVE-2017-11317] [{str(version)}] {webresource}"
                                 if "fileInfo" in output.stdout:
