@@ -11,7 +11,7 @@ import argparse
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Tuple
 
 
 def run_command(cmd: List[str], cwd: Path = None, capture_output: bool = True) -> subprocess.CompletedProcess:
@@ -64,7 +64,7 @@ def run_benchmarks(output_file: Path, repo_path: Path = None) -> bool:
         run_command(cmd, cwd=repo_path, capture_output=False)
         return True
     except subprocess.CalledProcessError:
-        print(f"Benchmarks failed for current state")
+        print("Benchmarks failed for current state")
         return False
 
 
@@ -233,7 +233,7 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
     table += "## 🎯 Performance Summary\n\n"
 
     if improvements > 0 or regressions > 0:
-        table += f"```diff\n"
+        table += "```diff\n"
         if improvements > 0:
             table += f"+ {improvements} improvement{'s' if improvements != 1 else ''} 🚀\n"
         if regressions > 0:
@@ -251,14 +251,12 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
             table += f"{change}\n"
         table += "\n"
 
-
-
     return table
 
 
 def generate_report(current_data: Dict, base_data: Dict, current_branch: str, base_branch: str) -> str:
     """Generate complete benchmark comparison report."""
-    
+
     if not current_data:
         report = """## Performance Benchmark Report
 
@@ -271,7 +269,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 
 """
         return report
-        
+
     if not base_data:
         report = f"""## Performance Benchmark Report
 
@@ -292,11 +290,11 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
         comparison = generate_comparison_table(current_data, base_data, current_branch, base_branch)
         if comparison:
             report = comparison
-    
+
     # Add simple footer with python version
     machine_info = current_data.get("machine_info", {})
     python_version = machine_info.get("python_version", "Unknown")
-    
+
     report += f"\n---\n🐍 Python Version {python_version}"
 
     return report
@@ -345,7 +343,7 @@ def main():
                 current_data = load_benchmark_data(current_results_file)
 
             # Generate report
-            print(f"\n=== Generating comparison report ===")
+            print("\n=== Generating comparison report ===")
             report = generate_report(current_data, base_data, args.current, args.base)
 
             # Output report
