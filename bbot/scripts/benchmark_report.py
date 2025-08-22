@@ -10,6 +10,8 @@ import json
 import argparse
 import subprocess
 import tempfile
+import time
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
@@ -66,6 +68,316 @@ def run_benchmarks(output_file: Path, repo_path: Path = None) -> bool:
     except subprocess.CalledProcessError:
         print("Benchmarks failed for current state")
         return False
+
+
+def find_regexes_in_codebase() -> List[Dict[str, Any]]:
+    """Find all regex patterns in the BBOT codebase"""
+    import ast
+    import os
+
+    regexes_found = []
+    bbot_dir = Path(__file__).parent.parent
+
+    for root, dirs, files in os.walk(bbot_dir):
+        # Skip certain directories
+        if any(skip in root for skip in ["__pycache__", ".git", "node_modules", ".pytest_cache"]):
+            continue
+
+        for file in files:
+            if file.endswith(".py"):
+                file_path = Path(root) / file
+
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    # Parse AST to find regex patterns
+                    tree = ast.parse(content)
+
+                    # Track variables that might contain regex patterns
+                    variables = {}
+
+                    # First pass: collect variable assignments
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Assign):
+                            for target in node.targets:
+                                if isinstance(target, ast.Name):
+                                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                                        variables[target.id] = node.value.value
+                                    elif isinstance(node.value, ast.JoinedStr):  # f-strings
+                                        try:
+                                            # Try to evaluate f-string (simplified)
+                                            variables[target.id] = ast.unparse(node.value)
+                                        except:
+                                            pass
+
+                    # Second pass: find regex usage
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Call):
+                            if (
+                                isinstance(node.func, ast.Attribute)
+                                and isinstance(node.func.value, ast.Name)
+                                and node.func.value.id == "re"
+                                and node.func.attr == "compile"
+                            ):
+                                pattern = None
+
+                                # Get the regex pattern argument
+                                if node.args:
+                                    arg = node.args[0]
+
+                                    # Direct string constant
+                                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                                        pattern = arg.value
+
+                                    # Variable reference
+                                    elif isinstance(arg, ast.Name) and arg.id in variables:
+                                        pattern = variables[arg.id]
+
+                                    # String formatting (f-strings, .format(), etc.)
+                                    elif isinstance(arg, ast.JoinedStr):
+                                        try:
+                                            pattern = ast.unparse(arg)
+                                        except:
+                                            continue
+
+                                    # Binary operations (string concatenation)
+                                    elif isinstance(arg, ast.BinOp):
+                                        try:
+                                            pattern = ast.unparse(arg)
+                                        except:
+                                            continue
+
+                                if pattern and isinstance(pattern, str):
+                                    # Clean up the pattern (remove quotes, etc.)
+                                    pattern = pattern.strip("\"'")
+
+                                    # Skip if pattern is too short or likely not a real regex
+                                    if len(pattern) < 2 or pattern.startswith("#"):
+                                        continue
+
+                                    # Get line number
+                                    line_no = node.lineno
+
+                                    # Get relative path
+                                    rel_path = file_path.relative_to(bbot_dir)
+
+                                    regexes_found.append(
+                                        {
+                                            "file": str(rel_path),
+                                            "line": line_no,
+                                            "pattern": pattern,
+                                            "function": node.func.attr,
+                                            "full_path": str(file_path),
+                                        }
+                                    )
+
+                except (SyntaxError, UnicodeDecodeError):
+                    continue
+
+    return regexes_found
+
+
+def analyze_regex_performance() -> Dict[str, Any]:
+    """Analyze regex performance and return benchmark data"""
+
+    # Find actual regexes in the codebase
+    print("🔍 Scanning BBOT codebase for regex patterns...")
+    regexes_found = find_regexes_in_codebase()
+
+    if not regexes_found:
+        print("Warning: No regex patterns found in codebase")
+        return {"benchmarks": [], "regex_summary": {}}
+
+    print(f"Found {len(regexes_found)} regex patterns")
+
+    # Test data of different sizes
+    test_strings = {
+        "short": ["a", "test", "example.com"],
+        "medium": ["user@domain.com", "192.168.1.1", "https://example.com"],
+        "long": ["a" * 100, "b" * 100, "c" * 100],
+        "very_long": ["a" * 1000, "b" * 1000, "c" * 1000],
+    }
+
+    # Use all found regexes
+    patterns = []
+    for regex_info in regexes_found:
+        patterns.append(
+            (
+                f"{regex_info['file']}:{regex_info['line']}",
+                regex_info["pattern"],
+                regex_info["file"],
+                regex_info["line"],
+            )
+        )
+
+    results = []
+    benchmarks = []
+
+    for name, pattern, file_path, line_no in patterns:
+        try:
+            # Compilation timing
+            start = time.perf_counter()
+            compiled = re.compile(pattern)
+            compile_time = (time.perf_counter() - start) * 1000
+
+            # Performance across different input sizes
+            size_results = {}
+            total_matches = 0
+
+            for size, strings in test_strings.items():
+                times = []
+                matches = 0
+
+                for test_string in strings:
+                    # Time the match
+                    start = time.perf_counter()
+                    match = compiled.search(test_string)
+                    end = time.perf_counter()
+
+                    match_time = (end - start) * 1000
+                    times.append(match_time)
+
+                    if match:
+                        matches += 1
+
+                    total_matches += 1 if match else 0
+
+                avg_time = sum(times) / len(times)
+                max_time = max(times)
+
+                size_results[size] = {
+                    "avg_time": avg_time,
+                    "max_time": max_time,
+                    "matches": matches,
+                    "total_tests": len(strings),
+                }
+
+                # Create benchmark entry
+                match_stats = {
+                    "mean": avg_time / 1000,  # Convert to seconds
+                    "min": avg_time / 1000,
+                    "max": max_time / 1000,
+                    "ops": 1 / (avg_time / 1000) if avg_time > 0 else 0,
+                }
+
+                benchmarks.append(
+                    {
+                        "name": f"test_regex_{name}_matching_{size}",
+                        "stats": match_stats,
+                        "extra_info": {
+                            "pattern": pattern[:100] + "..." if len(pattern) > 100 else pattern,
+                            "type": "matching",
+                            "input_size": size,
+                            "matches": matches,
+                            "total_tests": len(strings),
+                            "file": file_path,
+                            "line": line_no,
+                        },
+                    }
+                )
+
+            # Compilation benchmark
+            compile_stats = {
+                "mean": compile_time / 1000,  # Convert to seconds
+                "min": compile_time / 1000,
+                "max": compile_time / 1000,
+                "ops": 1 / (compile_time / 1000) if compile_time > 0 else 0,
+            }
+
+            benchmarks.append(
+                {
+                    "name": f"test_regex_{name}_compilation",
+                    "stats": compile_stats,
+                    "extra_info": {
+                        "pattern": pattern[:100] + "..." if len(pattern) > 100 else pattern,
+                        "type": "compilation",
+                        "file": file_path,
+                        "line": line_no,
+                    },
+                }
+            )
+
+            # Store results
+            results.append(
+                {
+                    "name": name,
+                    "pattern": pattern,
+                    "file": file_path,
+                    "line": line_no,
+                    "compile_time": compile_time,
+                    "size_results": size_results,
+                    "total_matches": total_matches,
+                    "status": "success",
+                }
+            )
+
+        except re.error as e:
+            results.append(
+                {
+                    "name": name,
+                    "pattern": pattern,
+                    "file": file_path,
+                    "line": line_no,
+                    "status": "error",
+                    "error": str(e),
+                }
+            )
+
+    # Generate summary statistics
+    successful_results = [r for r in results if r["status"] == "success"]
+    summary = {
+        "patterns_tested": len(successful_results),
+        "total_benchmarks": len(benchmarks),
+        "compilation_times": [r["compile_time"] for r in successful_results],
+        "matching_times": [],
+        "slow_patterns": [],
+        "problematic_patterns": [],
+        "detailed_results": results,
+    }
+
+    # Collect matching times and identify slow patterns
+    for r in successful_results:
+        for size, data in r["size_results"].items():
+            summary["matching_times"].append(data["avg_time"])
+            if data["max_time"] > 1.0:  # 1ms threshold
+                summary["slow_patterns"].append(
+                    {
+                        "name": r["name"],
+                        "file": r["file"],
+                        "line": r["line"],
+                        "pattern": r["pattern"],
+                        "size": size,
+                        "max_time": data["max_time"],
+                    }
+                )
+
+    # Identify problematic patterns (compilation errors, very slow, etc.)
+    for r in results:
+        if r["status"] == "error":
+            summary["problematic_patterns"].append(
+                {
+                    "type": "compilation_error",
+                    "file": r["file"],
+                    "line": r["line"],
+                    "pattern": r["pattern"],
+                    "error": r["error"],
+                }
+            )
+        elif r["status"] == "success":
+            # Check for very slow compilation
+            if r["compile_time"] > 10.0:  # 10ms threshold
+                summary["problematic_patterns"].append(
+                    {
+                        "type": "slow_compilation",
+                        "file": r["file"],
+                        "line": r["line"],
+                        "pattern": r["pattern"],
+                        "compile_time": r["compile_time"],
+                    }
+                )
+
+    return {"benchmarks": benchmarks, "regex_summary": summary}
 
 
 def load_benchmark_data(filepath: Path) -> Dict[str, Any]:
@@ -293,9 +605,109 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
         if comparison:
             report = comparison
 
-    # Add simple footer with python version
+    # Add regex analysis section if available
     machine_info = current_data.get("machine_info", {})
     python_version = machine_info.get("python_version", "Unknown")
+    regex_analysis = machine_info.get("regex_analysis", {})
+
+    if regex_analysis:
+        report += "\n\n## 🔍 Regex Performance Analysis\n\n"
+        report += f"**Patterns Tested**: {regex_analysis.get('patterns_tested', 0)}\n\n"
+
+        # Problems section (always visible)
+        if regex_analysis.get("problematic_patterns"):
+            report += "### ⚠️ Problems Detected\n\n"
+            for problem in regex_analysis["problematic_patterns"]:
+                if problem["type"] == "compilation_error":
+                    report += f"**❌ Compilation Error**: `{problem['file']}:{problem['line']}`\n"
+                    report += f"   Error: {problem['error']}\n"
+                    report += (
+                        f"   Pattern: `{problem['pattern'][:100]}{'...' if len(problem['pattern']) > 100 else ''}`\n\n"
+                    )
+                elif problem["type"] == "slow_compilation":
+                    report += f"**🐌 Slow Compilation**: `{problem['file']}:{problem['line']}`\n"
+                    report += f"   Time: {problem['compile_time']:.3f}ms\n"
+                    report += (
+                        f"   Pattern: `{problem['pattern'][:100]}{'...' if len(problem['pattern']) > 100 else ''}`\n\n"
+                    )
+
+        if regex_analysis.get("slow_patterns"):
+            report += "### 🐌 Slow Matching Patterns\n\n"
+            for pattern in regex_analysis["slow_patterns"]:
+                report += f"**File**: `{pattern['file']}:{pattern['line']}`\n"
+                report += f"**Time**: {pattern['max_time']:.3f}ms ({pattern['size']} input)\n"
+                report += (
+                    f"**Pattern**: `{pattern['pattern'][:100]}{'...' if len(pattern['pattern']) > 100 else ''}`\n\n"
+                )
+
+        # All patterns list (collapsible)
+        if regex_analysis.get("detailed_results"):
+            report += "<details>\n<summary>📋 <strong>All Regex Patterns</strong></summary>\n\n"
+            report += "| File:Line | Pattern | Compile (ms) | Max Match (ms) | Status |\n"
+            report += "|-----------|---------|--------------|----------------|--------|\n"
+
+            # Sort by max matching time (slowest first) for highlighting
+            sorted_results = sorted(
+                regex_analysis["detailed_results"],
+                key=lambda x: max([data["max_time"] for data in x["size_results"].values()])
+                if x["status"] == "success"
+                else 0,
+                reverse=True,
+            )
+
+            # Get the 10 slowest patterns
+            slowest_10 = set()
+            for i, result in enumerate(sorted_results[:10]):
+                if result["status"] == "success":
+                    slowest_10.add(f"{result['file']}:{result['line']}")
+
+            # Get problematic patterns
+            problematic_patterns = set()
+            for problem in regex_analysis.get("problematic_patterns", []):
+                problematic_patterns.add(f"{problem['file']}:{problem['line']}")
+
+            for result in sorted_results:
+                file_line = f"`{result['file']}:{result['line']}`"
+                pattern = result["pattern"][:60] + "..." if len(result["pattern"]) > 60 else result["pattern"]
+
+                # Highlight slowest 10 and problematic patterns
+                highlight = ""
+                if f"{result['file']}:{result['line']}" in slowest_10:
+                    highlight = "**🟡 SLOW** "
+                if f"{result['file']}:{result['line']}" in problematic_patterns:
+                    highlight = "**🔴 ERROR** "
+
+                if result["status"] == "success":
+                    compile_time = f"{result['compile_time']:.3f}"
+                    max_match_time = max([data["max_time"] for data in result["size_results"].values()])
+                    max_match_str = f"{max_match_time:.3f}"
+
+                    # Add warning indicators
+                    status = "✅"
+                    if max_match_time > 1.0:
+                        status = "⚠️"
+                    if result["compile_time"] > 10.0:
+                        status = "⚡"
+
+                    report += (
+                        f"| {highlight}{file_line} | `{pattern}` | {compile_time} | {max_match_str} | {status} |\n"
+                    )
+                else:
+                    report += f"| {highlight}{file_line} | `{pattern}` | ❌ Error | ❌ Error | ❌ |\n"
+
+            report += "\n</details>\n\n"
+
+        # Performance summary
+        report += "### 📈 Performance Summary\n\n"
+        if regex_analysis.get("compilation_times"):
+            avg_compile = sum(regex_analysis["compilation_times"]) / len(regex_analysis["compilation_times"])
+            max_compile = max(regex_analysis["compilation_times"])
+            report += f"- **Compilation**: Avg {avg_compile:.3f}ms, Max {max_compile:.3f}ms\n"
+
+        if regex_analysis.get("matching_times"):
+            avg_match = sum(regex_analysis["matching_times"]) / len(regex_analysis["matching_times"])
+            max_match = max(regex_analysis["matching_times"])
+            report += f"- **Matching**: Avg {avg_match:.3f}ms, Max {max_match:.3f}ms\n"
 
     report += f"\n\n---\n\n🐍 Python Version {python_version}"
 
@@ -343,6 +755,21 @@ def main():
             checkout_branch(args.current, repo_path)
             if run_benchmarks(current_results_file, repo_path):
                 current_data = load_benchmark_data(current_results_file)
+
+            # Add regex analysis to current data
+            if current_data:
+                print("🔍 Adding regex performance analysis...")
+                regex_data = analyze_regex_performance()
+
+                # Merge regex benchmarks
+                if "benchmarks" not in current_data:
+                    current_data["benchmarks"] = []
+                current_data["benchmarks"].extend(regex_data["benchmarks"])
+
+                # Add regex summary
+                if "machine_info" not in current_data:
+                    current_data["machine_info"] = {}
+                current_data["machine_info"]["regex_analysis"] = regex_data["regex_summary"]
 
             # Generate report
             print("\n=== Generating comparison report ===")
