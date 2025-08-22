@@ -78,7 +78,7 @@ jobs:
             });
             
             const existingComment = comments.data.find(comment => 
-              comment.body.includes('## Performance Benchmark Report')
+              comment.body.includes('Performance Benchmark Report')
             );
             
             if (existingComment) {
