@@ -614,31 +614,30 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
         report += "\n\n## 🔍 Regex Performance Analysis\n\n"
         report += f"**Patterns Tested**: {regex_analysis.get('patterns_tested', 0)}\n\n"
 
-        # Problems section (always visible)
-        if regex_analysis.get("problematic_patterns"):
-            report += "### ⚠️ Problems Detected\n\n"
-            for problem in regex_analysis["problematic_patterns"]:
-                if problem["type"] == "compilation_error":
-                    report += f"**❌ Compilation Error**: `{problem['file']}:{problem['line']}`\n"
-                    report += f"   Error: {problem['error']}\n"
-                    report += (
-                        f"   Pattern: `{problem['pattern'][:100]}{'...' if len(problem['pattern']) > 100 else ''}`\n\n"
-                    )
-                elif problem["type"] == "slow_compilation":
-                    report += f"**🐌 Slow Compilation**: `{problem['file']}:{problem['line']}`\n"
-                    report += f"   Time: {problem['compile_time']:.3f}ms\n"
-                    report += (
-                        f"   Pattern: `{problem['pattern'][:100]}{'...' if len(problem['pattern']) > 100 else ''}`\n\n"
-                    )
+        # Error patterns
+        if regex_analysis.get("problematic_patterns") or regex_analysis.get("slow_patterns"):
+            report += "<details>\n<summary>⚠️ <strong>Issues Found</strong></summary>\n\n"
 
-        if regex_analysis.get("slow_patterns"):
-            report += "### 🐌 Slow Matching Patterns\n\n"
-            for pattern in regex_analysis["slow_patterns"]:
-                report += f"**File**: `{pattern['file']}:{pattern['line']}`\n"
-                report += f"**Time**: {pattern['max_time']:.3f}ms ({pattern['size']} input)\n"
-                report += (
-                    f"**Pattern**: `{pattern['pattern'][:100]}{'...' if len(pattern['pattern']) > 100 else ''}`\n\n"
-                )
+            if regex_analysis.get("problematic_patterns"):
+                report += "### ❌ Problematic Patterns\n\n"
+                for problem in regex_analysis["problematic_patterns"]:
+                    if problem["type"] == "compilation_error":
+                        report += f"**❌ Compilation Error**: `{problem['file']}:{problem['line']}`\n"
+                        report += f"   Error: {problem['error']}\n"
+                        report += f"   Pattern: `{problem['pattern'][:100]}{'...' if len(problem['pattern']) > 100 else ''}`\n\n"
+                    elif problem["type"] == "slow_compilation":
+                        report += f"**🐌 Slow Compilation**: `{problem['file']}:{problem['line']}`\n"
+                        report += f"   Time: {problem['compile_time']:.3f}ms\n"
+                        report += f"   Pattern: `{problem['pattern'][:100]}{'...' if len(problem['pattern']) > 100 else ''}`\n\n"
+
+            if regex_analysis.get("slow_patterns"):
+                report += "### 🐌 Slow Matching Patterns\n\n"
+                for pattern in regex_analysis["slow_patterns"]:
+                    report += f"**File**: `{pattern['file']}:{pattern['line']}`\n"
+                    report += f"**Time**: {pattern['max_time']:.3f}ms ({pattern['size']} input)\n"
+                    report += f"**Pattern**: `{pattern['pattern'][:100]}{'...' if len(pattern['pattern']) > 100 else ''}`\n\n"
+
+            report += "</details>\n\n"
 
         # All patterns list (collapsible)
         if regex_analysis.get("detailed_results"):
@@ -668,7 +667,10 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 
             for result in sorted_results:
                 file_line = f"`{result['file']}:{result['line']}`"
-                pattern = result["pattern"][:60] + "..." if len(result["pattern"]) > 60 else result["pattern"]
+                # Escape pipe characters and other markdown table breaking characters
+                raw_pattern = result["pattern"]
+                escaped_pattern = raw_pattern.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
+                pattern = escaped_pattern[:60] + "..." if len(escaped_pattern) > 60 else escaped_pattern
 
                 # Highlight slowest 10 and problematic patterns
                 highlight = ""
@@ -696,18 +698,6 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
                     report += f"| {highlight}{file_line} | `{pattern}` | ❌ Error | ❌ Error | ❌ |\n"
 
             report += "\n</details>\n\n"
-
-        # Performance summary
-        report += "### 📈 Performance Summary\n\n"
-        if regex_analysis.get("compilation_times"):
-            avg_compile = sum(regex_analysis["compilation_times"]) / len(regex_analysis["compilation_times"])
-            max_compile = max(regex_analysis["compilation_times"])
-            report += f"- **Compilation**: Avg {avg_compile:.3f}ms, Max {max_compile:.3f}ms\n"
-
-        if regex_analysis.get("matching_times"):
-            avg_match = sum(regex_analysis["matching_times"]) / len(regex_analysis["matching_times"])
-            max_match = max(regex_analysis["matching_times"])
-            report += f"- **Matching**: Avg {avg_match:.3f}ms, Max {max_match:.3f}ms\n"
 
     report += f"\n\n---\n\n🐍 Python Version {python_version}"
 
