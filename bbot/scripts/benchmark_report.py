@@ -80,7 +80,7 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
 
     for root, dirs, files in os.walk(bbot_dir):
         # Skip certain directories
-        if any(skip in root for skip in ["__pycache__", ".git", "node_modules", ".pytest_cache"]):
+        if any(skip in root for skip in ["__pycache__", ".git", "node_modules", ".pytest_cache", "test", "tests", "scripts"]):
             continue
 
         for file in files:
