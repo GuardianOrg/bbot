@@ -869,30 +869,30 @@ def main():
             checkout_branch(args.base, repo_path)
             if run_benchmarks(base_results_file, repo_path):
                 base_data = load_benchmark_data(base_results_file)
-                
-                # Add regex analysis to base branch data (but don't mix with benchmarks)
-                print("🔍 Adding regex performance analysis to base branch...")
-                base_regex_data = analyze_regex_performance()
-                
-                # Add regex summary only (no benchmarks)
-                if "machine_info" not in base_data:
-                    base_data["machine_info"] = {}
-                base_data["machine_info"]["regex_analysis"] = base_regex_data["regex_summary"]
+            
+            # Add regex analysis to base branch data (but don't mix with benchmarks)
+            print("🔍 Adding regex performance analysis to base branch...")
+            base_regex_data = analyze_regex_performance()
+            
+            # Add regex summary only (no benchmarks)
+            if "machine_info" not in base_data:
+                base_data["machine_info"] = {}
+            base_data["machine_info"]["regex_analysis"] = base_regex_data["regex_summary"]
 
             # Run benchmarks on current branch
             print(f"\n=== Running benchmarks on current branch: {args.current} ===")
             checkout_branch(args.current, repo_path)
             if run_benchmarks(current_results_file, repo_path):
                 current_data = load_benchmark_data(current_results_file)
-                
-                # Add regex analysis to current branch data (but don't mix with benchmarks)
-                print("🔍 Adding regex performance analysis to current branch...")
-                current_regex_data = analyze_regex_performance()
-                
-                # Add regex summary only (no benchmarks)
-                if "machine_info" not in current_data:
-                    current_data["machine_info"] = {}
-                current_data["machine_info"]["regex_analysis"] = current_regex_data["regex_summary"]
+            
+            # Add regex analysis to current branch data (but don't mix with benchmarks)
+            print("🔍 Adding regex performance analysis to current branch...")
+            current_regex_data = analyze_regex_performance()
+            
+            # Add regex summary only (no benchmarks)
+            if "machine_info" not in current_data:
+                current_data["machine_info"] = {}
+            current_data["machine_info"]["regex_analysis"] = current_regex_data["regex_summary"]
 
             # Generate report
             print("\n=== Generating comparison report ===")
