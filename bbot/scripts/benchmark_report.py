@@ -862,6 +862,10 @@ def main():
 
         base_data = {}
         current_data = {}
+        
+        # Initialize data structures with machine_info for regex analysis
+        base_data["machine_info"] = {}
+        current_data["machine_info"] = {}
 
         try:
             # Run benchmarks on base branch
