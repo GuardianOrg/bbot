@@ -12,10 +12,10 @@ class ExcavateBenchmarkBase(ModuleTestBase):
     def setup_method(self):
         """Setup test data"""
         random.seed(42)  # Deterministic for reproducible tests
-
+        
         # Generate test HTML documents with extractable content
         self.test_response_data = []
-        for i in range(10):  # Start with fewer for debugging
+        for i in range(150): 
             html_content = f"""
             <!DOCTYPE html>
             <html>
