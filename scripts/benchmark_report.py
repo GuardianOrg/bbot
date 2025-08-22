@@ -83,12 +83,14 @@ def load_benchmark_data(filepath: Path) -> Dict[str, Any]:
 
 def format_time(seconds: float) -> str:
     """Format time in human-readable format."""
-    if seconds < 0.001:
-        return f"{seconds * 1000000:.1f}µs"
-    elif seconds < 1:
-        return f"{seconds * 1000:.2f}ms"
+    if seconds < 0.000001:  # Less than 1 microsecond
+        return f"{seconds * 1000000000:.0f}ns"  # Show as nanoseconds with no decimal
+    elif seconds < 0.001:  # Less than 1 millisecond
+        return f"{seconds * 1000000:.2f}µs"  # Show as microseconds with 2 decimal places
+    elif seconds < 1:  # Less than 1 second
+        return f"{seconds * 1000:.2f}ms"  # Show as milliseconds with 2 decimal places
     else:
-        return f"{seconds:.3f}s"
+        return f"{seconds:.3f}s"  # Show as seconds with 3 decimal places
 
 
 def format_ops(ops: float) -> str:

@@ -108,9 +108,13 @@ class ModuleTestBase:
         self.log.debug("Executing setup_after_prep()")
         await self.setup_after_prep(module_test)
         self.log.debug("Starting scan")
-        module_test.events = [e async for e in module_test.scan.async_start()]
+        await self._execute_scan(module_test)
         self.log.debug(f"Finished {module_test.name} module test")
         yield module_test
+
+    async def _execute_scan(self, module_test):
+        """Execute the scan and collect events. Can be overridden by benchmark classes."""
+        module_test.events = [e async for e in module_test.scan.async_start()]
 
     @pytest.mark.asyncio
     async def test_module_run(self, module_test):

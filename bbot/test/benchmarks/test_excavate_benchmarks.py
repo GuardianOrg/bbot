@@ -1,130 +1,290 @@
 import pytest
 import random
-from ..bbot_fixtures import *
-from ..test_step_2.module_tests.base import ModuleTestBase
+import asyncio
+import threading
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from bbot.scanner import Scanner
 
 
-class ExcavateBenchmarkBase(ModuleTestBase):
-    """Base class for excavate benchmarks with shared setup"""
+class MockHTTPHandler(BaseHTTPRequestHandler):
+    """Mock HTTP server that returns our test HTML content"""
 
-    targets = ["http://127.0.0.1:8888/"]
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+
+        # Get the test content from the server instance
+        test_content = self.server.test_content
+        self.wfile.write(test_content.encode("utf-8"))
+
+    def log_message(self, format, *args):
+        # Suppress logging
+        pass
+
+
+class TestExcavateBenchmarks:
+    """
+    Benchmark tests for Excavate module operations.
+
+    These tests measure the performance of content extraction and processing
+    which are critical for web scanning efficiency in BBOT.
+    """
 
     def setup_method(self):
-        """Setup test data"""
-        random.seed(42)  # Deterministic for reproducible tests
-        
-        # Generate test HTML documents with extractable content
+        random.seed(42)
         self.test_response_data = []
-        for i in range(150): 
+
+        # Generate intensive HTML content that excavate can actually extract from
+        for i in range(10):
             html_content = f"""
-            <!DOCTYPE html>
             <html>
-            <head><title>Test Page {i}</title></head>
+            <head>
+                <title>Test Page {i}</title>
+            </head>
             <body>
-                <h1>Test Document {i}</h1>
+                <h1>Welcome to Test Site {i}</h1>
                 
-                <!-- URLs that excavate should extract -->
-                <a href="https://api{i}.example.com/v1/users">API Link {i}</a>
-                <a href="http://subdomain{i}.test.com/path">Subdomain Link {i}</a>
-                <a href="/relative{i}.html">Relative Link {i}</a>
-                <link href="/css/style{i}.css" rel="stylesheet">
-                <img src="/images/photo{i}.jpg" alt="Photo {i}">
+                <!-- In-scope subdomains of foo.com target -->
+                <a href="https://api{i}.foo.com/v1/users">API Link {i}</a>
+                <a href="https://www{i}.foo.com/page{i}">WWW Link {i}</a>
+                <a href="https://cdn{i}.foo.com/assets/">CDN Link {i}</a>
                 
-                <!-- Forms with parameters -->
-                <form action="/submit{i}" method="post">
-                    <input type="text" name="username{i}" value="user{i}">
-                    <input type="password" name="password{i}" value="pass{i}">
+                <!-- Form with parameters -->
+                <form action="/search/{i}" method="GET">
+                    <input type="text" name="q{i}" value="search{i}">
+                    <button type="submit">Search</button>
                 </form>
                 
-                <!-- JavaScript with URLs -->
-                <script>
-                    var apiUrl = "https://api{i}.example.com/endpoint";
-                    var imageUrl = "/images/icon{i}.png";
-                </script>
-                
-                <!-- Email links -->
-                <a href="mailto:admin{i}@example.com">Contact {i}</a>
-                
-                <!-- Database connection strings -->
-                <div>DB: postgresql://user:pass@localhost:5432/db{i}</div>
+                <!-- Real-time services -->
+                <p>WebSocket: wss://realtime{i}.foo.com/socket</p>
+                <p>SSH: ssh://server{i}.foo.com:22/</p>
+                <p>FTP: ftp://ftp{i}.foo.com:21/</p>
             </body>
             </html>
             """
             self.test_response_data.append(html_content)
 
-    async def setup_before_prep(self, module_test):
-        """Setup HTTP responses like the existing tests do"""
-        # Set up all the HTTP responses that will contain extractable content
-        response_data = "\n".join(self.test_response_data)
-        expect_args = {"method": "GET", "uri": "/"}
-        respond_args = {"response_data": response_data}
-        module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
+        # Start mock HTTP server
+        self.start_mock_server()
 
-    def check(self, module_test, events):
-        """Required by ModuleTestBase - validate the scan worked"""
-        # Just ensure we got some events from excavate
-        assert len(events) > 0, "Expected excavate to emit some events"
+    def teardown_method(self):
+        # Stop mock HTTP server
+        self.stop_mock_server()
 
+    def start_mock_server(self):
+        """Start a mock HTTP server on port 8888"""
+        self.mock_server = HTTPServer(("127.0.0.1", 8888), MockHTTPHandler)
+        self.mock_server.test_content = "\n".join(self.test_response_data)
 
-class TestExcavateBasicBenchmarks(ExcavateBenchmarkBase):
-    """Benchmark for excavate module's basic content processing (no parameter extraction)"""
+        # Start server in a separate thread
+        self.server_thread = threading.Thread(target=self.mock_server.serve_forever)
+        self.server_thread.daemon = True
+        self.server_thread.start()
 
-    modules_overrides = ["excavate", "httpx"]  # No hunt = no parameter extraction
+        # Wait a moment for server to start
+        time.sleep(0.1)
+
+    def stop_mock_server(self):
+        """Stop the mock HTTP server"""
+        if hasattr(self, "mock_server"):
+            self.mock_server.shutdown()
+            self.mock_server.server_close()
+            if hasattr(self, "server_thread"):
+                self.server_thread.join(timeout=1)
 
     @pytest.mark.benchmark(group="excavate_basic")
-    def test_excavate_basic_processing(self, module_test, benchmark):
+    def test_excavate_basic_processing(self, benchmark):
         """Benchmark excavate module's basic processing (no parameter extraction)"""
 
-        def run_full_scan():
-            # The ModuleTestBase framework runs the full scan and returns all events
-            return module_test.events
+        def run_excavate_scan():
+            # Create a scanner with excavate enabled
+            scan = Scanner("http://127.0.0.1:8888/", "foo.com", modules=["httpx"], config={"excavate": True})
 
-        # Run the benchmark on the full scan
-        events = benchmark(run_full_scan)
+            # Run the scan to measure execution time
+            events = []
 
-        # Count what excavate found during the full scan
-        url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
-        web_param_events = [e for e in events if e.type == "WEB_PARAMETER"]
-        total_events = len(events)
+            async def run_scan():
+                async for event in scan.async_start():
+                    events.append(event)
 
-        # Validate that excavate actually processed the content and found things
-        assert total_events > 0, (
-            f"Expected excavate to emit some events, but emitted {total_events}. Check if excavate is working."
+            asyncio.run(run_scan())
+
+            # Return both events and event counts for analysis
+            total_events = len(events)
+            excavate_events = [e for e in events if e.module == "excavate"]
+            url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
+            dns_events = [e for e in events if e.type in ["DNS_NAME_UNRESOLVED", "DNS_NAME"]]
+            protocol_events = [e for e in events if e.type == "PROTOCOL"]
+
+            return {
+                "events": events,
+                "total_events": total_events,
+                "excavate_events": len(excavate_events),
+                "url_events": len(url_events),
+                "dns_events": len(dns_events),
+                "protocol_events": len(protocol_events),
+            }
+
+        # Run the benchmark on the scan execution
+        result = benchmark(run_excavate_scan)
+
+        # Extract event counts from the result
+        total_events = result["total_events"]
+        excavate_events = result["excavate_events"]
+        url_events = result["url_events"]
+        dns_events = result["dns_events"]
+        protocol_events = result["protocol_events"]
+
+        # Validate that excavate actually processed content and emitted events
+        assert total_events > 0, "Expected to find some events from the scan"
+
+        # Print detailed event counts
+        print(f"\n✅ Basic excavate benchmark completed")
+        print(f"📊 Total events: {total_events}")
+        print(f"📊 Excavate events (module=excavate): {excavate_events}")
+        print(f"📊 URL events: {url_events}")
+        print(f"📊 DNS events: {dns_events}")
+        print(f"📊 Protocol events: {protocol_events}")
+
+        # Validate that excavate actually found and processed content
+        # Look for events that excavate typically emits, not just module=excavate
+        assert url_events > 0 or dns_events > 0 or protocol_events > 0, (
+            "Expected excavate to find URLs, DNS names, or protocols"
         )
 
-        print(f"✅ Basic excavate benchmark processed scan")
-        print(f"📊 Full scan emitted {total_events} total events:")
-        print(f"   - URL_UNVERIFIED: {len(url_events)}")
-        print(f"   - WEB_PARAMETER: {len(web_param_events)} (should be 0 without hunt)")
 
+class TestExcavateFullBenchmarks:
+    """
+    Benchmark tests for Excavate module with parameter extraction enabled.
 
-class TestExcavateFullBenchmarks(ExcavateBenchmarkBase):
-    """Benchmark for excavate module's full content processing (with parameter extraction)"""
+    These tests measure the performance of excavate operations with hunt module
+    enabled, which triggers parameter extraction functionality.
+    """
 
-    modules_overrides = ["excavate", "httpx", "hunt"]  # hunt enables parameter extraction
+    def setup_method(self):
+        random.seed(42)
+        self.test_response_data = []
+
+        # Generate intensive HTML content that excavate can actually extract from
+        for i in range(3):  # Reduced from 10 to 3 for much faster execution
+            html_content = f"""
+            <html>
+            <head>
+                <title>Test Page {i}</title>
+            </head>
+            <body>
+                <h1>Welcome to Test Site {i}</h1>
+                
+                <!-- In-scope subdomains of foo.com target -->
+                <a href="https://api{i}.foo.com/v1/users">API Link {i}</a>
+                <a href="https://www{i}.foo.com/page{i}">WWW Link {i}</a>
+                <a href="https://cdn{i}.foo.com/assets/">CDN Link {i}</a>
+                
+                <!-- Form with parameters -->
+                <form action="/search/{i}" method="GET">
+                    <input type="text" name="q{i}" value="search{i}">
+                    <button type="submit">Search</button>
+                </form>
+                
+                <!-- Real-time services -->
+                <p>WebSocket: wss://realtime{i}.foo.com/socket</p>
+                <p>SSH: ssh://server{i}.foo.com:22/</p>
+                <p>FTP: ftp://ftp{i}.foo.com:21/</p>
+            </body>
+            </html>
+            """
+            self.test_response_data.append(html_content)
+
+        # Start mock HTTP server
+        self.start_mock_server()
+
+    def teardown_method(self):
+        # Stop mock HTTP server
+        self.stop_mock_server()
+
+    def start_mock_server(self):
+        """Start a mock HTTP server on port 8888"""
+        self.mock_server = HTTPServer(("127.0.0.1", 8888), MockHTTPHandler)
+        self.mock_server.test_content = "\n".join(self.test_response_data)
+
+        # Start server in a separate thread
+        self.server_thread = threading.Thread(target=self.mock_server.serve_forever)
+        self.server_thread.daemon = True
+        self.server_thread.start()
+
+        # Wait a moment for server to start
+        time.sleep(0.1)
+
+    def stop_mock_server(self):
+        """Stop the mock HTTP server"""
+        if hasattr(self, "mock_server"):
+            self.mock_server.shutdown()
+            self.mock_server.server_close()
+            if hasattr(self, "server_thread"):
+                self.server_thread.join(timeout=1)
 
     @pytest.mark.benchmark(group="excavate_full")
-    def test_excavate_full_processing(self, module_test, benchmark):
+    def test_excavate_full_processing(self, benchmark):
         """Benchmark excavate module's full processing (with parameter extraction)"""
 
-        def run_full_scan():
-            # The ModuleTestBase framework runs the full scan and returns all events
-            return module_test.events
+        def run_excavate_scan():
+            # Create a scanner with excavate and hunt enabled
+            scan = Scanner("http://127.0.0.1:8888/", "foo.com", modules=["httpx", "hunt"], config={"excavate": True})
 
-        # Run the benchmark on the full scan
-        events = benchmark(run_full_scan)
+            # Run the scan to measure execution time
+            events = []
 
-        # Count what excavate found during the full scan
-        url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
-        web_param_events = [e for e in events if e.type == "WEB_PARAMETER"]
-        total_events = len(events)
+            async def run_scan():
+                async for event in scan.async_start():
+                    events.append(event)
 
-        # Validate that excavate actually processed the content and found things
-        assert total_events > 0, (
-            f"Expected excavate to emit some events, but emitted {total_events}. Check if excavate is working."
+            asyncio.run(run_scan())
+
+            # Return both events and event counts for analysis
+            total_events = len(events)
+            excavate_events = [e for e in events if e.module == "excavate"]
+            url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
+            dns_events = [e for e in events if e.type in ["DNS_NAME_UNRESOLVED", "DNS_NAME"]]
+            protocol_events = [e for e in events if e.type == "PROTOCOL"]
+            web_params = [e for e in events if e.type == "WEB_PARAMETER"]
+
+            return {
+                "events": events,
+                "total_events": total_events,
+                "excavate_events": len(excavate_events),
+                "url_events": len(url_events),
+                "dns_events": len(dns_events),
+                "protocol_events": len(protocol_events),
+                "web_params": len(web_params),
+            }
+
+        # Run the benchmark on the scan execution
+        result = benchmark(run_excavate_scan)
+
+        # Extract event counts from the result
+        total_events = result["total_events"]
+        excavate_events = result["excavate_events"]
+        url_events = result["url_events"]
+        dns_events = result["dns_events"]
+        protocol_events = result["protocol_events"]
+        web_params = result["web_params"]
+
+        # Validate that excavate actually processed content and emitted events
+        assert total_events > 0, "Expected to find some events from the scan"
+
+        # Print detailed event counts
+        print(f"\n✅ Full excavate benchmark completed")
+        print(f"📊 Total events: {total_events}")
+        print(f"📊 Excavate events (module=excavate): {excavate_events}")
+        print(f"📊 URL events: {url_events}")
+        print(f"📊 DNS events: {dns_events}")
+        print(f"📊 Protocol events: {protocol_events}")
+        print(f"📊 Web parameters: {web_params}")
+
+        # Validate that excavate actually found and processed content
+        # Look for events that excavate typically emits, not just module=excavate
+        assert url_events > 0 or dns_events > 0 or protocol_events > 0, (
+            "Expected excavate to find URLs, DNS names, or protocols"
         )
-
-        print(f"✅ Full excavate benchmark processed scan")
-        print(f"📊 Full scan emitted {total_events} total events:")
-        print(f"   - URL_UNVERIFIED: {len(url_events)}")
-        print(f"   - WEB_PARAMETER: {len(web_param_events)} (should be >0 with hunt)")
