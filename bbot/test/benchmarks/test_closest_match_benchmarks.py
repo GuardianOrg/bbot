@@ -16,7 +16,7 @@ class TestClosestMatchBenchmarks:
         """Setup common test data"""
         # Set deterministic seed for consistent benchmark results
         random.seed(42)  # Fixed seed for reproducible results
-        
+
         # Generate test data of different sizes and complexity
         self.small_choices = self._generate_small_choices()
         self.medium_choices = self._generate_medium_choices()
@@ -25,13 +25,7 @@ class TestClosestMatchBenchmarks:
 
     def _generate_small_choices(self):
         """Generate small dataset (like few parent events)"""
-        return [
-            "example.com",
-            "test.com", 
-            "demo.com",
-            "sample.com",
-            "trial.com"
-        ]
+        return ["example.com", "test.com", "demo.com", "sample.com", "trial.com"]
 
     def _generate_medium_choices(self):
         """Generate medium dataset (like typical scan)"""
@@ -55,10 +49,10 @@ class TestClosestMatchBenchmarks:
     def _generate_dns_choices(self):
         """Generate realistic DNS parent event choices (like actual BBOT usage)"""
         choices = []
-        
+
         # Common TLDs
         tlds = ["com", "net", "org", "io", "co", "dev", "test", "local"]
-        
+
         # Generate parent domains with realistic patterns
         for i in range(5000):
             # Base domain patterns
@@ -71,28 +65,27 @@ class TestClosestMatchBenchmarks:
             else:
                 # Complex domains
                 domain = f"level1{i}.level2{i}.example{i}.{random.choice(tlds)}"
-            
-            choices.append(domain)
-        
-        return choices
 
+            choices.append(domain)
+
+        return choices
 
     @pytest.mark.benchmark(group="closest_match")
     def test_large_dns_lookup(self, benchmark):
         """Benchmark closest_match with large DNS scan workload (many parent events)"""
-        
+
         def find_large_match():
             return closest_match("subdomain5678.example50.com", self.large_choices)
-        
+
         result = benchmark(find_large_match)
         assert result is not None
 
     @pytest.mark.benchmark(group="closest_match")
     def test_realistic_dns_workload(self, benchmark):
         """Benchmark closest_match with realistic BBOT DNS parent event choices"""
-        
+
         def find_realistic_match():
             return closest_match("subdomain123.example5.com", self.dns_choices)
-        
+
         result = benchmark(find_realistic_match)
-        assert result is not None 
+        assert result is not None

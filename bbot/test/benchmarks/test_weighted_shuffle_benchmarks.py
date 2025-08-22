@@ -16,7 +16,7 @@ class TestWeightedShuffleBenchmarks:
         """Setup common test data"""
         # Set deterministic seed for consistent benchmark results
         random.seed(42)  # Fixed seed for reproducible results
-        
+
         # Generate test data of different sizes and complexity
         self.small_data = self._generate_small_dataset()
         self.medium_data = self._generate_medium_dataset()
@@ -25,10 +25,7 @@ class TestWeightedShuffleBenchmarks:
 
     def _generate_small_dataset(self):
         """Generate small dataset (like few modules)"""
-        return {
-            "items": ["module_a", "module_b", "module_c"],
-            "weights": [0.6, 0.3, 0.1]
-        }
+        return {"items": ["module_a", "module_b", "module_c"], "weights": [0.6, 0.3, 0.1]}
 
     def _generate_medium_dataset(self):
         """Generate medium dataset (like typical scan)"""
@@ -53,13 +50,10 @@ class TestWeightedShuffleBenchmarks:
     @pytest.mark.benchmark(group="weighted_shuffle")
     def test_typical_queue_shuffle(self, benchmark):
         """Benchmark weighted shuffle with typical BBOT scan workload"""
-        
+
         def shuffle_typical():
-            return weighted_shuffle(
-                self.medium_data["items"], 
-                self.medium_data["weights"]
-            )
-        
+            return weighted_shuffle(self.medium_data["items"], self.medium_data["weights"])
+
         result = benchmark(shuffle_typical)
         assert len(result) == 20
         assert all(item in result for item in self.medium_data["items"])
@@ -67,13 +61,10 @@ class TestWeightedShuffleBenchmarks:
     @pytest.mark.benchmark(group="weighted_shuffle")
     def test_priority_queue_shuffle(self, benchmark):
         """Benchmark weighted shuffle with realistic BBOT priority weights"""
-        
+
         def shuffle_priorities():
-            return weighted_shuffle(
-                self.priority_weights["items"], 
-                self.priority_weights["weights"]
-            )
-        
+            return weighted_shuffle(self.priority_weights["items"], self.priority_weights["weights"])
+
         result = benchmark(shuffle_priorities)
         assert len(result) == len(self.priority_weights["items"])
-        assert all(item in result for item in self.priority_weights["items"]) 
+        assert all(item in result for item in self.priority_weights["items"])
