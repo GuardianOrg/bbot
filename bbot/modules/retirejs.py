@@ -50,11 +50,12 @@ class retirejs(BaseModule):
             "name": "Rename Node.js directory (x64)",
             "command": "mv #{BBOT_TOOLS}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64 #{BBOT_TOOLS}/node",
         },
-        # Make Node.js binaries executable
+        # Make Node.js binary executable
         {
-            "name": "Make Node.js binaries executable",
+            "name": "Make Node.js binary executable",
             "file": {"path": "#{BBOT_TOOLS}/node/bin/node", "mode": "0755"},
         },
+        # Make npm executable
         {
             "name": "Make npm executable",
             "file": {"path": "#{BBOT_TOOLS}/node/bin/npm", "mode": "0755"},
@@ -67,14 +68,9 @@ class retirejs(BaseModule):
         # Install retire.js locally using local Node.js
         {
             "name": "Install retire.js locally",
-            "shell": "cd #{BBOT_TOOLS}/retirejs && #{BBOT_TOOLS}/node/bin/npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
+            "shell": "cd #{BBOT_TOOLS}/retirejs && #{BBOT_TOOLS}/node/bin/node #{BBOT_TOOLS}/node/lib/node_modules/npm/bin/npm-cli.js install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
             "args": {"creates": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire"},
             "timeout": 600,
-            "environment": {
-                "NODE_ENV": "production",
-                "npm_config_yes": "true",
-                "npm_config_audit": "false",
-            },
             "ignore_errors": False,
         },
         # Create retire cache directory
