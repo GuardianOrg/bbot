@@ -580,7 +580,7 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
     regressions = 0
     no_change = 0
 
-    table = f"""## 📊 Performance Benchmark Results
+    table = f"""## 📊 Performance Benchmark Report
 
 > Comparing **`{base_branch}`** (baseline) vs **`{current_branch}`** (current)
 
