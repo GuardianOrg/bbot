@@ -710,6 +710,15 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
         comparison = generate_comparison_table(current_data, base_data, current_branch, base_branch)
         if comparison:
             report = comparison
+        else:
+            # Fallback if no comparison data
+            report = f"""## 🚀 Performance Benchmark Report
+
+> ℹ️ **No baseline benchmark data available**
+> 
+> Showing current results for **{current_branch}** only.
+
+"""
 
     # Add regex analysis section if available
     machine_info = current_data.get("machine_info", {})
@@ -892,11 +901,14 @@ def main():
             # Add regex analysis to current branch data (but don't mix with benchmarks)
             print("🔍 Adding regex performance analysis to current branch...")
             current_regex_data = analyze_regex_performance()
+            print(f"Debug: current_regex_data keys: {list(current_regex_data.keys())}")
+            print(f"Debug: regex_summary keys: {list(current_regex_data.get('regex_summary', {}).keys())}")
             
             # Add regex summary only (no benchmarks)
             if "machine_info" not in current_data:
                 current_data["machine_info"] = {}
             current_data["machine_info"]["regex_analysis"] = current_regex_data["regex_summary"]
+            print(f"Debug: current_data structure: {current_data}")
 
             # Generate report
             print("\n=== Generating comparison report ===")
