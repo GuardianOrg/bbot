@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import time
 import re
+import ast
 from pathlib import Path
 from typing import Dict, List, Any, Tuple
 
@@ -70,6 +71,107 @@ def run_benchmarks(output_file: Path, repo_path: Path = None) -> bool:
         return False
 
 
+def resolve_expression(node, variables, file_path):
+    """Recursively resolve an AST expression to a string value."""
+    try:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value, None
+        elif isinstance(node, ast.Name) and node.id in variables:
+            return variables[node.id], None
+        elif isinstance(node, ast.JoinedStr):  # f-string
+            try:
+                # Check if f-string contains unresolved variables
+                f_string_content = ast.unparse(node)
+                if any(
+                    char.isalpha() and char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+                    for char in f_string_content
+                ):
+                    return None, f"F-string with unresolved variables: {f_string_content}"
+                return f_string_content, None
+            except (ValueError, TypeError):
+                return None, "Complex f-string that cannot be resolved"
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):  # String concatenation
+            left, left_reason = resolve_expression(node.left, variables, file_path)
+            right, right_reason = resolve_expression(node.right, variables, file_path)
+            if left is not None and right is not None:
+                return str(left) + str(right), None
+            elif left_reason:
+                return None, f"Left operand: {left_reason}"
+            elif right_reason:
+                return None, f"Right operand: {right_reason}"
+            else:
+                return None, "String concatenation with unresolved parts"
+        elif isinstance(node, ast.Call):
+            # Handle re.escape() calls
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "re"
+                and node.func.attr == "escape"
+            ):
+                if node.args:
+                    arg_value, reason = resolve_expression(node.args[0], variables, file_path)
+                    if arg_value:
+                        return re.escape(arg_value), None
+                    else:
+                        return None, f"re.escape() argument: {reason}"
+            # Handle ''.join() calls
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Constant)
+                and node.func.value.value == ""
+                and node.func.attr == "join"
+            ):
+                if node.args:
+                    arg_value, reason = resolve_expression(node.args[0], variables, file_path)
+                    if isinstance(arg_value, list):
+                        return "".join(arg_value), None
+                    else:
+                        return None, f"join() argument: {reason}"
+            # Handle other function calls - try to resolve arguments
+            elif node.args:
+                resolved_args = []
+                unresolved_reasons = []
+                for arg in node.args:
+                    arg_value, reason = resolve_expression(arg, variables, file_path)
+                    if arg_value is not None:
+                        resolved_args.append(str(arg_value))
+                    elif reason:
+                        unresolved_reasons.append(reason)
+                if resolved_args and not unresolved_reasons:
+                    return "".join(resolved_args), None
+                else:
+                    return None, f"Function call with unresolved arguments: {', '.join(unresolved_reasons)}"
+            else:
+                return None, "Function call without arguments"
+        elif isinstance(node, ast.ListComp):
+            # Handle list comprehensions like [char for char in blacklist_chars]
+            return None, f"List comprehension: {ast.unparse(node)}"
+        elif isinstance(node, ast.List):
+            # Handle list literals
+            resolved_elements = []
+            unresolved_reasons = []
+            for elt in node.elts:
+                elt_value, reason = resolve_expression(elt, variables, file_path)
+                if elt_value is not None:
+                    resolved_elements.append(str(elt_value))
+                elif reason:
+                    unresolved_reasons.append(reason)
+            if resolved_elements and not unresolved_reasons:
+                return resolved_elements, None
+            else:
+                return None, f"List with unresolved elements: {', '.join(unresolved_reasons)}"
+        elif isinstance(node, ast.Attribute):
+            # Handle attribute access like self.dns_strings
+            return None, f"Attribute access: {ast.unparse(node)}"
+        elif isinstance(node, ast.Subscript):
+            # Handle subscript access like list[index]
+            return None, f"Subscript access: {ast.unparse(node)}"
+    except Exception as e:
+        return None, f"Exception during resolution: {str(e)}"
+    return None, "Unknown expression type"
+
+
 def find_regexes_in_codebase() -> List[Dict[str, Any]]:
     """Find all regex patterns in the BBOT codebase"""
     import ast
@@ -80,7 +182,10 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
 
     for root, dirs, files in os.walk(bbot_dir):
         # Skip certain directories
-        if any(skip in root for skip in ["__pycache__", ".git", "node_modules", ".pytest_cache", "test", "tests", "scripts"]):
+        if any(
+            skip in root
+            for skip in ["__pycache__", ".git", "node_modules", ".pytest_cache", "test", "tests", "scripts"]
+        ):
             continue
 
         for file in files:
@@ -102,14 +207,9 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
                         if isinstance(node, ast.Assign):
                             for target in node.targets:
                                 if isinstance(target, ast.Name):
-                                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                                        variables[target.id] = node.value.value
-                                    elif isinstance(node.value, ast.JoinedStr):  # f-strings
-                                        try:
-                                            # Try to evaluate f-string (simplified)
-                                            variables[target.id] = ast.unparse(node.value)
-                                        except (ValueError, TypeError):
-                                            pass
+                                    value, reason = resolve_expression(node.value, variables, file_path)
+                                    if value is not None:
+                                        variables[target.id] = value
 
                     # Second pass: find regex usage
                     for node in ast.walk(tree):
@@ -121,32 +221,18 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
                                 and node.func.attr == "compile"
                             ):
                                 pattern = None
+                                reason = None
 
                                 # Get the regex pattern argument
                                 if node.args:
                                     arg = node.args[0]
+                                    pattern, reason = resolve_expression(arg, variables, file_path)
 
-                                    # Direct string constant
-                                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                                        pattern = arg.value
+                                # Get line number
+                                line_no = node.lineno
 
-                                    # Variable reference
-                                    elif isinstance(arg, ast.Name) and arg.id in variables:
-                                        pattern = variables[arg.id]
-
-                                    # String formatting (f-strings, .format(), etc.)
-                                    elif isinstance(arg, ast.JoinedStr):
-                                        try:
-                                            pattern = ast.unparse(arg)
-                                        except (ValueError, TypeError):
-                                            continue
-
-                                    # Binary operations (string concatenation)
-                                    elif isinstance(arg, ast.BinOp):
-                                        try:
-                                            pattern = ast.unparse(arg)
-                                        except (ValueError, TypeError):
-                                            continue
+                                # Get relative path
+                                rel_path = file_path.relative_to(bbot_dir)
 
                                 if pattern and isinstance(pattern, str):
                                     # Clean up the pattern (remove quotes, etc.)
@@ -156,12 +242,6 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
                                     if len(pattern) < 2 or pattern.startswith("#"):
                                         continue
 
-                                    # Get line number
-                                    line_no = node.lineno
-
-                                    # Get relative path
-                                    rel_path = file_path.relative_to(bbot_dir)
-
                                     regexes_found.append(
                                         {
                                             "file": str(rel_path),
@@ -169,6 +249,20 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
                                             "pattern": pattern,
                                             "function": node.func.attr,
                                             "full_path": str(file_path),
+                                            "status": "testable",
+                                        }
+                                    )
+                                elif reason:
+                                    # Add to untestable patterns
+                                    regexes_found.append(
+                                        {
+                                            "file": str(rel_path),
+                                            "line": line_no,
+                                            "pattern": ast.unparse(node.args[0]) if node.args else "Unknown",
+                                            "function": node.func.attr,
+                                            "full_path": str(file_path),
+                                            "status": "untestable",
+                                            "reason": reason,
                                         }
                                     )
 
@@ -199,17 +293,27 @@ def analyze_regex_performance() -> Dict[str, Any]:
         "very_long": ["a" * 1000, "b" * 1000, "c" * 1000],
     }
 
-    # Use all found regexes
-    patterns = []
+    # Separate testable and untestable patterns
+    testable_patterns = []
+    untestable_patterns = []
+
     for regex_info in regexes_found:
-        patterns.append(
-            (
-                f"{regex_info['file']}:{regex_info['line']}",
-                regex_info["pattern"],
-                regex_info["file"],
-                regex_info["line"],
+        if regex_info.get("status") == "testable":
+            testable_patterns.append(
+                (
+                    f"{regex_info['file']}:{regex_info['line']}",
+                    regex_info["pattern"],
+                    regex_info["file"],
+                    regex_info["line"],
+                )
             )
-        )
+        else:
+            untestable_patterns.append(regex_info)
+
+    print(f"Found {len(testable_patterns)} testable patterns and {len(untestable_patterns)} untestable patterns")
+
+    # Use only testable patterns for performance testing
+    patterns = testable_patterns
 
     results = []
     benchmarks = []
@@ -328,12 +432,14 @@ def analyze_regex_performance() -> Dict[str, Any]:
     successful_results = [r for r in results if r["status"] == "success"]
     summary = {
         "patterns_tested": len(successful_results),
+        "patterns_untestable": len(untestable_patterns),
         "total_benchmarks": len(benchmarks),
         "compilation_times": [r["compile_time"] for r in successful_results],
         "matching_times": [],
         "slow_patterns": [],
         "problematic_patterns": [],
         "detailed_results": results,
+        "untestable_patterns": untestable_patterns,
     }
 
     # Collect matching times and identify slow patterns
@@ -612,7 +718,8 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 
     if regex_analysis:
         report += "\n\n## 🔍 Regex Performance Analysis\n\n"
-        report += f"**Patterns Tested**: {regex_analysis.get('patterns_tested', 0)}\n\n"
+        report += f"**Patterns Tested**: {regex_analysis.get('patterns_tested', 0)}\n"
+        report += f"**Patterns Untestable**: {regex_analysis.get('patterns_untestable', 0)}\n\n"
 
         # Error patterns
         if regex_analysis.get("problematic_patterns") or regex_analysis.get("slow_patterns"):
@@ -696,6 +803,29 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
                     )
                 else:
                     report += f"| {highlight}{file_line} | `{pattern}` | ❌ Error | ❌ Error | ❌ |\n"
+
+            report += "\n</details>\n\n"
+
+        # Untestable patterns section
+        if regex_analysis.get("untestable_patterns"):
+            report += "<details>\n<summary>❌ <strong>Untestable Patterns</strong></summary>\n\n"
+            report += "| File:Line | Pattern | Reason |\n"
+            report += "|-----------|---------|--------|\n"
+
+            for pattern_info in regex_analysis["untestable_patterns"]:
+                file_line = f"`{pattern_info['file']}:{pattern_info['line']}`"
+                pattern = (
+                    pattern_info["pattern"][:60] + "..."
+                    if len(pattern_info["pattern"]) > 60
+                    else pattern_info["pattern"]
+                )
+                reason = pattern_info.get("reason", "Unknown")
+
+                # Escape pipe characters in pattern and reason
+                pattern = pattern.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
+                reason = reason.replace("|", "\\|").replace("\n", "\\n").replace("\r", "\\r")
+
+                report += f"| {file_line} | `{pattern}` | {reason} |\n"
 
             report += "\n</details>\n\n"
 
