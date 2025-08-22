@@ -70,26 +70,56 @@ jobs:
           try {
             const report = fs.readFileSync('benchmark_report.md', 'utf8');
             
-            // Find existing benchmark comment
+            // Find existing benchmark comment (with pagination)
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              per_page: 100, // Get more comments per page
             });
             
-            const existingComment = comments.data.find(comment => 
-              comment.body.includes('Performance Benchmark Report')
+            // Debug: log all comments to see what we're working with
+            console.log(`Found ${comments.data.length} comments on this PR`);
+            comments.data.forEach((comment, index) => {
+              console.log(`Comment ${index}: user=${comment.user.login}, body preview="${comment.body.substring(0, 100)}..."`);
+            });
+            
+            const existingComments = comments.data.filter(comment => 
+              comment.body.toLowerCase().includes('performance benchmark report') &&
+              comment.user.login === 'github-actions[bot]'
             );
             
-            if (existingComment) {
-              // Update existing comment
+            console.log(`Found ${existingComments.length} existing benchmark comments`);
+            
+            if (existingComments.length > 0) {
+              // Update the most recent comment (first in the list)
+              const mostRecentComment = existingComments[0];
+              console.log(`Updating most recent benchmark comment: ${mostRecentComment.id}`);
+              
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: existingComment.id,
+                comment_id: mostRecentComment.id,
                 body: report
               });
               console.log('Updated existing benchmark comment');
+              
+              // Delete any older duplicate comments
+              if (existingComments.length > 1) {
+                console.log(`Deleting ${existingComments.length - 1} older duplicate comments`);
+                for (let i = 1; i < existingComments.length; i++) {
+                  try {
+                    await github.rest.issues.deleteComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      comment_id: existingComments[i].id
+                    });
+                    console.log(`Deleted duplicate comment: ${existingComments[i].id}`);
+                  } catch (error) {
+                    console.log(`Failed to delete comment ${existingComments[i].id}: ${error.message}`);
+                  }
+                }
+              }
             } else {
               // Create new comment
               await github.rest.issues.createComment({

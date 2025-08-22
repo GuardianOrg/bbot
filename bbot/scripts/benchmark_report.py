@@ -645,7 +645,9 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
             )
         else:
             table += f"\n| **{test_name}** | `-` | `{format_time(current_mean)}` | **New** 🆕 | 🆕 |"
-            significant_changes.append(f"- **{test_name}**: New test 🆕")
+            significant_changes.append(
+                f"- **{test_name}**: New test 🆕 ({format_time(current_mean)}, {format_ops(current_ops)})"
+            )
 
     table += "\n\n</details>\n\n"
 
