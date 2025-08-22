@@ -151,13 +151,11 @@ class retirejs(BaseModule):
         retire_dir = self.scan.helpers.tools_dir / "retirejs"
         local_node_dir = self.scan.helpers.tools_dir / "node"
 
+        # Use the local node binary directly to run retire instead of npm exec
+        # This avoids PATH issues that can occur in different distro environments
         command = [
-            str(local_node_dir / "bin" / "npm"),
-            "exec",
-            "--prefix",
-            str(retire_dir),
-            "retire",
-            "--",
+            str(local_node_dir / "bin" / "node"),
+            str(retire_dir / "node_modules" / ".bin" / "retire"),
             "--outputformat",
             "json",
             "--cachedir",
