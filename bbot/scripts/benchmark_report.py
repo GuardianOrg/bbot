@@ -678,7 +678,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     """Generate complete benchmark comparison report."""
 
     if not current_data:
-        report = """## Performance Benchmark Report
+        report = """## 🚀 Performance Benchmark Report
 
 > ⚠️ **No current benchmark data available**
 > 
@@ -691,7 +691,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
         return report
 
     if not base_data:
-        report = f"""## Performance Benchmark Report
+        report = f"""## 🚀 Performance Benchmark Report
 
 > ℹ️ **No baseline benchmark data available**
 > 
