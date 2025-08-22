@@ -277,7 +277,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
 
 > ℹ️ **No baseline benchmark data available**
 > 
-> Showing current results for `{current_branch}` only.
+> Showing current results for **{current_branch}** only.
 
 """
         current_benchmarks = current_data.get("benchmarks", [])
@@ -297,7 +297,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     machine_info = current_data.get("machine_info", {})
     python_version = machine_info.get("python_version", "Unknown")
 
-    report += f"\n---\n🐍 Python Version {python_version}"
+    report += f"\n\n---\n\n🐍 Python Version {python_version}"
 
     return report
 

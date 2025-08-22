@@ -42,7 +42,7 @@ jobs:
     # Generate benchmark comparison report using our branch-based script
     - name: Generate benchmark comparison report
       run: |
-        poetry run python scripts/benchmark_report.py \
+        poetry run python bbot/scripts/benchmark_report.py \
           --base ${{ github.base_ref }} \
           --current ${{ github.head_ref }} \
           --output benchmark_report.md \
