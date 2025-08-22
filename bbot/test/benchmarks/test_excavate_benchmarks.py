@@ -4,16 +4,15 @@ from ..bbot_fixtures import *
 from ..test_step_2.module_tests.base import ModuleTestBase
 
 
-class TestExcavateBasicBenchmarks(ModuleTestBase):
-    """Benchmark for excavate module's basic content processing (no parameter extraction)"""
-    
+class ExcavateBenchmarkBase(ModuleTestBase):
+    """Base class for excavate benchmarks with shared setup"""
+
     targets = ["http://127.0.0.1:8888/"]
-    modules_overrides = ["excavate", "httpx"]  # No hunt = no parameter extraction
 
     def setup_method(self):
         """Setup test data"""
         random.seed(42)  # Deterministic for reproducible tests
-        
+
         # Generate test HTML documents with extractable content
         self.test_response_data = []
         for i in range(10):  # Start with fewer for debugging
@@ -31,7 +30,7 @@ class TestExcavateBasicBenchmarks(ModuleTestBase):
                 <link href="/css/style{i}.css" rel="stylesheet">
                 <img src="/images/photo{i}.jpg" alt="Photo {i}">
                 
-                <!-- Forms with parameters (won't be extracted without hunt module) -->
+                <!-- Forms with parameters -->
                 <form action="/submit{i}" method="post">
                     <input type="text" name="username{i}" value="user{i}">
                     <input type="password" name="password{i}" value="pass{i}">
@@ -61,6 +60,17 @@ class TestExcavateBasicBenchmarks(ModuleTestBase):
         respond_args = {"response_data": response_data}
         module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
 
+    def check(self, module_test, events):
+        """Required by ModuleTestBase - validate the scan worked"""
+        # Just ensure we got some events from excavate
+        assert len(events) > 0, "Expected excavate to emit some events"
+
+
+class TestExcavateBasicBenchmarks(ExcavateBenchmarkBase):
+    """Benchmark for excavate module's basic content processing (no parameter extraction)"""
+
+    modules_overrides = ["excavate", "httpx"]  # No hunt = no parameter extraction
+
     @pytest.mark.benchmark(group="excavate_basic")
     def test_excavate_basic_processing(self, module_test, benchmark):
         """Benchmark excavate module's basic processing (no parameter extraction)"""
@@ -71,29 +81,26 @@ class TestExcavateBasicBenchmarks(ModuleTestBase):
 
         # Run the benchmark on the full scan
         events = benchmark(run_full_scan)
-        
+
         # Count what excavate found during the full scan
         url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
         web_param_events = [e for e in events if e.type == "WEB_PARAMETER"]
         total_events = len(events)
 
         # Validate that excavate actually processed the content and found things
-        assert total_events > 0, f"Expected excavate to emit some events, but emitted {total_events}. Check if excavate is working."
-        
+        assert total_events > 0, (
+            f"Expected excavate to emit some events, but emitted {total_events}. Check if excavate is working."
+        )
+
         print(f"✅ Basic excavate benchmark processed scan")
         print(f"📊 Full scan emitted {total_events} total events:")
         print(f"   - URL_UNVERIFIED: {len(url_events)}")
         print(f"   - WEB_PARAMETER: {len(web_param_events)} (should be 0 without hunt)")
 
-    def check(self, module_test, events):
-        """Required by ModuleTestBase - validate the scan worked"""
-        # Just ensure we got some events from excavate
-        assert len(events) > 0, "Expected excavate to emit some events"
 
-
-class TestExcavateFullBenchmarks(TestExcavateBasicBenchmarks):
+class TestExcavateFullBenchmarks(ExcavateBenchmarkBase):
     """Benchmark for excavate module's full content processing (with parameter extraction)"""
-    
+
     modules_overrides = ["excavate", "httpx", "hunt"]  # hunt enables parameter extraction
 
     @pytest.mark.benchmark(group="excavate_full")
@@ -106,16 +113,18 @@ class TestExcavateFullBenchmarks(TestExcavateBasicBenchmarks):
 
         # Run the benchmark on the full scan
         events = benchmark(run_full_scan)
-        
+
         # Count what excavate found during the full scan
         url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
         web_param_events = [e for e in events if e.type == "WEB_PARAMETER"]
         total_events = len(events)
 
         # Validate that excavate actually processed the content and found things
-        assert total_events > 0, f"Expected excavate to emit some events, but emitted {total_events}. Check if excavate is working."
-        
+        assert total_events > 0, (
+            f"Expected excavate to emit some events, but emitted {total_events}. Check if excavate is working."
+        )
+
         print(f"✅ Full excavate benchmark processed scan")
         print(f"📊 Full scan emitted {total_events} total events:")
         print(f"   - URL_UNVERIFIED: {len(url_events)}")
-        print(f"   - WEB_PARAMETER: {len(web_param_events)} (should be >0 with hunt)") 
+        print(f"   - WEB_PARAMETER: {len(web_param_events)} (should be >0 with hunt)")
