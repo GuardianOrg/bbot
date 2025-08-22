@@ -144,7 +144,7 @@ class TestExcavateBenchmarks:
         assert total_events > 0, "Expected to find some events from the scan"
 
         # Print detailed event counts
-        print(f"\n✅ Basic excavate benchmark completed")
+        print("\n✅ Basic excavate benchmark completed")
         print(f"📊 Total events: {total_events}")
         print(f"📊 Excavate events (module=excavate): {excavate_events}")
         print(f"📊 URL events: {url_events}")
@@ -281,7 +281,7 @@ class TestExcavateFullBenchmarks:
         assert total_events > 0, "Expected to find some events from the scan"
 
         # Print detailed event counts
-        print(f"\n✅ Full excavate benchmark completed")
+        print("\n✅ Full excavate benchmark completed")
         print(f"📊 Total events: {total_events}")
         print(f"📊 Excavate events (module=excavate): {excavate_events}")
         print(f"📊 URL events: {url_events}")
