@@ -108,7 +108,7 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
                                         try:
                                             # Try to evaluate f-string (simplified)
                                             variables[target.id] = ast.unparse(node.value)
-                                        except:
+                                        except (ValueError, TypeError):
                                             pass
 
                     # Second pass: find regex usage
@@ -138,14 +138,14 @@ def find_regexes_in_codebase() -> List[Dict[str, Any]]:
                                     elif isinstance(arg, ast.JoinedStr):
                                         try:
                                             pattern = ast.unparse(arg)
-                                        except:
+                                        except (ValueError, TypeError):
                                             continue
 
                                     # Binary operations (string concatenation)
                                     elif isinstance(arg, ast.BinOp):
                                         try:
                                             pattern = ast.unparse(arg)
-                                        except:
+                                        except (ValueError, TypeError):
                                             continue
 
                                 if pattern and isinstance(pattern, str):
