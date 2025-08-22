@@ -32,12 +32,15 @@ class TestExcavateBenchmarks:
     which are critical for web scanning efficiency in BBOT.
     """
 
+    # Number of test pages to generate for consistent benchmarking
+    TEST_PAGES_COUNT = 8
+
     def setup_method(self):
         random.seed(42)
         self.test_response_data = []
 
         # Generate intensive HTML content that excavate can actually extract from
-        for i in range(10):
+        for i in range(self.TEST_PAGES_COUNT):
             html_content = f"""
             <html>
             <head>
@@ -163,12 +166,15 @@ class TestExcavateFullBenchmarks:
     enabled, which triggers parameter extraction functionality.
     """
 
+    # Number of test pages to generate for consistent benchmarking
+    TEST_PAGES_COUNT = 8
+
     def setup_method(self):
         random.seed(42)
         self.test_response_data = []
 
         # Generate intensive HTML content that excavate can actually extract from
-        for i in range(3):  # Reduced from 10 to 3 for much faster execution
+        for i in range(self.TEST_PAGES_COUNT):
             html_content = f"""
             <html>
             <head>
