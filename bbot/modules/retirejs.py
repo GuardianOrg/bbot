@@ -14,29 +14,51 @@ class retirejs(BaseModule):
     scope_distance_modifier = 1
     options = {
         "version": "5.3.0",
+        "node_version": "18.19.1",
     }
     options_desc = {
         "version": "retire.js version",
+        "node_version": "Node.js version to install locally",
     }
 
     deps_ansible = [
-        # Install Node.js and npm
+        # Download Node.js binary (Linux x64)
         {
-            "name": "Install Node.js and npm",
-            "package": {"name": ["nodejs", "npm"], "state": "present"},
-            "become": True,
-            "timeout": 300,
-            "ignore_errors": True,
+            "name": "Download Node.js binary (Linux x64)",
+            "get_url": {
+                "url": "https://nodejs.org/dist/v#{BBOT_MODULES_RETIREJS_NODE_VERSION}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64.tar.xz",
+                "dest": "#{BBOT_TEMP}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64.tar.xz",
+                "mode": "0644",
+            },
+        },
+        # Extract Node.js binary (x64)
+        {
+            "name": "Extract Node.js binary (x64)",
+            "unarchive": {
+                "src": "#{BBOT_TEMP}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64.tar.xz",
+                "dest": "#{BBOT_TOOLS}",
+                "remote_src": True,
+            },
+        },
+        # Remove existing node directory if it exists
+        {
+            "name": "Remove existing node directory",
+            "file": {"path": "#{BBOT_TOOLS}/node", "state": "absent"},
+        },
+        # Rename extracted directory to 'node' (x64)
+        {
+            "name": "Rename Node.js directory (x64)",
+            "command": "mv #{BBOT_TOOLS}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64 #{BBOT_TOOLS}/node",
         },
         # Create retire.js local directory
         {
             "name": "Create retire.js directory in BBOT_TOOLS",
             "file": {"path": "#{BBOT_TOOLS}/retirejs", "state": "directory", "mode": "0755"},
         },
-        # Install retire.js locally
+        # Install retire.js locally using local Node.js
         {
             "name": "Install retire.js locally",
-            "shell": "cd #{BBOT_TOOLS}/retirejs && npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
+            "shell": "cd #{BBOT_TOOLS}/retirejs && #{BBOT_TOOLS}/node/bin/npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
             "args": {"creates": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire"},
             "timeout": 600,
             "environment": {
@@ -122,9 +144,10 @@ class retirejs(BaseModule):
     async def execute_retirejs(self, js_file):
         cache_dir = self.helpers.cache_dir / "retire_cache"
         retire_dir = self.scan.helpers.tools_dir / "retirejs"
+        local_node_dir = self.scan.helpers.tools_dir / "node"
 
         command = [
-            "npm",
+            str(local_node_dir / "bin" / "npm"),
             "exec",
             "--prefix",
             str(retire_dir),
