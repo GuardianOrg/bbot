@@ -50,6 +50,15 @@ class retirejs(BaseModule):
             "name": "Rename Node.js directory (x64)",
             "command": "mv #{BBOT_TOOLS}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64 #{BBOT_TOOLS}/node",
         },
+        # Make Node.js binaries executable
+        {
+            "name": "Make Node.js binaries executable",
+            "file": {"path": "#{BBOT_TOOLS}/node/bin/node", "mode": "0755"},
+        },
+        {
+            "name": "Make npm executable",
+            "file": {"path": "#{BBOT_TOOLS}/node/bin/npm", "mode": "0755"},
+        },
         # Create retire.js local directory
         {
             "name": "Create retire.js directory in BBOT_TOOLS",
