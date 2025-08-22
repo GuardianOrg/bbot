@@ -714,7 +714,7 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     # Add regex analysis section if available
     machine_info = current_data.get("machine_info", {})
     python_version = machine_info.get("python_version", "Unknown")
-    regex_analysis = current_data.get("regex_analysis", {})
+    regex_analysis = machine_info.get("regex_analysis", {})
 
     if regex_analysis:
         report += "\n\n## 🔍 Regex Performance Analysis\n\n"
