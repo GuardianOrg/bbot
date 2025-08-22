@@ -871,7 +871,7 @@ def main():
 
         base_data = {}
         current_data = {}
-        
+
         # Initialize data structures with machine_info for regex analysis
         base_data["machine_info"] = {}
         current_data["machine_info"] = {}
@@ -882,11 +882,11 @@ def main():
             checkout_branch(args.base, repo_path)
             if run_benchmarks(base_results_file, repo_path):
                 base_data = load_benchmark_data(base_results_file)
-            
+
             # Add regex analysis to base branch data (but don't mix with benchmarks)
             print("🔍 Adding regex performance analysis to base branch...")
             base_regex_data = analyze_regex_performance()
-            
+
             # Add regex summary only (no benchmarks)
             if "machine_info" not in base_data:
                 base_data["machine_info"] = {}
@@ -897,13 +897,13 @@ def main():
             checkout_branch(args.current, repo_path)
             if run_benchmarks(current_results_file, repo_path):
                 current_data = load_benchmark_data(current_results_file)
-            
+
             # Add regex analysis to current branch data (but don't mix with benchmarks)
             print("🔍 Adding regex performance analysis to current branch...")
             current_regex_data = analyze_regex_performance()
             print(f"Debug: current_regex_data keys: {list(current_regex_data.keys())}")
             print(f"Debug: regex_summary keys: {list(current_regex_data.get('regex_summary', {}).keys())}")
-            
+
             # Add regex summary only (no benchmarks)
             if "machine_info" not in current_data:
                 current_data["machine_info"] = {}
