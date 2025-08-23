@@ -1,5 +1,7 @@
 from pathlib import Path
 from subprocess import CalledProcessError
+import os
+import tempfile
 from bbot.modules.templates.github import github
 
 
@@ -8,7 +10,7 @@ class git_clone(github):
     produced_events = ["FILESYSTEM"]
     flags = ["passive", "safe", "slow", "code-enum"]
     meta = {
-        "description": "Clone code github repositories",
+        "description": "Clone code github repositories safely without exposing tokens",
         "created_date": "2024-03-08",
         "author": "@domwhewell-sage",
     }
@@ -42,7 +44,9 @@ class git_clone(github):
         repo_path = await self.clone_git_repository(repo_url)
         if repo_path:
             self.verbose(f"Cloned {repo_url} to {repo_path}")
-            codebase_event = self.make_event({"path": str(repo_path)}, "FILESYSTEM", tags=["git"], parent=event)
+            codebase_event = self.make_event(
+                {"path": str(repo_path)}, "FILESYSTEM", tags=["git"], parent=event
+            )
             await self.emit_event(
                 codebase_event,
                 context=f"{{module}} downloaded git repo at {repo_url} to {{event.type}}: {repo_path}",
@@ -52,16 +56,41 @@ class git_clone(github):
         owner = repository_url.split("/")[-2]
         folder = self.output_dir / owner
         self.helpers.mkdir(folder)
+
+        #  env
+        clone_env = os.environ.copy()
+        clone_env["GIT_TERMINAL_PROMPT"] = "0"  # disable interactive prompts
+
+        askpass_script_path = None
         if self.api_key:
-            url = repository_url.replace("https://github.com", f"https://user:{self.api_key}@github.com")
-        else:
-            url = repository_url
-        command = ["git", "-C", folder, "clone", url]
+            # Create temp GIT_ASKPASS script to supply token safely
+            askpass_script = tempfile.NamedTemporaryFile(delete=False, mode="w")
+            askpass_script.write(f'#!/bin/sh\necho "{self.api_key}"\n')
+            askpass_script.close()
+            os.chmod(askpass_script.name, 0o700)
+            clone_env["GIT_ASKPASS"] = askpass_script.name
+            askpass_script_path = askpass_script.name
+
+        # Clone repository without embedding token in URL
+        command = ["git", "-C", str(folder), "clone", repository_url]
         try:
-            output = await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, check=True)
+            await self.run_process(command, env=clone_env, check=True)
         except CalledProcessError as e:
-            self.debug(f"Error cloning {url}. STDERR: {repr(e.stderr)}")
+            self.debug(f"Error cloning {repository_url}. STDERR: {repr(e.stderr)}")
+            if askpass_script_path:
+                os.unlink(askpass_script_path)
             return
 
-        folder_name = output.stderr.split("Cloning into '")[1].split("'")[0]
-        return folder / folder_name
+        # Clean .git/config to remove any accidental token
+        repo_name = repository_url.rstrip("/").split("/")[-1].replace(".git", "")
+        git_config = folder / repo_name / ".git" / "config"
+        if git_config.exists() and self.api_key:
+            text = git_config.read_text()
+            text = text.replace(self.api_key, "")
+            git_config.write_text(text)
+
+        # Remove temp GIT_ASKPASS script
+        if askpass_script_path:
+            os.unlink(askpass_script_path)
+
+        return folder / repo_name
