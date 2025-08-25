@@ -34,14 +34,14 @@ class git_clone(github):
         return True
 
     async def handle_event(self, event):
-        repo_url = event.data.get("url")
-        repo_path = await self.clone_git_repository(repo_url)
+        repository_url = event.data.get("url")
+        repo_path = await self.clone_git_repository(repository_url)
         if repo_path:
-            self.verbose(f"Cloned {repo_url} to {repo_path}")
+            self.verbose(f"Cloned {repository_url} to {repo_path}")
             codebase_event = self.make_event({"path": str(repo_path)}, "FILESYSTEM", tags=["git"], parent=event)
             await self.emit_event(
                 codebase_event,
-                context=f"{{module}} cloned git repo at {repo_url} to {{event.type}}: {repo_path}",
+                context=f"{{module}} cloned git repo at {repository_url} to {{event.type}}: {repo_path}",
             )
 
     async def clone_git_repository(self, repository_url):
