@@ -51,7 +51,7 @@ class unarchive(BaseInternalModule):
 
         try:
             output_dir.mkdir(exist_ok=False)
-        except Exception as e:
+        except FileExistsError:
             self.warning(f"Destination directory {output_dir} already exists, aborting unarchive for {path}")
             return
 
