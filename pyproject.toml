@@ -75,6 +75,7 @@ fastapi = ">=0.115.5,<0.117.0"
 pytest-httpx = ">=0.35"
 pytest-benchmark = "^4.0.0"
 ruff = "0.12.9"
+ruff = "0.12.10"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.5.2"
