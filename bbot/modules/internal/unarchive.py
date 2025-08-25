@@ -49,12 +49,6 @@ class unarchive(BaseInternalModule):
         # include random string in output directory to avoid collisions
         output_dir = path.parent / f"{path.name.replace('.', '_')}"
 
-        try:
-            output_dir.mkdir(exist_ok=False)
-        except FileExistsError:
-            self.warning(f"Destination directory {output_dir} already exists, aborting unarchive for {path}")
-            return
-
         # Use the appropriate extraction method based on the file type
         self.info(f"Extracting {path} to {output_dir}")
         success = await self.extract_file(path, output_dir)
@@ -72,12 +66,17 @@ class unarchive(BaseInternalModule):
             output_dir.rmdir()
 
     async def extract_file(self, path, output_dir):
+        # output dir must not already exist
+        try:
+            output_dir.mkdir(exist_ok=False)
+        except FileExistsError:
+            self.warning(f"Destination directory {output_dir} already exists, aborting unarchive for {path}")
+            return
+
         extension, mime_type, description, confidence = get_magic_info(path)
         compression_format = get_compression(mime_type)
         cmd_list = self.compression_methods.get(compression_format, [])
         if cmd_list:
-            if not output_dir.exists():
-                self.helpers.mkdir(output_dir)
             command = [s.format(filename=path, extract_dir=output_dir) for s in cmd_list]
             try:
                 await self.run_process(command, check=True)
