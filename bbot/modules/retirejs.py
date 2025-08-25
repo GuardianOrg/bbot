@@ -179,6 +179,7 @@ class retirejs(BaseModule):
             str(cache_dir),
             "--path",
             js_file,
+            "--insecure",
         ]
 
         proxy = self.scan.web_config.get("http_proxy")
