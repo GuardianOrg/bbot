@@ -62,7 +62,8 @@ class unarchive(BaseInternalModule):
                 context=f'extracted "{path}" to: {output_dir}',
             )
         else:
-            output_dir.rmdir(missing_ok=True)
+            with suppress(OSError):
+                output_dir.rmdir()
 
     async def extract_file(self, path, output_dir):
         extension, mime_type, description, confidence = get_magic_info(path)
