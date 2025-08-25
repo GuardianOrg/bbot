@@ -81,6 +81,7 @@ class retirejs(BaseModule):
     ]
 
     accept_js_url = True
+    _module_threads = 4
 
     async def setup(self):
         excavate_enabled = self.scan.config.get("excavate")
