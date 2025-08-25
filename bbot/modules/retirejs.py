@@ -1,5 +1,21 @@
 import json
+from enum import IntEnum
 from bbot.modules.base import BaseModule
+
+
+class RetireJSSeverity(IntEnum):
+    NONE = 0
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+    CRITICAL = 4
+
+    @classmethod
+    def from_string(cls, severity_str):
+        try:
+            return cls[severity_str.upper()]
+        except (KeyError, AttributeError):
+            return cls.NONE
 
 
 class retirejs(BaseModule):
@@ -15,10 +31,12 @@ class retirejs(BaseModule):
     options = {
         "version": "5.3.0",
         "node_version": "18.19.1",
+        "severity": "medium",
     }
     options_desc = {
         "version": "retire.js version",
         "node_version": "Node.js version to install locally",
+        "severity": "Minimum severity level to report (none, low, medium, high, critical)",
     }
 
     deps_ansible = [
@@ -103,6 +121,15 @@ class retirejs(BaseModule):
         if not excavate_enabled:
             return False, "retirejs will not function without excavate enabled"
 
+        # Validate severity level
+        valid_severities = ["none", "low", "medium", "high", "critical"]
+        configured_severity = self.config.get("severity", "medium").lower()
+        if configured_severity not in valid_severities:
+            return (
+                False,
+                f"Invalid severity level '{configured_severity}'. Valid options are: {', '.join(valid_severities)}",
+            )
+
         self.repofile = await self.helpers.download(
             "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json", cache_hrs=24
         )
@@ -129,6 +156,16 @@ class retirejs(BaseModule):
                             vulnerabilities = component_result.get("vulnerabilities", [])
                             for vuln in vulnerabilities:
                                 severity = vuln.get("severity", "unknown")
+
+                                # Filter by minimum severity level
+                                min_severity = RetireJSSeverity.from_string(self.config.get("severity", "medium"))
+                                vuln_severity = RetireJSSeverity.from_string(severity)
+                                if vuln_severity < min_severity:
+                                    self.debug(
+                                        f"Skipping vulnerability with severity '{severity}' (below minimum '{min_severity.name.lower()}')"
+                                    )
+                                    continue
+
                                 identifiers = vuln.get("identifiers", {})
                                 summary = identifiers.get("summary", "Unknown vulnerability")
                                 cves = identifiers.get("CVE", [])
