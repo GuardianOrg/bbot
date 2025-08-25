@@ -60,6 +60,11 @@ class retirejs(BaseModule):
             "name": "Make npm executable",
             "file": {"path": "#{BBOT_TOOLS}/node/bin/npm", "mode": "0755"},
         },
+        # Remove existing retirejs directory if it exists
+        {
+            "name": "Remove existing retirejs directory",
+            "file": {"path": "#{BBOT_TOOLS}/retirejs", "state": "absent"},
+        },
         # Create retire.js local directory
         {
             "name": "Create retire.js directory in BBOT_TOOLS",
@@ -72,6 +77,16 @@ class retirejs(BaseModule):
             "args": {"creates": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire"},
             "timeout": 600,
             "ignore_errors": False,
+        },
+        # Fix retire script shebang to use our local node binary
+        {
+            "name": "Fix retire script shebang",
+            "shell": "sed -i '1s|#!/usr/bin/env node|#!#{BBOT_TOOLS}/node/bin/node|' #{BBOT_TOOLS}/retirejs/node_modules/.bin/retire",
+        },
+        # Make retire script executable
+        {
+            "name": "Make retire script executable",
+            "file": {"path": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire", "mode": "0755"},
         },
         # Create retire cache directory
         {
@@ -150,13 +165,14 @@ class retirejs(BaseModule):
     async def execute_retirejs(self, js_file):
         cache_dir = self.helpers.cache_dir / "retire_cache"
         retire_dir = self.scan.helpers.tools_dir / "retirejs"
-        local_node_dir = self.scan.helpers.tools_dir / "node"
 
-        # Use the local node binary directly to run retire instead of npm exec
-        # This avoids PATH issues that can occur in different distro environments
+        # Use the retire CLI script directly with our local node binary
+        local_node_dir = self.scan.helpers.tools_dir / "node"
+        retire_cli_script = retire_dir / "node_modules" / "retire" / "lib" / "cli.js"
+
         command = [
             str(local_node_dir / "bin" / "node"),
-            str(retire_dir / "node_modules" / ".bin" / "retire"),
+            str(retire_cli_script),
             "--outputformat",
             "json",
             "--cachedir",
