@@ -51,7 +51,9 @@ class git_clone(github):
 
         command = ["git", "-C", folder, "clone", repository_url]
         try:
-            if self.api_key:
+            _, domain = self.helpers.split_domain(self.helpers.urlparse(repository_url).hostname)
+            # only use the api key if the domain is github.com
+            if domain == "github.com" and self.api_key:
                 env = {
                     "GIT_TERMINAL_PROMPT": "0",
                     "GIT_HELPER": (
