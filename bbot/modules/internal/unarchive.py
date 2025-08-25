@@ -46,7 +46,6 @@ class unarchive(BaseInternalModule):
 
     async def handle_event(self, event):
         path = Path(event.data["path"])
-        # include random string in output directory to avoid collisions
         output_dir = path.parent / path.name.replace(".", "_")
 
         # Use the appropriate extraction method based on the file type
