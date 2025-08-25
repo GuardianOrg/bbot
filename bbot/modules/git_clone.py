@@ -1,6 +1,5 @@
 from pathlib import Path
 from subprocess import CalledProcessError
-import os
 from bbot.modules.templates.github import github
 
 
@@ -9,20 +8,18 @@ class git_clone(github):
     produced_events = ["FILESYSTEM"]
     flags = ["passive", "safe", "slow", "code-enum"]
     meta = {
-        "description": "Clone or update github repositories safely without exposing tokens",
+        "description": "Clone code github repositories",
         "created_date": "2024-03-08",
         "author": "@domwhewell-sage",
     }
     options = {"api_key": "", "output_folder": ""}
     options_desc = {
         "api_key": "Github token",
-        "output_folder": (
-            "Folder to clone repositories to. "
-            "If not specified, cloned repositories will be deleted when the scan completes, to minimize disk usage."
-        ),
+        "output_folder": "Folder to clone repositories to. If not specified, cloned repositories will be deleted when the scan completes, to minimize disk usage.",
     }
 
     deps_apt = ["git"]
+
     scope_distance_modifier = 2
 
     async def setup(self):
@@ -40,58 +37,48 @@ class git_clone(github):
         repo_url = event.data.get("url")
         repo_path = await self.clone_git_repository(repo_url)
         if repo_path:
-            self.verbose(f"Cloned/updated {repo_url} at {repo_path}")
+            self.verbose(f"Cloned {repo_url} to {repo_path}")
             codebase_event = self.make_event({"path": str(repo_path)}, "FILESYSTEM", tags=["git"], parent=event)
             await self.emit_event(
                 codebase_event,
-                context=f"{{module}} cloned/updated git repo at {repo_url} to {{event.type}}: {repo_path}",
+                context=f"{{module}} cloned git repo at {repo_url} to {{event.type}}: {repo_path}",
             )
 
     async def clone_git_repository(self, repository_url):
-        # owner and repo name
-        owner = repository_url.rstrip("/").split("/")[-2]
+        owner = repository_url.split("/")[-2]
         folder = self.output_dir / owner
         self.helpers.mkdir(folder)
 
-        repo_name = repository_url.rstrip("/").split("/")[-1]
-        if repo_name.endswith(".git"):
-            repo_name = repo_name[:-4]
-        repo_path = folder / repo_name
-
-        env = os.environ.copy()
-        env["GIT_TERMINAL_PROMPT"] = "0"
-
-        if self.api_key:
-            env["GIT_HELPER"] = (
-                f'!f() {{ case "$1" in get) '
-                f"echo username=x-access-token; "
-                f"echo password={self.api_key};; "
-                f'esac; }}; f "$@"'
-            )
-            base_command = [
-                "git",
-                "-c",
-                "credential.helper=",
-                "-c",
-                "credential.useHttpPath=true",
-                "--config-env=credential.helper=GIT_HELPER",
-            ]
-        else:
-            base_command = []
-
-        # Clone new repo or fetch if exists
+        command = ["git", "-C", folder, "clone", repository_url]
         try:
-            if repo_path.exists():
-                # Update existing repo
-                command = base_command + ["-C", str(repo_path), "fetch", "--all"]
+            if self.api_key:
+                env = {
+                    "GIT_TERMINAL_PROMPT": "0",
+                    "GIT_HELPER": (
+                        f'!f() {{ case "$1" in get) '
+                        f"echo username=x-access-token; "
+                        f"echo password={self.api_key};; "
+                        f'esac; }}; f "$@"'
+                    ),
+                }
+                command = (
+                    command[:1]
+                    + [
+                        "-c",
+                        "credential.helper=",
+                        "-c",
+                        "credential.useHttpPath=true",
+                        "--config-env=credential.helper=GIT_HELPER",
+                    ]
+                    + command[1:]
+                )
             else:
-                # Clone fresh
-                command = base_command + ["-C", str(folder), "clone", repository_url]
+                env = {"GIT_TERMINAL_PROMPT": "0"}
 
-            await self.run_process(command, env=env, check=True)
-
+            output = await self.run_process(command, env=env, check=True)
         except CalledProcessError as e:
-            self.debug(f"Error cloning/updating {repository_url}. STDERR: {repr(e.stderr)}")
+            self.debug(f"Error cloning {repository_url}. STDERR: {repr(e.stderr)}")
             return
 
-        return repo_path
+        folder_name = output.stderr.split("Cloning into '")[1].split("'")[0]
+        return folder / folder_name
