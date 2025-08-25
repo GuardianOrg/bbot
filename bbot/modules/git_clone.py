@@ -35,13 +35,13 @@ class git_clone(github):
 
     async def handle_event(self, event):
         repository_url = event.data.get("url")
-        repo_path = await self.clone_git_repository(repository_url)
-        if repo_path:
-            self.verbose(f"Cloned {repository_url} to {repo_path}")
-            codebase_event = self.make_event({"path": str(repo_path)}, "FILESYSTEM", tags=["git"], parent=event)
+        repository_path = await self.clone_git_repository(repository_url)
+        if repository_path:
+            self.verbose(f"Cloned {repository_url} to {repository_path}")
+            codebase_event = self.make_event({"path": str(repository_path)}, "FILESYSTEM", tags=["git"], parent=event)
             await self.emit_event(
                 codebase_event,
-                context=f"{{module}} cloned git repo at {repository_url} to {{event.type}}: {repo_path}",
+                context=f"{{module}} cloned git repository at {repository_url} to {{event.type}}: {repository_path}",
             )
 
     async def clone_git_repository(self, repository_url):
@@ -50,32 +50,31 @@ class git_clone(github):
         self.helpers.mkdir(folder)
 
         command = ["git", "-C", folder, "clone", repository_url]
+        env = {"GIT_TERMINAL_PROMPT": "0"}
+
         try:
-            _, domain = self.helpers.split_domain(self.helpers.urlparse(repository_url).hostname)
-            # only use the api key if the domain is github.com
-            if domain == "github.com" and self.api_key:
-                env = {
-                    "GIT_TERMINAL_PROMPT": "0",
-                    "GIT_HELPER": (
+            hostname = self.helpers.urlparse(repository_url).hostname
+            if hostname and self.api_key:
+                _, domain = self.helpers.split_domain(hostname)
+                # only use the api key if the domain is github.com
+                if domain == "github.com":
+                    env["GIT_HELPER"] = (
                         f'!f() {{ case "$1" in get) '
                         f"echo username=x-access-token; "
                         f"echo password={self.api_key};; "
                         f'esac; }}; f "$@"'
-                    ),
-                }
-                command = (
-                    command[:1]
-                    + [
-                        "-c",
-                        "credential.helper=",
-                        "-c",
-                        "credential.useHttpPath=true",
-                        "--config-env=credential.helper=GIT_HELPER",
-                    ]
-                    + command[1:]
-                )
-            else:
-                env = {"GIT_TERMINAL_PROMPT": "0"}
+                    )
+                    command = (
+                        command[:1]
+                        + [
+                            "-c",
+                            "credential.helper=",
+                            "-c",
+                            "credential.useHttpPath=true",
+                            "--config-env=credential.helper=GIT_HELPER",
+                        ]
+                        + command[1:]
+                    )
 
             output = await self.run_process(command, env=env, check=True)
         except CalledProcessError as e:
