@@ -47,7 +47,13 @@ class unarchive(BaseInternalModule):
     async def handle_event(self, event):
         path = Path(event.data["path"])
         # include random string in output directory to avoid collisions
-        output_dir = path.parent / f"{path.name.replace('.', '_')}_{self.helpers.rand_string(10)}"
+        output_dir = path.parent / f"{path.name.replace('.', '_')}"
+
+        try:
+            output_dir.mkdir(exist_ok=False)
+        except Exception as e:
+            self.warning(f"Destination directory {output_dir} already exists, aborting unarchive for {path}")
+            return
 
         # Use the appropriate extraction method based on the file type
         self.info(f"Extracting {path} to {output_dir}")
