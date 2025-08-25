@@ -102,6 +102,12 @@ class retirejs(BaseModule):
         excavate_enabled = self.scan.config.get("excavate")
         if not excavate_enabled:
             return False, "retirejs will not function without excavate enabled"
+
+        self.repofile = await self.helpers.download(
+            "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json", cache_hrs=24
+        )
+        if not self.repofile:
+            return False, "failed to download retire.js repository file"
         return True
 
     async def handle_event(self, event):
@@ -179,7 +185,8 @@ class retirejs(BaseModule):
             str(cache_dir),
             "--path",
             js_file,
-            "--insecure",
+            "--jsrepo",
+            str(self.repofile),
         ]
 
         proxy = self.scan.web_config.get("http_proxy")
