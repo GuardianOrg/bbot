@@ -127,7 +127,7 @@ fragment TypeRef on __Type {
                 self.debug(f"Failed to parse JSON for {url}")
                 continue
             if response_json.get("data", {}).get("__schema", {}).get("types", []):
-                self.output_dir.mkdir(parents=True,exist_ok=True)
+                self.helpers.mkdir(self.output_dir)
                 filename = f"schema-{self.helpers.tagify(url)}.json"
                 filename = self.output_dir / filename
                 with open(filename, "w") as f:
