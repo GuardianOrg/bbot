@@ -27,7 +27,6 @@ class retirejs(BaseModule):
         "created_date": "2025-08-19",
         "author": "@liquidsec",
     }
-    scope_distance_modifier = 1
     options = {
         "version": "5.3.0",
         "node_version": "18.19.1",
@@ -113,13 +112,14 @@ class retirejs(BaseModule):
         },
     ]
 
-    accept_js_url = True
+    accept_url_special = True
+    scope_distance_modifier = 1
     _module_threads = 4
 
     async def setup(self):
         excavate_enabled = self.scan.config.get("excavate")
         if not excavate_enabled:
-            return False, "retirejs will not function without excavate enabled"
+            return None, "retirejs will not function without excavate enabled"
 
         # Validate severity level
         valid_severities = ["none", "low", "medium", "high", "critical"]
@@ -201,8 +201,9 @@ class retirejs(BaseModule):
                                 )
 
     async def filter_event(self, event):
-        if str(event.parent.module) != "httpx" or event.parent.type != "HTTP_RESPONSE":
-            return False, f"parent event was not an HTTP_RESPONSE from httpx ({event.parent.module})"
+        url_extension = getattr(event, "url_extension", "")
+        if url_extension != "js":
+            return False, f"it is a {url_extension} URL but retirejs only accepts js URLs"
         return True
 
     async def execute_retirejs(self, js_file):

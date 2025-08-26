@@ -188,6 +188,11 @@ url_extension_blacklist:
   - flv
   - webm
 
+# URL extensions in this list are not distributed to modules unless they opt in via `accept_url_special = True`
+# They are also excluded from output. If you want to see them in output, remove them from this list.
+url_extension_special:
+  - js
+
 # These url extensions are almost always static, so we exclude them from modules that fuzz things
 url_extension_static:
   - pdf

@@ -230,6 +230,7 @@ class Scanner:
             )
 
         # url file extensions
+        self.url_extension_special = {e.lower() for e in self.config.get("url_extension_special", [])}
         self.url_extension_blacklist = {e.lower() for e in self.config.get("url_extension_blacklist", [])}
 
         # url querystring behavior

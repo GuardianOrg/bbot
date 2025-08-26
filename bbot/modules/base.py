@@ -53,7 +53,7 @@ class BaseModule:
 
         in_scope_only (bool): Accept only explicitly in-scope events, regardless of the scan's search distance. Default is False.
 
-        accept_js_url (bool): Accept JavaScript URL events. Default is False.
+        accept_url_special (bool): Accept "special" URLs not typically distributed to web modules, e.g. JS URLs. Default is False.
 
         options (Dict): Customizable options for the module, e.g., {"api_key": ""}. Empty dict by default.
 
@@ -99,7 +99,7 @@ class BaseModule:
     scope_distance_modifier = 0
     target_only = False
     in_scope_only = False
-    accept_js_url = False
+    accept_url_special = False
     _module_threads = 1
     _batch_size = 1
 
@@ -788,8 +788,13 @@ class BaseModule:
                 return False, "it did not meet target_only filter criteria"
 
         # limit js URLs to modules that opt in to receive them
-        if event.type.startswith("URL") and "extension-js" in event.tags and not self.accept_js_url:
-            return False, "it is a js URL but the module does not opt in to receive js URLs"
+        if (not self.accept_url_special) and event.type.startswith("URL"):
+            extension = getattr(event, "url_extension", "")
+            if extension in self.scan.url_extension_special:
+                return (
+                    False,
+                    f"it is a special URL (extension {extension}) but the module does not opt in to receive special URLs",
+                )
 
         return True, "precheck succeeded"
 

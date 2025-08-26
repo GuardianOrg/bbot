@@ -205,6 +205,13 @@ class ScanEgress(BaseInterceptModule):
             )
             event.internal = True
 
+        # mark special URLs (e.g. Javascript) as internal so they don't get output except when they're critical to the graph
+        if event.type.startswith("URL"):
+            extension = getattr(event, "url_extension", "")
+            if extension in self.scan.url_extension_special:
+                event.internal = True
+                self.debug(f"Making {event} internal because it is a special URL (extension {extension})")
+
         if event.type in self.scan.omitted_event_types:
             self.debug(f"Omitting {event} because its type is omitted in the config")
             event._omit = True
