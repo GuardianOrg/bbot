@@ -6,7 +6,8 @@ log = logging.getLogger("bbot.core.helpers.web.client")
 
 
 class DummyCookies(Cookies):
-    pass
+    def extract_cookies(self, *args, **kwargs):
+        pass
 
 
 class BBOTAsyncClient(httpx.AsyncClient):
@@ -80,6 +81,8 @@ class BBOTAsyncClient(httpx.AsyncClient):
 
         log.verbose(f"Creating httpx.AsyncClient({args}, {kwargs})")
         super().__init__(*args, **kwargs)
+        if not self._persist_cookies:
+            self._cookies = DummyCookies()
 
     def build_request(self, *args, **kwargs):
         if args:
