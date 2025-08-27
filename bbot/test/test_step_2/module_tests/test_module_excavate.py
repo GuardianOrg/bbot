@@ -195,6 +195,7 @@ class TestExcavateInScopeJavascript(TestExcavate):
         assert found_badsecrets_vulnerability, "Failed to find BADSECRETs event from script.js"
         assert found_excavate_jwt_finding, "Failed to find JWT finding from script.js"
 
+
 class TestExcavateRedirect(TestExcavate):
     targets = ["http://127.0.0.1:8888/", "http://127.0.0.1:8888/relative/", "http://127.0.0.1:8888/nonhttpredirect/"]
     config_overrides = {"scope": {"report_distance": 1}}
