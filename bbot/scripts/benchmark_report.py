@@ -351,9 +351,6 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     return report
 
 
-
-
-
 def main():
     parser = argparse.ArgumentParser(description="Compare benchmark performance between git branches")
     parser.add_argument("--base", required=True, help="Base branch name (e.g., 'main', 'dev')")
