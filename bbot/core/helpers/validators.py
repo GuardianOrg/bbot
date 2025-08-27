@@ -291,14 +291,6 @@ def soft_validate(s, t):
         return False
 
 
-def is_email(email):
-    try:
-        validate_email(email)
-        return True
-    except ValueError:
-        return False
-
-
 class Validators:
     def __init__(self, parent_helper):
         self.parent_helper = parent_helper

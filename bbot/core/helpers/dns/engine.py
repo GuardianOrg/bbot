@@ -120,7 +120,6 @@ class DNSEngine(EngineServer):
             self.log.trace(traceback.format_exc())
             raise
 
-        self.debug(f"Results for {query} with kwargs={kwargs}: {results}")
         return results
 
     async def resolve_raw(self, query, **kwargs):
@@ -190,7 +189,6 @@ class DNSEngine(EngineServer):
             >>> results, errors = await _resolve_hostname("google.com")
             (<dns.resolver.Answer object at 0x7f4a4b2caf50>, [])
         """
-        self.debug(f"Resolving {query} with kwargs={kwargs}")
         results = []
         errors = []
         rdtype = kwargs.get("rdtype", "A")
