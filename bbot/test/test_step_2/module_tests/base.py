@@ -61,6 +61,7 @@ class ModuleTestBase:
                 config=self.config,
                 whitelist=module_test_base.whitelist,
                 blacklist=module_test_base.blacklist,
+                force_start=getattr(module_test_base, "force_start", False),
             )
             self.events = []
             self.log = logging.getLogger(f"bbot.test.{module_test_base.name}")
