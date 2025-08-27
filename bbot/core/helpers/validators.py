@@ -257,14 +257,6 @@ def validate_url_parsed(url: str):
     return clean_url(url)
 
 
-def is_email(email):
-    try:
-        validate_email(email)
-        return True
-    except ValueError:
-        return False
-
-
 def soft_validate(s, t):
     """
     Softly validates a given string against a specified type. This function returns a boolean
@@ -294,6 +286,14 @@ def soft_validate(s, t):
         raise ValueError(f'No validator for type "{t}"')
     try:
         validator_fn(s)
+        return True
+    except ValueError:
+        return False
+
+
+def is_email(email):
+    try:
+        validate_email(email)
         return True
     except ValueError:
         return False
