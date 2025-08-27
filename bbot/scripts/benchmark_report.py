@@ -184,13 +184,51 @@ def generate_comparison_table(current_data: Dict, base_data: Dict, current_branc
 
         current_stats = current_bench.get("stats", {})
         current_mean = current_stats.get("mean", 0)
-        current_ops = current_stats.get("ops", 0)
+        # For multi-item benchmarks, calculate correct ops/sec
+        if "excavate" in name:
+            current_ops = 100 / current_mean  # 100 segments per test
+        elif "event_validation" in name and "small" in name:
+            current_ops = 100 / current_mean  # 100 targets per test
+        elif "event_validation" in name and "large" in name:
+            current_ops = 1000 / current_mean  # 1000 targets per test
+        elif "make_event" in name and "small" in name:
+            current_ops = 100 / current_mean  # 100 items per test
+        elif "make_event" in name and "large" in name:
+            current_ops = 1000 / current_mean  # 1000 items per test
+        elif "ip" in name:
+            current_ops = 1000 / current_mean  # 1000 IPs per test
+        elif "bloom_filter" in name:
+            if "dns_mutation" in name:
+                current_ops = 2500 / current_mean  # 2500 operations per test
+            else:
+                current_ops = 13000 / current_mean  # 13000 operations per test
+        else:
+            current_ops = 1 / current_mean  # Default: single operation
 
         base_bench = base_lookup.get(name)
         if base_bench:
             base_stats = base_bench.get("stats", {})
             base_mean = base_stats.get("mean", 0)
-            base_ops = base_stats.get("ops", 0)
+            # For multi-item benchmarks, calculate correct ops/sec
+            if "excavate" in name:
+                base_ops = 100 / base_mean  # 100 segments per test
+            elif "event_validation" in name and "small" in name:
+                base_ops = 100 / base_mean  # 100 targets per test
+            elif "event_validation" in name and "large" in name:
+                base_ops = 1000 / base_mean  # 1000 targets per test
+            elif "make_event" in name and "small" in name:
+                base_ops = 100 / base_mean  # 100 items per test
+            elif "make_event" in name and "large" in name:
+                base_ops = 1000 / base_mean  # 1000 items per test
+            elif "ip" in name:
+                base_ops = 1000 / base_mean  # 1000 IPs per test
+            elif "bloom_filter" in name:
+                if "dns_mutation" in name:
+                    base_ops = 2500 / base_mean  # 2500 operations per test
+                else:
+                    base_ops = 13000 / base_mean  # 13000 operations per test
+            else:
+                base_ops = 1 / base_mean  # Default: single operation
 
             change_percent, emoji = calculate_change_percentage(base_mean, current_mean)
 
@@ -311,6 +349,9 @@ def generate_report(current_data: Dict, base_data: Dict, current_branch: str, ba
     report += f"\n\n---\n\n🐍 Python Version {python_version}"
 
     return report
+
+
+
 
 
 def main():
