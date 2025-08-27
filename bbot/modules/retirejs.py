@@ -67,6 +67,11 @@ class retirejs(BaseModule):
             "name": "Rename Node.js directory (x64)",
             "command": "mv #{BBOT_TOOLS}/node-v#{BBOT_MODULES_RETIREJS_NODE_VERSION}-linux-x64 #{BBOT_TOOLS}/node",
         },
+        # Set permissions on entire Node.js bin directory
+        {
+            "name": "Set permissions on Node.js bin directory",
+            "file": {"path": "#{BBOT_TOOLS}/node/bin", "mode": "0755", "recurse": "yes"},
+        },
         # Make Node.js binary executable
         {
             "name": "Make Node.js binary executable",
