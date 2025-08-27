@@ -220,16 +220,34 @@ class TestExcavateDirectBenchmarks:
         def run_test():
             return asyncio.run(self._run_excavate_single_thread(text_segments))
 
-        result = benchmark(run_test)
+        result, events = benchmark(run_test)
 
         assert len(result) == self.TEXT_SEGMENTS_COUNT
         total_size_mb = (self.LARGE_SIZE * self.TEXT_SEGMENTS_COUNT) / (1024 * 1024)
+
+        # Count events by type
+        total_events = len(events)
+        url_events = len([e for e in events if e.type == "URL_UNVERIFIED"])
+        dns_events = len([e for e in events if e.type == "DNS_NAME"])
+        email_events = len([e for e in events if e.type == "EMAIL_ADDRESS"])
+        protocol_events = len([e for e in events if e.type == "PROTOCOL"])
+        finding_events = len([e for e in events if e.type == "FINDING"])
+
         print("\n✅ Single-thread large segments benchmark completed")
         print(f"📊 Processed {len(result):,} segments of {self.LARGE_SIZE / (1024 * 1024):.0f}MB each")
         print(f"📊 Total size processed: {total_size_mb:.1f} MB")
+        print(f"📊 Total events: {total_events}")
+        print(f"📊 URL events: {url_events}")
+        print(f"📊 DNS events: {dns_events}")
+        print(f"📊 Email events: {email_events}")
+        print(f"📊 Protocol events: {protocol_events}")
+        print(f"📊 Finding events: {finding_events}")
 
-        # Basic assertion that excavate is actually working (should find URLs in our test content)
-        assert len(result) > 0, "Expected excavate to process all segments"
+        # Validate that excavate actually found and processed content
+        assert total_events > 0, "Expected to find some events from excavate"
+        assert url_events > 0 or dns_events > 0 or protocol_events > 0, (
+            "Expected excavate to find URLs, DNS names, or protocols"
+        )
 
     # Parallel Tests
     @pytest.mark.benchmark(group="excavate_parallel_small")
