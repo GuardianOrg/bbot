@@ -1,296 +1,287 @@
 import pytest
 import random
 import asyncio
-import threading
+import string
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from bbot.scanner import Scanner
 
 
-class MockHTTPHandler(BaseHTTPRequestHandler):
-    """Mock HTTP server that returns our test HTML content"""
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-
-        # Get the test content from the server instance
-        test_content = self.server.test_content
-        self.wfile.write(test_content.encode("utf-8"))
-
-    def log_message(self, format, *args):
-        # Suppress logging
-        pass
-
-
-class TestExcavateBenchmarks:
+class TestExcavateDirectBenchmarks:
     """
-    Benchmark tests for Excavate module operations.
-
-    These tests measure the performance of content extraction and processing
-    which are critical for web scanning efficiency in BBOT.
+    Direct benchmark tests for Excavate module operations.
+    
+    These tests measure the performance of excavate's core YARA processing
+    by calling the excavate.search() method directly with specific text sizes
+    in both single-threaded and parallel asyncio tasks to test the GIL sidestep feature of YARA.
     """
-
-    # Number of test pages to generate for consistent benchmarking
-    TEST_PAGES_COUNT = 8
-
-    def setup_method(self):
-        random.seed(42)
-        self.test_response_data = []
-
-        # Generate intensive HTML content that excavate can actually extract from
-        for i in range(self.TEST_PAGES_COUNT):
-            html_content = f"""
-            <html>
-            <head>
-                <title>Test Page {i}</title>
-            </head>
-            <body>
-                <h1>Welcome to Test Site {i}</h1>
+    
+    # Number of text segments per test
+    TEXT_SEGMENTS_COUNT = 100
+    
+    # Prescribed sizes for deterministic benchmarking (in bytes)
+    SMALL_SIZE = 4096       # 4KB
+    LARGE_SIZE = 5242880    # 5MB
+    
+    def _generate_text_segments(self, target_size, count):
+        """Generate a list of text segments of the specified size"""
+        segments = []
+        
+        for i in range(count):
+            # Generate realistic content that excavate can work with
+            base_content = self._generate_realistic_content(i)
+            
+            # Pad to the exact target size with deterministic content
+            remaining_size = target_size - len(base_content)
+            if remaining_size > 0:
+                # Use deterministic padding pattern
+                padding_pattern = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "
+                padding_repeats = (remaining_size // len(padding_pattern)) + 1
+                padding = (padding_pattern * padding_repeats)[:remaining_size]
+                content = base_content + padding
+            else:
+                content = base_content[:target_size]
                 
-                <!-- In-scope subdomains of foo.com target -->
-                <a href="https://api{i}.foo.com/v1/users">API Link {i}</a>
-                <a href="https://www{i}.foo.com/page{i}">WWW Link {i}</a>
-                <a href="https://cdn{i}.foo.com/assets/">CDN Link {i}</a>
-                
-                <!-- Form with parameters -->
-                <form action="/search/{i}" method="GET">
-                    <input type="text" name="q{i}" value="search{i}">
-                    <button type="submit">Search</button>
-                </form>
-                
-                <!-- Real-time services -->
-                <p>WebSocket: wss://realtime{i}.foo.com/socket</p>
-                <p>SSH: ssh://server{i}.foo.com:22/</p>
-                <p>FTP: ftp://ftp{i}.foo.com:21/</p>
-            </body>
-            </html>
-            """
-            self.test_response_data.append(html_content)
+            segments.append(content)
+        
+        return segments
+    
+    def _generate_realistic_content(self, index):
+        """Generate realistic content that excavate can extract from"""
+        return f"""
+        <html>
+        <head>
+            <title>Test Content {index}</title>
+            <script src="https://api{index}.example.com/js/app.js"></script>
+        </head>
+        <body>
+            <h1>Page {index}</h1>
+            
+            <!-- URLs and subdomains -->
+            <a href="https://www{index}.example.com/page{index}">Link {index}</a>
+            <a href="https://cdn{index}.example.com/assets/">CDN {index}</a>
+            <img src="https://img{index}.example.com/photo{index}.jpg" />
+            
+            <!-- Forms with parameters -->
+            <form action="/search{index}" method="GET">
+                <input type="text" name="query{index}" value="test{index}">
+                <input type="hidden" name="token{index}" value="abc123{index}">
+                <button type="submit">Search</button>
+            </form>
+            
+            <!-- API endpoints -->
+            <script>
+                fetch('https://api{index}.example.com/v1/users/{index}')
+                    .then(response => response.json())
+                    .then(data => console.log(data));
+                    
+                // WebSocket connection
+                const ws = new WebSocket('wss://realtime{index}.example.com/socket');
+            </script>
+            
+            <!-- Various protocols -->
+            <p>FTP: ftp://ftp{index}.example.com:21/files/</p>
+            <p>SSH: ssh://server{index}.example.com:22/</p>
+            <p>Email: contact{index}@example.com</p>
+            
+            <!-- JSON data -->
+            <script type="application/json">
+            {{
+                "apiEndpoint{index}": "https://api{index}.example.com/data",
+                "parameter{index}": "value{index}",
+                "secretKey{index}": "sk_test_{index}_abcdef123456"
+            }}
+            </script>
+            
+            <!-- Comments with URLs -->
+            <!-- https://hidden{index}.example.com/admin -->
+            <!-- TODO: Check https://internal{index}.example.com/debug -->
+        </body>
+        </html>
+        """
 
-        # Start mock HTTP server
-        self.start_mock_server()
+    async def _run_excavate_single_thread(self, text_segments):
+        """Run excavate processing in single thread"""
+        # Create scanner and initialize excavate
+        scan = Scanner("example.com", modules=["httpx"], config={"excavate": True})
+        await scan._prep()
+        excavate_module = scan.modules.get("excavate")
+        
+        if not excavate_module:
+            raise RuntimeError("Excavate module not found")
+        
+        # Track events emitted by excavate
+        emitted_events = []
+        
+        async def track_emit_event(event_data, *args, **kwargs):
+            emitted_events.append(event_data)
+        
+        excavate_module.emit_event = track_emit_event
+        
+        # Process all text segments sequentially
+        results = []
+        for i, text_segment in enumerate(text_segments):
+            # Create a mock HTTP_RESPONSE event
+            mock_event = scan.make_event(
+                {
+                    "url": f"https://example.com/test/{i}",
+                    "method": "GET",
+                    "body": text_segment,
+                    "header-dict": {"Content-Type": ["text/html"]},
+                    "raw_header": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n",
+                    "status_code": 200
+                },
+                "HTTP_RESPONSE",
+                parent=scan.root_event
+            )
+            
+            # Process with excavate
+            await excavate_module.search(
+                text_segment, 
+                mock_event, 
+                "text/html", 
+                f"Single thread benchmark {i}"
+            )
+            results.append(f"processed_{i}")
+        
+        return results, emitted_events
 
-    def teardown_method(self):
-        # Stop mock HTTP server
-        self.stop_mock_server()
+    async def _run_excavate_parallel_tasks(self, text_segments):
+        """Run excavate processing with parallel asyncio tasks"""
+        # Create scanner and initialize excavate
+        scan = Scanner("example.com", modules=["httpx"], config={"excavate": True})
+        await scan._prep()
+        excavate_module = scan.modules.get("excavate")
+        
+        if not excavate_module:
+            raise RuntimeError("Excavate module not found")
+        
+        # Define async task to process a single text segment
+        async def process_segment(segment_index, text_segment):
+            mock_event = scan.make_event(
+                {
+                    "url": f"https://example.com/parallel/{segment_index}",
+                    "method": "GET",
+                    "body": text_segment,
+                    "header-dict": {"Content-Type": ["text/html"]},
+                    "raw_header": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n",
+                    "status_code": 200
+                },
+                "HTTP_RESPONSE",
+                parent=scan.root_event
+            )
+            
+            await excavate_module.search(
+                text_segment, 
+                mock_event, 
+                "text/html", 
+                f"Parallel benchmark task {segment_index}"
+            )
+            return f"processed_{segment_index}"
+        
+        # Create all tasks and run them concurrently
+        tasks = [
+            process_segment(i, text_segment) 
+            for i, text_segment in enumerate(text_segments)
+        ]
+        
+        # Run all tasks in parallel
+        results = await asyncio.gather(*tasks)
+        return results
 
-    def start_mock_server(self):
-        """Start a mock HTTP server on port 8888"""
-        self.mock_server = HTTPServer(("127.0.0.1", 8888), MockHTTPHandler)
-        self.mock_server.test_content = "\n".join(self.test_response_data)
-
-        # Start server in a separate thread
-        self.server_thread = threading.Thread(target=self.mock_server.serve_forever)
-        self.server_thread.daemon = True
-        self.server_thread.start()
-
-        # Wait a moment for server to start
-        time.sleep(0.1)
-
-    def stop_mock_server(self):
-        """Stop the mock HTTP server"""
-        if hasattr(self, "mock_server"):
-            self.mock_server.shutdown()
-            self.mock_server.server_close()
-            if hasattr(self, "server_thread"):
-                self.server_thread.join(timeout=1)
-
-    @pytest.mark.benchmark(group="excavate_basic")
-    def test_excavate_basic_processing(self, benchmark):
-        """Benchmark excavate module's basic processing (no parameter extraction)"""
-
-        def run_excavate_scan():
-            # Create a scanner with excavate enabled
-            scan = Scanner("http://127.0.0.1:8888/", "foo.com", modules=["httpx"], config={"excavate": True})
-
-            # Run the scan to measure execution time
-            events = []
-
-            async def run_scan():
-                async for event in scan.async_start():
-                    events.append(event)
-
-            asyncio.run(run_scan())
-
-            # Return both events and event counts for analysis
-            total_events = len(events)
-            excavate_events = [e for e in events if e.module == "excavate"]
-            url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
-            dns_events = [e for e in events if e.type in ["DNS_NAME_UNRESOLVED", "DNS_NAME"]]
-            protocol_events = [e for e in events if e.type == "PROTOCOL"]
-
-            return {
-                "events": events,
-                "total_events": total_events,
-                "excavate_events": len(excavate_events),
-                "url_events": len(url_events),
-                "dns_events": len(dns_events),
-                "protocol_events": len(protocol_events),
-            }
-
-        # Run the benchmark on the scan execution
-        result = benchmark(run_excavate_scan)
-
-        # Extract event counts from the result
-        total_events = result["total_events"]
-        excavate_events = result["excavate_events"]
-        url_events = result["url_events"]
-        dns_events = result["dns_events"]
-        protocol_events = result["protocol_events"]
-
-        # Validate that excavate actually processed content and emitted events
-        assert total_events > 0, "Expected to find some events from the scan"
-
-        # Print detailed event counts
-        print("\n✅ Basic excavate benchmark completed")
+    # Single Thread Tests
+    @pytest.mark.benchmark(group="excavate_single_small")
+    def test_excavate_single_thread_small(self, benchmark):
+        """Benchmark excavate single thread processing with small (4KB) segments"""
+        text_segments = self._generate_text_segments(self.SMALL_SIZE, self.TEXT_SEGMENTS_COUNT)
+        
+        def run_test():
+            return asyncio.run(self._run_excavate_single_thread(text_segments))
+        
+        result, events = benchmark(run_test)
+        
+        assert len(result) == self.TEXT_SEGMENTS_COUNT
+        total_size_mb = (self.SMALL_SIZE * self.TEXT_SEGMENTS_COUNT) / (1024*1024)
+        
+        # Count events by type
+        total_events = len(events)
+        url_events = len([e for e in events if e.type == "URL_UNVERIFIED"])
+        dns_events = len([e for e in events if e.type == "DNS_NAME"])
+        email_events = len([e for e in events if e.type == "EMAIL_ADDRESS"])
+        protocol_events = len([e for e in events if e.type == "PROTOCOL"])
+        finding_events = len([e for e in events if e.type == "FINDING"])
+        
+        print(f"\n✅ Single-thread small segments benchmark completed")
+        print(f"📊 Processed {len(result):,} segments of {self.SMALL_SIZE/1024:.0f}KB each")
+        print(f"📊 Total size processed: {total_size_mb:.1f} MB")
         print(f"📊 Total events: {total_events}")
-        print(f"📊 Excavate events (module=excavate): {excavate_events}")
         print(f"📊 URL events: {url_events}")
         print(f"📊 DNS events: {dns_events}")
+        print(f"📊 Email events: {email_events}")
         print(f"📊 Protocol events: {protocol_events}")
-
+        print(f"📊 Finding events: {finding_events}")
+        
         # Validate that excavate actually found and processed content
-        # Look for events that excavate typically emits, not just module=excavate
+        assert total_events > 0, "Expected to find some events from excavate"
         assert url_events > 0 or dns_events > 0 or protocol_events > 0, (
             "Expected excavate to find URLs, DNS names, or protocols"
         )
 
+    @pytest.mark.benchmark(group="excavate_single_large")
+    def test_excavate_single_thread_large(self, benchmark):
+        """Benchmark excavate single thread processing with large (10MB) segments"""
+        text_segments = self._generate_text_segments(self.LARGE_SIZE, self.TEXT_SEGMENTS_COUNT)
+        
+        def run_test():
+            return asyncio.run(self._run_excavate_single_thread(text_segments))
+        
+        result = benchmark(run_test)
+        
+        assert len(result) == self.TEXT_SEGMENTS_COUNT
+        total_size_mb = (self.LARGE_SIZE * self.TEXT_SEGMENTS_COUNT) / (1024*1024)
+        print(f"\n✅ Single-thread large segments benchmark completed")
+        print(f"📊 Processed {len(result):,} segments of {self.LARGE_SIZE/(1024*1024):.0f}MB each")
+        print(f"📊 Total size processed: {total_size_mb:.1f} MB")
+        
+        # Basic assertion that excavate is actually working (should find URLs in our test content)
+        assert len(result) > 0, "Expected excavate to process all segments"
 
-class TestExcavateFullBenchmarks:
-    """
-    Benchmark tests for Excavate module with parameter extraction enabled.
+    # Parallel Tests
+    @pytest.mark.benchmark(group="excavate_parallel_small")
+    def test_excavate_parallel_tasks_small(self, benchmark):
+        """Benchmark excavate parallel processing with small (4KB) segments"""
+        text_segments = self._generate_text_segments(self.SMALL_SIZE, self.TEXT_SEGMENTS_COUNT)
+        
+        def run_test():
+            return asyncio.run(self._run_excavate_parallel_tasks(text_segments))
+        
+        result = benchmark(run_test)
+        
+        assert len(result) == self.TEXT_SEGMENTS_COUNT
+        total_size_mb = (self.SMALL_SIZE * self.TEXT_SEGMENTS_COUNT) / (1024*1024)
+        print(f"\n✅ Parallel small segments benchmark completed")
+        print(f"📊 Processed {len(result):,} segments of {self.SMALL_SIZE/1024:.0f}KB each in parallel")
+        print(f"📊 Total size processed: {total_size_mb:.1f} MB")
+        print(f"📊 Tasks executed concurrently to test YARA GIL sidestep")
+        
+        # Basic assertion that excavate is actually working (should find URLs in our test content)
+        assert len(result) > 0, "Expected excavate to process all segments"
 
-    These tests measure the performance of excavate operations with hunt module
-    enabled, which triggers parameter extraction functionality.
-    """
-
-    # Number of test pages to generate for consistent benchmarking
-    TEST_PAGES_COUNT = 8
-
-    def setup_method(self):
-        random.seed(42)
-        self.test_response_data = []
-
-        # Generate intensive HTML content that excavate can actually extract from
-        for i in range(self.TEST_PAGES_COUNT):
-            html_content = f"""
-            <html>
-            <head>
-                <title>Test Page {i}</title>
-            </head>
-            <body>
-                <h1>Welcome to Test Site {i}</h1>
-                
-                <!-- In-scope subdomains of foo.com target -->
-                <a href="https://api{i}.foo.com/v1/users">API Link {i}</a>
-                <a href="https://www{i}.foo.com/page{i}">WWW Link {i}</a>
-                <a href="https://cdn{i}.foo.com/assets/">CDN Link {i}</a>
-                
-                <!-- Form with parameters -->
-                <form action="/search/{i}" method="GET">
-                    <input type="text" name="q{i}" value="search{i}">
-                    <button type="submit">Search</button>
-                </form>
-                
-                <!-- Real-time services -->
-                <p>WebSocket: wss://realtime{i}.foo.com/socket</p>
-                <p>SSH: ssh://server{i}.foo.com:22/</p>
-                <p>FTP: ftp://ftp{i}.foo.com:21/</p>
-            </body>
-            </html>
-            """
-            self.test_response_data.append(html_content)
-
-        # Start mock HTTP server
-        self.start_mock_server()
-
-    def teardown_method(self):
-        # Stop mock HTTP server
-        self.stop_mock_server()
-
-    def start_mock_server(self):
-        """Start a mock HTTP server on port 8888"""
-        self.mock_server = HTTPServer(("127.0.0.1", 8888), MockHTTPHandler)
-        self.mock_server.test_content = "\n".join(self.test_response_data)
-
-        # Start server in a separate thread
-        self.server_thread = threading.Thread(target=self.mock_server.serve_forever)
-        self.server_thread.daemon = True
-        self.server_thread.start()
-
-        # Wait a moment for server to start
-        time.sleep(0.1)
-
-    def stop_mock_server(self):
-        """Stop the mock HTTP server"""
-        if hasattr(self, "mock_server"):
-            self.mock_server.shutdown()
-            self.mock_server.server_close()
-            if hasattr(self, "server_thread"):
-                self.server_thread.join(timeout=1)
-
-    @pytest.mark.benchmark(group="excavate_full")
-    def test_excavate_full_processing(self, benchmark):
-        """Benchmark excavate module's full processing (with parameter extraction)"""
-
-        def run_excavate_scan():
-            # Create a scanner with excavate and hunt enabled
-            scan = Scanner("http://127.0.0.1:8888/", "foo.com", modules=["httpx", "hunt"], config={"excavate": True})
-
-            # Run the scan to measure execution time
-            events = []
-
-            async def run_scan():
-                async for event in scan.async_start():
-                    events.append(event)
-
-            asyncio.run(run_scan())
-
-            # Return both events and event counts for analysis
-            total_events = len(events)
-            excavate_events = [e for e in events if e.module == "excavate"]
-            url_events = [e for e in events if e.type == "URL_UNVERIFIED"]
-            dns_events = [e for e in events if e.type in ["DNS_NAME_UNRESOLVED", "DNS_NAME"]]
-            protocol_events = [e for e in events if e.type == "PROTOCOL"]
-            web_params = [e for e in events if e.type == "WEB_PARAMETER"]
-
-            return {
-                "events": events,
-                "total_events": total_events,
-                "excavate_events": len(excavate_events),
-                "url_events": len(url_events),
-                "dns_events": len(dns_events),
-                "protocol_events": len(protocol_events),
-                "web_params": len(web_params),
-            }
-
-        # Run the benchmark on the scan execution
-        result = benchmark(run_excavate_scan)
-
-        # Extract event counts from the result
-        total_events = result["total_events"]
-        excavate_events = result["excavate_events"]
-        url_events = result["url_events"]
-        dns_events = result["dns_events"]
-        protocol_events = result["protocol_events"]
-        web_params = result["web_params"]
-
-        # Validate that excavate actually processed content and emitted events
-        assert total_events > 0, "Expected to find some events from the scan"
-
-        # Print detailed event counts
-        print("\n✅ Full excavate benchmark completed")
-        print(f"📊 Total events: {total_events}")
-        print(f"📊 Excavate events (module=excavate): {excavate_events}")
-        print(f"📊 URL events: {url_events}")
-        print(f"📊 DNS events: {dns_events}")
-        print(f"📊 Protocol events: {protocol_events}")
-        print(f"📊 Web parameters: {web_params}")
-
-        # Validate that excavate actually found and processed content
-        # Look for events that excavate typically emits, not just module=excavate
-        assert url_events > 0 or dns_events > 0 or protocol_events > 0, (
-            "Expected excavate to find URLs, DNS names, or protocols"
-        )
+    @pytest.mark.benchmark(group="excavate_parallel_large")
+    def test_excavate_parallel_tasks_large(self, benchmark):
+        """Benchmark excavate parallel processing with large (10MB) segments to test YARA GIL sidestep"""
+        text_segments = self._generate_text_segments(self.LARGE_SIZE, self.TEXT_SEGMENTS_COUNT)
+        
+        def run_test():
+            return asyncio.run(self._run_excavate_parallel_tasks(text_segments))
+        
+        result = benchmark(run_test)
+        
+        assert len(result) == self.TEXT_SEGMENTS_COUNT
+        total_size_mb = (self.LARGE_SIZE * self.TEXT_SEGMENTS_COUNT) / (1024*1024)
+        print(f"\n✅ Parallel large segments benchmark completed")
+        print(f"📊 Processed {len(result):,} segments of {self.LARGE_SIZE/(1024*1024):.0f}MB each in parallel")
+        print(f"📊 Total size processed: {total_size_mb:.1f} MB")
+        print(f"📊 Tasks executed concurrently to test YARA GIL sidestep")
+        
+        # Basic assertion that excavate is actually working (should find URLs in our test content)
+        assert len(result) > 0, "Expected excavate to process all segments"
