@@ -68,12 +68,6 @@ def run_benchmarks(output_file: Path, repo_path: Path = None) -> bool:
         return False
 
 
-
-
-
-
-
-
 def load_benchmark_data(filepath: Path) -> Dict[str, Any]:
     """Load benchmark data from JSON file."""
     try:
