@@ -95,7 +95,7 @@ class retirejs(BaseModule):
         # Install retire.js locally using local Node.js
         {
             "name": "Install retire.js locally",
-            "shell": "cd #{BBOT_TOOLS}/retirejs && #{BBOT_TOOLS}/node/bin/npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
+            "shell": "cd #{BBOT_TOOLS}/retirejs && PATH=#{BBOT_TOOLS}/node/bin:$PATH #{BBOT_TOOLS}/node/bin/npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
             "args": {"creates": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire"},
             "timeout": 600,
             "ignore_errors": False,
