@@ -77,11 +77,6 @@ class retirejs(BaseModule):
             "name": "Make Node.js binary executable",
             "file": {"path": "#{BBOT_TOOLS}/node/bin/node", "mode": "0755"},
         },
-        # Make npm executable
-        {
-            "name": "Make npm executable",
-            "file": {"path": "#{BBOT_TOOLS}/node/bin/npm", "mode": "0755"},
-        },
         # Remove existing retirejs directory if it exists
         {
             "name": "Remove existing retirejs directory",
@@ -95,7 +90,7 @@ class retirejs(BaseModule):
         # Install retire.js locally using local Node.js
         {
             "name": "Install retire.js locally",
-            "shell": "cd #{BBOT_TOOLS}/retirejs && PATH=#{BBOT_TOOLS}/node/bin:$PATH #{BBOT_TOOLS}/node/bin/npm install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
+            "shell": "cd #{BBOT_TOOLS}/retirejs && #{BBOT_TOOLS}/node/bin/node #{BBOT_TOOLS}/node/lib/node_modules/npm/bin/npm-cli.js install retire@#{BBOT_MODULES_RETIREJS_VERSION} --no-fund --no-audit --silent --no-optional",
             "args": {"creates": "#{BBOT_TOOLS}/retirejs/node_modules/.bin/retire"},
             "timeout": 600,
             "ignore_errors": False,
@@ -210,7 +205,7 @@ class retirejs(BaseModule):
         cache_dir = self.helpers.cache_dir / "retire_cache"
         retire_dir = self.scan.helpers.tools_dir / "retirejs"
         local_node_dir = self.scan.helpers.tools_dir / "node"
-
+        
         # Use the retire binary directly with our local Node.js
         retire_binary_path = retire_dir / "node_modules" / ".bin" / "retire"
         command = [
