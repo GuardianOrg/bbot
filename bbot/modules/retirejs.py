@@ -100,11 +100,6 @@ class retirejs(BaseModule):
             "timeout": 600,
             "ignore_errors": False,
         },
-        # Fix retire script shebang to use our local node binary
-        {
-            "name": "Fix retire script shebang",
-            "shell": "sed -i '1s|#!/usr/bin/env node|#!#{BBOT_TOOLS}/node/bin/node|' #{BBOT_TOOLS}/retirejs/node_modules/.bin/retire",
-        },
         # Make retire script executable
         {
             "name": "Make retire script executable",
@@ -214,14 +209,13 @@ class retirejs(BaseModule):
     async def execute_retirejs(self, js_file):
         cache_dir = self.helpers.cache_dir / "retire_cache"
         retire_dir = self.scan.helpers.tools_dir / "retirejs"
-
-        # Use the retire CLI script directly with our local node binary
         local_node_dir = self.scan.helpers.tools_dir / "node"
-        retire_cli_script = retire_dir / "node_modules" / "retire" / "lib" / "cli.js"
 
+        # Use the retire binary directly with our local Node.js
+        retire_binary_path = retire_dir / "node_modules" / ".bin" / "retire"
         command = [
             str(local_node_dir / "bin" / "node"),
-            str(retire_cli_script),
+            str(retire_binary_path),
             "--outputformat",
             "json",
             "--cachedir",
