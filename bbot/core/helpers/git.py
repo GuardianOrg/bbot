@@ -12,3 +12,7 @@ def sanitize_git_repo(repo_folder: Path):
     index_file = repo_folder / ".git" / "index"
     if index_file.exists():
         index_file.rename(repo_folder / "git_index_original")
+    # move the hooks folder
+    hooks_folder = repo_folder / ".git" / "hooks"
+    if hooks_folder.exists():
+        hooks_folder.rename(repo_folder / "git_hooks_original")
