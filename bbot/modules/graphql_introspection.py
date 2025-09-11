@@ -27,7 +27,6 @@ class graphql_introspection(BaseModule):
             self.output_dir = Path(output_folder) / "graphql-schemas"
         else:
             self.output_dir = self.scan.home / "graphql-schemas"
-        self.helpers.mkdir(self.output_dir)
         return True
 
     async def filter_event(self, event):
@@ -120,7 +119,10 @@ fragment TypeRef on __Type {
             }
             response = await self.helpers.request(**request_args)
             if not response or response.status_code != 200:
-                self.debug(f"Failed to get GraphQL schema for {url} (status code {response.status_code})")
+                self.debug(
+                    f"Failed to get GraphQL schema for {url} "
+                    f"{f'(status code {response.status_code})' if response else ''}"
+                )
                 continue
             try:
                 response_json = response.json()
@@ -128,6 +130,7 @@ fragment TypeRef on __Type {
                 self.debug(f"Failed to parse JSON for {url}")
                 continue
             if response_json.get("data", {}).get("__schema", {}).get("types", []):
+                self.helpers.mkdir(self.output_dir)
                 filename = f"schema-{self.helpers.tagify(url)}.json"
                 filename = self.output_dir / filename
                 with open(filename, "w") as f:
