@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import suppress
 from bbot.modules.internal.base import BaseInternalModule
 from bbot.core.helpers.libmagic import get_magic_info, get_compression
 
