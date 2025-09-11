@@ -1,4 +1,3 @@
-import regex as re
 from pathlib import Path
 
 

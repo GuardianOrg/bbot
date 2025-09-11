@@ -1,5 +1,4 @@
 import asyncio
-import regex as re
 from pathlib import Path
 from subprocess import CalledProcessError
 from bbot.modules.base import BaseModule
