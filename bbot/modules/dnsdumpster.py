@@ -53,7 +53,6 @@ class dnsdumpster(subdomain_enum):
             return ret
 
         # Query the API with the JWT token
-        subdomains = set()
         res2 = await self.api_request(
             "https://api.dnsdumpster.com/htmld/",
             method="POST",
@@ -73,6 +72,4 @@ class dnsdumpster(subdomain_enum):
             self.verbose(f'Bad response code "{status_code}" from DNSDumpster API')
             return ret
 
-        subdomains = await self.scan.extract_in_scope_hostnames(res2.text)
-
-        return list(subdomains)
+        return await self.scan.extract_in_scope_hostnames(res2.text)
