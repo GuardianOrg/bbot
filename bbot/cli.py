@@ -183,6 +183,8 @@ async def _main():
             await dummy_scan.load_modules()
             log.verbose("Running module setups")
             succeeded, hard_failed, soft_failed = await dummy_scan.setup_modules()
+            log.verbose("Cleaning up dummy scan")
+            await dummy_scan._cleanup()
             if succeeded:
                 self.success(
                     f"Successfully installed dependencies for {len(succeeded):,} modules: {','.join(succeeded)}"
