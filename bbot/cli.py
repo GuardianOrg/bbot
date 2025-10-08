@@ -173,13 +173,24 @@ async def _main():
 
         # --install-all-deps
         if options.install_all_deps:
-            all_modules = list(preset.module_loader.preloaded())
-            scan.helpers.depsinstaller.force_deps = True
-            succeeded, failed = await scan.helpers.depsinstaller.install(*all_modules)
-            if failed:
-                log.hugewarning(f"Failed to install dependencies for the following modules: {', '.join(failed)}")
+            preloaded_modules = preset.module_loader.preloaded()
+            scan_modules = [k for k, v in preloaded_modules.items() if str(v.get("type", "")) == "scan"]
+            output_modules = [k for k, v in preloaded_modules.items() if str(v.get("type", "")) == "output"]
+            log.verbose("Creating dummy scan with all modules + output modules for deps installation")
+            dummy_scan = Scanner(preset=preset, modules=scan_modules, output_modules=output_modules)
+            dummy_scan.helpers.depsinstaller.force_deps = True
+            log.info("Installing module dependencies")
+            await dummy_scan.load_modules()
+            log.verbose("Running module setups")
+            succeeded, hard_failed, soft_failed = await dummy_scan.setup_modules()
+            if succeeded:
+                self.success(
+                    f"Successfully installed dependencies for {len(succeeded):,} modules: {','.join(succeeded)}"
+                )
+            if soft_failed or hard_failed:
+                failed = soft_failed + hard_failed
+                self.warning(f"Failed to install dependencies for {len(failed):,} modules: {', '.join(failed)}")
                 return False
-            log.hugesuccess(f"Successfully installed dependencies for the following modules: {', '.join(succeeded)}")
             return True
 
         scan_name = str(scan.name)
