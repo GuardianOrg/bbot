@@ -186,12 +186,12 @@ async def _main():
             log.verbose("Cleaning up dummy scan")
             await dummy_scan._cleanup()
             if succeeded:
-                self.success(
+                log.success(
                     f"Successfully installed dependencies for {len(succeeded):,} modules: {','.join(succeeded)}"
                 )
             if soft_failed or hard_failed:
                 failed = soft_failed + hard_failed
-                self.warning(f"Failed to install dependencies for {len(failed):,} modules: {', '.join(failed)}")
+                log.warning(f"Failed to install dependencies for {len(failed):,} modules: {', '.join(failed)}")
                 return False
             return True
 
