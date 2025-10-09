@@ -94,9 +94,27 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
           tags: "stable,${{ steps.version.outputs.BBOT_VERSION }}"
+      - name: Publish Full Docker Image to Docker Hub (dev)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: elgohr/Publish-Docker-Github-Action@v5
+        with:
+          name: blacklanternsecurity/bbot
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          dockerfile: Dockerfile.full
+          tags: "latest-full,dev-full,${{ steps.version.outputs.BBOT_VERSION }}-full"
+      - name: Publish Full Docker Image to Docker Hub (stable)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
+        uses: elgohr/Publish-Docker-Github-Action@v5
+        with:
+          name: blacklanternsecurity/bbot
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          dockerfile: Dockerfile.full
+          tags: "stable-full,${{ steps.version.outputs.BBOT_VERSION }}-full"
       - name: Docker Hub Description
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
