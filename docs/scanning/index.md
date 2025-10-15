@@ -139,7 +139,7 @@ A single module can have multiple flags. For example, the `securitytrails` modul
 
 ## Dependencies
 
-BBOT modules have external dependencies ranging from OS packages (`openssl`) to binaries (`portscan`) to Python libraries (`wappalyzer`). When a module is enabled, installation of its dependencies happens at runtime with [Ansible](https://github.com/ansible/ansible). BBOT provides several command-line flags to control how dependencies are installed.
+BBOT modules have external dependencies ranging from OS packages (`openssl`) to binaries (`nuclei`) to Python libraries (`wappalyzer`). When a module is enabled, installation of its dependencies happens at runtime with [Ansible](https://github.com/ansible/ansible). BBOT provides several command-line flags to control how dependencies are installed.
 
 - `--no-deps` - Don't install module dependencies
 - `--force-deps` - Force install all module dependencies
