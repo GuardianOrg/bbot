@@ -343,6 +343,31 @@ async def test_modules_basic_perdomainonly(bbot_scanner, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_modules_basic_setup_deps(bbot_scanner):
+    from bbot.modules.base import BaseModule
+
+    class dummy(BaseModule):
+        _name = "dummy"
+        deps_ran = False
+        setup_ran = False
+
+        async def setup_deps(self):
+            self.deps_ran = True
+            return True
+
+        async def setup(self):
+            self.setup_ran = True
+            return True
+
+    scan = bbot_scanner()
+    scan.modules["dummy"] = dummy(scan)
+    await scan.setup_modules(deps_only=True)
+    assert scan.modules["dummy"].deps_ran
+    assert not scan.modules["dummy"].setup_ran
+    await scan._cleanup()
+
+
+@pytest.mark.asyncio
 async def test_modules_basic_stats(helpers, events, bbot_scanner, httpx_mock, monkeypatch):
     from bbot.modules.base import BaseModule
 
