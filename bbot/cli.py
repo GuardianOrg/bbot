@@ -182,7 +182,7 @@ async def _main():
             log.info("Installing module dependencies")
             await dummy_scan.load_modules()
             log.verbose("Running module setups")
-            succeeded, hard_failed, soft_failed = await dummy_scan.setup_modules()
+            succeeded, hard_failed, soft_failed = await dummy_scan.setup_modules(deps_only=True)
             log.verbose("Cleaning up dummy scan")
             await dummy_scan._cleanup()
             if succeeded:
