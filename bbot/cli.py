@@ -7,7 +7,7 @@ import multiprocessing
 from bbot.errors import *
 from bbot import __version__
 from bbot.logger import log_to_stderr
-from bbot.core.helpers.misc import chain_lists
+from bbot.core.helpers.misc import chain_lists, rm_rf
 
 
 if multiprocessing.current_process().name == "MainProcess":
@@ -183,8 +183,9 @@ async def _main():
             await dummy_scan.load_modules()
             log.verbose("Running module setups")
             succeeded, hard_failed, soft_failed = await dummy_scan.setup_modules(deps_only=True)
-            log.verbose("Cleaning up dummy scan")
-            await dummy_scan._cleanup()
+            # remove any leftovers from the dummy scan
+            rm_rf(dummy_scan.home, ignore_errors=True)
+            rm_rf(dummy_scan.temp_dir, ignore_errors=True)
             if succeeded:
                 log.success(
                     f"Successfully installed dependencies for {len(succeeded):,} modules: {','.join(succeeded)}"
