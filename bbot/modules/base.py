@@ -213,6 +213,14 @@ class BaseModule:
 
         return True
 
+    async def setup_deps(self):
+        """
+        Similar to setup(), but reserved for installing dependencies not covered by Ansible.
+
+        This should always be used to install static dependencies like AI models, wordlists, etc.
+        """
+        return True
+
     async def handle_event(self, event, **kwargs):
         """Asynchronously handles incoming events that the module is configured to watch.
 
@@ -620,39 +628,26 @@ class BaseModule:
             name=f"{self.scan.name}.{self.name}._event_handler_watchdog()",
         )
 
-    async def _setup(self):
-        """
-        Asynchronously sets up the module by invoking its 'setup()' method.
-
-        This method catches exceptions during setup, sets the module's error state if necessary, and determines the
-        status code based on the result of the setup process.
-
-        Args:
-            None
-
-        Returns:
-            tuple: A tuple containing the module's name, status (True for success, False for hard-fail, None for soft-fail),
-            and an optional status message.
-
-        Raises:
-            Exception: Captured exceptions from the 'setup()' method are logged, but not propagated.
-
-        Notes:
-            - The 'setup()' method can return either a simple boolean status or a tuple of status and message.
-            - A WordlistError exception triggers a soft-fail status.
-            - The debug log will contain setup status information for the module.
-        """
+    async def _setup(self, deps_only=False):
+        """ """
         status_codes = {False: "hard-fail", None: "soft-fail", True: "success"}
 
         status = False
         self.debug(f"Setting up module {self.name}")
         try:
-            result = await self.setup()
-            if type(result) == tuple and len(result) == 2:
-                status, msg = result
-            else:
-                status = result
-                msg = status_codes[status]
+            funcs = [self.setup_deps]
+            if not deps_only:
+                funcs.append(self.setup)
+            for func in funcs:
+                self.debug(f"Running {self.name}.{func.__name__}()")
+                result = await func()
+                if type(result) == tuple and len(result) == 2:
+                    status, msg = result
+                else:
+                    status = result
+                    msg = status_codes[status]
+                if status is False:
+                    break
             self.debug(f"Finished setting up module {self.name}")
         except Exception as e:
             self.set_error_state(f"Unexpected error during module setup: {e}", critical=True)
