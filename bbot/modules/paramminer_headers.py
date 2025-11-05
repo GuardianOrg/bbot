@@ -86,7 +86,7 @@ class paramminer_headers(BaseModule):
         wordlist = self.config.get("wordlist", "")
         if not wordlist:
             wordlist = f"{self.helpers.wordlist_dir}/{self.default_wordlist}"
-        self.wordlist_file = await self.helpers.wordlist(self.config.get("wordlist"))
+        self.wordlist_file = await self.helpers.wordlist(wordlist)
         self.debug(f"Using wordlist: [{wordlist}]")
         return True
 

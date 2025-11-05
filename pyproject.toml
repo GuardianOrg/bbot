@@ -6,7 +6,7 @@ authors = [
     "TheTechromancer",
     "Paul Mueller",
 ]
-license = "AGPL-3.0"
+license = "GPL-3.0"
 readme = "README.md"
 repository = "https://github.com/blacklanternsecurity/bbot"
 homepage = "https://github.com/blacklanternsecurity/bbot"
