@@ -93,6 +93,7 @@ class ffuf_shortnames(ffuf):
             wordlist_extensions = f"{self.helpers.wordlist_dir}/raft-small-extensions-lowercase_CLEANED.txt"
         self.debug(f"Using [{wordlist_extensions}] for shortname candidate extension list")
         self.wordlist_extensions = await self.helpers.wordlist(wordlist_extensions)
+        return True
 
     async def setup(self):
         self.proxy = self.scan.web_config.get("http_proxy", "")
