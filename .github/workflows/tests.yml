@@ -116,16 +116,16 @@ jobs:
             blacklanternsecurity/bbot:latest-full
             blacklanternsecurity/bbot:dev-full
             blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}-full
-      - name: Publish Full Docker Image to Docker Hub (stable)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          file: Dockerfile.full
-          context: .
-          tags: |
-            blacklanternsecurity/bbot:stable-full
-            blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}-full
+      # - name: Publish Full Docker Image to Docker Hub (stable)
+      #   if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     push: true
+      #     file: Dockerfile.full
+      #     context: .
+      #     tags: |
+      #       blacklanternsecurity/bbot:stable-full
+      #       blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}-full
       - name: Docker Hub Description
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         uses: peter-evans/dockerhub-description@v5
