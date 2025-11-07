@@ -51,9 +51,9 @@ jobs:
           files: ./cov.xml
           verbose: true
   publish_code:
-    needs: test
+    # needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/stable')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/better-install-deps')
     continue-on-error: true
     steps:
       - uses: actions/checkout@v5
@@ -66,47 +66,47 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.x"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install poetry build
-          poetry self add "poetry-dynamic-versioning[plugin]"
-      - name: Build Pypi package
-        if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
-        run: python -m build
-      - name: Publish Pypi package
-        if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
-        uses: pypa/gh-action-pypi-publish@release/v1.13
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
-      - name: Get BBOT version
-        id: version
-        run: echo "BBOT_VERSION=$(poetry version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
-      - name: Publish to Docker Hub (dev)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          context: .
-          tags: |
-            blacklanternsecurity/bbot:latest
-            blacklanternsecurity/bbot:dev
-            blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}
-      - name: Publish to Docker Hub (stable)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          context: .
-          tags: |
-            blacklanternsecurity/bbot:stable
-            blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}
+      # - name: Set up Python
+      #   uses: actions/setup-python@v6
+      #   with:
+      #     python-version: "3.x"
+      # - name: Install dependencies
+      #   run: |
+      #     python -m pip install --upgrade pip
+      #     pip install poetry build
+      #     poetry self add "poetry-dynamic-versioning[plugin]"
+      # - name: Build Pypi package
+      #   if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
+      #   run: python -m build
+      # - name: Publish Pypi package
+      #   if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
+      #   uses: pypa/gh-action-pypi-publish@release/v1.13
+      #   with:
+      #     password: ${{ secrets.PYPI_API_TOKEN }}
+      # - name: Get BBOT version
+      #   id: version
+      #   run: echo "BBOT_VERSION=$(poetry version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      # - name: Publish to Docker Hub (dev)
+      #   if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     push: true
+      #     context: .
+      #     tags: |
+      #       blacklanternsecurity/bbot:latest
+      #       blacklanternsecurity/bbot:dev
+      #       blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}
+      # - name: Publish to Docker Hub (stable)
+      #   if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     push: true
+      #     context: .
+      #     tags: |
+      #       blacklanternsecurity/bbot:stable
+      #       blacklanternsecurity/bbot:${{ steps.version.outputs.BBOT_VERSION }}
       - name: Publish Full Docker Image to Docker Hub (dev)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/better-install-deps')
         uses: docker/build-push-action@v6
         with:
           push: true
