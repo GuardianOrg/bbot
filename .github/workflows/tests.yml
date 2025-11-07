@@ -66,26 +66,26 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      # - name: Set up Python
-      #   uses: actions/setup-python@v6
-      #   with:
-      #     python-version: "3.x"
-      # - name: Install dependencies
-      #   run: |
-      #     python -m pip install --upgrade pip
-      #     pip install poetry build
-      #     poetry self add "poetry-dynamic-versioning[plugin]"
-      # - name: Build Pypi package
-      #   if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
-      #   run: python -m build
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry build
+          poetry self add "poetry-dynamic-versioning[plugin]"
+      - name: Build Pypi package
+        if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
+        run: python -m build
       # - name: Publish Pypi package
       #   if: github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/dev'
       #   uses: pypa/gh-action-pypi-publish@release/v1.13
       #   with:
       #     password: ${{ secrets.PYPI_API_TOKEN }}
-      # - name: Get BBOT version
-      #   id: version
-      #   run: echo "BBOT_VERSION=$(poetry version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      - name: Get BBOT version
+        id: version
+        run: echo "BBOT_VERSION=$(poetry version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
       # - name: Publish to Docker Hub (dev)
       #   if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
       #   uses: docker/build-push-action@v6
