@@ -1258,7 +1258,6 @@ class BaseModule:
         """
         A wrapper around the `download()` web helper that incorporates API key cycling.
         """
-        filename = None
         error = None
         raise_error = kwargs.pop("raise_error", False)
         for _ in range(self.api_retries):
