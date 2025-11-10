@@ -1254,6 +1254,20 @@ class BaseModule:
 
         return r
 
+    async def api_download(self, url, **kwargs):
+        """
+        A wrapper around the `download()` web helper that incorporates API key cycling.
+        """
+        filename = None
+        for _ in range(self.api_retries):
+            new_url, kwargs = self.prepare_api_request(url, kwargs)
+            filename = await self.helpers.download(new_url, **kwargs)
+            if filename:
+                break
+            if self._api_keys:
+                self.cycle_api_key()
+        return filename
+
     def _get_retry_after(self, r):
         # try to get retry_after from headers first
         headers = getattr(r, "headers", {})
