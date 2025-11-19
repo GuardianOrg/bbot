@@ -9,6 +9,8 @@ class esi(BaseLightfuzz):
     and checking if the tags are processed (removed) in the response.
     """
 
+    # Technique lifted from https://github.com/PortSwigger/active-scan-plus-plus
+
     friendly_name = "Edge Side Includes"
 
     async def check_probe(self, cookies, probe, match):
