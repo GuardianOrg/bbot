@@ -235,7 +235,7 @@ class ScanEgress(BaseInterceptModule):
                 if parent == event:
                     return False, f"an identical parent {event} was found, and _suppress_chain_dupes=True"
 
-        # custom callback - abort event emission it returns true
+        # custom callback - abort event emission if it returns true
         abort_result = False
         if callable(abort_if):
             async with self.scan._acatch(context=abort_if):

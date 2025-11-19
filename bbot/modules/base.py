@@ -1734,6 +1734,7 @@ class BaseInterceptModule(BaseModule):
     """
 
     accept_dupes = True
+    accept_url_special = True
     _intercept = True
 
     async def _worker(self):
