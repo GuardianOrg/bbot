@@ -293,7 +293,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities, with more int
     config:
       modules:
         lightfuzz:
-          enabled_submodules: [cmdi,crypto,path,serial,sqli,ssti,xss]
+          enabled_submodules: [cmdi,crypto,path,serial,sqli,ssti,xss,esi]
           disable_post: False
     ```
 
@@ -352,7 +352,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities. Uses all ligh
     config:
       modules:
         lightfuzz:
-          enabled_submodules: [cmdi,crypto,path,serial,sqli,ssti,xss]
+          enabled_submodules: [cmdi,crypto,path,serial,sqli,ssti,xss,esi]
     ```
 
 Category: web
@@ -375,7 +375,7 @@ Discover web parameters and lightly fuzz them for vulnerabilities, with the most
       modules:
         lightfuzz:
           force_common_headers: True # Fuzz common headers like X-Forwarded-For even if they're not observed on the target
-          enabled_submodules: [cmdi,crypto,path,serial,sqli,ssti,xss]
+          enabled_submodules: [cmdi,crypto,path,serial,sqli,ssti,xss,esi]
         excavate:
           speculate_params: True # speculate potential parameters extracted from JSON/XML web responses
     ```
