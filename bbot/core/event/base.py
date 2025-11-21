@@ -1840,8 +1840,7 @@ def make_event(
     # do not allow passing an existing event here – use update_event() instead
     if is_event(data):
         raise ValidationError(
-            "make_event() does not accept an existing event object. "
-            "Use update_event(event, ...) to modify an event."
+            "make_event() does not accept an existing event object. Use update_event(event, ...) to modify an event."
         )
 
     # allow tags to be either a string or an array
