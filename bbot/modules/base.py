@@ -527,6 +527,39 @@ class BaseModule:
             return
         return event
 
+    def update_event(self, event, **kwargs):
+        """Update an existing event for the scan.
+
+        This is the counterpart to :meth:`make_event` for modifying an existing
+        :class:`bbot.core.event.base.BaseEvent` instance.
+
+        Raises a validation error if the update could not be applied, unless
+        ``raise_error`` is set to False.
+
+        Args:
+            event: The event object to update.
+            **kwargs: Keyword arguments to be passed to the scan's update_event method.
+            raise_error (bool, optional): Whether to raise a validation error if the event could not be updated. Defaults to False.
+
+        Returns:
+            Event or None: The updated event, or None if a validation error occurred and raise_error was False.
+
+        Raises:
+            ValidationError: If the event could not be validated and raise_error is True.
+        """
+        raise_error = kwargs.pop("raise_error", False)
+        module = kwargs.pop("module", None)
+        if module is None and getattr(event, "module", None) is None:
+            kwargs["module"] = self
+        try:
+            updated = self.scan.update_event(event, **kwargs)
+        except ValidationError as e:
+            if raise_error:
+                raise
+            self.warning(f"{e}")
+            return
+        return updated
+
     async def emit_event(self, *args, **kwargs):
         """Emit an event to the event queue and distribute it to interested modules.
 

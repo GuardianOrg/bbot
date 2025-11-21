@@ -260,20 +260,20 @@ async def test_events(events, helpers):
     )
     assert event.discovery_context == "something discovered IP_ADDRESS: 127.0.0.1"
 
-    # updating an already-created event with make_event()
+    # updating an already-created event with update_event()
     # updating tags
     event1 = scan.make_event("127.0.0.1", parent=scan.root_event)
-    updated_event = scan.make_event(event1, tags="asdf")
+    updated_event = scan.update_event(event1, tags="asdf")
     # assert "asdf" not in event1.tags # why was this test added? why is it important the original event stays untouched? 🤔
     assert "asdf" in updated_event.tags
     # updating parent
     event2 = scan.make_event("127.0.0.1", parent=scan.root_event)
-    updated_event = scan.make_event(event2, parent=event1)
+    updated_event = scan.update_event(event2, parent=event1)
     # assert event2.parent == scan.root_event
     assert updated_event.parent == event1
-    # updating module
+    # updating module/internal flag
     event3 = scan.make_event("127.0.0.1", parent=scan.root_event)
-    updated_event = scan.make_event(event3, internal=True)
+    updated_event = scan.update_event(event3, internal=True)
     # assert event3.internal is False
     assert updated_event.internal is True
 
