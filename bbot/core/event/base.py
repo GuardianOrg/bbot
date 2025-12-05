@@ -789,26 +789,32 @@ class BaseEvent:
 
     def __contains__(self, other):
         """
-        Allows events to be compared using the "in" operator:
-        E.g.:
-            if some_event in other_event:
-                ...
+        Membership checks for Events.
+
+        Supports:
+            - some_event in other_event   (event vs event)
+            - "host:port" in other_event  (string coerced to an event)
         """
-        try:
-            other = make_event(other, dummy=True)
-        except ValidationError:
-            return False
+        # Fast path: already an Event
+        if is_event(other):
+            other_event = other
+        else:
+            try:
+                other_event = make_event(other, dummy=True)
+            except ValidationError:
+                return False
+
         # if hashes match
-        if other == self:
+        if other_event == self:
             return True
-        # if hosts match
-        if self.host and other.host:
-            if self.host == other.host:
+        # if hosts match (including subnet / domain containment)
+        if self.host and other_event.host:
+            if self.host == other_event.host:
                 return True
             # hostnames and IPs
             radixtarget = RadixTarget()
             radixtarget.insert(self.host)
-            return bool(radixtarget.search(other.host))
+            return bool(radixtarget.search(other_event.host))
         return False
 
     def json(self, mode="json", siem_friendly=False):
@@ -996,10 +1002,15 @@ class BaseEvent:
         return self.priority > getattr(other, "priority", (0,))
 
     def __eq__(self, other):
-        try:
-            other = make_event(other, dummy=True)
-        except ValidationError:
-            return False
+        """
+        Event equality is **only** defined between Event instances.
+
+        Equality is based on the event hash (derived from its id). Comparisons to
+        non-Event types return NotImplemented so Python can fall back to the
+        other operand's comparison logic.
+        """
+        if not is_event(other):
+            return NotImplemented
         return hash(self) == hash(other)
 
     def __hash__(self):
@@ -1816,7 +1827,7 @@ def make_event(
     If you need to modify an existing event, use ``update_event()`` instead.
 
     Parameters:
-        data (Union[str, dict]): The primary data for the event. Must NOT be an event object.
+        data (Union[str, dict]): The primary data for the event.
         event_type (str, optional): Type of the event, e.g., 'IP_ADDRESS'. Auto-detected if not provided.
         parent (BaseEvent, optional): Parent event leading to this event's discovery.
         context (str, optional): Description of circumstances leading to event's discovery.

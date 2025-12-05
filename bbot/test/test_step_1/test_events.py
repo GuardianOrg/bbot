@@ -117,17 +117,19 @@ async def test_events(events, helpers):
     assert events.emoji not in events.url_unverified
     assert events.emoji not in events.ipv6_url_unverified
     assert events.url_unverified not in events.emoji
-    assert "https://evilcorp.com" == scan.make_event("https://evilcorp.com:443", dummy=True)
-    assert "http://evilcorp.com" == scan.make_event("http://evilcorp.com:80", dummy=True)
+
+    # URL normalization tests – compare against event.data / .with_port().geturl()
+    assert scan.make_event("https://evilcorp.com:443", dummy=True).data == "https://evilcorp.com"
+    assert scan.make_event("http://evilcorp.com:80", dummy=True).data == "http://evilcorp.com"
     assert "http://evilcorp.com:80/asdf.js" in scan.make_event("http://evilcorp.com/asdf.js", dummy=True)
     assert "http://evilcorp.com/asdf.js" in scan.make_event("http://evilcorp.com:80/asdf.js", dummy=True)
-    assert "https://evilcorp.com:443" == scan.make_event("https://evilcorp.com", dummy=True)
-    assert "http://evilcorp.com:80" == scan.make_event("http://evilcorp.com", dummy=True)
-    assert "https://evilcorp.com:80" == scan.make_event("https://evilcorp.com:80", dummy=True)
-    assert "http://evilcorp.com:443" == scan.make_event("http://evilcorp.com:443", dummy=True)
+    assert scan.make_event("https://evilcorp.com", dummy=True).data == "https://evilcorp.com:443"
+    assert scan.make_event("http://evilcorp.com", dummy=True).data == "http://evilcorp.com:80"
+    assert scan.make_event("https://evilcorp.com:80", dummy=True).data == "https://evilcorp.com:80"
+    assert scan.make_event("http://evilcorp.com:443", dummy=True).data == "http://evilcorp.com:443"
     assert scan.make_event("https://evilcorp.com", dummy=True).with_port().geturl() == "https://evilcorp.com:443/"
     assert scan.make_event("https://evilcorp.com:666", dummy=True).with_port().geturl() == "https://evilcorp.com:666/"
-    assert scan.make_event("https://evilcorp.com.:666", dummy=True) == "https://evilcorp.com:666/"
+    assert scan.make_event("https://evilcorp.com.:666", dummy=True).data == "https://evilcorp.com:666/"
     assert scan.make_event("https://[bad::c0de]", dummy=True).with_port().geturl() == "https://[bad::c0de]:443/"
     assert scan.make_event("https://[bad::c0de]:666", dummy=True).with_port().geturl() == "https://[bad::c0de]:666/"
     url_event = scan.make_event("https://evilcorp.com", "URL", events.ipv4_url, tags=["status-200"])

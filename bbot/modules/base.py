@@ -7,6 +7,7 @@ from contextlib import suppress
 from ..core.helpers.misc import get_size  # noqa
 from ..errors import ValidationError, WebError
 from ..core.helpers.async_helpers import TaskCounter, ShuffleQueue
+from ..core.event import is_event
 
 
 class BaseModule:
@@ -519,6 +520,12 @@ class BaseModule:
             if (not args) or getattr(args[0], "module", None) is None:
                 kwargs["module"] = self
         try:
+            if args and is_event(args[0]):
+                raise ValidationError(
+                    f"{self.__class__.__name__}.make_event() does not accept an existing event "
+                    f"({type(args[0]).__name__}) as the first argument. "
+                    "Use update_event(event, ...) or emit_event(event, ...) instead."
+                )
             event = self.scan.make_event(*args, **kwargs)
         except ValidationError as e:
             if raise_error:
@@ -595,7 +602,23 @@ class BaseModule:
             v = event_kwargs.pop(o, None)
             if v is not None:
                 emit_kwargs[o] = v
-        event = self.make_event(*args, **event_kwargs)
+
+        # Two entry points:
+        #  - emit_event(data, ...)           -> create a new event via make_event()
+        #  - emit_event(existing_event, ...) -> update and re‑emit that event
+        if args and is_event(args[0]):
+            event, *rest = args
+            if rest:
+                self.warning(
+                    f"emit_event() was called on {self.name} with an existing event and extra "
+                    f"positional args ({rest}); extra args are ignored. "
+                    "Pass only the event plus keyword arguments, or call make_event() explicitly."
+                )
+            # Update the existing event (e.g. tags/context/module) before emitting
+            event = self.update_event(event, **event_kwargs)
+        else:
+            event = self.make_event(*args, **event_kwargs)
+
         if event is not None:
             children = event.children
             for e in [event] + children:
