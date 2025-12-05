@@ -1006,11 +1006,10 @@ class BaseEvent:
         Event equality is **only** defined between Event instances.
 
         Equality is based on the event hash (derived from its id). Comparisons to
-        non-Event types return NotImplemented so Python can fall back to the
-        other operand's comparison logic.
+        non-Event types raise a ValueError to make incorrect comparisons explicit.
         """
         if not is_event(other):
-            return NotImplemented
+            raise ValueError("Event equality is only defined between Event instances")
         return hash(self) == hash(other)
 
     def __hash__(self):
