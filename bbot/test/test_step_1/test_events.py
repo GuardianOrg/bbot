@@ -42,7 +42,7 @@ async def test_events(events, helpers):
     assert events.ipv4 == scan.make_event("8.8.8.8", dummy=True)
     assert "8.8.8.8" in events.ipv4
     assert events.ipv4.host_filterable == "8.8.8.8"
-    assert "8.8.8.8" == events.ipv4
+    assert events.ipv4.data == "8.8.8.8"
     assert "8.8.8.8" in events.netv4
     assert "8.8.8.9" not in events.ipv4
     assert "8.8.9.8" not in events.netv4
@@ -60,7 +60,7 @@ async def test_events(events, helpers):
     assert events.emoji not in events.netv6
     assert events.netv6 not in events.emoji
     ipv6_event = scan.make_event(" [DEaD::c0De]:88", "DNS_NAME", dummy=True)
-    assert "dead::c0de" == ipv6_event
+    assert ipv6_event.data == "dead::c0de"
     assert ipv6_event.host_filterable == "dead::c0de"
     range_to_ip = scan.make_event("1.2.3.4/32", dummy=True)
     assert range_to_ip.type == "IP_ADDRESS"
