@@ -87,7 +87,7 @@ async def test_events(events, helpers):
     open_port_event = scan.make_event(" eViLcorp.COM.:88", "DNS_NAME", dummy=True)
     dns_event = scan.make_event("evilcorp.com.", "DNS_NAME", dummy=True)
     for e in (open_port_event, dns_event):
-        assert "evilcorp.com" == e
+        assert e.data == "evilcorp.com"
         assert e.netloc == "evilcorp.com"
         assert e.json()["netloc"] == "evilcorp.com"
         assert e.port is None
