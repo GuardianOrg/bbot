@@ -1334,7 +1334,10 @@ class BaseModule:
                 if isinstance(body_json, dict):
                     retry_after = body_json.get("retry_after", None)
         if retry_after is not None:
-            return float(retry_after)
+            # we don't allow retry-after smaller than 1 second
+            # this is to prevent cases where APIs erroneously return a retry-after value of 0
+            # e.g. https://github.com/blacklanternsecurity/bbot/issues/2826
+            return max(1.0, float(retry_after))
 
     def _prepare_api_iter_req(self, url, page, page_size, offset, **requests_kwargs):
         """
