@@ -62,7 +62,7 @@ dns:
   # Don't show PTR records containing IP addresses
   filter_ptrs: true
   # Enable/disable debug messages for DNS queries
-  debug: false
+  debug: true
   # For performance reasons, always skip these DNS queries
   # Microsoft's DNS infrastructure is misconfigured so that certain queries to mail.protection.outlook.com always time out
   omit_queries:
@@ -138,6 +138,8 @@ module_dirs: []
 module_handle_event_timeout: 3600
 # handle_batch() default timeout is 2 hours
 module_handle_batch_timeout: 7200
+
+
 
 # Infer certain events from others, e.g. IPs from IP ranges, DNS_NAMEs from URLs, etc.
 speculate: True
