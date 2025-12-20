@@ -12,7 +12,7 @@ class CloudCheck(BaseInterceptModule):
         "created_date": "2024-07-07",
         "author": "@TheTechromancer",
     }
-    # accept events up to and including distance-2
+    # tag events up to and including distance-2
     scope_distance_modifier = 2
     _priority = 3
 
@@ -55,6 +55,10 @@ class CloudCheck(BaseInterceptModule):
                         # any children are tagged as CNAMEs
                         else:
                             event.add_tag(f"{provider_name}-cname")
+
+        # we only generate storage buckets off of in-scope or distance-1 events
+        if event.scope_distance >= self.max_scope_distance:
+            return
 
         # see if any of our hosts are storage buckets, etc.
         regexes = await self.cloud_hostname_regexes()
