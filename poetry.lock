@@ -403,14 +403,14 @@ colorama = {version = "*", markers = "platform_system == \"Windows\""}
 
 [[package]]
 name = "cloudcheck"
-version = "8.5.1"
+version = "8.6.0"
 description = "Detailed database of cloud providers. Instantly look up a domain or IP address"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "cloudcheck-8.5.1-cp314-cp314-manylinux_2_38_x86_64.whl", hash = "sha256:0a9dfb641e2282c349f9272129edce4660abadba8552b0f7b4cedf4cb329d99e"},
-    {file = "cloudcheck-8.5.1.tar.gz", hash = "sha256:ad887f99dfe8e91e3d1cbe89d2dbe25d86280a302462f0bcc7ed5578a2501b56"},
+    {file = "cloudcheck-8.6.0-cp314-cp314-manylinux_2_38_x86_64.whl", hash = "sha256:d8e0860f3e41209fa0551792d7851e5dcb895cfbfe6d77e4a514587d0d9178b6"},
+    {file = "cloudcheck-8.6.0.tar.gz", hash = "sha256:009c719f7395ac1a3facc301f9d8e6e3cee1a37bff3b9c92c1bcea5360f02fff"},
 ]
 
 [[package]]
@@ -3581,4 +3581,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "bfd80d591c943b4031afff8361d293f10b873f702363016e0c56f57eefc30eda"
+content-hash = "4edffa596e1de3a328f8a2af196ad6eef06e5546cf2c37dbf05f7257c9f2a203"
