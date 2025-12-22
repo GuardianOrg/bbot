@@ -794,6 +794,9 @@ class BaseModule:
 
     @property
     def max_scope_distance(self):
+        """
+        Maximum scope distance for events that are accepted by the module.
+        """
         if self.in_scope_only or self.target_only:
             return 0
         if self.scope_distance_modifier is None:

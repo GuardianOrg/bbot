@@ -69,27 +69,58 @@ class Bucket_Amazon_Base(ModuleTestBase):
         module_test.httpx_mock.add_response(url=re.compile(".*"), text="", status_code=404)
 
     def check(self, module_test, events):
-        # make sure buckets were excavated
-        assert any(e.type == "STORAGE_BUCKET" and str(e.module) == f"cloud_{self.provider}" for e in events), (
-            f'bucket not found for module "{self.module_name}"'
+        storage_buckets = [e for e in events if e.type == "STORAGE_BUCKET"]
+        assert len(storage_buckets) == 3
+        assert 1 == len(
+            [
+                e
+                for e in storage_buckets
+                if e.data["name"] == random_bucket_name_1
+                and str(e.module) == "cloudcheck"
+                and f"cloud-{self.provider}" in e.tags
+                and f"{self.provider}-domain" in e.tags
+            ]
+        )
+        assert 1 == len(
+            [
+                e
+                for e in storage_buckets
+                if e.data["name"] == random_bucket_name_2
+                and str(e.module) == "cloudcheck"
+                and f"cloud-{self.provider}" in e.tags
+                and f"{self.provider}-domain" in e.tags
+            ]
+        )
+        assert 1 == len(
+            [
+                e
+                for e in storage_buckets
+                if e.data["name"] == random_bucket_name_3
+                and str(e.module) == str(self.module_name)
+                and f"cloud-{module_test.module.cloudcheck_provider_name.lower()}" in e.tags
+                and f"{module_test.module.cloudcheck_provider_name.lower()}-domain" in e.tags
+            ]
         )
         # make sure open buckets were found
         if module_test.module.supports_open_check:
-            assert any(e.type == "FINDING" and str(e.module) == self.module_name for e in events), (
-                f'open bucket not found for module "{self.module_name}"'
-            )
-            for e in events:
-                if e.type == "FINDING" and str(e.module) == self.module_name:
-                    url = e.data.get("url", "")
-                    assert self.random_bucket_2 in url
-                    assert self.random_bucket_1 not in url
-                    assert self.random_bucket_3 not in url
+            assert 1 == len(
+                [
+                    e
+                    for e in events
+                    if e.type == "FINDING"
+                    and str(e.module) == self.module_name
+                    and e.data.get("url") == f"https://{self.random_bucket_2}/"
+                ]
+            ), f'open bucket not found for module "{self.module_name}"'
         # make sure bucket mutations were found
-        assert any(
-            e.type == "STORAGE_BUCKET"
-            and str(e.module) == self.module_name
-            and f"{random_bucket_name_3}" in e.data["url"]
-            for e in events
+        assert 1 == len(
+            [
+                e
+                for e in events
+                if e.type == "STORAGE_BUCKET"
+                and str(e.module) == self.module_name
+                and f"{random_bucket_name_3}" in e.data["url"]
+            ]
         ), f'bucket (dev mutation: {self.random_bucket_3}) not found for module "{self.module_name}"'
 
 
