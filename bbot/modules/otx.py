@@ -17,7 +17,6 @@ class otx(subdomain_enum_apikey):
     base_url = "https://otx.alienvault.com"
 
     def prepare_api_request(self, url, kwargs):
-        kwargs["headers"].setdefault("Accept", "application/json")
         kwargs["headers"]["X-OTX-API-KEY"] = self.api_key
         return url, kwargs
 
