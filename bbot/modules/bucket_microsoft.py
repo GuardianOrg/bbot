@@ -29,7 +29,6 @@ class bucket_microsoft(bucket_template):
     def check_bucket_exists(self, bucket_name, response):
         status_code = getattr(response, "status_code", 0)
         existent_bucket = status_code != 0
-        self.critical(f"Bucket exists: {existent_bucket} (response: {response})")
         return existent_bucket, set()
 
     def clean_bucket_url(self, url):
