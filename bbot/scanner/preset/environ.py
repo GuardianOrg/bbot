@@ -3,7 +3,13 @@ import sys
 import omegaconf
 from pathlib import Path
 
-from bbot.core.helpers.misc import cpu_architecture, cpu_architecture_golang, cpu_architecture_rust, os_platform, os_platform_friendly
+from bbot.core.helpers.misc import (
+    cpu_architecture,
+    cpu_architecture_golang,
+    cpu_architecture_rust,
+    os_platform,
+    os_platform_friendly,
+)
 
 
 REQUESTS_PATCHED = False

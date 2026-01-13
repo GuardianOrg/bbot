@@ -63,7 +63,7 @@ class legba(BaseModule):
                 "include": "legba-#{BBOT_MODULES_LEGBA_VERSION}-#{BBOT_OS}-#{BBOT_CPU_ARCH_RUST}/legba",
                 "remote_src": True,
                 "mode": "u+x,g+x,o+x",
-            }
+            },
         }
     ]
 
