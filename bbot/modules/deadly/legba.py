@@ -56,43 +56,15 @@ class legba(BaseModule):
 
     deps_ansible = [
         {
-            "name": "Download legba (x86)",
+            "name": "Download legba",
             "unarchive": {
-                "src": "https://github.com/evilsocket/legba/releases/download/#{BBOT_MODULES_LEGBA_VERSION}/legba-#{BBOT_MODULES_LEGBA_VERSION}-linux-x86_64.tar.gz",
+                "src": "https://github.com/evilsocket/legba/releases/download/#{BBOT_MODULES_LEGBA_VERSION}/legba-#{BBOT_MODULES_LEGBA_VERSION}-#{BBOT_OS}-#{BBOT_CPU_ARCH_RUST}.tar.gz",
                 "dest": "#{BBOT_TEMP}",
-                "include": "legba-#{BBOT_MODULES_LEGBA_VERSION}-linux-x86_64/legba",
+                "include": "legba-#{BBOT_MODULES_LEGBA_VERSION}-#{BBOT_OS}-#{BBOT_CPU_ARCH_RUST}/legba",
                 "remote_src": True,
-            },
-            "when": "ansible_facts['system'] == 'Linux' and ansible_facts['architecture'] == 'x86_64'",
-        },
-        {
-            "name": "Install legba (x86)",
-            "copy": {
-                "src": "#{BBOT_TEMP}/legba-#{BBOT_MODULES_LEGBA_VERSION}-linux-x86_64/legba",
-                "dest": "#{BBOT_TOOLS}/",
                 "mode": "u+x,g+x,o+x",
-            },
-            "when": "ansible_facts['system'] == 'Linux' and ansible_facts['architecture'] == 'x86_64'",
-        },
-        {
-            "name": "Download legba (ARM64)",
-            "unarchive": {
-                "src": "https://github.com/evilsocket/legba/releases/download/#{BBOT_MODULES_LEGBA_VERSION}/legba-#{BBOT_MODULES_LEGBA_VERSION}-linux-arm64.tar.gz",
-                "dest": "#{BBOT_TEMP}",
-                "include": "legba-#{BBOT_MODULES_LEGBA_VERSION}-linux-arm64/legba",
-                "remote_src": True,
-            },
-            "when": "ansible_facts['system'] == 'Linux' and ansible_facts['architecture'] == 'aarch64'",
-        },
-        {
-            "name": "Install legba (ARM64)",
-            "copy": {
-                "src": "#{BBOT_TEMP}/legba-#{BBOT_MODULES_LEGBA_VERSION}-linux-arm64/legba",
-                "dest": "#{BBOT_TOOLS}/",
-                "mode": "u+x,g+x,o+x",
-            },
-            "when": "ansible_facts['system'] == 'Linux' and ansible_facts['architecture'] == 'aarch64'",
-        },
+            }
+        }
     ]
 
     async def setup(self):
