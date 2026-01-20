@@ -70,6 +70,8 @@ class legba(BaseModule):
     async def setup(self):
         self.output_dir = Path(self.scan.temp_dir / "legba-output")
         self.helpers.mkdir(self.output_dir)
+        if not "fingerprintx" in self.scan.modules:
+            self.warning(f"Enabling 'fingerprintx' module is recommended for discovery of PROTOCOL events")
 
         return True
 
