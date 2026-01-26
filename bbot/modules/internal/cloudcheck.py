@@ -38,7 +38,7 @@ class CloudCheck(BaseInterceptModule):
             try:
                 cloudcheck_results = await self.helpers.cloudcheck.lookup(host)
             except Exception as e:
-                self.trace(f"Error running cloudcheck against {event} (host: {host}): {e}")
+                self.warning(f"Error running cloudcheck against {event} (host: {host}): {e}")
                 continue
             for provider in cloudcheck_results:
                 provider_name = provider["name"].lower()
