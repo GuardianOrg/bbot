@@ -7,7 +7,15 @@ class censys_ip(censys):
     """
 
     watched_events = ["IP_ADDRESS"]
-    produced_events = ["IP_ADDRESS", "DNS_NAME", "URL_UNVERIFIED", "OPEN_TCP_PORT", "OPEN_UDP_PORT", "TECHNOLOGY", "PROTOCOL"]
+    produced_events = [
+        "IP_ADDRESS",
+        "DNS_NAME",
+        "URL_UNVERIFIED",
+        "OPEN_TCP_PORT",
+        "OPEN_UDP_PORT",
+        "TECHNOLOGY",
+        "PROTOCOL",
+    ]
     flags = ["passive", "safe"]
     meta = {
         "description": "Query the Censys API for hosts by IP address",
@@ -85,7 +93,7 @@ class censys_ip(censys):
 
             # Emit PROTOCOL for non-HTTP/DNS services
             service_name = service.get("service_name", "")
-            if service_name and service_name.upper() not in ("HTTP", "HTTPS", "DNS", "UNKNOWN"):
+            if service_name and service_name.upper() not in ("HTTP", "HTTPS", "UNKNOWN"):
                 protocol_key = ("protocol", service_name, port)
                 if protocol_key not in seen:
                     seen.add(protocol_key)

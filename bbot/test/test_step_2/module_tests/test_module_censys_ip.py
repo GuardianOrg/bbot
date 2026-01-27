@@ -186,13 +186,12 @@ class TestCensys_IP(ModuleTestBase):
 
         # Check TECHNOLOGY events from software
         assert any(
-            e.type == "TECHNOLOGY"
-            and e.data["technology"] == "cpe:2.3:a:apache:tomcat:9.0.50:*:*:*:*:*:*:*"
+            e.type == "TECHNOLOGY" and e.data["technology"] == "cpe:2.3:a:apache:tomcat:9.0.50:*:*:*:*:*:*:*"
             for e in events
         ), "Failed to detect Apache Tomcat technology with CPE"
-        assert any(
-            e.type == "TECHNOLOGY" and e.data["technology"] == "Java" for e in events
-        ), "Failed to detect Java technology without CPE"
+        assert any(e.type == "TECHNOLOGY" and e.data["technology"] == "Java" for e in events), (
+            "Failed to detect Java technology without CPE"
+        )
 
         # Check PROTOCOL events (non-HTTP/DNS services)
         assert any(
@@ -202,9 +201,12 @@ class TestCensys_IP(ModuleTestBase):
             e.type == "PROTOCOL" and e.data["protocol"] == "QUIC" and e.data.get("port") == 443 for e in events
         ), "Failed to detect QUIC protocol"
 
-        # Ensure HTTP/DNS services don't emit PROTOCOL events
-        assert not any(e.type == "PROTOCOL" and e.data["protocol"] in ("HTTP", "DNS", "HTTPS") for e in events), (
-            "Should not emit PROTOCOL for HTTP/DNS services"
+        # Ensure HTTP/HTTPS services don't emit PROTOCOL events (but DNS does)
+        assert not any(e.type == "PROTOCOL" and e.data["protocol"] in ("HTTP", "HTTPS") for e in events), (
+            "Should not emit PROTOCOL for HTTP/HTTPS services"
+        )
+        assert any(e.type == "PROTOCOL" and e.data["protocol"] == "DNS" for e in events), (
+            "Should emit PROTOCOL for DNS services"
         )
 
 
