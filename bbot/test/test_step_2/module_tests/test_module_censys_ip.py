@@ -53,6 +53,7 @@ class TestCensys_IP(ModuleTestBase):
                         {
                             "port": 80,
                             "service_name": "HTTP",
+                            "extended_service_name": "HTTP",
                             "transport_protocol": "TCP",
                             "http": {
                                 "request": {
@@ -63,7 +64,9 @@ class TestCensys_IP(ModuleTestBase):
                         },
                         {
                             "port": 443,
-                            "service_name": "HTTPS",
+                            # Real API returns service_name: "HTTP" for HTTPS
+                            "service_name": "HTTP",
+                            "extended_service_name": "HTTPS",
                             "transport_protocol": "TCP",
                             "http": {
                                 "request": {
@@ -87,7 +90,9 @@ class TestCensys_IP(ModuleTestBase):
                         },
                         {
                             "port": 8443,
-                            "service_name": "HTTPS",
+                            # Real API returns service_name: "HTTP" for HTTPS
+                            "service_name": "HTTP",
+                            "extended_service_name": "HTTPS",
                             "transport_protocol": "TCP",
                             "http": {
                                 "request": {
@@ -109,12 +114,15 @@ class TestCensys_IP(ModuleTestBase):
                         {
                             "port": 22,
                             "service_name": "SSH",
+                            "extended_service_name": "SSH",
                             "transport_protocol": "TCP",
                         },
                         {
                             "port": 443,
-                            "service_name": "QUIC",
-                            "transport_protocol": "UDP",
+                            # Real API returns service_name: "UNKNOWN" and transport_protocol: "QUIC"
+                            "service_name": "UNKNOWN",
+                            "extended_service_name": "UNKNOWN",
+                            "transport_protocol": "QUIC",
                         },
                     ],
                     "dns": {

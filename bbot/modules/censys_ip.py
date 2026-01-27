@@ -81,9 +81,13 @@ class censys_ip(censys):
             transport = service.get("transport_protocol", "TCP").upper()
 
             # Emit OPEN_TCP_PORT or OPEN_UDP_PORT for services with a port
+            # QUIC uses UDP as transport, so treat it as UDP
             if port and (port, transport) not in seen:
                 seen.add((port, transport))
-                event_type = "OPEN_UDP_PORT" if transport == "UDP" else "OPEN_TCP_PORT"
+                if transport in ("UDP", "QUIC"):
+                    event_type = "OPEN_UDP_PORT"
+                else:
+                    event_type = "OPEN_TCP_PORT"
                 await self.emit_event(
                     self.helpers.make_netloc(ip, port),
                     event_type,
@@ -91,10 +95,15 @@ class censys_ip(censys):
                     context="{module} found open port on {event.parent.data}",
                 )
 
-            # Emit PROTOCOL for non-HTTP/DNS services
-            service_name = service.get("service_name", "")
+            # Emit PROTOCOL for non-HTTP services
+            # Use extended_service_name (more specific) falling back to service_name
+            # Also check transport_protocol for protocols like QUIC
+            service_name = service.get("extended_service_name") or service.get("service_name", "")
+            # If service_name is UNKNOWN but transport_protocol is meaningful, use that
+            if service_name.upper() == "UNKNOWN" and transport not in ("TCP", "UDP"):
+                service_name = transport
             if service_name and service_name.upper() not in ("HTTP", "HTTPS", "UNKNOWN"):
-                protocol_key = ("protocol", service_name, port)
+                protocol_key = ("protocol", service_name.upper(), port)
                 if protocol_key not in seen:
                     seen.add(protocol_key)
                     protocol_data = {"host": str(event.host), "protocol": service_name}
