@@ -7,7 +7,7 @@ class censys_ip(censys):
     """
 
     watched_events = ["IP_ADDRESS"]
-    produced_events = ["IP_ADDRESS", "DNS_NAME", "URL_UNVERIFIED", "OPEN_TCP_PORT", "OPEN_UDP_PORT"]
+    produced_events = ["IP_ADDRESS", "DNS_NAME", "URL_UNVERIFIED", "OPEN_TCP_PORT", "OPEN_UDP_PORT", "TECHNOLOGY", "PROTOCOL"]
     flags = ["passive", "safe"]
     meta = {
         "description": "Query the Censys API for hosts by IP address",
@@ -83,6 +83,22 @@ class censys_ip(censys):
                     context="{module} found open port on {event.parent.data}",
                 )
 
+            # Emit PROTOCOL for non-HTTP/DNS services
+            service_name = service.get("service_name", "")
+            if service_name and service_name.upper() not in ("HTTP", "HTTPS", "DNS", "UNKNOWN"):
+                protocol_key = ("protocol", service_name, port)
+                if protocol_key not in seen:
+                    seen.add(protocol_key)
+                    protocol_data = {"host": str(event.host), "protocol": service_name}
+                    if port:
+                        protocol_data["port"] = port
+                    await self.emit_event(
+                        protocol_data,
+                        "PROTOCOL",
+                        parent=event,
+                        context="{module} found {event.type}: {event.data[protocol]} on {event.parent.data}",
+                    )
+
             # Extract URLs from HTTP services
             http_data = service.get("http", {})
             request = http_data.get("request", {})
@@ -109,6 +125,17 @@ class censys_ip(censys):
             subject = leaf_data.get("subject", {})
             for cn in subject.get("common_name", []):
                 await self._emit_host(cn, event, seen, "TLS certificate subject")
+
+            # Extract software/technologies
+            for software in service.get("software", []):
+                product = software.get("uniform_resource_identifier", software.get("product", ""))
+                if product:
+                    await self.emit_event(
+                        {"technology": product, "host": str(event.host)},
+                        "TECHNOLOGY",
+                        parent=event,
+                        context="{module} found {event.type}: {event.data[technology]} on {event.parent.data}",
+                    )
 
         # Extract dns.names (limit to configured max)
         dns_data = result.get("dns", {})

@@ -95,6 +95,26 @@ class TestCensys_IP(ModuleTestBase):
                                     "uri": "https://1.2.3.4:8443/admin",
                                 },
                             },
+                            "software": [
+                                {
+                                    "uniform_resource_identifier": "cpe:2.3:a:apache:tomcat:9.0.50:*:*:*:*:*:*:*",
+                                    "product": "Apache Tomcat",
+                                    "vendor": "Apache",
+                                },
+                                {
+                                    "product": "Java",
+                                },
+                            ],
+                        },
+                        {
+                            "port": 22,
+                            "service_name": "SSH",
+                            "transport_protocol": "TCP",
+                        },
+                        {
+                            "port": 443,
+                            "service_name": "QUIC",
+                            "transport_protocol": "UDP",
                         },
                     ],
                     "dns": {
@@ -114,6 +134,9 @@ class TestCensys_IP(ModuleTestBase):
         )
 
         # Check OPEN_TCP_PORT events
+        assert any(e.type == "OPEN_TCP_PORT" and e.data == "1.2.3.4:22" for e in events), (
+            "Failed to detect TCP port 22 (SSH)"
+        )
         assert any(e.type == "OPEN_TCP_PORT" and e.data == "1.2.3.4:80" for e in events), (
             "Failed to detect TCP port 80"
         )
@@ -122,6 +145,11 @@ class TestCensys_IP(ModuleTestBase):
         )
         assert any(e.type == "OPEN_TCP_PORT" and e.data == "1.2.3.4:8443" for e in events), (
             "Failed to detect TCP port 8443"
+        )
+
+        # Check OPEN_UDP_PORT for QUIC
+        assert any(e.type == "OPEN_UDP_PORT" and e.data == "1.2.3.4:443" for e in events), (
+            "Failed to detect UDP port 443 (QUIC)"
         )
 
         # Check URL_UNVERIFIED events
@@ -154,6 +182,29 @@ class TestCensys_IP(ModuleTestBase):
         )
         assert any(e.type == "DNS_NAME" and e.data == "ptr.evilcorp.com" for e in events), (
             "Failed to detect ptr.evilcorp.com from reverse DNS"
+        )
+
+        # Check TECHNOLOGY events from software
+        assert any(
+            e.type == "TECHNOLOGY"
+            and e.data["technology"] == "cpe:2.3:a:apache:tomcat:9.0.50:*:*:*:*:*:*:*"
+            for e in events
+        ), "Failed to detect Apache Tomcat technology with CPE"
+        assert any(
+            e.type == "TECHNOLOGY" and e.data["technology"] == "Java" for e in events
+        ), "Failed to detect Java technology without CPE"
+
+        # Check PROTOCOL events (non-HTTP/DNS services)
+        assert any(
+            e.type == "PROTOCOL" and e.data["protocol"] == "SSH" and e.data.get("port") == 22 for e in events
+        ), "Failed to detect SSH protocol"
+        assert any(
+            e.type == "PROTOCOL" and e.data["protocol"] == "QUIC" and e.data.get("port") == 443 for e in events
+        ), "Failed to detect QUIC protocol"
+
+        # Ensure HTTP/DNS services don't emit PROTOCOL events
+        assert not any(e.type == "PROTOCOL" and e.data["protocol"] in ("HTTP", "DNS", "HTTPS") for e in events), (
+            "Should not emit PROTOCOL for HTTP/DNS services"
         )
 
 

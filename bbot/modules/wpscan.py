@@ -58,8 +58,7 @@ class wpscan(BaseModule):
         },
         {
             "name": "Install wpscan gem",
-            # we install globally because installing to a user's home dir is unpredictable across different distros and often missing from PATH
-            "shell": "gem install wpscan --no-user-install",
+            "gem": {"name": "wpscan", "state": "latest", "user_install": False},
             "become": True,
         },
     ]
