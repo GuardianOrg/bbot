@@ -100,7 +100,7 @@ class censys_ip(censys):
             # Also check transport_protocol for protocols like QUIC
             service_name = service.get("extended_service_name") or service.get("service_name", "")
             # If service_name is UNKNOWN but transport_protocol is meaningful, use that
-            if service_name.upper() == "UNKNOWN" and transport not in ("TCP", "UDP"):
+            if service_name.upper() == "UNKNOWN" and transport and transport not in ("TCP", "UDP"):
                 service_name = transport
             if service_name and service_name.upper() not in ("HTTP", "HTTPS", "UNKNOWN"):
                 protocol_key = ("protocol", service_name.upper(), port)
