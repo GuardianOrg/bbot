@@ -19,6 +19,8 @@ class CloudCheck(BaseInterceptModule):
     async def setup(self):
         self._cloud_hostname_regexes = None
         self._cloud_hostname_regexes_lock = asyncio.Lock()
+        # perform a test lookup during setup to force signature update
+        await self.helpers.cloudcheck.lookup("8.8.8.8")
         return True
 
     async def filter_event(self, event):
