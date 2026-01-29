@@ -31,7 +31,9 @@ class azure_tenant(BaseModule):
         email_domains = tenant_data.get("email_domains", [])
 
         if email_domains:
-            self.verbose(f'Found {len(email_domains):,} domains under tenant for "{query}": {", ".join(sorted(email_domains))}')
+            self.verbose(
+                f'Found {len(email_domains):,} domains under tenant for "{query}": {", ".join(sorted(email_domains))}'
+            )
             for domain in email_domains:
                 if domain != query:
                     await self.emit_event(
