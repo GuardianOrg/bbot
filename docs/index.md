@@ -91,7 +91,7 @@ bbot -t evilcorp.com -p subdomain-enum -m portscan gowitness -n my_scan -o .
 **Subdomains + basic web scan:**
 
 ```bash
-# A basic web scan includes wappalyzer, robots.txt, and other non-intrusive web modules
+# A basic web scan includes robots.txt, storage buckets, IIS shortnames, and other non-intrusive web modules
 bbot -t evilcorp.com -p subdomain-enum web-basic
 ```
 
