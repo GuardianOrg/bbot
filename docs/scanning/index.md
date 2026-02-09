@@ -72,7 +72,7 @@ Modules fall into three categories:
         - `excavate`: Extracts useful data such as subdomains from webpages, etc.
         - `speculate`: Intelligently infers new events, e.g. `OPEN_TCP_PORT` from `URL` or `IP_ADDRESS` from `IP_NETWORK`.
 
-For details in the inner workings of modules, see [Creating a Module](../contribution.md#creating-a-module).
+For details in the inner workings of modules, see [How to Write a Module](../dev/module_howto.md).
 
 ## Flags (`-f`)
 
@@ -148,7 +148,7 @@ BBOT modules have external dependencies ranging from OS packages (`openssl`) to 
 - `--ignore-failed-deps` - Run modules even if they have failed dependencies
 - `--install-all-deps` - Install dependencies for all modules (useful if you are provisioning a pentest system and want to install everything ahead of time)
 
-For details on how Ansible playbooks are attached to BBOT modules, see [How to Write a Module](../contribution.md#module-dependencies).
+For details on how Ansible playbooks are attached to BBOT modules, see [How to Write a Module](../dev/module_howto.md#module-dependencies).
 
 ## Scope
 
