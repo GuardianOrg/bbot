@@ -2,3 +2,8 @@ __pycache__/
 .coverage*
 /data/
 /neo4j/
+
+.env
+**/.env
+my_bbot/.env
+my_bbot/.env.*
