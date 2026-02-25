@@ -32,6 +32,29 @@ modules:
     templates: http/takeovers/airee-takeover.yaml,http/takeovers/cargo-takeover.yaml
 ```
 
+## Loading maintained extra template sources
+
+You can also provide additional maintained template sources that BBOT will keep updated from Git each time `nuclei` is used:
+
+```bash
+bbot -m nuclei -c modules.nuclei.template_sources=https://github.com/projectdiscovery/fuzzing-templates.git,https://github.com/OWASP/www-project-asvs-security-evaluation-templates-with-nuclei.git
+```
+
+You can also use a YAML list:
+
+```yaml
+config:
+  modules:
+    nuclei:
+      template_sources:
+        - https://github.com/projectdiscovery/fuzzing-templates.git
+        - https://github.com/OWASP/www-project-asvs-security-evaluation-templates-with-nuclei.git
+      mobile_template_sources:
+        - https://github.com/optiv/mobile-nuclei-templates.git
+```
+
+When mobile apps are discovered and downloaded (`MOBILE_APP` -> APK files), BBOT automatically enables `mobile_template_sources` for subsequent Nuclei runs in that scan.
+
 ## Configuration and Options
 
 The Nuclei module has many configuration options:
@@ -44,6 +67,8 @@ The Nuclei module has many configuration options:
 | modules.nuclei.concurrency    | int    | maximum number of templates to be executed in parallel (default 25)                                                                                                                                                                                                                                                            | 25        |
 | modules.nuclei.directory_only | bool   | Filter out 'file' URL event (default True)                                                                                                                                                                                                                                                                                     | True      |
 | modules.nuclei.etags          | str    | tags to exclude from the scan                                                                                                                                                                                                                                                                                                  |           |
+| modules.nuclei.template_sources | str    | Comma-separated local directories or git repositories to sync and add as additional template sources                                                                                                                                                                                                                               |           |
+| modules.nuclei.mobile_template_sources | str    | Comma-separated local directories or git repositories to sync and auto-enable when a mobile APK artifact is discovered                                                                                                                                                                                                 |           |
 | modules.nuclei.mode           | str    | manual &#124; technology &#124; severe &#124; budget. Technology: Only activate based on technology events that match nuclei tags (nuclei -as mode). Manual (DEFAULT): Fully manual settings. Severe: Only critical and high severity templates without intrusive. Budget: Limit Nuclei to a specified number of HTTP requests | manual    |
 | modules.nuclei.module_timeout | int    | Max time in seconds to spend handling each batch of events                                                                                                                                                                                                                                                                     | 21600     |
 | modules.nuclei.ratelimit      | int    | maximum number of requests to send per second (default 150)                                                                                                                                                                                                                                                                    | 150       |

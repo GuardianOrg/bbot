@@ -1,0 +1,19 @@
+description: Run nuclei with maintained external template sources (opt-in)
+
+modules:
+  - httpx
+  - nuclei
+
+config:
+  modules:
+  nuclei:
+      # Keep these GitHub-hosted maintained source sets refreshed before each scan
+      template_sources: "https://github.com/projectdiscovery/fuzzing-templates.git,https://github.com/OWASP/www-project-asvs-security-evaluation-templates-with-nuclei.git,https://github.com/projectdiscovery/nuclei-templates-ai.git,https://github.com/sharathkramadas/k8s-nuclei-templates.git"
+      mobile_template_sources: "https://github.com/optiv/mobile-nuclei-templates.git"
+      mode: severe
+
+conditions:
+  - |
+    {% if config.modules.nuclei.template_sources is none %}
+      {{ warn("No template sources configured for the nuclei-community preset") }}
+    {% endif %}

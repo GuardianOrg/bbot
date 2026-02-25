@@ -1,11 +1,15 @@
 import json
 import yaml
+import re
+import hashlib
+from pathlib import Path
+from contextlib import suppress
 from itertools import islice
 from bbot.modules.base import BaseModule
 
 
 class nuclei(BaseModule):
-    watched_events = ["URL"]
+    watched_events = ["URL", "MOBILE_APP", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY", "TECHNOLOGY"]
     flags = ["active", "aggressive", "deadly"]
     meta = {
@@ -18,6 +22,8 @@ class nuclei(BaseModule):
         "version": "3.6.2",
         "tags": "",
         "templates": "",
+        "template_sources": "",
+        "mobile_template_sources": "",
         "severity": "",
         "ratelimit": 150,
         "concurrency": 25,
@@ -33,6 +39,8 @@ class nuclei(BaseModule):
     options_desc = {
         "version": "nuclei version",
         "tags": "execute a subset of templates that contain the provided tags",
+        "template_sources": "Comma-separated local directories or Git URLs to sync and use as additional template sources",
+        "mobile_template_sources": "Comma-separated local directories or Git URLs to sync and use as mobile-focused template sources when a mobile app artifact is processed",
         "templates": "template or template directory paths to include in the scan",
         "severity": "Filter based on severity field available in the template.",
         "ratelimit": "maximum number of requests to send per second (default 150)",
@@ -77,6 +85,8 @@ class nuclei(BaseModule):
                 self.warning(f"Failure while updating nuclei templates: {update_results.stderr}")
         else:
             self.warning("Error running nuclei template update command")
+        self.template_source_dirs = await self.resolve_template_sources()
+        self.mobile_template_source_dirs = await self.resolve_template_sources(self.config.get("mobile_template_sources", ""))
         self.proxy = self.scan.web_config.get("http_proxy", "")
         self.mode = self.config.get("mode", "severe").lower()
         self.ratelimit = int(self.config.get("ratelimit", 150))
@@ -86,6 +96,12 @@ class nuclei(BaseModule):
         self.templates = self.config.get("templates")
         if self.templates:
             self.info(f"Using custom template(s) at: [{self.templates}]")
+        if self.template_source_dirs:
+            count = len(self.template_source_dirs)
+            self.info(f"Loaded {count} extra nuclei template source director{'y' if count == 1 else 'ies'}")
+        if self.mobile_template_source_dirs:
+            count = len(self.mobile_template_source_dirs)
+            self.info(f"Loaded {count} mobile nuclei template source director{'y' if count == 1 else 'ies'}")
         self.tags = self.config.get("tags")
         if self.tags:
             self.info(f"Setting the following nuclei tags: [{self.tags}]")
@@ -98,6 +114,7 @@ class nuclei(BaseModule):
         self.iserver = self.scan.config.get("interactsh_server", None)
         self.itoken = self.scan.config.get("interactsh_token", None)
         self.retries = int(self.config.get("retries", 0))
+        self.mobile_app_discovered = False
 
         if self.mode not in ("technology", "severe", "manual", "budget"):
             self.warning(f"Unable to initialize nuclei: invalid mode selected: [{self.mode}]")
@@ -122,30 +139,140 @@ class nuclei(BaseModule):
             )
 
         if self.mode == "budget":
-            self.info(
-                f"Running nuclei in BUDGET mode. This mode calculates which nuclei templates can be used, constrained by your 'budget' of number of requests. Current budget is set to: {self.budget}"
-            )
+            if self.templates:
+                self.warning(
+                    "Custom templates are defined while running in budget mode. Falling back to manual mode for this run."
+                )
+                self.mode = "manual"
+            else:
+                self.info(
+                    f"Running nuclei in BUDGET mode. This mode calculates which nuclei templates can be used, constrained by your 'budget' of number of requests. Current budget is set to: {self.budget}"
+                )
+                self.info("Processing nuclei templates to perform budget calculations...")
 
-            self.info("Processing nuclei templates to perform budget calculations...")
+                self.nucleibudget = NucleiBudget(self)
+                self.budget_templates_file = self.helpers.tempfile(self.nucleibudget.collapsible_templates, pipe=False)
 
-            self.nucleibudget = NucleiBudget(self)
-            self.budget_templates_file = self.helpers.tempfile(self.nucleibudget.collapsible_templates, pipe=False)
-
-            self.info(
-                f"Loaded [{str(sum(self.nucleibudget.severity_stats.values()))}] templates based on a budget of [{str(self.budget)}] request(s)"
-            )
-            self.info(
-                f"Template Severity: Critical [{self.nucleibudget.severity_stats['critical']}] High [{self.nucleibudget.severity_stats['high']}] Medium [{self.nucleibudget.severity_stats['medium']}] Low [{self.nucleibudget.severity_stats['low']}] Info [{self.nucleibudget.severity_stats['info']}] Unknown [{self.nucleibudget.severity_stats['unknown']}]"
-            )
+                self.info(
+                    f"Loaded [{str(sum(self.nucleibudget.severity_stats.values()))}] templates based on a budget of [{str(self.budget)}] request(s)"
+                )
+                self.info(
+                    f"Template Severity: Critical [{self.nucleibudget.severity_stats['critical']}] High [{self.nucleibudget.severity_stats['high']}] Medium [{self.nucleibudget.severity_stats['medium']}] Low [{self.nucleibudget.severity_stats['low']}] Info [{self.nucleibudget.severity_stats['info']}] Unknown [{self.nucleibudget.severity_stats['unknown']}]"
+                )
 
         return True
 
+    def _get_template_sources(self, raw_template_sources=""):
+        if isinstance(raw_template_sources, (list, tuple)):
+            return [str(source).strip() for source in raw_template_sources if str(source).strip()]
+        if not isinstance(raw_template_sources, str):
+            return []
+        normalized = raw_template_sources.replace(";", ",")
+        return [source.strip() for source in normalized.split(",") if source.strip()]
+
+    def _template_source_dirname(self, source):
+        source_name = Path(source.rstrip("/")).name
+        if source_name.endswith(".git"):
+            source_name = source_name[:-4]
+        safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", source_name or "nuclei-templates")
+        hash_suffix = hashlib.sha1(source.encode("utf-8")).hexdigest()[:8]
+        return f"{safe_name}-{hash_suffix}"
+
+    async def _sync_template_source(self, source):
+        local_source = Path(source).expanduser()
+        if local_source.exists():
+            if local_source.is_dir():
+                return local_source.resolve()
+            self.warning(f"Template source exists but is not a directory: [{local_source}]")
+            return None
+
+        if self.helpers.which("git") is None:
+            self.warning("git is required to sync external nuclei template sources, but it is not available in PATH")
+            return None
+
+        if not (
+            source.startswith(("http://", "https://"))
+            or source.startswith("git@")
+            or source.endswith(".git")
+            or re.match(r"^[a-zA-Z]+://", source)
+        ):
+            self.warning(f"Template source is not a local directory and does not look like a git URL: [{source}]")
+            return None
+
+        local_directory = self.helpers.tools_dir / "nuclei-template-sources" / self._template_source_dirname(source)
+
+        if local_directory.exists():
+            if local_directory.is_file():
+                self.warning(f"Template source cache path exists as a file: [{local_directory}]")
+                return None
+            update_result = await self.run_process(["git", "-C", str(local_directory), "pull", "--ff-only"])
+            if update_result.returncode != 0:
+                self.warning(
+                    f"Failed to update nuclei template source [{source}] from [{local_directory}]: [{update_result.stderr}]"
+                )
+                return None
+            return local_directory
+
+        clone_result = await self.run_process(["git", "clone", "--depth", "1", source, str(local_directory)])
+        if clone_result.returncode != 0:
+            self.warning(f"Failed to clone nuclei template source [{source}]: [{clone_result.stderr}]")
+            with suppress(OSError):
+                if local_directory.exists():
+                    local_directory.rmdir()
+            return None
+        return local_directory
+
+    async def resolve_template_sources(self, raw_template_sources=""):
+        source_directories = []
+        for source in self._get_template_sources(raw_template_sources):
+            synced_source = await self._sync_template_source(source)
+            if synced_source:
+                source_directories.append(synced_source)
+        return source_directories
+
+    def _is_mobile_artifact(self, event):
+        if not getattr(event, "type", None):
+            return False
+
+        tags = set(str(tag).lower() for tag in getattr(event, "tags", []))
+
+        if event.type == "MOBILE_APP":
+            return "android" in tags
+
+        if event.type == "FILESYSTEM":
+            if "apk" in tags:
+                return True
+
+            path = Path(event.data.get("path", "")) if isinstance(event.data, dict) else Path("")
+            if path.suffix.lower() == ".apk":
+                return True
+
+            if isinstance(event.data, dict):
+                magic_desc = event.data.get("magic_description", "").lower()
+                if magic_desc == "android application package":
+                    return True
+        return False
+
     async def handle_batch(self, *events):
+        batch_has_mobile_artifact = False
+        for event in events:
+            if self._is_mobile_artifact(event):
+                batch_has_mobile_artifact = True
+
+        if batch_has_mobile_artifact:
+            self.mobile_app_discovered = True
+
+        url_events = [event for event in events if event.type == "URL"]
+        if not url_events:
+            return
+
         temp_target = self.helpers.make_target()
-        for e in events:
+        for e in url_events:
             temp_target.add(e.data, e)
-        nuclei_input = [str(e.data) for e in events]
-        async for severity, template, tags, host, url, name, extracted_results in self.execute_nuclei(nuclei_input):
+        nuclei_input = [str(e.data) for e in url_events]
+        async for severity, template, tags, host, url, name, extracted_results in self.execute_nuclei(
+            nuclei_input, include_mobile_templates=self.mobile_app_discovered or batch_has_mobile_artifact
+        ):
             # this is necessary because sometimes nuclei is inconsistent about the data returned in the host field
             cleaned_host = temp_target.get(host)
             parent_event = self.correlate_event(events, cleaned_host)
@@ -201,7 +328,7 @@ class nuclei(BaseModule):
         for event in events:
             self.verbose(f" - {event.data}")
 
-    async def execute_nuclei(self, nuclei_input):
+    async def execute_nuclei(self, nuclei_input, include_mobile_templates=False):
         command = [
             "nuclei",
             "-jsonl",
@@ -223,12 +350,29 @@ class nuclei(BaseModule):
         for hk, hv in self.scan.custom_http_headers.items():
             command += ["-H", f"{hk}: {hv}"]
 
-        for cli_option in ("severity", "templates", "iserver", "itoken", "tags", "etags"):
+        for cli_option in ("severity", "iserver", "itoken", "tags", "etags"):
             option = getattr(self, cli_option)
 
             if option:
                 command.append(f"-{cli_option}")
                 command.append(option)
+
+        if self.templates:
+            template_paths = [t.strip() for t in self.templates.split(",") if t.strip()]
+            if self.template_source_dirs:
+                template_paths += [str(path) for path in self.template_source_dirs]
+            if include_mobile_templates:
+                template_paths += [str(path) for path in self.mobile_template_source_dirs]
+            template_paths = list(dict.fromkeys(template_paths))
+            if template_paths:
+                command.extend(["-t", ",".join(template_paths)])
+        elif self.template_source_dirs or (include_mobile_templates and self.mobile_template_source_dirs):
+            templates = [str(self.nuclei_templates_dir)] + [str(path) for path in self.template_source_dirs]
+            if include_mobile_templates:
+                templates += [str(path) for path in self.mobile_template_source_dirs]
+            command.extend(["-t", ",".join(templates)])
+        elif include_mobile_templates:
+            self.warning("Mobile templates requested, but no mobile template paths were configured successfully")
 
         if self.scan.config.get("interactsh_disable") is True:
             self.info("Disabling interactsh in accordance with global settings")
@@ -240,6 +384,10 @@ class nuclei(BaseModule):
         if self.mode == "budget":
             command.append("-t")
             command.append(self.budget_templates_file)
+            if self.template_source_dirs:
+                self.warning("Budget mode is using both built-in and external template sources.")
+            if self.mobile_template_source_dirs:
+                self.debug("Budget mode includes configured mobile template sources as part of template precomputation.")
 
         if self.proxy:
             command.append("-proxy")
@@ -322,13 +470,19 @@ class NucleiBudget:
     def __init__(self, nuclei_module):
         self.parent = nuclei_module
         self._yaml_files = {}
-        self.templates_dir = nuclei_module.nuclei_templates_dir
+        self.templates_dirs = [Path(nuclei_module.nuclei_templates_dir)]
+        self.templates_dirs.extend([Path(path) for path in nuclei_module.template_source_dirs])
+        self.templates_dirs.extend([Path(path) for path in getattr(nuclei_module, "mobile_template_source_dirs", [])])
         self.yaml_list = self.get_yaml_list()
         self.budget_paths = self.find_budget_paths(nuclei_module.budget)
         self.collapsible_templates, self.severity_stats = self.find_collapsible_templates()
 
     def get_yaml_list(self):
-        return list(self.templates_dir.rglob("*.yaml"))
+        yaml_list = []
+        for templates_dir in self.templates_dirs:
+            yaml_list.extend([f for f in templates_dir.rglob("*.yaml")])
+            yaml_list.extend([f for f in templates_dir.rglob("*.yml")])
+        return list(set(yaml_list))
 
     # Given the current budget setting, scan all of the templates for paths, sort them by frequency and select the first N (budget) items
     def find_budget_paths(self, budget):
