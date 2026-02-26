@@ -2,6 +2,7 @@ import argparse
 import ast
 import html
 import json
+import math
 import os
 import re
 import sqlite3
@@ -34,6 +35,7 @@ LEAK_MODULES = {
     "github_workflows",
 }
 LEAK_HINTS = ("leak", "secret", "token", "password", "credential", "api key", "private key")
+DOMAIN_AUDIT_MODULE = "domain_config_dns_audit"
 
 PAIR_RE = re.compile(r"(?:^|[,.]\s+)([A-Za-z][A-Za-z0-9 _./-]{0,40}):\s*\[([^\]]+)\]")
 BRACKET_RE = re.compile(r"\[([^\]]+)\]")
@@ -818,6 +820,165 @@ def render_overview_assets(host_label, subdomains, port_metadata_by_host, emails
     """
 
 
+def parse_int(value, default=0):
+    try:
+        return int(float(str(value).strip()))
+    except Exception:
+        return default
+
+
+def extract_domain_audit_grade(item):
+    if item.get("module") != DOMAIN_AUDIT_MODULE:
+        return None
+    field_map = {str(k).strip().lower(): str(v).strip() for k, v in item.get("fields", [])}
+    score = parse_int(field_map.get("score", ""), default=-1)
+    grade = field_map.get("grade", "").upper()
+    if score < 0 and not grade:
+        return None
+    categories = {
+        "DNS": parse_int(field_map.get("dns", ""), default=0),
+        "DNSSEC": parse_int(field_map.get("dnssec", ""), default=0),
+        "Email": parse_int(field_map.get("email", ""), default=0),
+        "HTTP": parse_int(field_map.get("http", ""), default=0),
+        "TLS": parse_int(field_map.get("tls", ""), default=0),
+    }
+    return {
+        "score": max(0, min(100, score if score >= 0 else 0)),
+        "grade": grade or "N/A",
+        "categories": categories,
+        "timestamp_text": str(item.get("timestamp", "")).strip(),
+    }
+
+
+def compute_bbot_findings_stats(items):
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    for item in items:
+        if item.get("type") not in FINDING_TYPES:
+            continue
+        if item.get("module") == DOMAIN_AUDIT_MODULE:
+            continue
+        severity = str(item.get("severity", "")).strip().lower()
+        if severity == "informational":
+            severity = "info"
+        if severity not in counts:
+            severity = "info"
+        counts[severity] += 1
+
+    penalty = (
+        counts["critical"] * 30
+        + counts["high"] * 20
+        + counts["medium"] * 10
+        + counts["low"] * 4
+        + counts["info"] * 1
+    )
+    return counts, max(0, 100 - min(100, penalty))
+
+
+def render_radar_svg(metrics):
+    size = 240
+    cx = size / 2
+    cy = size / 2
+    radius = 85
+    labels = list(metrics.keys())
+    values = [max(0, min(100, parse_int(v))) for v in metrics.values()]
+    n = len(labels)
+    if n == 0:
+        return ""
+
+    def point(index, value=100):
+        angle = -math.pi / 2 + (2 * math.pi * index / n)
+        r = radius * (value / 100.0)
+        return cx + math.cos(angle) * r, cy + math.sin(angle) * r
+
+    grid_levels = []
+    for level in (25, 50, 75, 100):
+        pts = " ".join(f"{x:.2f},{y:.2f}" for x, y in (point(i, level) for i in range(n)))
+        grid_levels.append(f'<polygon points="{pts}" class="radar-grid"/>')
+
+    axes = []
+    label_nodes = []
+    for i, label in enumerate(labels):
+        x2, y2 = point(i, 100)
+        axes.append(f'<line x1="{cx:.2f}" y1="{cy:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" class="radar-axis"/>')
+        lx, ly = point(i, 116)
+        label_nodes.append(f'<text x="{lx:.2f}" y="{ly:.2f}" class="radar-label">{html.escape(label)}</text>')
+
+    value_points = " ".join(f"{x:.2f},{y:.2f}" for x, y in (point(i, values[i]) for i in range(n)))
+    dots = []
+    for i in range(n):
+        x, y = point(i, values[i])
+        dots.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3" class="radar-dot"/>')
+
+    return (
+        f'<svg class="posture-radar" viewBox="0 0 {size} {size}" role="img" aria-label="Host posture graph">'
+        f'{"".join(grid_levels)}{"".join(axes)}'
+        f'<polygon points="{value_points}" class="radar-shape"/>'
+        f'{"".join(dots)}{"".join(label_nodes)}'
+        "</svg>"
+    )
+
+
+def render_posture_graph(items):
+    grades = [g for g in (extract_domain_audit_grade(item) for item in items) if g is not None]
+    latest_grade = None
+    if grades:
+        latest_grade = sorted(grades, key=lambda g: g.get("timestamp_text", ""))[-1]
+
+    bbot_counts, bbot_score = compute_bbot_findings_stats(items)
+    category_scores = (
+        latest_grade["categories"]
+        if latest_grade is not None
+        else {"DNS": 0, "DNSSEC": 0, "Email": 0, "HTTP": 0, "TLS": 0}
+    )
+
+    audit_score = latest_grade["score"] if latest_grade is not None else 0
+    audit_grade = latest_grade["grade"] if latest_grade is not None else "N/A"
+
+    metrics = {
+        "DNS": category_scores["DNS"],
+        "DNSSEC": category_scores["DNSSEC"],
+        "Email": category_scores["Email"],
+        "HTTP": category_scores["HTTP"],
+        "TLS": category_scores["TLS"],
+        "BBOT": bbot_score,
+    }
+    radar = render_radar_svg(metrics)
+
+    cat_chips = (
+        "".join(
+            f'<span class="posture-chip">{html.escape(name)} <b>{int(score)}</b></span>'
+            for name, score in category_scores.items()
+        )
+        if latest_grade is not None
+        else '<span class="posture-chip">No domain-config-dns-audit grade found for this host yet</span>'
+    )
+    sev_chips = "".join(
+        f'<span class="posture-chip sev-{name}">{name.upper()} <b>{count}</b></span>'
+        for name, count in bbot_counts.items()
+        if count > 0
+    )
+    if not sev_chips:
+        sev_chips = '<span class="posture-chip sev-low">No non-DNS-audit findings</span>'
+
+    return f"""
+    <section class="posture-card">
+      <div class="posture-head">
+        <h3>Security Posture Graph</h3>
+        <div class="posture-grade">DNS Audit Grade: <b>{html.escape(str(audit_grade))}</b> ({int(audit_score)}/100)</div>
+      </div>
+      <div class="posture-grid">
+        <div class="posture-graph-wrap">{radar}</div>
+        <div class="posture-meta">
+          <h4>DNS Audit Category Scores</h4>
+          <div class="posture-chip-list">{cat_chips}</div>
+          <h4>Other BBOT Finding Pressure</h4>
+          <div class="posture-chip-list">{sev_chips}</div>
+        </div>
+      </div>
+    </section>
+    """
+
+
 def render_host_section(host_id, host_label, items, host_subdomains, host_port_metadata, host_emails):
     type_counter = Counter(item["type"] for item in items)
     summary_line = " ".join(
@@ -826,6 +987,7 @@ def render_host_section(host_id, host_label, items, host_subdomains, host_port_m
 
     findings_block, recon_block = render_findings_and_recon(items)
     assets_block = render_overview_assets(host_label, host_subdomains, host_port_metadata, host_emails)
+    posture_block = render_posture_graph(items)
 
     return f"""
     <section id="{host_id}" class="host-section host-panel">
@@ -833,6 +995,7 @@ def render_host_section(host_id, host_label, items, host_subdomains, host_port_m
         <h2>Host Overview: {html.escape(host_label)}</h2>
         <div class="host-summary">{summary_line}</div>
       </div>
+      {posture_block}
       {assets_block}
       {findings_block}
       {recon_block}
@@ -978,6 +1141,64 @@ def render_report(
     .host-summary {{ display:flex; flex-wrap:wrap; gap:7px; }}
     .type-pill {{ border:1px solid var(--line); border-radius:999px; padding:2px 8px; color:var(--muted); font-size:.9rem; }}
 
+    .posture-card {{
+      margin:12px;
+      padding:12px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:rgba(0,0,0,.16);
+    }}
+    .posture-head {{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+      flex-wrap:wrap;
+    }}
+    .posture-head h3 {{ margin:0; color:var(--cyan); font-size:1rem; }}
+    .posture-grade {{ color:#d5eefb; font-weight:600; }}
+    .posture-grid {{ display:grid; grid-template-columns:280px 1fr; gap:12px; align-items:center; }}
+    .posture-graph-wrap {{
+      display:flex; align-items:center; justify-content:center; min-height:240px;
+      border:1px solid rgba(127,176,201,.2); border-radius:10px; background:rgba(5,10,16,.45);
+    }}
+    .posture-radar {{ width:220px; height:220px; }}
+    .radar-grid {{ fill:none; stroke:rgba(127,176,201,.2); stroke-width:1; }}
+    .radar-axis {{ stroke:rgba(127,176,201,.3); stroke-width:1; }}
+    .radar-shape {{ fill:rgba(34,247,255,.2); stroke:rgba(34,247,255,.95); stroke-width:2; }}
+    .radar-dot {{ fill:rgba(255,46,166,.95); }}
+    .radar-label {{
+      font-size:11px;
+      fill:#cbefff;
+      text-anchor:middle;
+      dominant-baseline:middle;
+      letter-spacing:.02em;
+    }}
+    .posture-meta h4 {{
+      margin:0 0 8px;
+      color:#9dd9f6;
+      text-transform:uppercase;
+      letter-spacing:.05em;
+      font-size:.78rem;
+    }}
+    .posture-meta h4 + .posture-chip-list {{ margin-bottom:10px; }}
+    .posture-chip-list {{ display:flex; flex-wrap:wrap; gap:7px; }}
+    .posture-chip {{
+      border:1px solid rgba(127,176,201,.28);
+      border-radius:999px;
+      padding:3px 9px;
+      font-size:.78rem;
+      color:#d2efff;
+      background:rgba(0,0,0,.2);
+    }}
+    .posture-chip b {{ color:#fff; }}
+    .posture-chip.sev-critical {{ border-color:#ff2e65; color:#ffd3de; }}
+    .posture-chip.sev-high {{ border-color:#ff2ea6; color:#ffd3de; }}
+    .posture-chip.sev-medium {{ border-color:#ff9d2e; color:#ffe1b8; }}
+    .posture-chip.sev-low {{ border-color:#3cd683; color:#c9ffe1; }}
+    .posture-chip.sev-info {{ border-color:#4ea4ff; color:#cce5ff; }}
+
     .asset-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:12px; }}
     .asset-card {{
       border:1px solid var(--line); border-radius:12px; background:rgba(0,0,0,.14);
@@ -1072,6 +1293,7 @@ def render_report(
     @media (max-width: 980px) {{
       .layout {{ grid-template-columns:1fr; }}
       .sidebar {{ position:relative; max-height:none; }}
+      .posture-grid {{ grid-template-columns:1fr; }}
       .asset-grid {{ grid-template-columns:1fr; }}
       .event-grid {{ grid-template-columns:1fr; }}
       .field-row {{ grid-template-columns:1fr; }}

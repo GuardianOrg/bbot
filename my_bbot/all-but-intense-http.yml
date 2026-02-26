@@ -24,6 +24,7 @@ modules:
   - dnscommonsrv
   - dnsdumpster
   - domain_phishing
+  - domain_config_dns_audit
   - dnsreaper
   - docker_pull
   - dockerhub
