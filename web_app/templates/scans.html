@@ -35,7 +35,13 @@
             {% if scans %}
             <div class="scan-grid">
                 {% for scan in scans %}
-                <article class="scan-card">
+                <article
+                    class="scan-card"
+                    data-scan-name="{{ scan.name }}"
+                    data-running="{{ 'true' if scan.running else 'false' }}"
+                    data-active-modules='{{ scan.active_modules | tojson }}'
+                    data-active-modules-count="{{ scan.active_modules_count }}"
+                >
                     <h2 class="scan-name">{{ scan.name }}</h2>
                     <div class="scan-actions">
                         {% if scan.running %}
@@ -47,6 +53,7 @@
                         <a href="/scans/{{ scan.name }}/report">View Report</a>
                         {% endif %}
                     </div>
+                    <div class="scan-module-meta"></div>
                 </article>
                 {% endfor %}
             </div>
@@ -59,5 +66,102 @@
         </section>
     </div>
 </div>
+<script>
+(() => {
+    const cards = Array.from(document.querySelectorAll(".scan-card[data-scan-name]"));
+    if (!cards.length) return;
+
+    function setRunningAction(actions) {
+        actions.innerHTML = '<span class="scan-action-disabled"><span class="spinner"></span>Running...</span>';
+    }
+
+    function setFinishedAction(card, actions, scanName) {
+        const encoded = encodeURIComponent(scanName);
+        actions.innerHTML = `<a href="/scans/${encoded}/report">View Report</a>`;
+        card.dataset.running = "false";
+    }
+
+    function renderModuleMeta(card, running, count, modules) {
+        const meta = card.querySelector(".scan-module-meta");
+        if (!meta) return;
+
+        if (!running) {
+            meta.innerHTML = "";
+            return;
+        }
+
+        const safeCount = Number.isFinite(Number(count)) ? Number(count) : 0;
+        const list = Array.isArray(modules) ? modules : [];
+        if (!safeCount) {
+            meta.innerHTML = '<small class="panel-subtitle">Tools: collecting module activity...</small>';
+            return;
+        }
+
+        const listItems = list.map((m) => `<li>${m}</li>`).join("");
+        meta.innerHTML = `
+            <small class="panel-subtitle">Tools currently active: ${safeCount}</small>
+            <details>
+                <summary>Show active tools</summary>
+                <ul>${listItems}</ul>
+            </details>
+        `;
+    }
+
+    async function refreshCard(card) {
+        const scanName = card.dataset.scanName || "";
+        if (!scanName) return;
+        const actions = card.querySelector(".scan-actions");
+        if (!actions) return;
+
+        try {
+            const response = await fetch(`/scan/status/${encodeURIComponent(scanName)}`, { cache: "no-store" });
+            if (!response.ok) return;
+            const status = await response.json();
+            if (status.running) {
+                card.dataset.running = "true";
+                setRunningAction(actions);
+                renderModuleMeta(card, true, status.active_modules_count, status.active_modules);
+            } else {
+                setFinishedAction(card, actions, scanName);
+                renderModuleMeta(card, false, 0, []);
+            }
+        } catch (_) {
+            // Keep current card state on transient network errors.
+        }
+    }
+
+    async function pollStatuses() {
+        const runningCards = cards.filter((card) => card.dataset.running === "true");
+        if (!runningCards.length) return false;
+        await Promise.all(runningCards.map(refreshCard));
+        return cards.some((card) => card.dataset.running === "true");
+    }
+
+    let timer = null;
+    const startPolling = async () => {
+        cards.forEach((card) => {
+            const running = card.dataset.running === "true";
+            let modules = [];
+            try {
+                modules = JSON.parse(card.dataset.activeModules || "[]");
+            } catch (_) {}
+            const count = parseInt(card.dataset.activeModulesCount || "0", 10);
+            renderModuleMeta(card, running, count, modules);
+        });
+
+        const hasRunning = await pollStatuses();
+        if (!hasRunning) return;
+        timer = setInterval(async () => {
+            const stillRunning = await pollStatuses();
+            if (!stillRunning && timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        }, 3000);
+    };
+
+    startPolling();
+})();
+</script>
 </body>
 </html>

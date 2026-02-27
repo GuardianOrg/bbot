@@ -3,14 +3,19 @@
 set -euo pipefail
 
 PLATFORM="${BBOT_DOCKER_PLATFORM:-}"
+SKIP_BUILD="${BBOT_SKIP_BUILD:-0}"
 
-# Build the Docker image
-if [ -n "${PLATFORM}" ]; then
-    echo "[+] Building BBOT Guardian Docker image for ${PLATFORM}..."
-    docker build --platform "${PLATFORM}" -t bbot-guardian .
+# Build the Docker image (unless explicitly skipped)
+if [ "${SKIP_BUILD}" != "1" ]; then
+    if [ -n "${PLATFORM}" ]; then
+        echo "[+] Building BBOT Guardian Docker image for ${PLATFORM}..."
+        docker build --platform "${PLATFORM}" -t bbot-guardian .
+    else
+        echo "[+] Building BBOT Guardian Docker image..."
+        docker build -t bbot-guardian .
+    fi
 else
-    echo "[+] Building BBOT Guardian Docker image..."
-    docker build -t bbot-guardian .
+    echo "[+] Skipping image build (BBOT_SKIP_BUILD=1)"
 fi
 
 # Run the container
@@ -20,11 +25,12 @@ echo "[+] Web Interface will be available at http://localhost:8765"
 # Ensure scan directory exists on host to persist data
 mkdir -p "$HOME/.bbot/scans"
 
-ENV_ARG=""
+ENV_ARGS=()
 TMP_ENV_FILE=""
-if [ ! -z "$1" ]; then
-    if [ -f "$1" ]; then
-        echo "[+] Using .env file: $1"
+ENV_FILE="${1:-}"
+if [ -n "$ENV_FILE" ]; then
+    if [ -f "$ENV_FILE" ]; then
+        echo "[+] Using .env file: $ENV_FILE"
         TMP_ENV_FILE="$(mktemp /tmp/bbot-guardian-env.XXXXXX)"
         # Docker --env-file does not understand shell-style inline comments or quoted values.
         # Normalize to plain KEY=VALUE lines.
@@ -45,10 +51,10 @@ if [ ! -z "$1" ]; then
                 }
                 print key "=" val
             }
-        ' "$1" > "$TMP_ENV_FILE"
-        ENV_ARG="--env-file $TMP_ENV_FILE"
+        ' "$ENV_FILE" > "$TMP_ENV_FILE"
+        ENV_ARGS=(--env-file "$TMP_ENV_FILE")
     else
-        echo "[-] Error: .env file '$1' not found"
+        echo "[-] Error: .env file '$ENV_FILE' not found"
         exit 1
     fi
 fi
@@ -58,19 +64,25 @@ if [ -n "${PLATFORM}" ]; then
     RUN_PLATFORM_ARGS+=(--platform "${PLATFORM}")
 fi
 
-DOCKER_TTY_ARGS=()
+DOCKER_CMD=(docker run)
 if [ -t 0 ] && [ -t 1 ]; then
-    DOCKER_TTY_ARGS=(-it)
+    DOCKER_CMD+=(-it)
 fi
 
-docker run "${DOCKER_TTY_ARGS[@]:-}" --rm \
-    "${RUN_PLATFORM_ARGS[@]:-}" \
-    -p 8765:8765 \
-    -v "$HOME/.bbot/scans:/root/.bbot/scans" \
-    $ENV_ARG \
-    --name bbot-guardian \
-    bbot-guardian
+DOCKER_CMD+=(--rm)
+if [ "${#RUN_PLATFORM_ARGS[@]}" -gt 0 ]; then
+    DOCKER_CMD+=("${RUN_PLATFORM_ARGS[@]}")
+fi
+DOCKER_CMD+=(-p 8765:8765)
+DOCKER_CMD+=(-v "$HOME/.bbot/scans:/root/.bbot/scans")
+if [ "${#ENV_ARGS[@]}" -gt 0 ]; then
+    DOCKER_CMD+=("${ENV_ARGS[@]}")
+fi
+DOCKER_CMD+=(--name bbot-guardian)
+DOCKER_CMD+=(bbot-guardian)
 
-if [ ! -z "$TMP_ENV_FILE" ] && [ -f "$TMP_ENV_FILE" ]; then
+"${DOCKER_CMD[@]}"
+
+if [ -n "$TMP_ENV_FILE" ] && [ -f "$TMP_ENV_FILE" ]; then
     rm -f "$TMP_ENV_FILE"
 fi

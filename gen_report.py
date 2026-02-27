@@ -587,20 +587,24 @@ def canonicalize_url_no_scheme(url):
         return value.lower()
 
 
-def render_fields(fields):
+def render_fields(fields, module_name=""):
     if not fields:
         return ""
     items = []
+    module_lower = str(module_name).strip().lower()
     for key, value in fields:
         key_text = html.escape(key)
         key_lower = str(key).strip().lower()
         value_str = str(value or "")
-        if key_lower == "extracted data" and len(value_str) > 125:
+        should_expand = key_lower == "extracted data" and len(value_str) > 125
+        if module_lower == "domain_config_dns_audit" and key_lower == "recommendation":
+            should_expand = True
+        if should_expand:
             preview = html.escape(truncate_text(value_str, 125))
             encoded_full = quote(value_str, safe="")
             value_text = (
                 f'{preview} '
-                f'<button type="button" class="expand-field-btn" data-full="{encoded_full}">View full</button>'
+                f'<button type="button" class="expand-field-btn" data-field="{key_text}" data-full="{encoded_full}">View full</button>'
             )
         else:
             value_text = html.escape(truncate_text(value_str, 500))
@@ -691,7 +695,7 @@ def render_card(item):
       </header>
       <h4>{html.escape(item['title'])}</h4>
       {description_html}
-      {render_fields(item.get('fields', []))}
+      {render_fields(item.get('fields', []), item.get('module', ''))}
       {url_html}
       {render_tags(item.get('tags', []))}
       {render_full_details(item)}
@@ -1338,7 +1342,7 @@ def render_report(
   <div id="extract-overlay" class="extract-overlay" aria-hidden="true">
     <section class="extract-panel">
       <header class="extract-head">
-        <h3>Extracted Data</h3>
+        <h3 id="extract-title">Field Details</h3>
         <button type="button" id="extract-close" class="extract-close">Close</button>
       </header>
       <pre id="extract-body" class="extract-body"></pre>
@@ -1350,6 +1354,7 @@ def render_report(
       const links = Array.from(document.querySelectorAll('.host-link[data-target]'));
       const panelById = Object.fromEntries(panels.map(p => [p.id, p]));
       const overlay = document.getElementById('extract-overlay');
+      const overlayTitle = document.getElementById('extract-title');
       const overlayBody = document.getElementById('extract-body');
       const overlayClose = document.getElementById('extract-close');
 
@@ -1368,6 +1373,7 @@ def render_report(
       function closeOverlay() {{
         overlay.classList.remove('open');
         overlay.setAttribute('aria-hidden', 'true');
+        overlayTitle.textContent = 'Field Details';
         overlayBody.textContent = '';
       }}
 
@@ -1375,6 +1381,8 @@ def render_report(
         const btn = evt.target.closest('.expand-field-btn');
         if (btn) {{
           const raw = btn.getAttribute('data-full') || '';
+          const fieldName = btn.getAttribute('data-field') || 'Field Details';
+          overlayTitle.textContent = fieldName;
           overlayBody.textContent = decodeURIComponent(raw);
           overlay.classList.add('open');
           overlay.setAttribute('aria-hidden', 'false');

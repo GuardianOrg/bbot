@@ -65,6 +65,14 @@
                             </span>
                         </button>
                     </form>
+                    <div id="activeToolsPanel" class="log-box" style="margin-top:10px; display:none;">
+                        <h2 class="panel-title" style="font-size:0.95rem; margin-bottom:8px;">Active Tools</h2>
+                        <div id="activeToolsSummary" class="panel-subtitle">Collecting module activity...</div>
+                        <details id="activeToolsDetails" style="margin-top:8px; display:none;">
+                            <summary>Show active tools</summary>
+                            <div id="activeToolsList" class="log-content" style="max-height:120px;"></div>
+                        </details>
+                    </div>
 
                     <div class="log-box">
                         <h2 class="panel-title" style="font-size:0.95rem; margin-bottom:8px;">Runtime Log</h2>
@@ -90,6 +98,10 @@
     const launchSpinner = document.getElementById('launchSpinner');
     const launchBtnText = document.getElementById('launchBtnText');
     const scanForm = document.getElementById('scanForm');
+    const activeToolsPanel = document.getElementById('activeToolsPanel');
+    const activeToolsSummary = document.getElementById('activeToolsSummary');
+    const activeToolsDetails = document.getElementById('activeToolsDetails');
+    const activeToolsList = document.getElementById('activeToolsList');
     let scanRunning = false;
     let activeScanName = null;
     let statusPollTimer = null;
@@ -100,6 +112,26 @@
         launchSpinner.classList.toggle('hidden', !running);
         launchBtnText.textContent = running ? 'Scan Running...' : 'Launch Scan';
         scanForm.classList.toggle('compact', running);
+        activeToolsPanel.style.display = running ? 'block' : 'none';
+        if (!running) {
+            activeToolsSummary.textContent = 'Collecting module activity...';
+            activeToolsDetails.style.display = 'none';
+            activeToolsList.innerHTML = '';
+        }
+    }
+
+    function updateActiveTools(status) {
+        const count = Number(status?.active_modules_count || 0);
+        const modules = Array.isArray(status?.active_modules) ? status.active_modules : [];
+        if (count <= 0) {
+            activeToolsSummary.textContent = 'Tools: collecting module activity...';
+            activeToolsDetails.style.display = 'none';
+            activeToolsList.innerHTML = '';
+            return;
+        }
+        activeToolsSummary.textContent = `Tools currently active: ${count}`;
+        activeToolsList.innerHTML = modules.map((m) => `<div>${m}</div>`).join('');
+        activeToolsDetails.style.display = 'block';
     }
 
     socket.onopen = () => {
@@ -153,6 +185,7 @@
             const resp = await fetch(`/scan/status/${encodeURIComponent(scanName)}`);
             if (!resp.ok) return;
             const state = await resp.json();
+            updateActiveTools(state);
             if (state.running || state.status === 'running') {
                 return;
             }

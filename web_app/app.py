@@ -13,6 +13,10 @@ from datetime import datetime
 app = Flask(__name__)
 sock = Sock(app)
 
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+MODULE_STATUS_RE = re.compile(r"Modules running \(incoming:processing:outgoing\)\s+(.*)$")
+MODULE_ENTRY_RE = re.compile(r"([A-Za-z0-9_]+)\(\d[\d,]*:\d[\d,]*:\d[\d,]*\)")
+
 # Global sockets for broadcasting
 connected_clients = set()
 graph_clients = set()
@@ -162,6 +166,18 @@ def update_scan_state(scan_name, **fields):
         _save_scan_states_unlocked(states)
         return state
 
+
+def _parse_active_modules_from_log_line(line):
+    clean = ANSI_ESCAPE_RE.sub("", str(line or "")).strip()
+    match = MODULE_STATUS_RE.search(clean)
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    if not raw:
+        return []
+    modules = [m.group(1) for m in MODULE_ENTRY_RE.finditer(raw)]
+    return modules
+
 def broadcast_log(message):
     data = json.dumps({"type": "log", "data": message})
     for client in connected_clients:
@@ -198,6 +214,8 @@ def list_scans():
                     "path": path,
                     "running": bool(state.get("running") or name in currently_running),
                     "status": state.get("status", "unknown"),
+                    "active_modules_count": int(state.get("active_modules_count", 0) or 0),
+                    "active_modules": state.get("active_modules", []),
                 }
             )
     scans.sort(key=lambda x: x["name"].lower())
@@ -293,6 +311,9 @@ def start_scan():
         started_at=datetime.utcnow().isoformat() + "Z",
         finished_at=None,
         target_count=len(target_list),
+        active_modules=[],
+        active_modules_count=0,
+        active_modules_updated_at=None,
     )
 
     # Start scan in a separate thread
@@ -322,6 +343,9 @@ def scan_status(scan_name):
             "started_at": state.get("started_at"),
             "finished_at": state.get("finished_at"),
             "target_count": state.get("target_count"),
+            "active_modules": state.get("active_modules", []),
+            "active_modules_count": int(state.get("active_modules_count", 0) or 0),
+            "active_modules_updated_at": state.get("active_modules_updated_at"),
         }
     )
 
@@ -366,7 +390,16 @@ def run_scan_thread(target_list, scan_name):
         update_scan_state(scan_name, pid=process.pid, running=True, status="running")
 
         for line in process.stdout:
-            broadcast_log(line.strip())
+            text = line.strip()
+            broadcast_log(text)
+            active_modules = _parse_active_modules_from_log_line(text)
+            if active_modules is not None:
+                update_scan_state(
+                    scan_name,
+                    active_modules=active_modules,
+                    active_modules_count=len(active_modules),
+                    active_modules_updated_at=datetime.utcnow().isoformat() + "Z",
+                )
 
         process.wait()
         broadcast_log(f"Scan finished with exit code {process.returncode}")
@@ -377,6 +410,8 @@ def run_scan_thread(target_list, scan_name):
             pid=None,
             exit_code=process.returncode,
             finished_at=datetime.utcnow().isoformat() + "Z",
+            active_modules=[],
+            active_modules_count=0,
         )
 
     except FileNotFoundError:
@@ -388,6 +423,8 @@ def run_scan_thread(target_list, scan_name):
             pid=None,
             exit_code=127,
             finished_at=datetime.utcnow().isoformat() + "Z",
+            active_modules=[],
+            active_modules_count=0,
         )
     except Exception as e:
         broadcast_log(f"Error running scan: {e}")
@@ -397,6 +434,8 @@ def run_scan_thread(target_list, scan_name):
             running=False,
             pid=None,
             finished_at=datetime.utcnow().isoformat() + "Z",
+            active_modules=[],
+            active_modules_count=0,
         )
     finally:
         with running_scans_lock:
