@@ -1,4 +1,5 @@
 import json
+import os
 from contextlib import suppress
 
 from bbot.modules.templates.code_secret_scanner import code_secret_scanner
@@ -23,6 +24,16 @@ class ggshield(code_secret_scanner):
         "output_folder": "Folder to clone repositories to. If not specified, repositories are deleted after scanning.",
         "clone_repositories": "Clone CODE_REPOSITORY events before scanning.",
     }
+
+    async def setup(self):
+        setup_result = await super().setup()
+        if setup_result is not True:
+            return setup_result
+
+        has_api_key = bool(os.getenv("GITGUARDIAN_API_KEY") or os.getenv("GGSHIELD_API_KEY"))
+        if not has_api_key:
+            return None, "Set GITGUARDIAN_API_KEY or GGSHIELD_API_KEY to enable ggshield secret scanning"
+        return True
 
     async def iter_findings(self, scan_path, event):
         command = [
@@ -62,9 +73,30 @@ class ggshield(code_secret_scanner):
                     match = incident.get("match") or incident.get("matches") or ""
                     validity = str(incident.get("validity", "unknown")).lower()
                     verified = validity in ("valid", "active")
-                    severity = "High" if verified else "Medium"
-                    yield {
-                        "description": f"ggshield detected [{policy_name}] with match [{match}]",
-                        "verified": verified,
-                        "severity": severity,
-                    }
+                    location = incident.get("location") if isinstance(incident.get("location"), dict) else {}
+                    file_name = (
+                        incident.get("filename")
+                        or incident.get("file")
+                        or incident.get("path")
+                        or location.get("path")
+                        or ""
+                    )
+                    line = (
+                        incident.get("line_start")
+                        or incident.get("start_line")
+                        or incident.get("line")
+                        or location.get("line_start")
+                        or location.get("line")
+                        or ""
+                    )
+                    yield await self.format_github_leak(
+                        event,
+                        scan_path,
+                        match,
+                        detector=policy_name,
+                        file_path=file_name,
+                        line=line,
+                        verified=verified,
+                        severity="High" if verified else "Medium",
+                        finding_details=incident,
+                    )

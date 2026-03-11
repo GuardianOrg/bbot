@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+*.pyc
+*.pyo
+*.pyd
+.coverage*
+pytest_debug.log
+scan-output/

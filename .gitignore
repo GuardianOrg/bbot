@@ -2,6 +2,8 @@ __pycache__/
 .coverage*
 /data/
 /neo4j/
+/scan-output/
+pytest_debug.log
 
 .env
 **/.env

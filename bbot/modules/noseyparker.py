@@ -81,14 +81,49 @@ class noseyparker(code_secret_scanner):
                     if not isinstance(finding, dict):
                         continue
                     rule_name = finding.get("rule_name") or finding.get("rule") or "unknown"
-                    snippet = finding.get("snippet") or finding.get("match") or finding.get("match_text") or ""
-                    if not snippet and isinstance(finding.get("matches"), list) and finding["matches"]:
-                        first_match = finding["matches"][0]
-                        if isinstance(first_match, dict):
-                            snippet = first_match.get("snippet") or first_match.get("match") or ""
-                    yield {
-                        "description": f"Nosey Parker matched rule [{rule_name}] with snippet [{snippet}]",
-                        "verified": False,
-                    }
+                    first_match = finding["matches"][0] if isinstance(finding.get("matches"), list) and finding["matches"] else {}
+                    if not isinstance(first_match, dict):
+                        first_match = {}
+                    snippet = finding.get("snippet") or first_match.get("snippet") or finding.get("match") or finding.get("match_text") or ""
+                    if isinstance(snippet, dict):
+                        snippet = snippet.get("matching") or snippet.get("match") or ""
+
+                    provenance = first_match.get("provenance") if isinstance(first_match.get("provenance"), list) else []
+                    file_name = ""
+                    for provenance_item in provenance:
+                        if not isinstance(provenance_item, dict):
+                            continue
+                        if provenance_item.get("kind") == "git_repo":
+                            first_commit = provenance_item.get("first_commit")
+                            if isinstance(first_commit, dict):
+                                file_name = first_commit.get("blob_path") or ""
+                                if file_name:
+                                    break
+                        if provenance_item.get("kind") == "file":
+                            file_name = provenance_item.get("path") or ""
+                    if not file_name:
+                        file_name = first_match.get("path") or first_match.get("file") or finding.get("path") or finding.get("file") or ""
+
+                    location = first_match.get("location") if isinstance(first_match.get("location"), dict) else {}
+                    source_span = location.get("source_span") if isinstance(location.get("source_span"), dict) else {}
+                    start = source_span.get("start") if isinstance(source_span.get("start"), dict) else {}
+                    line = (
+                        start.get("line")
+                        or first_match.get("line")
+                        or first_match.get("line_number")
+                        or finding.get("line")
+                        or ""
+                    )
+                    yield await self.format_github_leak(
+                        event,
+                        scan_path,
+                        snippet,
+                        detector=rule_name,
+                        file_path=file_name,
+                        line=line,
+                        verified=False,
+                        severity="Medium",
+                        finding_details=finding,
+                    )
         finally:
             self.helpers.rm_rf(datastore)

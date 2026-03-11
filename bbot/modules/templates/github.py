@@ -14,28 +14,40 @@ class github(BaseModule):
     ping_url = f"{base_url}/zen"
 
     def prepare_api_request(self, url, kwargs):
-        kwargs["headers"]["Authorization"] = f"token {self.api_key}"
+        if self.api_key:
+            kwargs["headers"]["Authorization"] = f"token {self.api_key}"
         return url, kwargs
 
     async def setup(self):
         await super().setup()
         self.headers = {}
-        api_keys = set()
+        api_keys = []
         modules_config = self.scan.config.get("modules", {})
-        git_modules = [m for m in modules_config if str(m).startswith("git")]
-        for module_name in git_modules:
+        github_modules = []
+        for module_name in modules_config:
+            module_name = str(module_name)
+            if module_name == "git_clone" or module_name.startswith("github"):
+                github_modules.append(module_name)
+
+        if self.name in github_modules:
+            github_modules.remove(self.name)
+            github_modules.insert(0, self.name)
+
+        for module_name in github_modules:
             module_config = modules_config.get(module_name, {})
             api_key = module_config.get("api_key", "")
+            if api_key is None:
+                api_key = []
             if isinstance(api_key, str):
                 api_key = [api_key]
             for key in api_key:
                 key = key.strip()
-                if key:
-                    api_keys.add(key)
+                if key and key not in api_keys:
+                    api_keys.append(key)
         if not api_keys:
             if self.auth_required:
                 return None, "No API key set"
-        self.api_key = api_keys
+        self.api_key = api_keys[0] if api_keys else ""
         try:
             await self.ping()
             self.hugesuccess("API is ready")

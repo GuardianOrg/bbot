@@ -45,8 +45,8 @@ class kingfisher(code_secret_scanner):
 
     async def iter_findings(self, scan_path, event):
         command_variants = [
+            ["kingfisher", "scan", str(scan_path), "--format", "json", "--quiet"],
             ["kingfisher", "scan", str(scan_path), "--format", "json"],
-            ["kingfisher", "scan", "--path", str(scan_path), "--format", "json"],
         ]
         for command in command_variants:
             result = await self.run_process(command, _log_stderr=False)
@@ -58,16 +58,31 @@ class kingfisher(code_secret_scanner):
                 findings = parsed.get("findings", []) if isinstance(parsed, dict) else parsed
                 if not isinstance(findings, list):
                     continue
-                for finding in findings:
-                    if not isinstance(finding, dict):
+                for record in findings:
+                    if not isinstance(record, dict):
                         continue
-                    detector = finding.get("detector") or finding.get("rule") or "unknown"
-                    match = finding.get("match") or finding.get("secret") or ""
-                    verified = bool(finding.get("verified", False))
-                    severity = "High" if verified else "Medium"
-                    yield {
-                        "description": f"Kingfisher detected [{detector}] with match [{match}]",
-                        "verified": verified,
-                        "severity": severity,
-                    }
+                    rule = record.get("rule") if isinstance(record.get("rule"), dict) else {}
+                    finding = record.get("finding") if isinstance(record.get("finding"), dict) else {}
+                    detector = rule.get("name") or rule.get("id") or "unknown"
+                    snippet = finding.get("snippet") or ""
+                    validation = finding.get("validation") if isinstance(finding.get("validation"), dict) else {}
+                    validation_status = str(validation.get("status", "unknown")).lower()
+                    verified = validation_status in ("active", "valid")
+                    git_metadata = finding.get("git_metadata") if isinstance(finding.get("git_metadata"), dict) else {}
+                    yield await self.format_github_leak(
+                        event,
+                        scan_path,
+                        snippet,
+                        detector=detector,
+                        file_path=finding.get("path") or "",
+                        line=finding.get("line") or "",
+                        commit=git_metadata.get("commit") or "",
+                        verified=verified,
+                        severity="High" if verified else "Medium",
+                        finding_details=record,
+                        extra_fields={
+                            "fingerprint": finding.get("fingerprint") or "",
+                            "validation_status": validation_status,
+                        },
+                    )
                 return

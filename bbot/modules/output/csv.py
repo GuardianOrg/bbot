@@ -12,6 +12,8 @@ class CSV(BaseOutputModule):
 
     header_row = [
         "Event type",
+        "Host",
+        "Host Tags",
         "Event data",
         "IP Address",
         "Source Module",
@@ -27,6 +29,9 @@ class CSV(BaseOutputModule):
         self._headers_set = set()
         self._writer = None
         self._prep_output_dir(self.filename)
+        if self.file is not None:
+            self.file.write(self.scan_input_text() + "\n")
+            self.file.flush()
         return True
 
     @property
@@ -58,13 +63,15 @@ class CSV(BaseOutputModule):
         self.writerow(
             {
                 "Event type": getattr(event, "type", ""),
+                "Host": self.report_host_display(event),
+                "Host Tags": ",".join(self.report_host_tags(event)),
                 "Event data": getattr(event, "data", ""),
                 "IP Address": ",".join(
                     str(x) for x in getattr(event, "resolved_hosts", set()) if self.helpers.is_ip(x)
                 ),
                 "Source Module": str(getattr(event, "module_sequence", "")),
                 "Scope Distance": str(getattr(event, "scope_distance", "")),
-                "Event Tags": ",".join(sorted(getattr(event, "tags", []))),
+                "Event Tags": ",".join(self.report_event_tags(event)),
                 "Discovery Path": " --> ".join(discovery_path),
             }
         )

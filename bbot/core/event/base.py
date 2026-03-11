@@ -14,7 +14,7 @@ from typing import Optional
 from copy import copy, deepcopy
 from contextlib import suppress
 from radixtarget import RadixTarget
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from urllib.parse import urlparse, urljoin, parse_qs
 
 
@@ -145,6 +145,7 @@ class BaseEvent:
         "_scope_distance",
         "_module_priority",
         "_graph_important",
+        "_dedupe_key",
         "_resolved_hosts",
         "_discovery_context",
         "_discovery_context_regex",
@@ -222,6 +223,7 @@ class BaseEvent:
         self._scope_distance = None
         self._module_priority = None
         self._graph_important = False
+        self._dedupe_key = ""
         self._resolved_hosts = set()
         self.dns_children = {}
         self.raw_dns_records = {}
@@ -1568,13 +1570,22 @@ class VULNERABILITY(ClosestHostEvent):
     }
 
     def sanitize_data(self, data):
+        if not data.get("description"):
+            data.pop("description", None)
         self.add_tag(data["severity"].lower())
         return data
 
+    def _data_id(self):
+        dedupe_key = self._dedupe_key or (self.data.get("dedupe_key", "") if isinstance(self.data, dict) else "")
+        if dedupe_key:
+            return dedupe_key
+        return super()._data_id()
+
     class _data_validator(BaseModel):
+        model_config = ConfigDict(extra="allow")
         host: Optional[str] = None
         severity: str
-        description: str
+        description: Optional[str] = ""
         url: Optional[str] = None
         path: Optional[str] = None
         _validate_url = field_validator("url")(validators.validate_url)
@@ -1582,23 +1593,35 @@ class VULNERABILITY(ClosestHostEvent):
         _validate_severity = field_validator("severity")(validators.validate_severity)
 
     def _pretty_string(self):
-        return f"[{self.data['severity']}] {self.data['description']}"
+        return f"[{self.data['severity']}] {self.data.get('description', '')}"
 
 
 class FINDING(ClosestHostEvent):
     _always_emit = True
     _quick_emit = True
 
+    def sanitize_data(self, data):
+        if not data.get("description"):
+            data.pop("description", None)
+        return data
+
     class _data_validator(BaseModel):
+        model_config = ConfigDict(extra="allow")
         host: Optional[str] = None
-        description: str
+        description: Optional[str] = ""
         url: Optional[str] = None
         path: Optional[str] = None
         _validate_url = field_validator("url")(validators.validate_url)
         _validate_host = field_validator("host")(validators.validate_host)
 
+    def _data_id(self):
+        dedupe_key = self._dedupe_key or (self.data.get("dedupe_key", "") if isinstance(self.data, dict) else "")
+        if dedupe_key:
+            return dedupe_key
+        return super()._data_id()
+
     def _pretty_string(self):
-        return self.data["description"]
+        return self.data.get("description", "")
 
 
 class TECHNOLOGY(DictHostEvent):

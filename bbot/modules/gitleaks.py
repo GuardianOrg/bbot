@@ -17,7 +17,7 @@ class gitleaks(code_secret_scanner):
     options = {
         "version": "8.30.0",
         "config": "",
-        "redact": True,
+        "redact": False,
         "output_folder": "",
         "clone_repositories": True,
     }
@@ -53,17 +53,18 @@ class gitleaks(code_secret_scanner):
         return True
 
     async def setup(self):
-        self.redact = bool(self.config.get("redact", True))
+        self.redact = bool(self.config.get("redact", False))
         return await super().setup()
 
     async def iter_findings(self, scan_path, event):
         report_file = self.helpers.temp_filename(extension="json")
+        use_git_mode = event.type == "CODE_REPOSITORY"
 
         try:
-            # Preferred CLI for newer versions.
+            # Use git mode for repositories so gitleaks includes commit metadata.
             command = [
                 "gitleaks",
-                "dir",
+                "git" if use_git_mode else "dir",
                 str(scan_path),
                 "--report-format",
                 "json",
@@ -95,6 +96,8 @@ class gitleaks(code_secret_scanner):
                     "0",
                     "--no-banner",
                 ]
+                if not use_git_mode:
+                    fallback.append("--no-git")
                 if self.redact:
                     fallback.append("--redact")
                 if self.config_file:
@@ -113,9 +116,22 @@ class gitleaks(code_secret_scanner):
                         file_name = finding.get("File") or finding.get("file") or str(scan_path)
                         line = finding.get("StartLine") or finding.get("line") or "?"
                         secret = finding.get("Secret") or finding.get("Match") or "<redacted>"
-                        yield {
-                            "description": f"Gitleaks detected secret rule [{rule}] in [{file_name}:{line}] secret [{secret}]",
-                            "verified": False,
-                        }
+                        commit = (
+                            finding.get("Commit")
+                            or finding.get("commit")
+                            or finding.get("Fingerprint", "").split(":", 1)[0]
+                            or ""
+                        )
+                        yield await self.format_github_leak(
+                            event,
+                            scan_path,
+                            secret,
+                            detector=rule,
+                            file_path=file_name,
+                            line=line,
+                            commit=commit,
+                            verified=False,
+                            severity="Medium",
+                        )
         finally:
             report_file.unlink(missing_ok=True)

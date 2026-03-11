@@ -1,9 +1,10 @@
 import json
 from functools import partial
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
-class trufflehog(BaseModule):
+class trufflehog(github_leak_formatter, BaseModule):
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE", "RAW_TEXT"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
@@ -122,25 +123,53 @@ class trufflehog(BaseModule):
             verified,
             source_metadata,
         ) in self.execute_trufflehog(module, path):
-            verified_str = "Verified" if verified else "Possible"
-            finding_type = "VULNERABILITY" if verified else "FINDING"
-            data = {
-                "description": f"{verified_str} Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
-            }
-            if host:
-                data["host"] = host
-            if finding_type == "VULNERABILITY":
-                data["severity"] = "High"
-            if description:
-                data["description"] += f" Description: [{description}]"
-            data["description"] += f" Raw result: [{raw_result}]"
-            if rawv2_result:
-                data["description"] += f" RawV2 result: [{rawv2_result}]"
+            metadata_items = source_metadata if isinstance(source_metadata, list) else [source_metadata]
+            git_meta = {}
+            for metadata_item in metadata_items:
+                if not isinstance(metadata_item, dict):
+                    continue
+                data_item = metadata_item.get("Data") if isinstance(metadata_item.get("Data"), dict) else metadata_item
+                if isinstance(data_item, dict) and isinstance(data_item.get("Git"), dict):
+                    git_meta = data_item["Git"]
+                    break
+            data = None
+            if host == "github.com" and git_meta:
+                data = await self.format_github_leak(
+                    event,
+                    path,
+                    raw_result,
+                    detector=detector_name,
+                    file_path=git_meta.get("file") or "",
+                    line=git_meta.get("line") or "",
+                    commit=git_meta.get("commit") or "",
+                    verified=verified,
+                    severity="High" if verified else "Medium",
+                    finding_details=source_metadata,
+                    extra_fields={
+                        "decoder": decoder_name,
+                        "raw_result": raw_result,
+                        "rawv2_result": rawv2_result,
+                    },
+                )
+            if data is None:
+                verified_str = "Verified" if verified else "Possible"
+                data = {
+                    "description": f"{verified_str} Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
+                }
+                if host:
+                    data["host"] = host
+                if verified:
+                    data["severity"] = "High"
+                if description:
+                    data["description"] += f" Description: [{description}]"
+                data["description"] += f" Raw result: [{raw_result}]"
+                if rawv2_result:
+                    data["description"] += f" RawV2 result: [{rawv2_result}]"
             await self.emit_event(
                 data,
-                finding_type,
+                "FINDING" if data.get("force_finding") else ("VULNERABILITY" if verified else "FINDING"),
                 event,
-                context=f'{{module}} searched {event.type} using "{module}" method and found {verified_str.lower()} secret ({{event.type}}): {raw_result}',
+                context=f'{{module}} searched {event.type} using "{module}" method and found secret ({{event.type}}): {raw_result}',
             )
 
         # clean up the tempfile when we're done with it

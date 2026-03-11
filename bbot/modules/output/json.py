@@ -21,6 +21,9 @@ class JSON(BaseOutputModule):
     async def setup(self):
         self._prep_output_dir("output.json")
         self.siem_friendly = self.config.get("siem_friendly", False)
+        if self.file is not None:
+            self.file.write(json.dumps({"type": "SCAN_INPUT", "data": self.scan_input_dict()}) + "\n")
+            self.file.flush()
         return True
 
     async def handle_event(self, event):

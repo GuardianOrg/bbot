@@ -346,6 +346,8 @@ class BaseModule:
 
     @api_key.setter
     def api_key(self, api_keys):
+        if api_keys is None:
+            api_keys = []
         if isinstance(api_keys, str):
             api_keys = [api_keys]
         self._api_keys = list(api_keys)

@@ -2,9 +2,10 @@ from pathlib import Path
 from subprocess import CalledProcessError
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
-class code_secret_scanner(BaseModule):
+class code_secret_scanner(github_leak_formatter, BaseModule):
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
@@ -66,13 +67,27 @@ class code_secret_scanner(BaseModule):
                 if not normalized:
                     continue
 
-                finding_type = "VULNERABILITY" if normalized.pop("verified", False) else "FINDING"
-                await self.emit_event(
+                verified = normalized.pop("verified", False)
+                force_finding = normalized.pop("force_finding", False)
+                dedupe_key = normalized.pop("dedupe_key", "")
+                finding_type = "FINDING" if force_finding else ("VULNERABILITY" if verified else "FINDING")
+                finding_event = self.make_event(
                     normalized,
                     finding_type,
                     event,
                     context=f"{{module}} scanned {{event.type}} for secrets and found {{event.type}}: {{event.data}}",
                 )
+                if finding_event is None:
+                    continue
+                if dedupe_key:
+                    finding_event._dedupe_key = dedupe_key
+                if isinstance(finding_event.data, dict) and "tool" in finding_event.data:
+                    stripped_data = dict(finding_event.data)
+                    stripped_data.pop("host", None)
+                    if "url" in normalized:
+                        stripped_data["url"] = normalized["url"]
+                    finding_event.data = stripped_data
+                await self.emit_event(finding_event)
         finally:
             if cleanup and scan_path.exists():
                 self.helpers.rm_rf(scan_path, ignore_errors=True)
@@ -114,14 +129,16 @@ class code_secret_scanner(BaseModule):
         if not isinstance(finding, dict):
             return None
 
+        data = {k: v for k, v in finding.items() if k not in {"verified", "severity"}}
         description = str(finding.get("description", "")).strip()
-        if not description:
+        if not description and "tool" not in data:
             return None
 
         if source_description:
             description = f"{description} Source description: [{source_description}]"
 
-        data = {"description": description}
+        if description:
+            data["description"] = description
         if host:
             data["host"] = host
 

@@ -1,4 +1,5 @@
 import logging
+import json
 from pathlib import Path
 from bbot.modules.base import BaseModule
 
@@ -10,13 +11,62 @@ class BaseOutputModule(BaseModule):
     _stats_exclude = True
     _shuffle_incoming_queue = False
 
+    hidden_report_tag_prefixes = ("distance-",)
+    host_report_tags = {"cloud", "cdn"}
+    host_report_tag_prefixes = ("cloud-", "cdn-")
+    host_report_tag_suffixes = ("-domain", "-ip", "-cname")
+
     def human_event_str(self, event):
         event_type = f"[{event.type}]"
-        event_tags = ""
-        if getattr(event, "tags", []):
-            event_tags = f"\t({', '.join(sorted(getattr(event, 'tags', [])))})"
-        event_str = f"{event_type:<20}\t{event.data_human}\t{event.module_sequence}{event_tags}"
+        host_display = self.report_host_display(event)
+        data_display = event.data_human
+        event_tags = self.report_event_tags(event)
+        event_tags_str = f"\t({', '.join(event_tags)})" if event_tags else ""
+        event_str = f"{event_type:<20}\t{host_display}\t{data_display}\t{event.module_sequence}{event_tags_str}"
         return event_str
+
+    def is_hidden_report_tag(self, tag):
+        tag = str(tag)
+        return any(tag.startswith(prefix) for prefix in self.hidden_report_tag_prefixes)
+
+    def is_host_report_tag(self, tag):
+        tag = str(tag)
+        if tag in self.host_report_tags:
+            return True
+        if any(tag.startswith(prefix) for prefix in self.host_report_tag_prefixes):
+            return True
+        if any(tag.endswith(suffix) for suffix in self.host_report_tag_suffixes):
+            return True
+        return False
+
+    def split_report_tags(self, event):
+        host_tags = []
+        event_tags = []
+        for tag in sorted(getattr(event, "tags", [])):
+            if self.is_hidden_report_tag(tag):
+                continue
+            if self.is_host_report_tag(tag):
+                host_tags.append(tag)
+            else:
+                event_tags.append(tag)
+        return host_tags, event_tags
+
+    def report_event_tags(self, event):
+        _, event_tags = self.split_report_tags(event)
+        return event_tags
+
+    def report_host_tags(self, event):
+        host_tags, _ = self.split_report_tags(event)
+        return host_tags
+
+    def report_host_display(self, event):
+        host = str(getattr(event, "host", "") or "")
+        host_tags = self.report_host_tags(event)
+        if host and host_tags:
+            return f"{host} ({', '.join(host_tags)})"
+        if host:
+            return host
+        return "-"
 
     def _event_precheck(self, event):
         reason = "precheck succeeded"
@@ -90,3 +140,20 @@ class BaseOutputModule(BaseModule):
         if self._log is None:
             self._log = logging.getLogger(f"bbot.modules.output.{self.name}")
         return self._log
+
+    def scan_input_dict(self):
+        target = getattr(self.scan, "target", None)
+        if target is None:
+            return {"seeds": [], "whitelist": [], "blacklist": [], "strict_scope": False}
+        return {
+            "seeds": sorted(getattr(getattr(target, "seeds", None), "inputs", []) or []),
+            "whitelist": sorted(getattr(getattr(target, "whitelist", None), "inputs", []) or []),
+            "blacklist": sorted(getattr(getattr(target, "blacklist", None), "inputs", []) or []),
+            "strict_scope": bool(getattr(target, "strict_scope", False)),
+        }
+
+    def scan_input_json(self):
+        return json.dumps(self.scan_input_dict(), sort_keys=True)
+
+    def scan_input_text(self, prefix="# "):
+        return f"{prefix}Scan Input: {self.scan_input_json()}"

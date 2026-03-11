@@ -36,6 +36,11 @@ LEAK_MODULES = {
 }
 LEAK_HINTS = ("leak", "secret", "token", "password", "credential", "api key", "private key")
 DOMAIN_AUDIT_MODULE = "domain_config_dns_audit"
+HIDDEN_REPORT_TAG_PREFIXES = ("distance-",)
+HOST_REPORT_TAGS = {"cloud", "cdn"}
+HOST_REPORT_TAG_PREFIXES = ("cloud-", "cdn-")
+HOST_REPORT_TAG_SUFFIXES = ("-domain", "-ip", "-cname")
+GITHUB_LEAK_MODULES = {"gitleaks", "noseyparker", "trufflehog", "ggshield", "kingfisher", "github_workflows"}
 
 PAIR_RE = re.compile(r"(?:^|[,.]\s+)([A-Za-z][A-Za-z0-9 _./-]{0,40}):\s*\[([^\]]+)\]")
 BRACKET_RE = re.compile(r"\[([^\]]+)\]")
@@ -172,6 +177,85 @@ def parse_tags(raw_tags):
     if isinstance(parsed, list):
         return [str(t).strip() for t in parsed if str(t).strip()]
     return []
+
+
+def normalize_tag_text(tag):
+    text = str(tag or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"\s+", "-", text.lower())
+
+
+def is_hidden_report_tag(tag):
+    text = normalize_tag_text(tag)
+    return any(text.startswith(prefix) for prefix in HIDDEN_REPORT_TAG_PREFIXES)
+
+
+def is_host_report_tag(tag):
+    text = normalize_tag_text(tag)
+    if not text:
+        return False
+    if text in HOST_REPORT_TAGS:
+        return True
+    if any(text.startswith(prefix) for prefix in HOST_REPORT_TAG_PREFIXES):
+        return True
+    if any(text.endswith(suffix) for suffix in HOST_REPORT_TAG_SUFFIXES):
+        return True
+    return False
+
+
+def unique_tags(tags):
+    seen = set()
+    ordered = []
+    for tag in tags:
+        text = str(tag or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(text)
+    return ordered
+
+
+def github_leak_report_tags(module, payload):
+    tags = []
+    if not isinstance(payload, dict):
+        return tags
+
+    rule_name = str(payload.get("rule", "")).strip() or str(payload.get("detector", "")).strip()
+    tool_name = str(payload.get("tool", "")).strip() or module
+    if rule_name:
+        tags.append(rule_name)
+    if tool_name and tool_name.lower() != rule_name.lower():
+        tags.append(tool_name)
+    return tags
+
+
+def split_report_tags(tags, module="", payload=None):
+    host_tags = []
+    event_tags = []
+
+    for tag in parse_tags(tags) if not isinstance(tags, list) else tags:
+        if is_hidden_report_tag(tag):
+            continue
+        if is_host_report_tag(tag):
+            host_tags.append(tag)
+        else:
+            event_tags.append(tag)
+
+    if module in GITHUB_LEAK_MODULES:
+        event_tags.extend(github_leak_report_tags(module, payload))
+
+    return unique_tags(host_tags), unique_tags(event_tags)
+
+
+def format_host_label(host, host_tags):
+    host_text = str(host or "").strip()
+    if not host_tags:
+        return host_text
+    return f"{host_text} ({', '.join(host_tags)})"
 
 
 def parse_timestamp(value):
@@ -339,6 +423,9 @@ def normalize_event(row):
     module = str(row["module"] or "unknown").strip() or "unknown"
     payload = parse_payload(row["data"], event_type)
 
+    raw_tags = parse_tags(row["tags"])
+    host_tags, event_tags = split_report_tags(raw_tags, module=module, payload=payload)
+
     event = {
         "type": event_type,
         "module": module,
@@ -348,7 +435,8 @@ def normalize_event(row):
         "description": "",
         "severity": "",
         "timestamp": str(row["timestamp"] or ""),
-        "tags": parse_tags(row["tags"]),
+        "tags": event_tags,
+        "host_tags": host_tags,
         "fields": [],
         "port": row["port"] if "port" in row.keys() else None,
         "netloc": str(row["netloc"] or "").strip() if "netloc" in row.keys() else "",
@@ -638,8 +726,9 @@ def render_full_details(item):
 
     meta_rows = []
     host = str(item.get("host", "")).strip()
+    host_label = format_host_label(host, item.get("host_tags", []))
     if host:
-        meta_rows.append(f'<div class="field-row"><span class="f-key">Host</span><span class="f-val">{html.escape(host)}</span></div>')
+        meta_rows.append(f'<div class="field-row"><span class="f-key">Host</span><span class="f-val">{html.escape(host_label)}</span></div>')
     url = str(item.get("url", "")).strip()
     if url:
         meta_rows.append(f'<div class="field-row"><span class="f-key">URL</span><span class="f-val">{html.escape(url)}</span></div>')
@@ -988,6 +1077,11 @@ def render_host_section(host_id, host_label, items, host_subdomains, host_port_m
     summary_line = " ".join(
         f'<span class="type-pill">{html.escape(t)} <b>{c}</b></span>' for t, c in type_counter.most_common()
     )
+    host_tags = unique_tags(tag for item in items for tag in item.get("host_tags", []))
+    host_title = html.escape(host_label)
+    if host_tags:
+        host_tag_html = " ".join(f'<span class="tag-chip">{html.escape(tag)}</span>' for tag in host_tags)
+        host_title += f' <span class="host-tag-inline">{host_tag_html}</span>'
 
     findings_block, recon_block = render_findings_and_recon(items)
     assets_block = render_overview_assets(host_label, host_subdomains, host_port_metadata, host_emails)
@@ -996,7 +1090,7 @@ def render_host_section(host_id, host_label, items, host_subdomains, host_port_m
     return f"""
     <section id="{host_id}" class="host-section host-panel">
       <div class="host-head">
-        <h2>Host Overview: {html.escape(host_label)}</h2>
+        <h2>Host Overview: {host_title}</h2>
         <div class="host-summary">{summary_line}</div>
       </div>
       {posture_block}

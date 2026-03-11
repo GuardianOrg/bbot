@@ -13,6 +13,9 @@ class TXT(BaseOutputModule):
 
     async def setup(self):
         self._prep_output_dir(self.output_filename)
+        if self.file is not None:
+            self.file.write(self.scan_input_text() + "\n")
+            self.file.flush()
         return True
 
     async def handle_event(self, event):
