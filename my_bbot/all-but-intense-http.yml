@@ -93,7 +93,7 @@ config:
       severity: ""
       etags: ""
       ratelimit: 200
-      concurrency: 40
+      concurrency: 25
       retries: 1
       batch_size: 400
       directory_only: false
