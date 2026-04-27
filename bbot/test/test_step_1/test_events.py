@@ -1054,6 +1054,14 @@ async def test_mobile_app():
         ("url", "https://play.google.com/store/apps/details?id=com.evilcorp.app"),
     ]
 
+    ios_mobile_app = scan.make_event(
+        {"url": "https://apps.apple.com/us/app/github/id1477376905"}, "MOBILE_APP", parent=scan.root_event
+    )
+    assert sorted(ios_mobile_app.data.items()) == [
+        ("id", "1477376905"),
+        ("url", "https://apps.apple.com/us/app/github/id1477376905"),
+    ]
+
 
 @pytest.mark.asyncio
 async def test_filesystem():

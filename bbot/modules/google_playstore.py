@@ -1,3 +1,5 @@
+import regex as re
+
 from bbot.modules.base import BaseModule
 
 
@@ -14,7 +16,7 @@ class google_playstore(BaseModule):
     base_url = "https://play.google.com"
 
     async def setup(self):
-        self.app_link_regex = self.helpers.re.compile(r"/store/apps/details\?id=([a-zA-Z0-9._-]+)")
+        self.app_link_regex = re.compile(r"/store/apps/details\?id=([a-zA-Z0-9._-]+)")
         return True
 
     async def filter_event(self, event):
@@ -44,7 +46,7 @@ class google_playstore(BaseModule):
         org_name = event.data
         self.verbose(f"Searching for any android applications for {org_name}")
         for apk_name in await self.query(org_name):
-            valid_apk = await self.validate_apk(apk_name)
+            valid_apk = await self.validate_apk(apk_name, org_name)
             if valid_apk:
                 self.verbose(f"Got {apk_name} from playstore")
                 await self.emit_event(
@@ -60,7 +62,7 @@ class google_playstore(BaseModule):
     async def query(self, query):
         app_links = []
         url = f"{self.base_url}/store/search?q={self.helpers.quote(query)}&c=apps"
-        r = await self.helpers.request(url)
+        r = await self.helpers.request(url, headers=self._request_headers())
         if r is None:
             return app_links
         status_code = getattr(r, "status_code", 0)
@@ -73,13 +75,16 @@ class google_playstore(BaseModule):
             return app_links
         return app_links
 
-    async def validate_apk(self, apk_name):
+    async def validate_apk(self, apk_name, org_name=""):
         """
         Check the app details page the "App support" section will include URLs or Emails to the app developer
         """
         in_scope = False
+        if self._package_matches_org_stub(apk_name, org_name):
+            return True
+
         url = f"{self.base_url}/store/apps/details?id={apk_name}"
-        r = await self.helpers.request(url)
+        r = await self.helpers.request(url, headers=self._request_headers())
         if r is None:
             return in_scope
         status_code = getattr(r, "status_code", 0)
@@ -91,3 +96,15 @@ class google_playstore(BaseModule):
         else:
             self.warning(f"Failed to fetch {url} (HTTP status: {status_code})")
         return in_scope
+
+    def _package_matches_org_stub(self, apk_name, org_name):
+        org_token = re.sub(r"[^a-z0-9]+", "", str(org_name or "").lower())
+        if not org_token:
+            return False
+        package_parts = [part for part in str(apk_name or "").lower().split(".") if part]
+        return org_token in package_parts
+
+    def _request_headers(self):
+        return {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/121 Safari/537.36",
+        }

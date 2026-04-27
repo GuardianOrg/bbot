@@ -69,11 +69,20 @@ class dnscaa(BaseModule):
         if "_wildcard" in str(event.host).split("."):
             return False, "event is wildcard"
 
+        if self.seed_event_type(event) != "DNS_NAME":
+            return False, "scan seed is not DNS_NAME"
+
         # scope filtering
         if event.scope_distance > 0 and self.in_scope_only:
             return False, "event is not in scope"
 
         return True
+
+    def seed_event_type(self, event):
+        for parent in event.get_parents(include_self=True):
+            if getattr(getattr(parent, "parent", None), "type", None) == "SCAN":
+                return parent.type
+        return None
 
     async def handle_event(self, event):
         tags = ["caa-record"]

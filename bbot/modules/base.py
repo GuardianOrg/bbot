@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import traceback
 from sys import exc_info
 from contextlib import suppress
@@ -692,24 +693,33 @@ class BaseModule:
     async def _setup(self, deps_only=False):
         """ """
         status_codes = {False: "hard-fail", None: "soft-fail", True: "success"}
+        setup_progress_log = os.environ.get("BBOT_SETUP_PROGRESS_LOG") == "1"
 
         status = False
         self.debug(f"Setting up module {self.name}")
+        if setup_progress_log:
+            self.info(f"Starting setup for {self.name}")
         try:
             funcs = [self.setup_deps]
             if not deps_only:
                 funcs.append(self.setup)
             for func in funcs:
                 self.debug(f"Running {self.name}.{func.__name__}()")
+                if setup_progress_log:
+                    self.info(f"Running {self.name}.{func.__name__}()")
                 result = await func()
                 if type(result) == tuple and len(result) == 2:
                     status, msg = result
                 else:
                     status = result
                     msg = status_codes[status]
+                if setup_progress_log:
+                    self.info(f"Finished {self.name}.{func.__name__}() with status {msg}")
                 if status is False:
                     break
             self.debug(f"Finished setting up module {self.name}")
+            if setup_progress_log:
+                self.info(f"Finished setup for {self.name}")
         except Exception as e:
             self.set_error_state(f"Unexpected error during module setup: {e}", critical=True)
             msg = f"{e}"

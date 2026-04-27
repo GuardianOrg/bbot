@@ -586,6 +586,9 @@ class DNSEngine(EngineServer):
 
                 async for (query, rdtype), (answers, errors) in self.resolve_raw_batch(rand_queries, use_cache=False):
                     for answer in answers:
+                        answer_name = getattr(answer, "name", None)
+                        if answer_name is not None and str(answer_name).strip(".").lower() != query:
+                            continue
                         # consider both the raw record
                         wildcard_results_raw.add(answer.to_text())
                         # and all the extracted hosts

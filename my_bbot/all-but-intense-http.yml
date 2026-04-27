@@ -3,8 +3,6 @@ description: Generic discovery preset excluding deep/intense URL-internal probin
 modules:
   - apkpure
   - azure_tenant
-  - baddns
-  - baddns_direct
   - badsecrets
   - bucket_amazon
   - bucket_digitalocean
@@ -18,33 +16,26 @@ modules:
   - crt
   - crt_db
   - dehashed
-  - dnsbrute
-  - dnsbrute_mutations
   - dnscaa
   - dnscommonsrv
+  - dnsbrute
+  - dnsbrute_mutations
   - dnsdumpster
-  - domain_phishing
   - domain_config_dns_audit
-  - dnsreaper
+  - domain_phishing
   - docker_pull
-  - dockerhub
   - extractous
   - filedownload
   - fingerprintx
-  - ggshield
-  - git
-  - git_clone
   - gitdumper
-  - github_org
   - github_workflows
   - gitlab_com
   - gitleaks
   - google_playstore
-  - gowitness
   - httpx
+  - host_reputation
   - hunterio
   - ipwhois
-  - ipneighbor
   - ipstack
   - jadx
   - kingfisher
@@ -57,53 +48,101 @@ modules:
   - noseyparker
   - nuclei
   - nuclei_takeover
-  - oauth
   - otx
-  - portfilter
-  - postman
-  - postman_download
   - rapiddns
-  - robots
   - securitytrails
   - shodan_dns
   - shodan_idb
   - social
   - sslcert
+  - subfinder
   - subzy
   - thc_rdns
-  - thc_subdomains
   - trufflehog
   - urlscan
   - virustotal
   - wafw00f
   - wayback
+  - dnsreaper
 
 output_modules:
   - sqlite
-  - websocket
 
 config:
   modules:
-    websocket:
-      url: ws://127.0.0.1:8765/ws
     nuclei:
       mode: manual
       tags: ""
       templates: ""
       severity: ""
       etags: ""
-      ratelimit: 200
-      concurrency: 25
+      ratelimit: 30
+      concurrency: 5
       retries: 1
       batch_size: 400
       directory_only: false
       silent: true
+    nuclei_takeover:
+      ratelimit: 30
+      concurrency: 5
+      retries: 0
+      timeout: 8
+      silent: true
+    naabu:
+      top_ports: 100
+      rate: 1200
+      threads: 30
+      scan_type: s
+      retries: 1
+      timeout_ms: 1500
+      exclude_cdn: true
+      scan_all_ips: false
+      expand_ip_ranges: true
+      max_expanded_ip_range_hosts: 4096
+    dnsbrute:
+      wordlist: https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt
+      max_depth: 3
+    dnsbrute_mutations:
+      max_mutations: 5000
+    dnsreaper:
+      parallelism: 20
+      disable_probable: false
+      enable_unlikely: false
+    subzy:
+      concurrency: 20
+      timeout: 8
+      https: true
+      verify_ssl: false
+    gowitness:
+      threads: 4
+      timeout: 7
+      resolution_x: 1280
+      resolution_y: 720
+      social: false
+      idle_timeout: 600
+    httpx:
+      threads: 10
+      in_scope_only: true
+      max_response_size: 1048576
+      store_responses: false
+      probe_all_ips: false
+    host_reputation:
+      abuseipdb_api_key: ${env:ABUSEIPDB_KEY}
+      virustotal_api_keys: ${env:VT_KEY},${env:VT_KEY_1},${env:VT_KEY_2},${env:VT_KEY_3},${env:VT_KEY_4}
+      otx_api_key: ${env:OTX_KEY}
+    jadx:
+      threads: 1
+    thc_rdns:
+      limit: 20
+      max_pages: 1
+    trufflehog:
+      only_verified: true
+      concurrency: 4
+      deleted_forks: false
     chaos:
       api_key: ${env:CHAOS_API_KEY}
     dehashed:
       api_key: ${env:DEHASHED_API_KEY}
-    git_clone:
-      api_key: ${env:GIT_CLONE_API_KEY}
     github_org:
       api_key: ${env:GITHUB_ORG_API_KEY}
     github_workflows:
@@ -120,13 +159,16 @@ config:
       api_key: ${env:LEAKLOOKUP_API_KEY}
     otx:
       api_key: ${env:OTX_API_KEY}
-    postman:
-      api_key: ${env:POSTMAN_API_KEY}
-    postman_download:
-      api_key: ${env:POSTMAN_DOWNLOAD_API_KEY}
     securitytrails:
       api_key: ${env:SECURITYTRAILS_API_KEY}
     shodan_dns:
       api_key: ${env:SHODAN_API_KEY}
+    subfinder:
+      all: true
+      recursive: false
+      collect_sources: true
+      timeout: 45
+      max_time: 30
+      rate_limit: 0
     virustotal:
       api_key: ${env:VT_API_KEY}

@@ -509,8 +509,8 @@ class Scanner:
         hard_failed = []
         soft_failed = []
 
-        async for task in self.helpers.as_completed([m._setup(deps_only=deps_only) for m in self.modules.values()]):
-            module, status, msg = await task
+        for module in list(self.modules.values()):
+            module, status, msg = await module._setup(deps_only=deps_only)
             if status is True:
                 self.debug(f"Setup succeeded for {module.name} ({msg})")
                 succeeded.append(module.name)

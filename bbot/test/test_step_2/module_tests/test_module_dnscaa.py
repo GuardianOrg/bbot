@@ -60,3 +60,33 @@ class TestDNSCAAInScopeFalse(TestDNSCAA):
 
     def check(self, module_test, events):
         assert any(str(e.host) == "caa.comodoca.com" for e in events)
+
+
+class TestDNSCAAURLTarget(ModuleTestBase):
+    targets = ["https://blacklanternsecurity.notreal/login"]
+    modules_overrides = ["dnscaa", "speculate"]
+
+    async def setup_after_prep(self, module_test):
+        await module_test.mock_dns(
+            {
+                "blacklanternsecurity.notreal": {
+                    "A": ["127.0.0.11"],
+                    "CAA": [
+                        '0 iodef "https://caa.blacklanternsecurity.notreal"',
+                        '128 iodef "mailto:caa@blacklanternsecurity.notreal"',
+                        '0 issue "comodoca.com"',
+                    ],
+                },
+                "caa.blacklanternsecurity.notreal": {"A": ["127.0.0.22"]},
+                "comodoca.com": {"A": ["127.0.0.33"]},
+            }
+        )
+
+    def check(self, module_test, events):
+        assert not any(e.type == "DNS_NAME" and e.data == "comodoca.com" for e in events)
+        assert not any(e.type == "URL_UNVERIFIED" and "caa.blacklanternsecurity.notreal" in e.data for e in events)
+        assert not any(e.type == "EMAIL_ADDRESS" and e.data == "caa@blacklanternsecurity.notreal" for e in events)
+
+
+class TestDNSCAAEmailTarget(TestDNSCAAURLTarget):
+    targets = ["admin@blacklanternsecurity.notreal"]

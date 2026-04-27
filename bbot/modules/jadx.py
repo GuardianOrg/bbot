@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from subprocess import CalledProcessError
 from bbot.modules.internal.base import BaseModule
@@ -65,7 +66,7 @@ class jadx(BaseModule):
                 context=f'extracted "{path}" to: {output_dir}',
             )
         else:
-            output_dir.rmdir()
+            shutil.rmtree(output_dir, ignore_errors=True)
 
     async def decompile_apk(self, path, output_dir):
         command = [
@@ -79,7 +80,13 @@ class jadx(BaseModule):
         try:
             output = await self.run_process(command, check=True)
         except CalledProcessError as e:
-            self.warning(f"Error decompiling {path}. STDOUT: {e.stdout} STDERR: {repr(e.stderr)}")
+            if e.returncode < 0:
+                self.warning(
+                    f"JADX was terminated while decompiling {path} (signal {-e.returncode}). "
+                    f"STDOUT: {e.stdout} STDERR: {repr(e.stderr)}"
+                )
+            else:
+                self.warning(f"Error decompiling {path}. STDOUT: {e.stdout} STDERR: {repr(e.stderr)}")
             return False
         if not (output_dir / "resources").exists() and not (output_dir / "sources").exists():
             self.warning(f"JADX was unable to decompile {path}: (STDOUT: {output.stdout} STDERR: {output.stderr})")

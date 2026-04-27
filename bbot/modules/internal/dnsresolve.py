@@ -35,6 +35,7 @@ class DNSResolve(BaseInterceptModule):
         else:
             self.non_minimal_rdtypes = tuple([t for t in all_rdtypes if t not in self.minimal_rdtypes])
         self.dns_search_distance = max(0, int(self.dns_config.get("search_distance", 1)))
+        self.emit_out_of_scope_children = self.dns_config.get("emit_out_of_scope_children", True)
         self._emit_raw_records = None
 
         self.host_module = self.HostModule(self.scan)
@@ -192,7 +193,8 @@ class DNSResolve(BaseInterceptModule):
                 # if we haven't emitted this one before
                 if child_hash not in self.children_emitted:
                     # and it's either in-scope or inside our dns search distance
-                    if self.preset.in_scope(child_host) or child_event.scope_distance <= self._dns_search_distance:
+                    child_is_in_scope = self.preset.in_scope(child_host)
+                    if child_is_in_scope or (self.emit_out_of_scope_children and child_event.scope_distance <= self._dns_search_distance):
                         self.children_emitted.add(child_hash)
                         # if it's a hostname and it's only one hop away, mark it as affiliate
                         if child_event.type == "DNS_NAME" and child_event.scope_distance == 1:

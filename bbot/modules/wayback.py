@@ -1,3 +1,5 @@
+import asyncio
+import json
 from datetime import datetime
 
 from bbot.modules.templates.subdomain_enum import subdomain_enum
@@ -12,18 +14,24 @@ class wayback(subdomain_enum):
         "created_date": "2022-04-01",
         "author": "@liquidsec",
     }
-    options = {"urls": False, "garbage_threshold": 10}
+    options = {"urls": True, "garbage_threshold": 10, "max_urls": 5000, "retry_attempts": 3, "retry_sleep": 10}
     options_desc = {
         "urls": "emit URLs in addition to DNS_NAMEs",
         "garbage_threshold": "Dedupe similar urls if they are in a group of this size or higher (lower values == less garbage data)",
+        "max_urls": "Maximum number of archived URLs to collapse per query",
+        "retry_attempts": "Number of archive.org fetch attempts before giving up",
+        "retry_sleep": "Seconds to sleep between retry attempts when archive.org returns no data",
     }
     in_scope_only = True
 
-    base_url = "http://web.archive.org"
+    base_url = "https://web.archive.org"
 
     async def setup(self):
         self.urls = self.config.get("urls", False)
         self.garbage_threshold = self.config.get("garbage_threshold", 10)
+        self.max_urls = int(self.config.get("max_urls", 5000))
+        self.retry_attempts = max(1, int(self.config.get("retry_attempts", 3)))
+        self.retry_sleep = max(0, int(self.config.get("retry_sleep", 10)))
         return await super().setup()
 
     async def handle_event(self, event):
@@ -40,26 +48,66 @@ class wayback(subdomain_enum):
     async def query(self, query):
         results = set()
         waybackurl = f"{self.base_url}/cdx/search/cdx?url={self.helpers.quote(query)}&matchType=domain&output=json&fl=original&collapse=original"
-        r = await self.helpers.request(waybackurl, timeout=self.http_timeout + 10)
-        if not r:
-            self.warning(f'Error connecting to archive.org for query "{query}"')
-            return results
-        try:
-            j = r.json()
-            assert type(j) == list
-        except Exception:
-            self.warning(f'Error JSON-decoding archive.org response for query "{query}"')
-            return results
-
         urls = []
-        for result in j[1:]:
+        for attempt in range(1, self.retry_attempts + 1):
             try:
-                url = result[0]
-                urls.append(url)
-            except KeyError:
+                result = await asyncio.wait_for(
+                    self.run_process(
+                        [
+                            "curl",
+                            "--fail",
+                            "--silent",
+                            "--show-error",
+                            "--location",
+                            "--max-time",
+                            str(self.http_timeout + 10),
+                            waybackurl,
+                        ],
+                        _log_stderr=False,
+                        check=False,
+                    ),
+                    timeout=self.http_timeout + 15,
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                self.warning(f'Error connecting to archive.org for query "{query}" on attempt {attempt}/{self.retry_attempts}')
+                if attempt < self.retry_attempts and self.retry_sleep > 0:
+                    await self.helpers.sleep(self.retry_sleep)
+                continue
+            if not result or result.returncode != 0:
+                self.warning(f'Error connecting to archive.org for query "{query}" on attempt {attempt}/{self.retry_attempts}')
+                if attempt < self.retry_attempts and self.retry_sleep > 0:
+                    await self.helpers.sleep(self.retry_sleep)
+                continue
+            try:
+                j = json.loads(result.stdout)
+                assert type(j) == list
+            except Exception:
+                self.warning(f'Error JSON-decoding archive.org response for query "{query}" on attempt {attempt}/{self.retry_attempts}')
+                if attempt < self.retry_attempts and self.retry_sleep > 0:
+                    await self.helpers.sleep(self.retry_sleep)
                 continue
 
+            urls = []
+            for result in j[1:]:
+                try:
+                    url = result[0]
+                    urls.append(url)
+                except KeyError:
+                    continue
+
+            if urls or attempt >= self.retry_attempts:
+                break
+
+            self.debug(
+                f'No results from archive.org for "{query}" on attempt {attempt}/{self.retry_attempts}; retrying in {self.retry_sleep}s'
+            )
+            if self.retry_sleep > 0:
+                await self.helpers.sleep(self.retry_sleep)
+
         self.verbose(f"Found {len(urls):,} URLs for {query}")
+        if self.max_urls > 0 and len(urls) > self.max_urls:
+            self.verbose(f"Limiting {query} archive URLs from {len(urls):,} to {self.max_urls:,} before collapsing")
+            urls = urls[: self.max_urls]
 
         dns_names = set()
         collapsed_urls = 0

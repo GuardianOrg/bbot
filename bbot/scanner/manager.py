@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import suppress
 from radixtarget.helpers import host_size_key
 
@@ -45,7 +46,10 @@ class ScanIngress(BaseInterceptModule):
             if event_seeds is None:
                 event_seeds = self.scan.target.seeds.event_seeds
             root_event = self.scan.root_event
-            event_seeds = sorted(event_seeds, key=lambda e: (host_size_key(str(e.host)), e.data))
+            event_seeds = sorted(
+                event_seeds,
+                key=lambda e: (host_size_key(str(e.host)), self._seed_sort_value(e.data)),
+            )
             # queue root scan event
             await self.queue_event(root_event, {})
             target_module = self.scan._make_dummy_module(name="TARGET", _type="TARGET")
@@ -66,6 +70,11 @@ class ScanIngress(BaseInterceptModule):
                 await self.queue_event(event, {})
             await asyncio.sleep(0.1)
             self.scan._finished_init = True
+
+    def _seed_sort_value(self, data):
+        if isinstance(data, dict):
+            return json.dumps(data, sort_keys=True)
+        return str(data)
 
     async def handle_event(self, event, **kwargs):
         # don't accept dummy events

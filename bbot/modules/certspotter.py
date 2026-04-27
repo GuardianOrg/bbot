@@ -20,8 +20,20 @@ class certspotter(subdomain_enum):
     async def parse_results(self, r, query):
         results = set()
         json = r.json()
+        if isinstance(json, dict):
+            return results
         if json:
             for r in json:
+                if not isinstance(r, dict):
+                    continue
                 for dns_name in r.get("dns_names", []):
-                    results.add(dns_name.lstrip(".*").rstrip("."))
+                    if not isinstance(dns_name, str):
+                        continue
+                    domain = dns_name.lower().strip().rstrip(".")
+                    while domain.startswith("*."):
+                        domain = domain[2:]
+                    while domain.startswith("_wildcard."):
+                        domain = domain[len("_wildcard.") :]
+                    if domain:
+                        results.add(domain)
         return results

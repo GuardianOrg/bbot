@@ -31,7 +31,6 @@ LEAK_MODULES = {
     "gitleaks",
     "noseyparker",
     "trufflehog",
-    "ggshield",
     "github_workflows",
 }
 LEAK_HINTS = ("leak", "secret", "token", "password", "credential", "api key", "private key")
@@ -40,7 +39,7 @@ HIDDEN_REPORT_TAG_PREFIXES = ("distance-",)
 HOST_REPORT_TAGS = {"cloud", "cdn"}
 HOST_REPORT_TAG_PREFIXES = ("cloud-", "cdn-")
 HOST_REPORT_TAG_SUFFIXES = ("-domain", "-ip", "-cname")
-GITHUB_LEAK_MODULES = {"gitleaks", "noseyparker", "trufflehog", "ggshield", "kingfisher", "github_workflows"}
+GITHUB_LEAK_MODULES = {"gitleaks", "noseyparker", "trufflehog", "kingfisher", "github_workflows"}
 
 PAIR_RE = re.compile(r"(?:^|[,.]\s+)([A-Za-z][A-Za-z0-9 _./-]{0,40}):\s*\[([^\]]+)\]")
 BRACKET_RE = re.compile(r"\[([^\]]+)\]")

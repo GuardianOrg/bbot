@@ -1,4 +1,5 @@
 import ssl
+import idna
 import anyio
 import httpx
 import asyncio
@@ -197,13 +198,18 @@ class HTTPEngine(EngineServer):
                 raise
             else:
                 log.debug(f"HTTP connect failed to URL: {url}")
+        except httpx.RemoteProtocolError as e:
+            if raise_error:
+                raise
+            else:
+                log.debug(f"HTTP remote protocol error for URL: {url}: {truncate_string(str(e), 200)}")
         except httpx.HTTPError as e:
             if raise_error:
                 raise
             else:
                 log.trace(f"Error with request to URL: {url}: {e}")
                 log.trace(traceback.format_exc())
-        except httpx.InvalidURL as e:
+        except (httpx.InvalidURL, idna.IDNAError, ValueError) as e:
             if raise_error:
                 raise
             else:

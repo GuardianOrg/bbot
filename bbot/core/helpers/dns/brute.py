@@ -67,7 +67,8 @@ class DNSBrute:
         results = []
         canaries_triggered = []
         async for hostname, ip, rdtype in self._massdns(module, domain, subdomains, rdtype=type):
-            sub = hostname.split(domain)[0]
+            suffix = f".{domain}"
+            sub = hostname[: -len(suffix)] if hostname.endswith(suffix) else hostname
             if sub in canaries:
                 canaries_triggered.append(sub)
             else:
@@ -112,7 +113,7 @@ class DNSBrute:
         """
         resolver_file = await self.resolver_file()
         command = (
-            "massdns",
+            str(self.parent_helper.tools_dir / "massdns"),
             "-r",
             resolver_file,
             "-s",
@@ -123,10 +124,12 @@ class DNSBrute:
             "J",
             "-q",
         )
-        subdomains = self.gen_subdomains(subdomains, domain)
+        subdomains = [f"{prefix}.{domain}" if domain else prefix for prefix in subdomains]
         hosts_yielded = set()
         async with self.dnsbrute_lock:
-            async for line in module.run_process_live(*command, stderr=subprocess.DEVNULL, input=subdomains):
+            result = await module.run_process(*command, stderr=subprocess.DEVNULL, input=subdomains)
+            stdout = result.stdout if result is not None else ""
+            for line in stdout.splitlines():
                 try:
                     j = json.loads(line)
                 except json.decoder.JSONDecodeError:
@@ -134,22 +137,19 @@ class DNSBrute:
                     continue
                 answers = j.get("data", {}).get("answers", [])
                 if type(answers) == list and len(answers) > 0:
-                    answer = answers[0]
-                    hostname = answer.get("name", "").strip(".").lower()
-                    if hostname.endswith(f".{domain}"):
+                    for answer in answers:
+                        hostname = answer.get("name", "").strip(".").lower()
+                        if not hostname.endswith(f".{domain}"):
+                            continue
+                        answer_type = answer.get("type", "").upper()
+                        if answer_type not in {rdtype, "CNAME"}:
+                            continue
                         data = answer.get("data", "")
-                        rdtype = answer.get("type", "").upper()
-                        if data and rdtype:
-                            hostname_hash = hash(hostname)
+                        if data and answer_type:
+                            hostname_hash = hash((hostname, answer_type))
                             if hostname_hash not in hosts_yielded:
                                 hosts_yielded.add(hostname_hash)
-                                yield hostname, data, rdtype
-
-    async def gen_subdomains(self, prefixes, domain):
-        for p in prefixes:
-            if domain:
-                p = f"{p}.{domain}"
-            yield p
+                                yield hostname, data, answer_type
 
     async def resolver_file(self):
         if self._resolver_file is None:

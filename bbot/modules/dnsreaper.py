@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -17,6 +18,7 @@ class dnsreaper(BaseModule):
         "version": "2.0.3",
         "binary": "dnsreaper",
         "parallelism": 30,
+        "timeout": 30,
         "resolver": "",
         "disable_probable": False,
         "enable_unlikely": False,
@@ -27,6 +29,7 @@ class dnsreaper(BaseModule):
         "version": "dnsreaper version",
         "binary": "Path to dnsreaper executable",
         "parallelism": "Number of domains to test in parallel",
+        "timeout": "Maximum seconds to wait for a dnsreaper batch before skipping it",
         "resolver": "Optional custom resolver list (comma separated)",
         "disable_probable": "Skip potential/probable findings",
         "enable_unlikely": "Enable unlikely confidence findings",
@@ -78,6 +81,7 @@ class dnsreaper(BaseModule):
     async def setup(self):
         self.binary = str(self.config.get("binary", "dnsreaper")).strip()
         self.parallelism = int(self.config.get("parallelism", 30))
+        self.timeout = float(self.config.get("timeout", 30))
         self.resolver = str(self.config.get("resolver", "")).strip()
         self.disable_probable = bool(self.config.get("disable_probable", False))
         self.enable_unlikely = bool(self.config.get("enable_unlikely", False))
@@ -130,7 +134,16 @@ class dnsreaper(BaseModule):
             for signature in self.exclude_signatures:
                 command += ["--exclude-signature", str(signature)]
 
-            result = await self.run_process(command, _log_stderr=False)
+            try:
+                result = await asyncio.wait_for(
+                    self.run_process(command, _log_stderr=False),
+                    timeout=self.timeout,
+                )
+            except asyncio.TimeoutError:
+                self.warning(
+                    f"dnsreaper exceeded {self.timeout:g}s for batch of {len(targets)} targets, skipping batch"
+                )
+                return
             raw = str(getattr(result, "stdout", "") or "").strip()
             if not raw:
                 return
@@ -155,16 +168,32 @@ class dnsreaper(BaseModule):
                 confidence = str(finding.get("confidence", "UNKNOWN")).upper()
                 info = finding.get("info", "")
                 more_info_url = finding.get("more_info_url", "")
-
-                description = f"dnsReaper signature [{signature}] confidence [{confidence}]"
+                title = f"Potential subdomain takeover via {signature}"
+                description = f"dnsReaper flagged {host} with {confidence.lower()} confidence for the {signature} takeover signature."
                 if info:
-                    description += f" info [{info}]"
+                    description += f" {info}"
+                evidence = f"Signature: {signature}; Confidence: {confidence}"
+                if info:
+                    evidence += f"; Info: {info}"
+                command = f"dnsreaper file --filename targets.txt --out stdout --out-format json --signature {signature}"
+                recommendation = "Review the dangling DNS target and reclaim or remove the stale integration to prevent takeover."
                 if more_info_url:
-                    description += f" reference [{more_info_url}]"
+                    recommendation += f" Reference: {more_info_url}"
 
                 if confidence == "UNLIKELY":
                     await self.emit_event(
-                        {"description": description, "host": host},
+                        {
+                            "title": title,
+                            "category": "subdomain-takeover",
+                            "description": description,
+                            "recommendation": recommendation,
+                            "evidence": evidence,
+                            "command": command,
+                            "host": host,
+                            "template": "dnsreaper",
+                            "signature": signature,
+                            "confidence": confidence,
+                        },
                         "FINDING",
                         parent_event,
                         tags=["takeover", "dnsreaper"],
@@ -173,7 +202,19 @@ class dnsreaper(BaseModule):
                 else:
                     severity = "HIGH" if confidence == "CONFIRMED" else "MEDIUM"
                     await self.emit_event(
-                        {"severity": severity, "description": description, "host": host},
+                        {
+                            "severity": severity,
+                            "title": title,
+                            "category": "subdomain-takeover",
+                            "description": description,
+                            "recommendation": recommendation,
+                            "evidence": evidence,
+                            "command": command,
+                            "host": host,
+                            "template": "dnsreaper",
+                            "signature": signature,
+                            "confidence": confidence,
+                        },
                         "VULNERABILITY",
                         parent_event,
                         tags=["takeover", "dnsreaper"],

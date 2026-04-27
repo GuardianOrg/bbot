@@ -378,6 +378,10 @@ class DepsInstaller:
         data_dir = self.data_dir / (module if module else f"playbook_{playbook_hash}")
         shutil.rmtree(data_dir, ignore_errors=True)
         self.parent_helper.mkdir(data_dir)
+        # ansible-runner expects an artifacts parent directory under private_data_dir.
+        # When this subtree is missing, some runs crash creating artifacts/<uuid>/status
+        # before they ever execute the playbook.
+        self.parent_helper.mkdir(data_dir / "artifacts")
 
         res = run(
             playbook=playbook,

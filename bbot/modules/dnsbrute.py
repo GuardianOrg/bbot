@@ -1,3 +1,6 @@
+import asyncio
+
+from bbot.errors import WordlistError
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
@@ -22,11 +25,29 @@ class dnsbrute(subdomain_enum):
     reject_wildcards = "strict"
     dedup_strategy = "lowest_parent"
     _qsize = 10000
+    async def _fetch_required_wordlist(self, fetcher, description):
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                return await fetcher()
+            except WordlistError as e:
+                last_error = e
+                if attempt >= 3:
+                    break
+                self.warning(f"Failed to download {description} on attempt {attempt}/3: {e}")
+                await asyncio.sleep(attempt)
+        raise WordlistError(f"Failed to download {description} after 3 attempts: {last_error}")
 
     async def setup_deps(self):
-        self.subdomain_file = await self.helpers.wordlist(self.config.get("wordlist"))
+        self.subdomain_file = await self._fetch_required_wordlist(
+            lambda: self.helpers.wordlist(self.config.get("wordlist")),
+            "dnsbrute wordlist",
+        )
         # tell the dnsbrute helper to fetch the resolver file
-        await self.helpers.dns.brute.resolver_file()
+        await self._fetch_required_wordlist(
+            lambda: self.helpers.dns.brute.resolver_file(),
+            "dnsbrute resolver list",
+        )
         return True
 
     async def setup(self):

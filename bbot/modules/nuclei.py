@@ -2,9 +2,13 @@ import json
 import yaml
 import re
 import hashlib
+import asyncio
+import os
+import shutil
 from pathlib import Path
 from contextlib import suppress
 from itertools import islice
+from urllib.parse import urlparse
 from bbot.modules.base import BaseModule
 
 
@@ -24,6 +28,7 @@ class nuclei(BaseModule):
         "templates": "",
         "template_sources": "",
         "mobile_template_sources": "",
+        "mobile_apk_cache_dir": "",
         "severity": "",
         "ratelimit": 150,
         "concurrency": 25,
@@ -41,6 +46,7 @@ class nuclei(BaseModule):
         "tags": "execute a subset of templates that contain the provided tags",
         "template_sources": "Comma-separated local directories or Git URLs to sync and use as additional template sources",
         "mobile_template_sources": "Comma-separated local directories or Git URLs to sync and use as mobile-focused template sources when a mobile app artifact is processed",
+        "mobile_apk_cache_dir": "Optional local APKPure output folder to reuse for mobile app nuclei scans",
         "templates": "template or template directory paths to include in the scan",
         "severity": "Filter based on severity field available in the template.",
         "ratelimit": "maximum number of requests to send per second (default 150)",
@@ -70,21 +76,40 @@ class nuclei(BaseModule):
     _batch_size = 200
 
     async def setup(self):
-        # attempt to update nuclei templates
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
-        self.info("Updating Nuclei templates")
-        update_results = await self.run_process(
-            ["nuclei", "-update-template-dir", self.nuclei_templates_dir, "-update-templates"]
-        )
-        if update_results.stderr:
-            if "Successfully downloaded nuclei-templates" in update_results.stderr:
-                self.success("Successfully updated nuclei templates")
-            elif "No new updates found for nuclei templates" in update_results.stderr:
-                self.info("Nuclei templates already up-to-date")
-            else:
-                self.warning(f"Failure while updating nuclei templates: {update_results.stderr}")
+        self.mobile_apk_dir = self.scan.temp_dir / "nuclei_mobile_apps"
+        self.mobile_scan_input_dir = self.scan.temp_dir / "nuclei_mobile_scan_inputs"
+        self.helpers.mkdir(self.mobile_apk_dir)
+        self.helpers.mkdir(self.mobile_scan_input_dir)
+        update_results = None
+        should_update_templates = os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1"
+        if should_update_templates:
+            self.info("Updating Nuclei templates")
+            update_timeout = max(30, int(self.config.get("module_timeout", 21600)) // 60)
+            try:
+                update_results = await asyncio.wait_for(
+                    self.run_process(["nuclei", "-update-template-dir", self.nuclei_templates_dir, "-update-templates"]),
+                    timeout=update_timeout,
+                )
+            except asyncio.TimeoutError:
+                self.warning(f"Nuclei template update timed out after {update_timeout}s; continuing with existing templates")
+        elif self.nuclei_templates_dir.exists():
+            self.info("Using existing Nuclei templates")
         else:
-            self.warning("Error running nuclei template update command")
+            self.warning(
+                "Nuclei templates directory does not exist and template updates are disabled; enabling BBOT_NUCLEI_UPDATE_TEMPLATES=1 may be required"
+            )
+
+        if update_results is not None:
+            if update_results.stderr:
+                if "Successfully downloaded nuclei-templates" in update_results.stderr:
+                    self.success("Successfully updated nuclei templates")
+                elif "No new updates found for nuclei templates" in update_results.stderr:
+                    self.info("Nuclei templates already up-to-date")
+                else:
+                    self.warning(f"Failure while updating nuclei templates: {update_results.stderr}")
+            else:
+                self.warning("Error running nuclei template update command")
         self.template_source_dirs = await self.resolve_template_sources()
         self.mobile_template_source_dirs = await self.resolve_template_sources(self.config.get("mobile_template_sources", ""))
         self.proxy = self.scan.web_config.get("http_proxy", "")
@@ -94,6 +119,8 @@ class nuclei(BaseModule):
         self.budget = int(self.config.get("budget", 1))
         self.silent = self.config.get("silent", False)
         self.templates = self.config.get("templates")
+        cache_dir = str(self.config.get("mobile_apk_cache_dir") or "").strip()
+        self.mobile_apk_cache_dir = Path(cache_dir) if cache_dir else None
         if self.templates:
             self.info(f"Using custom template(s) at: [{self.templates}]")
         if self.template_source_dirs:
@@ -237,7 +264,7 @@ class nuclei(BaseModule):
         tags = set(str(tag).lower() for tag in getattr(event, "tags", []))
 
         if event.type == "MOBILE_APP":
-            return "android" in tags
+            return "android" in tags or self._is_android_app_event(event)
 
         if event.type == "FILESYSTEM":
             if "apk" in tags:
@@ -253,6 +280,87 @@ class nuclei(BaseModule):
                     return True
         return False
 
+    def _is_android_app_event(self, event):
+        data = event.data if isinstance(event.data, dict) else {}
+        app_id = str(data.get("id") or "").strip()
+        app_url = str(data.get("url") or "").lower()
+        return "play.google.com/store/apps/details" in app_url or bool(re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", app_id))
+
+    async def _download_mobile_app(self, event):
+        data = event.data if isinstance(event.data, dict) else {}
+        app_id = str(data.get("id") or "").strip()
+        if not app_id:
+            return None
+
+        cached_path = self._cached_mobile_app_path(app_id)
+        if cached_path:
+            self.info(f'Using cached mobile app "{app_id}" from {cached_path}')
+            return cached_path
+
+        destination = self.mobile_apk_dir / app_id
+        self.helpers.mkdir(destination)
+        url = f"https://d.apkpure.com/b/XAPK/{app_id}?version=latest"
+        response = await self.helpers.request(url, allow_redirects=True, headers=self._mobile_download_headers())
+        if not response:
+            self.warning(f'Failed to download mobile app "{app_id}" from "{url}"')
+            return None
+
+        attachment = response.headers.get("Content-Disposition", "")
+        match = re.search(r'filename="?([^"]+)"?', attachment)
+        if not match:
+            self.warning(f'Mobile app download for "{app_id}" did not return an APK/XAPK attachment')
+            return None
+
+        filename = match.group(1)
+        extension = filename.split(".")[-1]
+        path = destination / f"{app_id}.{extension}"
+        with open(path, "wb") as f:
+            f.write(response.content)
+        self.info(f'Downloaded mobile app "{app_id}" from "{url}", saved to {path}')
+        return path
+
+    def _cached_mobile_app_path(self, app_id):
+        if not self.mobile_apk_cache_dir:
+            return None
+        candidates = [
+            self.mobile_apk_cache_dir / "apk_files" / app_id / f"{app_id}.apk",
+            self.mobile_apk_cache_dir / "apk_files" / app_id / f"{app_id}.xapk",
+        ]
+        candidates.extend((self.mobile_apk_cache_dir / "apk_files" / app_id).glob("*") if (self.mobile_apk_cache_dir / "apk_files" / app_id).is_dir() else [])
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def _mobile_download_headers(self):
+        return {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/121 Safari/537.36",
+            "Referer": "https://apkpure.com/",
+        }
+
+    def _prepare_mobile_scan_path(self, path):
+        path = Path(path)
+        if path.suffix.lower() not in (".apk", ".xapk"):
+            return path
+        if not path.is_file():
+            self.warning(f'Mobile app artifact "{path}" does not exist; skipping nuclei file scan for it')
+            return None
+
+        # Nuclei's file protocol excludes APK-like extensions by default. A text-suffixed
+        # copy still lets nuclei inspect the archive contents without changing the source file.
+        scan_path = self.mobile_scan_input_dir / f"{path.name}.txt"
+        shutil.copy2(path, scan_path)
+        return scan_path
+
+    def _lookup_parent_by_prefix(self, parent_by_key, value):
+        value = str(value or "").strip().lower()
+        if not value:
+            return None
+        for key, parent in parent_by_key.items():
+            if value.startswith(f"{key}/"):
+                return parent
+        return None
+
     async def handle_batch(self, *events):
         batch_has_mobile_artifact = False
         for event in events:
@@ -262,25 +370,79 @@ class nuclei(BaseModule):
         if batch_has_mobile_artifact:
             self.mobile_app_discovered = True
 
-        url_events = [event for event in events if event.type == "URL"]
-        if not url_events:
+        scan_events = [event for event in events if event.type == "URL"]
+        mobile_paths_by_event = {}
+        for event in events:
+            if event.type == "FILESYSTEM" and self._is_mobile_artifact(event):
+                path = Path(event.data.get("path", "")) if isinstance(event.data, dict) else Path("")
+                if path:
+                    scan_path = self._prepare_mobile_scan_path(path)
+                    if not scan_path:
+                        continue
+                    mobile_paths_by_event[event] = scan_path
+                    scan_events.append(event)
+            elif event.type == "MOBILE_APP" and self._is_mobile_artifact(event):
+                path = await self._download_mobile_app(event)
+                if path:
+                    scan_path = self._prepare_mobile_scan_path(path)
+                    if not scan_path:
+                        continue
+                    mobile_paths_by_event[event] = scan_path
+                    scan_events.append(event)
+
+        if not scan_events:
             return
 
         temp_target = self.helpers.make_target()
-        for e in url_events:
-            temp_target.add(e.data, e)
-        nuclei_input = [str(e.data) for e in url_events]
-        async for severity, template, tags, host, url, name, extracted_results in self.execute_nuclei(
+        parent_by_key = {}
+        nuclei_input = []
+        for e in scan_events:
+            event_data = str(mobile_paths_by_event.get(e) or e.data or "").strip()
+            if not event_data:
+                continue
+            nuclei_input.append(event_data)
+            if e.type == "URL":
+                temp_target.add(e.data, e)
+            if event_data:
+                parent_by_key[event_data.lower()] = e
+                parsed_data = urlparse(event_data)
+                if parsed_data.hostname:
+                    parent_by_key[parsed_data.hostname.lower()] = e
+            event_host = str(getattr(e, "host", "") or "").strip().lower()
+            if event_host:
+                parent_by_key[event_host] = e
+
+        if not nuclei_input:
+            return
+
+        async for result in self.execute_nuclei(
             nuclei_input, include_mobile_templates=self.mobile_app_discovered or batch_has_mobile_artifact
         ):
+            severity = result.get("severity", "")
+            template = result.get("template", "")
+            tags = result.get("tags", [])
+            host = result.get("host", "")
+            url = result.get("url", "")
+            matched_at = result.get("matched_at", "")
+            name = result.get("name", "")
+            extracted_results = result.get("extracted_results", [])
             # this is necessary because sometimes nuclei is inconsistent about the data returned in the host field
-            cleaned_host = temp_target.get(host)
-            parent_event = self.correlate_event(events, cleaned_host)
+            cleaned_host = (temp_target.get(host) if host else "") or host
+            if not cleaned_host and url:
+                cleaned_host = temp_target.get(url) or url
+            parent_event = (
+                parent_by_key.get(str(cleaned_host or "").strip().lower())
+                or parent_by_key.get(str(url or "").strip().lower())
+                or parent_by_key.get(str(matched_at or "").strip().lower())
+                or self._lookup_parent_by_prefix(parent_by_key, matched_at)
+                or self.correlate_event(events, cleaned_host or url or matched_at)
+            )
 
             if not parent_event:
+                self.warning(f"Failed to correlate nuclei result for host=[{host}] url=[{url}] template=[{template}] name=[{name}]")
                 continue
 
-            if url == "":
+            if url == "" and not matched_at:
                 url = str(parent_event.data)
 
             if severity == "INFO" and "tech" in tags:
@@ -296,33 +458,51 @@ class nuclei(BaseModule):
             if len(extracted_results) > 0:
                 description_string += f" Extracted Data: [{','.join(extracted_results)}]"
 
+            payload = {
+                "title": f"Nuclei: {name}",
+                "category": ",".join(tags) if tags else "nuclei",
+                "description": result.get("description") or description_string,
+                "recommendation": result.get("recommendation"),
+                "poc": result.get("poc"),
+            }
+            if parent_event.host:
+                payload["host"] = str(parent_event.host)
+            if url:
+                payload["url"] = url
+            if matched_at and not self.helpers.is_url(matched_at):
+                payload["path"] = matched_at
+
             if severity in ["INFO", "UNKNOWN"]:
                 await self.emit_event(
-                    {
-                        "host": str(parent_event.host),
-                        "url": url,
-                        "description": description_string,
-                    },
+                    payload,
                     "FINDING",
                     parent_event,
                     context=f"{{module}} scanned {url} and identified {{event.type}}: {description_string}",
                 )
             else:
+                payload["severity"] = severity
                 await self.emit_event(
-                    {
-                        "severity": severity,
-                        "host": str(parent_event.host),
-                        "url": url,
-                        "description": description_string,
-                    },
+                    payload,
                     "VULNERABILITY",
                     parent_event,
                     context=f"{{module}} scanned {url} and identified {severity.lower()} {{event.type}}: {description_string}",
                 )
 
     def correlate_event(self, events, host):
+        host = str(host or "").strip().lower()
         for event in events:
-            if host in event:
+            event_host = str(getattr(event, "host", "") or "").strip().lower()
+            if host and event_host == host:
+                return event
+
+            data = str(getattr(event, "data", "") or "").strip()
+            parsed_host = ""
+            with suppress(Exception):
+                parsed_host = (urlparse(data).hostname or "").strip().lower()
+            if host and parsed_host == host:
+                return event
+
+            if host and host in event:
                 return event
         self.verbose(f"Failed to correlate nuclei result for {host}. Possible parent events:")
         for event in events:
@@ -350,6 +530,9 @@ class nuclei(BaseModule):
         for hk, hv in self.scan.custom_http_headers.items():
             command += ["-H", f"{hk}: {hv}"]
 
+        if include_mobile_templates:
+            command.append("-file")
+
         for cli_option in ("severity", "iserver", "itoken", "tags", "etags"):
             option = getattr(self, cli_option)
 
@@ -357,7 +540,12 @@ class nuclei(BaseModule):
                 command.append(f"-{cli_option}")
                 command.append(option)
 
-        if self.templates:
+        if include_mobile_templates and self.mobile_template_source_dirs and not self.templates and not self.template_source_dirs:
+            command.extend(["-t", ",".join(str(path) for path in self.mobile_template_source_dirs)])
+        elif include_mobile_templates and not self.mobile_template_source_dirs and not self.templates and not self.template_source_dirs:
+            self.warning("Mobile artifact input was detected, but no mobile nuclei template paths are configured; skipping nuclei execution for APK targets")
+            return
+        elif self.templates:
             template_paths = [t.strip() for t in self.templates.split(",") if t.strip()]
             if self.template_source_dirs:
                 template_paths += [str(path) for path in self.template_source_dirs]
@@ -419,14 +607,36 @@ class nuclei(BaseModule):
                     severity = info.get("severity", "").upper()
                     tags = info.get("tags", [])
                     host = j.get("host", "")
-                    url = j.get("matched-at", "")
-                    if not self.helpers.is_url(url):
+                    matched_at = j.get("matched-at", "")
+                    url = matched_at
+                    if not self.helpers.is_url(matched_at):
                         url = ""
 
                     extracted_results = j.get("extracted-results", [])
+                    description = info.get("description", "").strip() or f"template: [{template}], name: [{name}]"
+                    remediation = info.get("remediation", "").strip() or None
+                    poc_lines = []
+                    curl_command = j.get("curl-command", "").strip()
+                    if extracted_results:
+                        poc_lines.append(f"Extracted Data: {', '.join(extracted_results)}")
+                    if curl_command:
+                        poc_lines.append(f"Command: {curl_command}")
+                    poc = "\n".join(poc_lines) if poc_lines else None
 
                     if template and name and severity:
-                        yield (severity, template, tags, host, url, name, extracted_results)
+                        yield {
+                            "severity": severity,
+                            "template": template,
+                            "tags": tags,
+                            "host": host,
+                            "url": url,
+                            "matched_at": matched_at,
+                            "name": name,
+                            "extracted_results": extracted_results,
+                            "description": description,
+                            "recommendation": remediation,
+                            "poc": poc,
+                        }
                     else:
                         self.debug("Nuclei result missing one or more required elements, not reporting. JSON: ({j})")
         finally:

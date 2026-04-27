@@ -1774,9 +1774,15 @@ class MOBILE_APP(DictEvent):
         if not "id" in data:
             # extract "id" getparam
             params = parse_qs(self.parsed_url.query)
+            _id = None
             try:
                 _id = params["id"][0]
             except Exception:
+                if self.parsed_url.netloc == "apps.apple.com":
+                    match = re.search(r"(?:^|/)id([^/?#]+)", self.parsed_url.path)
+                    if match:
+                        _id = match.group(1)
+            if not _id:
                 raise ValidationError("id is required for MOBILE_APP events")
             data["id"] = _id
         return data

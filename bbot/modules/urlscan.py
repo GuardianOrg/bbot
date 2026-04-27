@@ -10,7 +10,7 @@ class urlscan(subdomain_enum):
         "created_date": "2022-06-09",
         "author": "@TheTechromancer",
     }
-    options = {"urls": False}
+    options = {"urls": True}
     options_desc = {"urls": "Emit URLs in addition to DNS_NAMEs"}
 
     base_url = "https://urlscan.io/api/v1"
@@ -56,7 +56,7 @@ class urlscan(subdomain_enum):
 
     async def query(self, query):
         results = set()
-        url = f"{self.base_url}/search/?q={self.helpers.quote(query)}"
+        url = f"{self.base_url}/search/?q={self.helpers.quote(f'page.domain:{query}')}"
         r = await self.helpers.request(url)
         try:
             json = r.json()

@@ -39,9 +39,9 @@ class shodan_idb(BaseModule):
     }
     """
 
-    watched_events = ["IP_ADDRESS", "DNS_NAME"]
+    watched_events = ["IP_ADDRESS"]
     produced_events = ["TECHNOLOGY", "VULNERABILITY", "FINDING", "OPEN_TCP_PORT", "DNS_NAME"]
-    flags = ["passive", "safe", "portscan", "subdomain-enum"]
+    flags = ["passive", "safe", "portscan"]
     meta = {
         "description": "Query Shodan's InternetDB for open ports, hostnames, technologies, and vulnerabilities",
         "created_date": "2023-12-22",
@@ -155,14 +155,3 @@ class shodan_idb(BaseModule):
         """
         if event.type == "IP_ADDRESS":
             return event.host
-        elif event.type == "DNS_NAME":
-            # always try IPv4 first
-            ipv6 = []
-            ips = [h for h in event.resolved_hosts if self.helpers.is_ip(h)]
-            for ip in sorted([str(ip) for ip in ips]):
-                if self.helpers.is_ip(ip, version=4):
-                    return ip
-                elif self.helpers.is_ip(ip, version=6):
-                    ipv6.append(ip)
-            for ip in ipv6:
-                return ip

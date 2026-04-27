@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from urllib.parse import urlparse
 
@@ -53,8 +54,28 @@ class nuclei_takeover(BaseModule):
     in_scope_only = True
 
     async def setup(self):
-        if not self.helpers.which("nuclei"):
+        self.nuclei_bin = str((self.helpers.tools_dir / "nuclei").resolve())
+        if not os.path.isfile(self.nuclei_bin):
             return None, 'nuclei binary "nuclei" was not found in PATH'
+        self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
+        should_update_templates = (
+            os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or not self.nuclei_templates_dir.exists()
+        )
+        if should_update_templates:
+            self.info("Updating Nuclei templates for takeover scans")
+            update_result = await self.run_process(
+                [self.nuclei_bin, "-update-template-dir", self.nuclei_templates_dir, "-update-templates"]
+            )
+            if update_result.returncode != 0:
+                self.warning(f"Failed to update nuclei templates: {update_result.stderr}")
+        elif self.nuclei_templates_dir.exists():
+            self.info("Using existing Nuclei templates for takeover scans")
+        else:
+            self.warning(
+                "Nuclei templates directory does not exist and template updates are disabled; "
+                "set BBOT_NUCLEI_UPDATE_TEMPLATES=1 to auto-download templates"
+            )
+        self.takeover_templates_dir = self.nuclei_templates_dir / "http" / "takeovers"
         self.tags = str(self.config.get("tags", "takeover")).strip() or "takeover"
         self.templates = str(self.config.get("templates", "")).strip()
         self.etags = str(self.config.get("etags", "")).strip()
@@ -80,15 +101,15 @@ class nuclei_takeover(BaseModule):
             return
 
         command = [
-            "nuclei",
+            self.nuclei_bin,
             "-jsonl",
             "-disable-update-check",
+            "-update-template-dir",
+            self.nuclei_templates_dir,
             "-tags",
             self.tags,
             "-rate-limit",
             str(self.ratelimit),
-            "-concurrency",
-            str(self.concurrency),
             "-retries",
             str(self.retries),
             "-timeout",
@@ -98,15 +119,22 @@ class nuclei_takeover(BaseModule):
             command.append("-silent")
         if self.templates:
             command += ["-t", self.templates]
+        elif self.takeover_templates_dir.exists():
+            command += ["-t", str(self.takeover_templates_dir)]
+        elif self.nuclei_templates_dir.exists():
+            command += ["-t", str(self.nuclei_templates_dir), "-tags", self.tags]
         if self.etags:
             command += ["-etags", self.etags]
-        if self.helpers.system_resolvers:
-            command += ["-r", self.helpers.resolver_file]
-
-        async for line in self.run_process_live(command, input=targets, stderr=subprocess.DEVNULL):
+        target_file = self.helpers.tempfile(targets, pipe=False)
+        command += ["-l", target_file]
+        self.info(f"Running nuclei takeover command: {' '.join(str(part) for part in command)}")
+        process = self.run_process_live(command, stderr=subprocess.DEVNULL)
+        async for line in process:
+            self.info(f"nuclei_takeover raw output: {line}")
             try:
                 finding = json.loads(line)
             except Exception:
+                self.warning(f"nuclei_takeover failed to parse line: {line}")
                 continue
 
             host = self.normalize_host(finding.get("host", "") or finding.get("matched-at", ""))
@@ -135,7 +163,23 @@ class nuclei_takeover(BaseModule):
 
             severity = str(info.get("severity", "")).lower().strip()
             event_type = "VULNERABILITY"
-            event_data = {"description": description, "host": host}
+            poc_parts = []
+            if matched_at:
+                poc_parts.append(f"Matched At: {matched_at}")
+            if extracted_str:
+                poc_parts.append(f"Extracted Results: {extracted_str}")
+            if matcher:
+                poc_parts.append(f"Matcher: {matcher}")
+            url_value = matched_at if "://" in str(matched_at) else None
+            event_data = {
+                "title": name,
+                "category": "subdomain-takeover",
+                "description": description,
+                "recommendation": "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over.",
+                "host": host,
+                "url": url_value,
+                "poc": "\n".join(poc_parts) or None,
+            }
             if severity in ("info", "unknown", ""):
                 event_type = "FINDING"
             else:
@@ -148,6 +192,7 @@ class nuclei_takeover(BaseModule):
                 tags=["takeover", "nuclei-takeover"],
                 context=f'{{module}} used nuclei takeover templates and found {{event.type}} on "{host}"',
             )
+        await process.aclose()
 
     @staticmethod
     def normalize_host(value):

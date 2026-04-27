@@ -5,7 +5,7 @@ from .base import BaseModule
 
 class OAUTH(BaseModule):
     watched_events = ["DNS_NAME", "URL_UNVERIFIED"]
-    produced_events = ["DNS_NAME"]
+    produced_events = ["DNS_NAME", "URL_UNVERIFIED", "FINDING"]
     flags = ["affiliates", "subdomain-enum", "cloud-enum", "web-basic", "active", "safe"]
     meta = {
         "description": "Enumerate OAUTH and OpenID Connect services",
@@ -34,16 +34,16 @@ class OAUTH(BaseModule):
 
     async def handle_event(self, event):
         _, domain = self.helpers.split_domain(event.data)
-        source_domain = getattr(event, "source_domain", domain)
+        source_domain = getattr(event, "source_domain", event.data)
         if not self.scan.in_scope(source_domain):
             return
 
         oidc_tasks = []
         if event.scope_distance == 0:
-            domain_hash = hash(domain)
+            domain_hash = hash(source_domain)
             if domain_hash not in self.processed:
                 self.processed.add(domain_hash)
-                oidc_tasks.append(self.helpers.create_task(self.getoidc(f"https://login.windows.net/{domain}")))
+                oidc_tasks.append(self.helpers.create_task(self.getoidc(f"https://login.windows.net/{source_domain}")))
 
         if event.type == "URL_UNVERIFIED":
             url = event.data
@@ -62,9 +62,12 @@ class OAUTH(BaseModule):
             if token_endpoint:
                 finding_event = self.make_event(
                     {
+                        "title": "OpenID Connect Endpoint",
+                        "category": "oauth",
                         "description": f"OpenID Connect Endpoint (domain: {source_domain}) found at {url}",
                         "host": event.host,
                         "url": url,
+                        "recommendation": "Review the exposed identity endpoints and ensure token issuance, application registration, and spray protections are configured as expected.",
                     },
                     "FINDING",
                     parent=event,
@@ -101,9 +104,12 @@ class OAUTH(BaseModule):
                 description = f"Potentially Sprayable OAUTH Endpoint (domain: {source_domain}) at {url}"
                 oauth_finding = self.make_event(
                     {
+                        "title": "Potentially Sprayable OAUTH Endpoint",
+                        "category": "oauth",
                         "description": description,
                         "host": event.host,
                         "url": url,
+                        "recommendation": "Confirm whether the endpoint should be externally reachable and enforce tenant restrictions, MFA, rate limiting, and anti-password-spray controls where applicable.",
                     },
                     "FINDING",
                     parent=event,
@@ -132,6 +138,8 @@ class OAUTH(BaseModule):
             self.processed.add(url_hash)
             r = await self.helpers.request(url)
             if r is None:
+                return url, token_endpoint, results
+            if getattr(r, "status_code", 0) != 200:
                 return url, token_endpoint, results
             try:
                 json = r.json()

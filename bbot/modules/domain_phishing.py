@@ -162,6 +162,31 @@ class domain_phishing(BaseModule):
 
         return score, severity, reasons
 
+    def _build_evidence(self, candidate, fuzzer, score, reasons):
+        evidence_parts = [f"Candidate domain: {self._pick(candidate, 'domain')}", f"Fuzzer: {fuzzer}", f"Score: {score}"]
+        if reasons:
+            evidence_parts.append(f"Signals: {'; '.join(reasons)}")
+
+        created = self._pick(candidate, "whois-created", "whois_created", "created")
+        if created:
+            evidence_parts.append(f"Created: {created}")
+
+        for label, keys in (
+            ("A", ("dns-a", "dns_a")),
+            ("AAAA", ("dns-aaaa", "dns_aaaa")),
+            ("MX", ("dns-mx", "dns_mx")),
+            ("NS", ("dns-ns", "dns_ns")),
+        ):
+            values = self._as_list(self._pick(candidate, *keys))
+            if values:
+                evidence_parts.append(f"{label}: {', '.join(values)}")
+
+        lsh = self._pick(candidate, "lsh")
+        if lsh not in (None, ""):
+            evidence_parts.append(f"LSH: {lsh}")
+
+        return " | ".join(evidence_parts)
+
     async def setup(self):
         self.binary = str(self.config.get("binary", "dnstwist")).strip()
         self.registered_only = bool(self.config.get("registered_only", True))
@@ -234,15 +259,25 @@ class domain_phishing(BaseModule):
                 continue
 
             fuzzer = str(self._pick(candidate, "fuzzer", "fuzz") or "unknown").strip()
-            details = f"template: [domain-phishing], name: [Potential phishing look-alike], fuzzer: [{fuzzer}], score: [{score}]"
-            if reasons:
-                details += f" Extracted Data: [{'; '.join(reasons)}]"
-
             tags = ["phishing", "typosquatting", f"fuzzer-{fuzzer.lower()}"]
+            description = (
+                f"Look-alike domain {candidate_domain} was generated from {root_domain} using the {fuzzer} permutation technique."
+            )
+            if reasons:
+                description += f" Suspicious signals: {'; '.join(reasons)}."
 
             payload = {
                 "host": candidate_domain,
-                "description": details,
+                "title": "Potential phishing look-alike domain",
+                "category": "phishing",
+                "description": description,
+                "recommendation": "Review the look-alike domain for brand abuse, monitoring needs, and potential takedown actions.",
+                "evidence": self._build_evidence(candidate, fuzzer, score, reasons),
+                "command": f"dnstwist --registered --format json {root_domain}",
+                "template": "domain-phishing",
+                "source-domain": root_domain,
+                "fuzzer": fuzzer,
+                "score": score,
             }
 
             event_type = "FINDING"

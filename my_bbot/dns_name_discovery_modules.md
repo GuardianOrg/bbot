@@ -24,6 +24,8 @@ Put keys in your config (or pass via `-c`):
 `crt`, `crt_db`, `certspotter`, `anubisdb`, `dnsdumpster`, `rapiddns`, `urlscan`, `wayback`, `sitedossier`, `digitorus`, `leakix`.
 - Commercial/provider APIs:
 `securitytrails`, `shodan_dns`, `censys_dns`, `virustotal`, `otx`, `passivetotal`, `fullhunt`, `subdomainradar`, `trickest`, `builtwith`, `bevigil`, `c99`, `bufferoverrun`.
+- Aggregators:
+`subfinder`.
 - Active discovery:
 `dnsbrute`, `dnsbrute_mutations`, `dnscommonsrv`.
 - Subdomain takeover checks:
@@ -59,6 +61,7 @@ modules:
   - rapiddns
   - securitytrails
   - shodan_dns
+  - subfinder
   - shodan_idb
   - thc_subdomains
   - subzy
@@ -89,6 +92,9 @@ config:
 ```
 
 ## Modules supporting entry event `DNS_NAME` for subdomain discovery
+
+Note: `dnscaa` is gated to original `DNS_NAME` scan seeds. It may still emit `EMAIL_ADDRESS` and `URL_UNVERIFIED` records found in CAA data, but it does not run for hosts derived from URL or email targets.
+
 | Module | Emitted event | What it does (1 sentence) | Needs API key | Notes | Should use |
 |---|---|---|---:|---|---:|
 | anubisdb | DNS_NAME | Query jldc.me's database for subdomains | No | No, low value | No |
@@ -132,6 +138,7 @@ config:
 | shodan_idb | FINDING | Query Shodan InternetDB for hostnames and service context | No | Yes, 1 time pay | Yes |
 | shodan_idb | OPEN_TCP_PORT | Query Shodan InternetDB for hostnames and service context | No | Yes, 1 time pay | Yes |
 | shodan_idb | DNS_NAME | Query Shodan InternetDB for hostnames and service context | No | Yes, 1 time pay | Yes |
+| subfinder | DNS_NAME | Run ProjectDiscovery Subfinder across passive providers for subdomain enumeration | Optional via provider-config | Yes, recommended | Yes |
 | sitedossier | DNS_NAME | Query sitedossier.com for subdomains | No | No, not working | No |
 | subdomaincenter | DNS_NAME | Query subdomain.center's API for subdomains | No | No, too expensive | No |
 | subdomainradar | DNS_NAME | Query the Subdomain API for subdomains | Yes | No, too expensive | No |

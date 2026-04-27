@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import subprocess
 import traceback
 from signal import SIGINT
 from subprocess import CompletedProcess, CalledProcessError, SubprocessError
@@ -39,6 +40,46 @@ async def run(self, *command, check=False, text=True, idle_timeout=None, **kwarg
     # this allows for graceful SIGINTing of a module's processes in the case when it's killed
     proc_tracker = kwargs.pop("_proc_tracker", set())
     log_stderr = kwargs.pop("_log_stderr", True)
+    if os.environ.get("BBOT_THREADED_COMMANDS") == "1":
+        try:
+            command, kwargs = self._prepare_command_kwargs(command, kwargs)
+        except SubprocessError as e:
+            command_str = " ".join([str(s) for s in command])
+            log.warning(f"Error running command: '{command_str}': {e}")
+            log.trace(traceback.format_exc())
+            return None
+
+        _input = kwargs.pop("input", None)
+        if _input is not None:
+            if isinstance(_input, (list, tuple)):
+                _input = b"\n".join(smart_encode(i) for i in _input) + b"\n"
+            else:
+                _input = smart_encode(_input)
+
+        kwargs.pop("limit", None)
+        try:
+            result = await asyncio.to_thread(
+                _run_sync_command,
+                command,
+                kwargs,
+                _input,
+                check,
+                idle_timeout,
+            )
+        except subprocess.TimeoutExpired:
+            raise asyncio.TimeoutError()
+
+        stdout, stderr = result.stdout, result.stderr
+        if text:
+            if stderr is not None:
+                stderr = smart_decode(stderr)
+            if stdout is not None:
+                stdout = smart_decode(stdout)
+        if result.returncode and stderr and log_stderr:
+            command_str = " ".join(command)
+            log.warning(f"Stderr for run({command_str}):\n\t{stderr}")
+        return CompletedProcess(command, result.returncode, stdout, stderr)
+
     proc, _input, command = await self._spawn_proc(*command, **kwargs)
     if proc is not None:
         proc_tracker.add(proc)
@@ -105,6 +146,36 @@ async def run_live(self, *command, check=False, text=True, idle_timeout=None, **
     # this allows for graceful SIGINTing of a module's processes in the case when it's killed
     proc_tracker = kwargs.pop("_proc_tracker", set())
     log_stderr = kwargs.pop("_log_stderr", True)
+    if os.environ.get("BBOT_THREADED_COMMANDS") == "1":
+        result = await run(
+            self,
+            *command,
+            check=check,
+            text=text,
+            idle_timeout=idle_timeout,
+            _proc_tracker=proc_tracker,
+            _log_stderr=log_stderr,
+            **kwargs,
+        )
+        if result is None:
+            return
+        stdout = result.stdout or ([] if not text else "")
+        if text:
+            if isinstance(stdout, (list, tuple)):
+                for line in stdout:
+                    yield smart_decode(line).rstrip("\r\n")
+            else:
+                for line in stdout.splitlines():
+                    yield line.rstrip("\r\n")
+        else:
+            if isinstance(stdout, (list, tuple)):
+                for line in stdout:
+                    yield smart_encode(line).rstrip(b"\r\n")
+            else:
+                for line in stdout.splitlines():
+                    yield line.rstrip(b"\r\n")
+        return
+
     proc, _input, command = await self._spawn_proc(*command, **kwargs)
     if proc is not None:
         proc_tracker.add(proc)
@@ -217,6 +288,16 @@ async def _write_proc_line(proc, chunk):
             log.warning(f"Error writing line to stdin for command: {command}: {e}")
             log.trace(traceback.format_exc())
         return False
+
+
+def _run_sync_command(command, kwargs, _input, check, idle_timeout):
+    return subprocess.run(
+        command,
+        input=_input,
+        check=check,
+        timeout=idle_timeout,
+        **kwargs,
+    )
 
 
 async def _write_stdin(proc, _input):

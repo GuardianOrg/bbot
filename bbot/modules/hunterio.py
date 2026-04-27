@@ -17,6 +17,7 @@ class hunterio(subdomain_enum_apikey):
     base_url = "https://api.hunter.io/v2"
     ping_url = f"{base_url}/account?api_key={{api_key}}"
     limit = 100
+    free_plan_limit = 10
 
     async def handle_event(self, event):
         query = self.make_query(event)
@@ -50,16 +51,40 @@ class hunterio(subdomain_enum_apikey):
 
     async def query(self, query):
         emails = []
-        url = (
-            f"{self.base_url}/domain-search?domain={query}&api_key={{api_key}}" + "&limit={page_size}&offset={offset}"
-        )
-        agen = self.api_page_iter(url, page_size=self.limit)
-        try:
-            async for j in agen:
-                new_emails = j.get("data", {}).get("emails", [])
-                if not new_emails:
+        page_size = self.limit
+        offset = 0
+        while True:
+            response = await self.api_request(
+                f"{self.base_url}/domain-search?domain={query}&api_key={{api_key}}&limit={page_size}&offset={offset}"
+            )
+            if response is None:
+                break
+            if response.status_code == 400:
+                try:
+                    errors = response.json().get("errors", [])
+                except Exception:
+                    errors = []
+                if any(str(error.get("id", "")).strip().lower() == "pagination_error" for error in errors):
+                    if page_size > self.free_plan_limit:
+                        self.verbose(
+                            f"Hunter.io plan for {query} only supports up to {self.free_plan_limit} results per page; retrying"
+                        )
+                        page_size = self.free_plan_limit
+                        offset = 0
+                        emails = []
+                        continue
                     break
-                emails += new_emails
-        finally:
-            await agen.aclose()
+
+            try:
+                j = response.json()
+            except Exception:
+                break
+
+            new_emails = j.get("data", {}).get("emails", [])
+            if not new_emails:
+                break
+            emails += new_emails
+            if len(new_emails) < page_size:
+                break
+            offset += page_size
         return emails

@@ -27,9 +27,20 @@ class dnscommonsrv(subdomain_enum):
     async def handle_event(self, event):
         query = self.make_query(event)
         self.verbose(f'Brute-forcing {self.num_srvs:,} SRV records for "{query}"')
-        for hostname in await self.helpers.dns.brute(self, query, common_srvs, type="SRV"):
+        async for hostname, answer, rdtype in self.helpers.dns.brute._massdns(self, query, common_srvs, rdtype="SRV"):
+            if rdtype != "SRV":
+                continue
+
             await self.emit_event(
-                hostname,
+                {"host": hostname, "type": "SRV", "answer": answer},
+                "RAW_DNS_RECORD",
+                parent=event,
+                context=f'{{module}} tried {self.num_srvs:,} common SRV records against "{query}" and found RAW_DNS_RECORD',
+            )
+
+            target = answer.split()[-1].rstrip(".")
+            await self.emit_event(
+                target,
                 "DNS_NAME",
                 parent=event,
                 context=f'{{module}} tried {self.num_srvs:,} common SRV records against "{query}" and found {{event.type}}: {{event.data}}',

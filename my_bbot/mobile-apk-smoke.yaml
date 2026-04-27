@@ -1,0 +1,18 @@
+id: guardian-sentry-mobile-apk-smoke
+
+info:
+  name: GuardianSentry mobile APK smoke finding
+  author: guardiansentry
+  severity: high
+  description: Smoke template used to verify that APK file targets are passed to mobile nuclei templates and converted into GuardianSentry findings.
+  remediation: This is a smoke-test template; remove the test template override for production scans.
+  tags: android,apk,guardian-sentry-smoke
+
+file:
+  - extensions:
+      - all
+    max-size: 10485760
+    matchers:
+      - type: word
+        words:
+          - "AndroidManifest.xml"

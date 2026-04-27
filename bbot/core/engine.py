@@ -269,12 +269,14 @@ class EngineClient(EngineBase):
         process_name = multiprocessing.current_process().name
         if SHARED_INTERPRETER_STATE.is_scan_process:
             kwargs = dict(self.server_kwargs)
+            use_threaded_engine = os.environ.get("BBOT_THREADED_ENGINES") == "1"
             # if we're in tests, we use a single event loop to avoid weird race conditions
             # this allows us to more easily mock http, etc.
-            if os.environ.get("BBOT_TESTING", "") == "True":
+            if os.environ.get("BBOT_TESTING", "") == "True" or use_threaded_engine:
                 kwargs["_loop"] = get_event_loop()
             kwargs["debug"] = self._engine_debug
-            self.process = CORE.create_process(
+            factory = CORE.create_thread if use_threaded_engine else CORE.create_process
+            self.process = factory(
                 target=self.server_process,
                 args=(
                     self.SERVER_CLASS,
@@ -416,14 +418,16 @@ class EngineServer(EngineBase):
                 try:
                     result = await command_fn(*args, **kwargs)
                 except BaseException as e:
-                    if in_exception_chain(e, (KeyboardInterrupt, asyncio.CancelledError)):
+                    is_cancelled = in_exception_chain(e, (KeyboardInterrupt, asyncio.CancelledError))
+                    if is_cancelled:
                         log_fn = self.log.debug
                     else:
                         log_fn = self.log.error
                     error = f"{self.name}: error in {fn_str}: {e}"
                     trace = traceback.format_exc()
                     log_fn(error)
-                    self.log.trace(trace)
+                    if not is_cancelled:
+                        self.log.trace(trace)
                     result = {"_e": (error, trace)}
                 finally:
                     self.tasks.pop(client_id, None)
@@ -447,14 +451,16 @@ class EngineServer(EngineBase):
                         self.engine_debug(f"{self.name}: sending iteration for {fn_str}: {_}")
                         await self.send_socket_multipart(client_id, _)
                 except BaseException as e:
-                    if in_exception_chain(e, (KeyboardInterrupt, asyncio.CancelledError)):
+                    is_cancelled = in_exception_chain(e, (KeyboardInterrupt, asyncio.CancelledError))
+                    if is_cancelled:
                         log_fn = self.log.debug
                     else:
                         log_fn = self.log.error
                     error = f"{self.name}: error in {fn_str}: {e}"
                     trace = traceback.format_exc()
                     log_fn(error)
-                    self.log.trace(trace)
+                    if not is_cancelled:
+                        self.log.trace(trace)
                     result = {"_e": (error, trace)}
                     await self.send_socket_multipart(client_id, result)
                 finally:

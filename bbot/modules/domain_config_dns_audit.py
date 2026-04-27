@@ -109,16 +109,24 @@ class domain_config_dns_audit(BaseModule):
         return []
 
     def _parse_embedded_json(self, raw):
-        starts = [idx for idx in (raw.find("["), raw.find("{")) if idx >= 0]
-        if not starts:
-            return []
-        start = min(starts)
-        end_list = raw.rfind("]")
-        end_obj = raw.rfind("}")
-        end = max(end_list, end_obj)
-        if end <= start:
-            return []
-        return json.loads(raw[start : end + 1])
+        candidates = []
+        for idx, char in enumerate(raw):
+            if char not in "[{":
+                continue
+            prev = raw[idx - 1] if idx > 0 else "\n"
+            if idx == 0 or prev in "\r\n":
+                candidates.append(idx)
+
+        for start in candidates:
+            end_list = raw.rfind("]")
+            end_obj = raw.rfind("}")
+            possible_ends = [end for end in (end_list, end_obj) if end > start]
+            for end in sorted(possible_ends, reverse=True):
+                try:
+                    return json.loads(raw[start : end + 1])
+                except Exception:
+                    continue
+        return []
 
     def _map_category(self, category):
         cat = str(category or "").strip()
@@ -216,15 +224,21 @@ class domain_config_dns_audit(BaseModule):
                     title = self._short(finding.get("title", "Domain configuration finding"), limit=120)
                     severity = str(finding.get("severity", "info")).strip().upper()
                     category = self._short(finding.get("category", "General"), limit=60)
+                    raw_description = self._short(finding.get("description", "Domain configuration finding"), limit=400)
                     evidence = self._short(finding.get("evidence", ""), limit=180)
                     recommendation = self._short(finding.get("recommendation", ""), limit=180)
                     command_txt = self._short(finding.get("command", ""), limit=140)
 
-                    description = (
-                        f"template: [domain-config-dns-audit], name: [{title}], category: [{category}], "
-                        f"evidence: [{evidence}], recommendation: [{recommendation}], command: [{command_txt}]"
-                    )
-                    payload = {"description": description, "host": host}
+                    payload = {
+                        "title": title,
+                        "category": category,
+                        "description": raw_description,
+                        "host": host,
+                        "evidence": evidence,
+                        "recommendation": recommendation,
+                        "command": command_txt,
+                        "template": "domain-config-dns-audit",
+                    }
                     if severity in {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}:
                         payload["severity"] = severity
                     event_type = "VULNERABILITY" if severity in {"CRITICAL", "HIGH", "MEDIUM"} else "FINDING"

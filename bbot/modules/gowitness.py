@@ -1,5 +1,4 @@
 import os
-import asyncio
 import aiosqlite
 import multiprocessing
 import platform
@@ -88,24 +87,20 @@ class gowitness(BaseModule):
             if bbot_chrome_path.is_file():
                 self.chrome_path = bbot_chrome_path
 
-        # make sure our chrome path works
         chrome_test_pass = False
         if self.chrome_path and self.chrome_path.is_file():
-            chrome_test_proc = await self.run_process([str(self.chrome_path), "--version"])
-            if getattr(chrome_test_proc, "returncode", 1) == 0:
-                self.verbose(f"Found chrome executable at {self.chrome_path}")
-                chrome_test_pass = True
+            self.verbose(f"Found chrome executable at {self.chrome_path}")
+            chrome_test_pass = True
 
         if not chrome_test_pass:
-            # last resort - try to find a working chrome install
+            # last resort - try to find a local chrome install without executing it during setup
             for binary in ("Google Chrome", "chrome", "chromium", "chromium-browser"):
                 binary_path = self.helpers.which(binary)
                 if binary_path and Path(binary_path).is_file():
-                    chrome_test_proc = await self.run_process([str(binary_path), "--version"])
-                    if getattr(chrome_test_proc, "returncode", 1) == 0:
-                        self.verbose(f"Found chrome executable at {binary_path}")
-                        chrome_test_pass = True
-                        break
+                    self.chrome_path = Path(binary_path)
+                    self.verbose(f"Found chrome executable at {binary_path}")
+                    chrome_test_pass = True
+                    break
 
         if not chrome_test_pass:
             return (

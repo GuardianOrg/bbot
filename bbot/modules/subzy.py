@@ -124,9 +124,25 @@ class subzy(BaseModule):
                     description += f" discussion [{discussion}]"
                 if documentation:
                     description += f" documentation [{documentation}]"
+                poc_parts = [f"Engine: {engine}"]
+                if discussion:
+                    poc_parts.append(f"Discussion: {discussion}")
+                if documentation:
+                    poc_parts.append(f"Documentation: {documentation}")
 
                 await self.emit_event(
-                    {"severity": "MEDIUM", "description": description, "host": host},
+                    {
+                        "severity": "MEDIUM",
+                        "title": f"Potential subdomain takeover on {host}",
+                        "category": "subdomain-takeover",
+                        "description": description,
+                        "recommendation": (
+                            "Validate the dangling DNS target and either reclaim the third-party resource "
+                            "or remove the stale DNS entry before it can be taken over."
+                        ),
+                        "host": host,
+                        "poc": "\n".join(poc_parts),
+                    },
                     "VULNERABILITY",
                     parent_event,
                     tags=["takeover", "subzy"],

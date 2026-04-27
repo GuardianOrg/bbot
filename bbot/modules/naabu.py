@@ -10,7 +10,7 @@ from bbot.modules.base import BaseModule
 
 class naabu(BaseModule):
     flags = ["active", "portscan", "safe"]
-    watched_events = ["IP_ADDRESS", "IP_RANGE", "DNS_NAME"]
+    watched_events = ["IP_ADDRESS", "IP_RANGE"]
     produced_events = ["OPEN_TCP_PORT"]
     meta = {
         "description": "Port scan with naabu (ProjectDiscovery). By default, scans top 100 ports.",
@@ -25,11 +25,13 @@ class naabu(BaseModule):
         "rate": 1000,
         "threads": 25,
         # 'c' (connect) works without root; 's' (syn) generally requires root
-        "scan_type": "c",
+        "scan_type": "s",
         "retries": 3,
         "timeout_ms": 1000,
         "exclude_cdn": False,
         "scan_all_ips": False,
+        "expand_ip_ranges": True,
+        "max_expanded_ip_range_hosts": 4096,
         "module_timeout": 259200,  # 3 days
     }
     options_desc = {
@@ -43,6 +45,8 @@ class naabu(BaseModule):
         "timeout_ms": "Timeout in milliseconds to wait before timing out",
         "exclude_cdn": "Skip full port scans for CDN/WAF (only scan 80,443)",
         "scan_all_ips": "Scan all IPs associated with a hostname (naabu -sa)",
+        "expand_ip_ranges": "Expand IP_RANGE events into individual host IPs before scanning",
+        "max_expanded_ip_range_hosts": "Maximum IP_RANGE host count to expand before falling back to CIDR input",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
     }
 
@@ -65,11 +69,13 @@ class naabu(BaseModule):
         self.top_ports = int(self.config.get("top_ports", 100))
         self.rate = int(self.config.get("rate", 1000))
         self.threads = int(self.config.get("threads", 25))
-        self.scan_type = str(self.config.get("scan_type", "c")).lower().strip() or "c"
+        self.scan_type = str(self.config.get("scan_type", "s")).lower().strip() or "s"
         self.retries = int(self.config.get("retries", 3))
         self.timeout_ms = int(self.config.get("timeout_ms", 1000))
         self.exclude_cdn = bool(self.config.get("exclude_cdn", False))
         self.scan_all_ips = bool(self.config.get("scan_all_ips", False))
+        self.expand_ip_ranges = bool(self.config.get("expand_ip_ranges", True))
+        self.max_expanded_ip_range_hosts = int(self.config.get("max_expanded_ip_range_hosts", 4096))
 
         self.ports = self.config.get("ports", "")
         if self.ports:
@@ -155,11 +161,28 @@ class naabu(BaseModule):
                 # has this IP already been scanned?
                 if not scanned_tracker.get(ip):
                     scanned_tracker.add(ip)
-                    targets.add(str(ip))
+                    for target in self._scan_targets_for_ip(event, ip):
+                        targets.add(target)
                 else:
                     self.debug(f"Skipping {ip} because it's already been scanned")
 
         return targets, correlator
+
+    def _scan_targets_for_ip(self, event, ip):
+        if event.type != "IP_RANGE" or not self.expand_ip_ranges:
+            return [str(ip)]
+
+        host_count = ip.num_addresses
+        if ip.version == 4 and ip.prefixlen < 31:
+            host_count = max(0, host_count - 2)
+
+        if host_count > self.max_expanded_ip_range_hosts:
+            self.warning(
+                f"IP range {ip} has {host_count} hosts; passing CIDR to naabu because it exceeds max_expanded_ip_range_hosts={self.max_expanded_ip_range_hosts}"
+            )
+            return [str(ip)]
+
+        return [str(host) for host in ip.hosts()]
 
     async def emit_open_port(self, host, port, parent_event):
         event_data = self.helpers.make_netloc(str(host), port)

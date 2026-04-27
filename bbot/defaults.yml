@@ -43,6 +43,8 @@ dns:
   # How far away from the main target to explore via DNS resolution (independent of scope.search_distance)
   # This is safe to change
   search_distance: 1
+  # Emit DNS child events for record targets outside scan scope (MX/NS/CNAME/etc.)
+  emit_out_of_scope_children: true
   # Limit how many DNS records can be followed in a row (stop malicious/runaway DNS records)
   runaway_limit: 5
   # DNS query timeout

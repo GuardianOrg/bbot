@@ -28,7 +28,7 @@ class apkpure(BaseModule):
 
     async def filter_event(self, event):
         if event.type == "MOBILE_APP":
-            if "android" not in event.tags:
+            if "android" not in event.tags and not self._is_android_app_event(event):
                 return False, "event is not an android app"
         return True
 
@@ -48,7 +48,7 @@ class apkpure(BaseModule):
         path = None
         url = f"https://d.apkpure.com/b/XAPK/{app_id}?version=latest"
         self.helpers.mkdir(self.output_dir / app_id)
-        response = await self.helpers.request(url, allow_redirects=True)
+        response = await self.helpers.request(url, allow_redirects=True, headers=self._download_headers())
         if response:
             attachment = response.headers.get("Content-Disposition", "")
             if "filename" in attachment:
@@ -62,4 +62,21 @@ class apkpure(BaseModule):
                         f.write(content)
                     self.info(f'Downloaded "{app_id}" from "{url}", saved to {file_destination}')
                     path = file_destination
+            else:
+                self.warning(
+                    f'APKPure did not return a downloadable attachment for "{app_id}" '
+                    f'(HTTP {getattr(response, "status_code", "unknown")}, content-type: {response.headers.get("Content-Type", "unknown")})'
+                )
         return path
+
+    def _is_android_app_event(self, event):
+        data = event.data if isinstance(event.data, dict) else {}
+        app_id = str(data.get("id") or "").strip()
+        app_url = str(data.get("url") or "").lower()
+        return "play.google.com/store/apps/details" in app_url or bool(re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", app_id))
+
+    def _download_headers(self):
+        return {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/121 Safari/537.36",
+            "Referer": "https://apkpure.com/",
+        }

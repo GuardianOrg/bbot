@@ -86,7 +86,17 @@ class leaklookup(subdomain_enum):
             sources = ", ".join(sorted(str(s) for s in raw_results.keys() if str(s).strip()))
             if sources:
                 await self.emit_event(
-                    {"host": query, "description": f'Leak-Lookup public API matched sources for "{query}": [{sources}]'},
+                    {
+                        "host": query,
+                        "title": f"Leak-Lookup source matches for {query}",
+                        "category": "credential-exposure",
+                        "description": f'Leak-Lookup public API matched sources for "{query}": [{sources}]',
+                        "recommendation": (
+                            "Investigate the matched breach sources, search for exposed accounts under this domain "
+                            "with a paid key or alternate telemetry, and rotate any affected credentials."
+                        ),
+                        "evidence": f"Matched sources: {sources}",
+                    },
                     "FINDING",
                     parent=event,
                     tags=["leaklookup-public-api"],
@@ -142,11 +152,6 @@ class leaklookup(subdomain_enum):
     async def handle_hashed_password_event(self, event):
         identity, hash_value = self._split_hashed_password_event(event)
         if not hash_value:
-            return
-        if self.api_key_type == "public":
-            self.info(
-                f'Skipping Leak-Lookup hash lookup for "{hash_value}" because public API keys do not provide hash-cracking results'
-            )
             return
 
         response = await self.helpers.request(
