@@ -21,7 +21,7 @@ class naabu(BaseModule):
     options = {
         "version": "2.4.0",
         "top_ports": 100,
-        "ports": "",
+        "ports": "1-65535",
         "rate": 1000,
         "threads": 25,
         # 'c' (connect) works without root; 's' (syn) generally requires root
@@ -36,8 +36,8 @@ class naabu(BaseModule):
     }
     options_desc = {
         "version": "naabu version",
-        "top_ports": "Top ports to scan (default 100) (to override, specify 'ports')",
-        "ports": "Ports to scan (naabu -p format, e.g. '80,443,100-200')",
+        "top_ports": "Top ports to scan (only used when 'ports' is empty)",
+        "ports": "Ports to scan (naabu -p format, e.g. '80,443,100-200'; default scans all TCP ports)",
         "rate": "Packets to send per second (naabu -rate)",
         "threads": "General internal worker threads (naabu -c)",
         "scan_type": "Type of port scan: 'c' (connect) or 's' (syn)",

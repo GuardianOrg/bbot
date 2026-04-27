@@ -89,13 +89,13 @@ config:
       timeout: 8
       silent: true
     naabu:
-      top_ports: 100
+      ports: 1-65535
       rate: 1200
       threads: 30
       scan_type: s
       retries: 1
       timeout_ms: 1500
-      exclude_cdn: true
+      exclude_cdn: false
       scan_all_ips: false
       expand_ip_ranges: true
       max_expanded_ip_range_hosts: 4096
