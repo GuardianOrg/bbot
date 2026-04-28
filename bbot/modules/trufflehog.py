@@ -1,11 +1,14 @@
 import json
-from functools import partial
+import shlex
+from pathlib import Path
+from subprocess import CalledProcessError
+
 from bbot.modules.base import BaseModule
 from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
 class trufflehog(github_leak_formatter, BaseModule):
-    watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE", "RAW_TEXT"]
+    watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
@@ -28,14 +31,12 @@ class trufflehog(github_leak_formatter, BaseModule):
         "concurrency": "Number of concurrent workers",
         "deleted_forks": "Scan for deleted github forks. WARNING: This is SLOW. For a smaller repository, this process can take 20 minutes. For a larger repository, it could take hours.",
     }
+    deps_apt = ["git"]
     deps_ansible = [
         {
             "name": "Download trufflehog",
-            "unarchive": {
-                "src": "https://github.com/trufflesecurity/trufflehog/releases/download/v#{BBOT_MODULES_TRUFFLEHOG_VERSION}/trufflehog_#{BBOT_MODULES_TRUFFLEHOG_VERSION}_#{BBOT_OS_PLATFORM}_#{BBOT_CPU_ARCH_GOLANG}.tar.gz",
-                "include": "trufflehog",
-                "dest": "#{BBOT_TOOLS}",
-                "remote_src": True,
+            "shell": {
+                "cmd": "set -e\nif [ -x \"#{BBOT_TOOLS}/trufflehog\" ]; then exit 0; fi\ntmpdir=\"$(mktemp -d)\"\ntrap 'rm -rf \"$tmpdir\"' EXIT\ncurl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o \"$tmpdir/trufflehog.tar.gz\" \"https://github.com/trufflesecurity/trufflehog/releases/download/v#{BBOT_MODULES_TRUFFLEHOG_VERSION}/trufflehog_#{BBOT_MODULES_TRUFFLEHOG_VERSION}_#{BBOT_OS_PLATFORM}_#{BBOT_CPU_ARCH_GOLANG}.tar.gz\"\ntar -xzf \"$tmpdir/trufflehog.tar.gz\" -C \"$tmpdir\" trufflehog\ninstall -m 0755 \"$tmpdir/trufflehog\" \"#{BBOT_TOOLS}/trufflehog\""
             },
         }
     ]
@@ -51,6 +52,12 @@ class trufflehog(github_leak_formatter, BaseModule):
     async def setup(self):
         self.verified = self.config.get("only_verified", True)
         self.concurrency = int(self.config.get("concurrency", 8))
+        output_folder = self.config.get("output_folder", "")
+        if output_folder:
+            self.output_dir = Path(output_folder) / "code_repos" / self.name
+        else:
+            self.output_dir = self.scan.temp_dir / "code_repos" / self.name
+        self.helpers.mkdir(self.output_dir)
 
         self.deleted_forks = self.config.get("deleted_forks", False)
         self.github_token = ""
@@ -79,7 +86,8 @@ class trufflehog(github_leak_formatter, BaseModule):
                 if "github" not in event.data["url"]:
                     return False, "Module only accepts github CODE_REPOSITORY events"
             else:
-                return False, "Deleted forks is not enabled"
+                if "git" not in event.tags:
+                    return False, "Module only accepts git CODE_REPOSITORY events"
         else:
             if "unarchived-folder" in event.tags:
                 return False, "Not accepting unarchived-folder events"
@@ -91,9 +99,18 @@ class trufflehog(github_leak_formatter, BaseModule):
             description = event.data.get("description", "")
 
         if event.type == "CODE_REPOSITORY":
-            path = event.data["url"]
-            module = "github-experimental"
+            cleanup_path = None
+            if self.deleted_forks:
+                path = event.data["url"]
+                module = "github-experimental"
+            else:
+                # Let TruffleHog scan the remote Git URL directly. Its Git scanner
+                # walks reachable history and reports repository/file metadata,
+                # while our old shallow local clone could silently miss test keys.
+                path = event.data["url"]
+                module = "git"
         elif event.type == "FILESYSTEM":
+            cleanup_path = None
             path = event.data["path"]
             if "git" in event.tags:
                 module = "git"
@@ -110,6 +127,7 @@ class trufflehog(github_leak_formatter, BaseModule):
             # this is necessary because trufflehog doesn't yet support reading from stdin
             # https://github.com/trufflesecurity/trufflehog/issues/162
             path = self.helpers.tempfile(file_data, pipe=False)
+            cleanup_path = None
 
         if event.type == "CODE_REPOSITORY":
             host = event.host
@@ -147,8 +165,6 @@ class trufflehog(github_leak_formatter, BaseModule):
                     finding_details=source_metadata,
                     extra_fields={
                         "decoder": decoder_name,
-                        "raw_result": raw_result,
-                        "rawv2_result": rawv2_result,
                     },
                 )
             if data is None:
@@ -162,23 +178,51 @@ class trufflehog(github_leak_formatter, BaseModule):
                     data["severity"] = "High"
                 if description:
                     data["description"] += f" Description: [{description}]"
-                data["description"] += f" Raw result: [{raw_result}]"
+                if raw_result:
+                    data["description"] += f" Raw result: [{raw_result}]"
+                    data["secretValue"] = raw_result
+                    data["secret_value"] = raw_result
                 if rawv2_result:
                     data["description"] += f" RawV2 result: [{rawv2_result}]"
             await self.emit_event(
                 data,
                 "FINDING" if data.get("force_finding") else ("VULNERABILITY" if verified else "FINDING"),
                 event,
-                context=f'{{module}} searched {event.type} using "{module}" method and found secret ({{event.type}}): {raw_result}',
+                context=f'{{module}} searched {event.type} using "{module}" method and found secret ({{event.type}})',
             )
 
         # clean up the tempfile when we're done with it
         if event.type in ("HTTP_RESPONSE", "RAW_TEXT"):
             path.unlink(missing_ok=True)
+        elif cleanup_path is not None and cleanup_path.exists():
+            self.helpers.rm_rf(cleanup_path, ignore_errors=True)
+
+    async def clone_git_repository(self, repository_url):
+        repo_name = self.helpers.tagify(repository_url, maxlen=80)
+        repo_path = self.output_dir / repo_name
+        self.helpers.rm_rf(repo_path, ignore_errors=True)
+
+        command = ["git", "clone", "--depth", "1", repository_url, str(repo_path)]
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                output = await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, check=True)
+                self.debug(f"Git clone output: {output.stdout}")
+                break
+            except CalledProcessError as e:
+                last_error = e
+                self.helpers.rm_rf(repo_path, ignore_errors=True)
+                if attempt < 3:
+                    await self.helpers.sleep(3 * attempt)
+        else:
+            self.warning(f"Error cloning {repository_url}. STDERR: {repr(getattr(last_error, 'stderr', ''))}")
+            return None
+
+        return repo_path
 
     async def execute_trufflehog(self, module, path=None, string=None):
         command = [
-            "trufflehog",
+            str(self.helpers.tools_dir / "trufflehog"),
             "--json",
             "--no-update",
         ]
@@ -189,7 +233,11 @@ class trufflehog(github_leak_formatter, BaseModule):
         command.append("--concurrency=" + str(self.concurrency))
         if module == "git":
             command.append("git")
-            command.append("file://" + path)
+            path = str(path)
+            if path.startswith(("http://", "https://", "ssh://", "git@")):
+                command.append(path)
+            else:
+                command.append("file://" + path)
         elif module == "docker":
             command.append("docker")
             command.append("--image=file://" + path)
@@ -206,31 +254,34 @@ class trufflehog(github_leak_formatter, BaseModule):
             command.append("--delete-cached-data")
             command.append("--token=" + self.github_token)
 
-        stats_file = self.helpers.tempfile_tail(callback=partial(self.log_trufflehog_status, path))
-        try:
-            with open(stats_file, "w") as stats_fh:
-                async for line in self.helpers.run_live(command, stderr=stats_fh):
-                    try:
-                        j = json.loads(line)
-                    except json.decoder.JSONDecodeError:
-                        self.debug(f"Failed to decode line: {line}")
-                        continue
+        result = await self.run_process(
+            ["bash", "-lc", " ".join(shlex.quote(str(part)) for part in command)],
+            env={"HOME": str(self.scan.home), "PATH": f"{self.helpers.tools_dir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+            _log_stderr=False,
+        )
+        self.debug(
+            f"TruffleHog command completed rc={getattr(result, 'returncode', '?')} "
+            f"stdout_bytes={len(str(getattr(result, 'stdout', '') or ''))} "
+            f"stderr_bytes={len(str(getattr(result, 'stderr', '') or ''))}"
+        )
+        for line in str(getattr(result, "stdout", "") or "").splitlines():
+            try:
+                j = json.loads(line)
+            except json.decoder.JSONDecodeError:
+                self.debug(f"Failed to decode line: {line}")
+                continue
 
-                    decoder_name = j.get("DecoderName", "")
+            decoder_name = j.get("DecoderName", "")
+            detector_name = j.get("DetectorName", "")
+            raw_result = j.get("Raw", "")
+            rawv2_result = j.get("RawV2", "")
+            verified = j.get("Verified", False)
+            source_metadata = j.get("SourceMetadata", {})
+            yield (decoder_name, detector_name, raw_result, rawv2_result, verified, source_metadata)
 
-                    detector_name = j.get("DetectorName", "")
-
-                    raw_result = j.get("Raw", "")
-
-                    rawv2_result = j.get("RawV2", "")
-
-                    verified = j.get("Verified", False)
-
-                    source_metadata = j.get("SourceMetadata", {})
-
-                    yield (decoder_name, detector_name, raw_result, rawv2_result, verified, source_metadata)
-        finally:
-            stats_file.unlink(missing_ok=True)
+        stderr = str(getattr(result, "stderr", "") or "")
+        for line in stderr.splitlines():
+            self.log_trufflehog_status(path, line)
 
     def log_trufflehog_status(self, path, line):
         try:

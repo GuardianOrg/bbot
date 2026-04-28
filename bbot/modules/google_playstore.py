@@ -21,8 +21,12 @@ class google_playstore(BaseModule):
 
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":
-            if "android" not in event.tags:
+            repo_url = event.data.get("url", "") if isinstance(event.data, dict) else ""
+            if "android" not in event.tags and "play.google.com/store/apps/details" not in repo_url:
                 return False, "event is not an android repository"
+        elif event.type == "ORG_STUB":
+            if "target" not in event.tags:
+                return False, "event is not a target org stub"
         return True
 
     async def handle_event(self, event):

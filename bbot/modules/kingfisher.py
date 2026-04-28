@@ -33,11 +33,8 @@ class kingfisher(code_secret_scanner):
         },
         {
             "name": "Download kingfisher",
-            "unarchive": {
-                "src": "https://github.com/mongodb/kingfisher/releases/download/v#{BBOT_MODULES_KINGFISHER_VERSION}/kingfisher-#{BBOT_OS_PLATFORM}-{{ bbot_kingfisher_arch }}.tgz",
-                "include": "kingfisher",
-                "dest": "#{BBOT_TOOLS}",
-                "remote_src": True,
+            "shell": {
+                "cmd": "set -e\nif [ -x \"#{BBOT_TOOLS}/kingfisher\" ]; then exit 0; fi\ntmpdir=\"$(mktemp -d)\"\ntrap 'rm -rf \"$tmpdir\"' EXIT\ncurl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o \"$tmpdir/kingfisher.tgz\" \"https://github.com/mongodb/kingfisher/releases/download/v#{BBOT_MODULES_KINGFISHER_VERSION}/kingfisher-#{BBOT_OS_PLATFORM}-{{ bbot_kingfisher_arch }}.tgz\"\ntar -xzf \"$tmpdir/kingfisher.tgz\" -C \"$tmpdir\"\ninstall -m 0755 \"$(find \"$tmpdir\" -type f -name kingfisher | head -n1)\" \"#{BBOT_TOOLS}/kingfisher\""
             },
             "when": "ansible_facts['system'] in ['Linux', 'Darwin']",
         },
@@ -69,6 +66,9 @@ class kingfisher(code_secret_scanner):
                     validation_status = str(validation.get("status", "unknown")).lower()
                     verified = validation_status in ("active", "valid")
                     git_metadata = finding.get("git_metadata") if isinstance(finding.get("git_metadata"), dict) else {}
+                    commit = git_metadata.get("commit") or ""
+                    if isinstance(commit, dict):
+                        commit = commit.get("id") or ""
                     yield await self.format_github_leak(
                         event,
                         scan_path,
@@ -76,7 +76,7 @@ class kingfisher(code_secret_scanner):
                         detector=detector,
                         file_path=finding.get("path") or "",
                         line=finding.get("line") or "",
-                        commit=git_metadata.get("commit") or "",
+                        commit=commit,
                         verified=verified,
                         severity="High" if verified else "Medium",
                         finding_details=record,

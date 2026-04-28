@@ -1153,7 +1153,27 @@ class CODE_REPOSITORY(DictHostEvent):
 
     class _data_validator(BaseModel):
         url: str
-        _validate_url = field_validator("url")(validators.validate_url)
+
+        @field_validator("url")
+        @classmethod
+        def _validate_url(cls, url):
+            return validators.clean_url(url, url_querystring_remove=False).geturl()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        url = str(self.data.get("url", "")).lower()
+        if "github.com/" in url:
+            self.add_tag("git")
+            self.add_tag("github")
+        if "gitlab." in url or "/-/tree/" in url:
+            self.add_tag("git")
+            self.add_tag("gitlab")
+        if url.endswith(".git"):
+            self.add_tag("git")
+        if "/.git" in url:
+            self.add_tag("git-directory")
+        if "play.google.com/store/apps/details" in url:
+            self.add_tag("android")
 
     def _pretty_string(self):
         return self.data["url"]

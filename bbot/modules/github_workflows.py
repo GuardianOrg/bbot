@@ -1,3 +1,4 @@
+import asyncio
 import zipfile
 import fnmatch
 from pathlib import Path
@@ -6,6 +7,7 @@ from bbot.modules.templates.github import github
 
 
 class github_workflows(github):
+    setup_retry_delays = (10, 20, 30)
     watched_events = ["CODE_REPOSITORY"]
     produced_events = ["FILESYSTEM"]
     flags = ["passive", "safe", "code-enum", "download"]
@@ -13,7 +15,7 @@ class github_workflows(github):
         "description": "Download a github repositories workflow logs and workflow artifacts",
         "created_date": "2024-04-29",
         "author": "@domwhewell-sage",
-        "auth_required": True,
+        "auth_required": False,
     }
     options = {"api_key": "", "num_logs": 1, "output_folder": ""}
     options_desc = {
@@ -35,7 +37,29 @@ class github_workflows(github):
         else:
             self.output_dir = self.scan.home / "workflow_logs"
         self.helpers.mkdir(self.output_dir)
-        return await super().setup()
+
+        total_attempts = len(self.setup_retry_delays) + 1
+        setup_result = None
+        for attempt in range(1, total_attempts + 1):
+            setup_result = await super().setup()
+            if setup_result is True:
+                return True
+
+            reason = setup_result[1] if isinstance(setup_result, tuple) and len(setup_result) > 1 else str(setup_result)
+            reason_text = str(reason or "").strip().lower()
+            if "no response from server" not in reason_text:
+                return setup_result
+
+            if attempt >= total_attempts:
+                return setup_result
+
+            delay = self.setup_retry_delays[attempt - 1]
+            self.warning(
+                f"Transient GitHub API setup failure for github_workflows ({reason}). Sleeping {delay}s before retry {attempt}/{total_attempts - 1}"
+            )
+            await asyncio.sleep(delay)
+
+        return setup_result
 
     def _api_response_is_success(self, r):
         # we allow 404s because they're normal

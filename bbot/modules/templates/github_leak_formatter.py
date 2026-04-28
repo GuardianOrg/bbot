@@ -1,4 +1,5 @@
 from pathlib import Path
+from hashlib import sha256
 from urllib.parse import urlparse
 
 
@@ -123,15 +124,42 @@ class github_leak_formatter:
 
         leak_value = str(leak or "").strip()
         rule_name = str(detector or "").strip()
-        dedupe_parts = [getattr(self, "name", ""), repository_url, commit or "", relative_path or "", str(line or ""), leak_value]
+        leak_fingerprint = sha256(leak_value.encode("utf-8", errors="ignore")).hexdigest() if leak_value else ""
+        secret_fingerprint = f"sha256:{leak_fingerprint}" if leak_fingerprint else ""
+        dedupe_parts = [repository_url, leak_value]
+        tool_name = getattr(self, "name", "")
+        location_parts = []
+        if relative_path:
+            location_parts.append(relative_path)
+        if line not in (None, "", "?"):
+            location_parts.append(f"line {line}")
+        location = " at " + ":".join(location_parts) if location_parts else ""
+        rule_suffix = f" ({rule_name})" if rule_name else ""
         data = {
-            "url": repository_url,
-            "tool": getattr(self, "name", ""),
+            "url": github_url,
+            "repository_url": repository_url,
+            "tool": tool_name,
             "rule": rule_name,
+            "title": f"{tool_name} detected a possible secret{rule_suffix}",
+            "category": "secret",
+            "description": f"{tool_name} detected a possible secret{rule_suffix} in {repository_url}{location}.",
+            "poc": f"Repository: {repository_url}\nLocation: {github_url}\nRule: {rule_name or 'unknown'}\nSecret value: {leak_value}",
             "severity": severity or ("High" if verified else "Medium"),
             "force_finding": True,
             "dedupe_key": "github-leak:" + ":".join(dedupe_parts),
         }
+        if leak_value:
+            data["secretValue"] = leak_value
+            data["secret_value"] = leak_value
+        if secret_fingerprint:
+            data["secretFingerprint"] = secret_fingerprint
+            data["secret_fingerprint"] = secret_fingerprint
+        if relative_path:
+            data["path"] = relative_path
+        if line not in (None, "", "?"):
+            data["line"] = str(line)
+        if commit:
+            data["commit"] = commit
         if extra_fields:
             data.update({k: v for k, v in extra_fields.items() if v not in ("", None, [], {})})
         return data

@@ -37,11 +37,8 @@ class gitleaks(code_secret_scanner):
         },
         {
             "name": "Download gitleaks",
-            "unarchive": {
-                "src": "https://github.com/gitleaks/gitleaks/releases/download/v#{BBOT_MODULES_GITLEAKS_VERSION}/gitleaks_#{BBOT_MODULES_GITLEAKS_VERSION}_#{BBOT_OS_PLATFORM}_{{ bbot_gitleaks_arch }}.tar.gz",
-                "include": "gitleaks",
-                "dest": "#{BBOT_TOOLS}",
-                "remote_src": True,
+            "shell": {
+                "cmd": "set -e\nif [ -x \"#{BBOT_TOOLS}/gitleaks\" ]; then exit 0; fi\ntmpdir=\"$(mktemp -d)\"\ntrap 'rm -rf \"$tmpdir\"' EXIT\ncurl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o \"$tmpdir/gitleaks.tar.gz\" \"https://github.com/gitleaks/gitleaks/releases/download/v#{BBOT_MODULES_GITLEAKS_VERSION}/gitleaks_#{BBOT_MODULES_GITLEAKS_VERSION}_#{BBOT_OS_PLATFORM}_{{ bbot_gitleaks_arch }}.tar.gz\"\ntar -xzf \"$tmpdir/gitleaks.tar.gz\" -C \"$tmpdir\" gitleaks\ninstall -m 0755 \"$tmpdir/gitleaks\" \"#{BBOT_TOOLS}/gitleaks\""
             },
         },
     ]

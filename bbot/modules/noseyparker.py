@@ -42,10 +42,8 @@ class noseyparker(code_secret_scanner):
         },
         {
             "name": "Download noseyparker",
-            "unarchive": {
-                "src": "https://github.com/praetorian-inc/noseyparker/releases/download/v#{BBOT_MODULES_NOSEYPARKER_VERSION}/noseyparker-v#{BBOT_MODULES_NOSEYPARKER_VERSION}-{{ bbot_noseyparker_target }}.tar.gz",
-                "dest": "#{BBOT_TEMP}/noseyparker",
-                "remote_src": True,
+            "shell": {
+                "cmd": "set -e\nif [ -x \"#{BBOT_TOOLS}/noseyparker\" ]; then exit 0; fi\nrm -rf \"#{BBOT_TEMP}/noseyparker\"\nmkdir -p \"#{BBOT_TEMP}/noseyparker\"\ncurl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o \"#{BBOT_TEMP}/noseyparker/noseyparker.tar.gz\" \"https://github.com/praetorian-inc/noseyparker/releases/download/v#{BBOT_MODULES_NOSEYPARKER_VERSION}/noseyparker-v#{BBOT_MODULES_NOSEYPARKER_VERSION}-{{ bbot_noseyparker_target }}.tar.gz\"\ntar -xzf \"#{BBOT_TEMP}/noseyparker/noseyparker.tar.gz\" -C \"#{BBOT_TEMP}/noseyparker\""
             },
             "when": "bbot_noseyparker_target != ''",
         },
