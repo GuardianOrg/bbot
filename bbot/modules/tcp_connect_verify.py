@@ -47,6 +47,8 @@ class tcp_connect_verify(BaseModule):
         self.target_concurrency = max(1, int(self.config.get("target_concurrency", 6)))
         self.timeout_ms = int(self.config.get("timeout_ms", 1000))
         self.retries = max(1, int(self.config.get("retries", 1)))
+        self.open_port_cache = {}
+        self.scanned = self.helpers.make_target(acl_mode=True)
 
         try:
             self.configured_ports = self._configured_ports()
@@ -55,7 +57,7 @@ class tcp_connect_verify(BaseModule):
         return True
 
     async def handle_batch(self, *events):
-        targets, correlator = self.make_targets(events)
+        targets, correlator = await self.make_targets(events)
         if not targets or not self.configured_ports:
             return
 
@@ -68,7 +70,7 @@ class tcp_connect_verify(BaseModule):
 
         await asyncio.gather(*(verify_target(target) for target in sorted(targets, key=str)))
 
-    def make_targets(self, events):
+    async def make_targets(self, events):
         correlator = RadixTarget()
         targets = set()
         for event in sorted(events, key=lambda e: host_size_key(e.host)):
@@ -78,12 +80,24 @@ class tcp_connect_verify(BaseModule):
             with suppress(Exception):
                 ip = ipaddress.ip_network(event.host, strict=False)
                 if ip.num_addresses == 1:
-                    targets.add(str(ip.network_address))
+                    ip_hash = hash(ip.network_address)
+                    cached_open_ports = self.open_port_cache.get(ip_hash)
+                    if cached_open_ports is not None:
+                        for port in cached_open_ports:
+                            await self.emit_open_port(ip.network_address, port, event)
+                        continue
+
                     events_set = correlator.search(ip)
                     if events_set is None:
                         correlator.insert(ip, {event})
                     else:
                         events_set.add(event)
+
+                    if not self.scanned.get(ip):
+                        self.scanned.add(ip)
+                        targets.add(str(ip.network_address))
+                    else:
+                        self.debug(f"Skipping {ip} because it's already been verified")
 
         return targets, correlator
 
@@ -113,15 +127,18 @@ class tcp_connect_verify(BaseModule):
             chunk = self.configured_ports[offset : offset + self.connect_concurrency * 4]
             open_ports.extend(port for port in await asyncio.gather(*(verify(port) for port in chunk)) if port)
 
-        if open_ports:
-            self.info(f"tcp_connect_verify found {len(set(open_ports)):,} open TCP ports on {ip}")
+        normalized_open_ports = sorted(set(open_ports))
+        self.open_port_cache[hash(ip)] = tuple(normalized_open_ports)
+
+        if normalized_open_ports:
+            self.info(f"tcp_connect_verify found {len(normalized_open_ports):,} open TCP ports on {ip}")
 
         parent_events = correlator.search(ip)
         if parent_events is None:
             self.warning(f"tcp_connect_verify found open ports on {ip} but could not correlate it to an input event")
             return
 
-        for port in sorted(set(open_ports)):
+        for port in normalized_open_ports:
             for parent_event in parent_events:
                 host = parent_event.host if parent_event.type == "DNS_NAME" else ip
                 emit_key = (str(host), port, getattr(parent_event, "id", str(parent_event)))
