@@ -158,8 +158,6 @@ config:
       api_key: ${env:IPSTACK_API_KEY}
     leaklookup:
       api_key: ${env:LEAKLOOKUP_API_KEY}
-    leaklookup_hash:
-      api_key: ${env:LEAKLOOKUP_API_KEY}
     otx:
       api_key: ${env:OTX_API_KEY}
     securitytrails:
