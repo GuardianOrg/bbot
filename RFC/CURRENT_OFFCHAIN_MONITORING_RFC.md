@@ -114,7 +114,12 @@ Every offchain entity (nodes, model tables, and findings) uses a **UUID v7** as 
 
 1. Each entity type has a natural identity scoped by `worldGraphId` or `worldId`.
 2. The database enforces uniqueness through composite unique indexes such as `(worldGraphId, name)` for `DomainNode` and `(worldId, url)` for `URLObject`.
-3. Service-layer upsert logic should preserve that single-representation model when the weekly scan integration is implemented.
+3. Service-layer upsert logic preserves that single-representation model by merging BBOT enrichments into the existing row.
+4. Every canonical offchain object table (`DomainNode`, `IPAddressNode`, `IPRangeNode`, `NetworkServiceNode`, `CloudResourceNode`, `CodeRepositoryNode`, `SocialProfileNode`, `MobileAppNode`, `URLObject`, and `EmailAddress`) includes `discoveredByModules text[]`.
+
+`discoveredByModules` stores the deduplicated BBOT module names that emitted events for that object identity. For example, if `crt`, `subfinder`, and `dnsdumpster` all discover the same `DNS_NAME`, the single stored `DomainNode` row is updated to include all three module names. The same rule applies to IPs, IP ranges, network services/open ports, URLs, emails, cloud resources, code repositories, social profiles, and mobile apps.
+
+The ingester reads BBOT `event.module` as the source module. When a later event from a different module maps to an already-existing object, GuardianSentry updates `discoveredByModules` on that row instead of creating a duplicate object. BBOT may still suppress exact duplicate events from the same emitting module, but discoveries from different modules must reach GuardianSentry as separate emitted events, or BBOT must otherwise expose their module attribution, so this provenance field can be updated. GuardianSentry offchain scans force `modules.stdout.accept_dupes=true` for JSON output to preserve those cross-module duplicate events.
 
 ### 4.3 Extended WorldNodeType Enum
 
@@ -147,7 +152,7 @@ export enum WorldNodeType {
 
 Each entity type becomes a MikroORM entity extending `WorldNode` via TPT inheritance.
 
-Below is the current implemented attribute specification per node type. Common fields are inherited from `WorldNode`, and subtype tables include `createdAt` / `updatedAt` where implemented.
+Below is the current implemented attribute specification per node type. Common fields are inherited from `WorldNode`, and subtype tables include `createdAt` / `updatedAt` where implemented. All offchain node and model tables also include `discoveredByModules text[]`, which records the BBOT modules that discovered the canonical object.
 
 --
 
