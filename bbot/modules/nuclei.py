@@ -110,8 +110,13 @@ class nuclei(BaseModule):
                     self.warning(f"Failure while updating nuclei templates: {update_results.stderr}")
             else:
                 self.warning("Error running nuclei template update command")
-        self.template_source_dirs = await self.resolve_template_sources()
-        self.mobile_template_source_dirs = await self.resolve_template_sources(self.config.get("mobile_template_sources", ""))
+        self.template_source_dirs = await self.resolve_template_sources(self.config.get("template_sources", ""))
+        mobile_template_sources = self.config.get("mobile_template_sources", "")
+        if not mobile_template_sources:
+            guardian_mobile_templates = Path("/workspace/bbot-guardian/my_bbot/mobile-nuclei-templates")
+            if guardian_mobile_templates.is_dir():
+                mobile_template_sources = str(guardian_mobile_templates)
+        self.mobile_template_source_dirs = await self.resolve_template_sources(mobile_template_sources)
         self.proxy = self.scan.web_config.get("http_proxy", "")
         self.mode = self.config.get("mode", "severe").lower()
         self.ratelimit = int(self.config.get("ratelimit", 150))

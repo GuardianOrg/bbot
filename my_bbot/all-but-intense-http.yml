@@ -44,6 +44,7 @@ modules:
   - leaklookup_hash
   - medusa
   - naabu
+  - naabu_fast
   - newsletters
   - noseyparker
   - nuclei
@@ -58,6 +59,7 @@ modules:
   - subfinder
   - subzy
   - thc_rdns
+  - tcp_connect_verify
   - trufflehog
   - urlscan
   - virustotal
@@ -74,6 +76,7 @@ config:
       mode: manual
       tags: ""
       templates: ""
+      mobile_template_sources: /workspace/bbot-guardian/my_bbot/mobile-nuclei-templates
       severity: ""
       etags: ""
       ratelimit: 30
@@ -102,6 +105,33 @@ config:
       scan_all_ips: false
       expand_ip_ranges: true
       max_expanded_ip_range_hosts: 4096
+      port_chunk_size: 0
+      scan_passes: 1
+      scan_individual_targets: true
+      target_concurrency: 1
+    naabu_fast:
+      ports: 1-10000
+      rate: 6000
+      threads: 300
+      scan_type: c
+      retries: 1
+      timeout_ms: 800
+      process_timeout_multiplier: 2
+      process_timeout_grace: 30
+      exclude_cdn: false
+      scan_all_ips: false
+      verify: false
+      port_chunk_size: 0
+      scan_passes: 1
+      scan_individual_targets: true
+      target_concurrency: 1
+    tcp_connect_verify:
+      ports: ''
+      top_ports: 1000
+      connect_concurrency: 50
+      target_concurrency: 4
+      timeout_ms: 500
+      retries: 1
     dnsbrute:
       wordlist: https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt
       max_depth: 3

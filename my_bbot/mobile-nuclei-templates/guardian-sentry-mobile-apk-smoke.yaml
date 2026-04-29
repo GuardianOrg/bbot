@@ -1,0 +1,22 @@
+id: guardian-sentry-mobile-apk-smoke
+
+info:
+  name: GuardianSentry mobile APK scan verified
+  author: guardiansentry
+  severity: info
+  description: Verifies that Android APK artifacts are passed to mobile nuclei templates and converted into GuardianSentry findings.
+  remediation: This informational finding confirms the APK was scanned by the configured mobile nuclei template set.
+  tags: android,apk,guardian-sentry-mobile
+
+file:
+  - extensions:
+      - all
+    max-size: 104857600
+    matchers-condition: or
+    matchers:
+      - type: word
+        words:
+          - "package_name"
+      - type: word
+        words:
+          - "android.permission.INTERNET"
