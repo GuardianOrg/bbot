@@ -60,3 +60,63 @@ async def test_tcp_connect_verify_skips_rechecking_same_ip_across_batches(monkey
         ]
     finally:
         await scan._cleanup()
+
+
+@pytest.mark.asyncio
+async def test_tcp_connect_verify_expands_small_ip_ranges(monkeypatch):
+    scan = Scanner(
+        "1.1.1.0/30",
+        modules=[],
+        config={
+            "modules": {
+                "tcp_connect_verify": {
+                    "ports": "443",
+                    "retries": 1,
+                    "connect_concurrency": 1,
+                    "max_expanded_ip_range_hosts": 8,
+                }
+            }
+        },
+        force_start=True,
+    )
+
+    try:
+        module = tcp_connect_verify(scan)
+        scan.modules["tcp_connect_verify"] = module
+        assert await module.setup() is True
+        module.configured_ports = [443]
+        module.connect_concurrency = 1
+        module.retries = 1
+
+        range_event = scan.make_event("1.1.1.0/30", "IP_RANGE", parent=scan.root_event)
+
+        connection_attempts = []
+        emitted = []
+
+        class DummyWriter:
+            def close(self):
+                return None
+
+            async def wait_closed(self):
+                return None
+
+        async def fake_open_connection(host, port):
+            connection_attempts.append((host, port))
+            return object(), DummyWriter()
+
+        async def fake_emit_open_port(host, port, parent_event):
+            emitted.append((str(host), port, parent_event.data))
+            return None
+
+        monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
+        monkeypatch.setattr(module, "emit_open_port", fake_emit_open_port)
+
+        await module.handle_batch(range_event)
+
+        assert connection_attempts == [("1.1.1.1", 443), ("1.1.1.2", 443)]
+        assert emitted == [
+            ("1.1.1.1", 443, "1.1.1.0/30"),
+            ("1.1.1.2", 443, "1.1.1.0/30"),
+        ]
+    finally:
+        await scan._cleanup()

@@ -111,13 +111,13 @@ config:
       target_concurrency: 1
     naabu_fast:
       ports: 1-10000
-      rate: 6000
-      threads: 300
+      rate: 1200
+      threads: 200
       scan_type: c
-      retries: 1
-      timeout_ms: 800
-      process_timeout_multiplier: 2
-      process_timeout_grace: 30
+      retries: 3
+      timeout_ms: 3000
+      process_timeout_multiplier: 4
+      process_timeout_grace: 60
       exclude_cdn: false
       scan_all_ips: false
       verify: false

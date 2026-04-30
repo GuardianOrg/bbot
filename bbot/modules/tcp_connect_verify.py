@@ -10,7 +10,7 @@ from bbot.modules.naabu import NMAP_TOP_1000
 
 class tcp_connect_verify(BaseModule):
     flags = ["active", "portscan", "safe"]
-    watched_events = ["IP_ADDRESS"]
+    watched_events = ["IP_ADDRESS", "IP_RANGE"]
     produced_events = ["OPEN_TCP_PORT"]
     meta = {
         "description": "Direct TCP connect verifier for configured TCP ports.",
@@ -25,6 +25,7 @@ class tcp_connect_verify(BaseModule):
         "target_concurrency": 6,
         "timeout_ms": 1000,
         "retries": 2,
+        "max_expanded_ip_range_hosts": 4096,
         "module_timeout": 259200,
     }
     options_desc = {
@@ -34,6 +35,7 @@ class tcp_connect_verify(BaseModule):
         "target_concurrency": "Maximum target hosts to verify in parallel",
         "timeout_ms": "Per-port TCP connect timeout in milliseconds",
         "retries": "TCP connect attempts per port",
+        "max_expanded_ip_range_hosts": "Maximum IP_RANGE host count to expand before skipping the range",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
     }
 
@@ -47,6 +49,7 @@ class tcp_connect_verify(BaseModule):
         self.target_concurrency = max(1, int(self.config.get("target_concurrency", 6)))
         self.timeout_ms = int(self.config.get("timeout_ms", 1000))
         self.retries = max(1, int(self.config.get("retries", 1)))
+        self.max_expanded_ip_range_hosts = max(1, int(self.config.get("max_expanded_ip_range_hosts", 4096)))
         self.open_port_cache = {}
         self.scanned = self.helpers.make_target(acl_mode=True)
 
@@ -79,6 +82,20 @@ class tcp_connect_verify(BaseModule):
 
             with suppress(Exception):
                 ip = ipaddress.ip_network(event.host, strict=False)
+                if ip.num_addresses > 1:
+                    for host in self._range_hosts(ip):
+                        events_set = correlator.search(host)
+                        if events_set is None:
+                            correlator.insert(host, {event})
+                        else:
+                            events_set.add(event)
+                        if not self.scanned.get(host):
+                            self.scanned.add(host)
+                            targets.add(str(host.network_address))
+                        else:
+                            self.debug(f"Skipping {host} because it's already been verified")
+                    continue
+
                 if ip.num_addresses == 1:
                     ip_hash = hash(ip.network_address)
                     cached_open_ports = self.open_port_cache.get(ip_hash)
@@ -100,6 +117,19 @@ class tcp_connect_verify(BaseModule):
                         self.debug(f"Skipping {ip} because it's already been verified")
 
         return targets, correlator
+
+    def _range_hosts(self, ip):
+        host_count = ip.num_addresses
+        if ip.version == 4 and ip.prefixlen < 31:
+            host_count = max(0, host_count - 2)
+
+        if host_count > self.max_expanded_ip_range_hosts:
+            self.warning(
+                f"IP range {ip} has {host_count} hosts; skipping tcp_connect_verify because it exceeds max_expanded_ip_range_hosts={self.max_expanded_ip_range_hosts}"
+            )
+            return []
+
+        return [ipaddress.ip_network(str(host), strict=False) for host in ip.hosts()]
 
     async def verify_target_ports(self, target, correlator, emitted):
         ip = ipaddress.ip_address(str(target))

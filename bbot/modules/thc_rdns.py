@@ -74,7 +74,7 @@ class thc_rdns(thc_lookup_base):
 
             page_state = str(data.get("next_page_state", "")).strip()
             if not page_state:
-                return results
+                break
 
         if results:
             return results
