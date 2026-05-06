@@ -1,5 +1,6 @@
 import re
 import orjson
+from hashlib import sha256
 import tempfile
 import subprocess
 from pathlib import Path
@@ -208,6 +209,7 @@ class httpx(BaseModule):
                 if url_event != parent_event:
                     await self.emit_event(url_event)
                 # HTTP response
+                self.enrich_http_response(j)
                 content_type = j.get("header", {}).get("content_type", "unspecified").split(";")[0]
                 content_length = j.get("content_length", 0)
                 content_length = self.helpers.bytes_to_human(content_length)
@@ -226,3 +228,108 @@ class httpx(BaseModule):
     async def cleanup(self):
         resume_file = self.helpers.current_dir / "resume.cfg"
         resume_file.unlink(missing_ok=True)
+
+    def enrich_http_response(self, response):
+        response_body_hash = self.get_response_body_hash(response)
+        if response_body_hash:
+            response["responseBodyHash"] = response_body_hash
+
+        cookies = self.get_response_cookies(response)
+        if cookies:
+            response["cookies"] = cookies
+
+    def get_response_body_hash(self, response):
+        response_hash = response.get("hash", {})
+        if isinstance(response_hash, dict):
+            body_sha256 = self.normalize_sha256(response_hash.get("body_sha256"))
+            if body_sha256:
+                return body_sha256
+
+        body_sha256 = self.normalize_sha256(response.get("body_sha256"))
+        if body_sha256:
+            return body_sha256
+
+        body = response.get("body", None)
+        if isinstance(body, str):
+            return sha256(body.encode()).hexdigest()
+
+        return None
+
+    def normalize_sha256(self, value):
+        if not isinstance(value, str):
+            return None
+        value = value.strip().lower()
+        if value.startswith("sha256:"):
+            value = value[7:]
+        if re.match(r"^[a-f0-9]{64}$", value):
+            return value
+        return None
+
+    def get_response_cookies(self, response):
+        cookies = []
+        for header_value in self.get_header_values(response, "set-cookie"):
+            for set_cookie in self.split_set_cookie_header(header_value):
+                cookie = self.parse_set_cookie(set_cookie)
+                if cookie:
+                    cookies.append(cookie)
+        return cookies
+
+    def get_header_values(self, response, header_name):
+        header_name = header_name.lower()
+        headers = response.get("header-dict", {})
+        if isinstance(headers, dict):
+            found = False
+            for name, value in headers.items():
+                if str(name).lower() != header_name:
+                    continue
+                found = True
+                if isinstance(value, list):
+                    yield from (str(v) for v in value)
+                else:
+                    yield str(value)
+            if found:
+                return
+
+        raw_header = response.get("raw_header", "")
+        if isinstance(raw_header, str):
+            for line in raw_header.splitlines():
+                if ":" not in line:
+                    continue
+                name, value = line.split(":", 1)
+                if name.strip().lower() == header_name:
+                    yield value.strip()
+
+    def split_set_cookie_header(self, value):
+        cookies = []
+        start = 0
+        for i, char in enumerate(value):
+            if char != ",":
+                continue
+            if re.match(r"^\s*[^=;,\s]+=", value[i + 1 :]):
+                cookies.append(value[start:i].strip())
+                start = i + 1
+        cookies.append(value[start:].strip())
+        return [c for c in cookies if c]
+
+    def parse_set_cookie(self, value):
+        parsed = SimpleCookie()
+        try:
+            parsed.load(value)
+        except Exception:
+            return None
+
+        for name, morsel in parsed.items():
+            cookie = {"name": name, "value": morsel.value}
+            domain = morsel["domain"]
+            if domain:
+                cookie["domain"] = domain
+            if morsel["secure"]:
+                cookie["secure"] = True
+            if morsel["httponly"]:
+                cookie["httponly"] = True
+            samesite = morsel["samesite"]
+            if samesite:
+                cookie["samesite"] = samesite
+            return cookie
+
+        return None

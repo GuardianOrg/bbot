@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 from .base import ModuleTestBase
 
 
@@ -35,7 +37,12 @@ class TestHTTPXBase(ModuleTestBase):
         respond_args = {"response_data": self.html_without_login}
         module_test.set_expect_requests(request_args, respond_args)
         request_args = {"uri": "/url", "headers": {"test": "header"}}
-        respond_args = {"response_data": self.html_with_login}
+        respond_args = {
+            "response_data": self.html_with_login,
+            "headers": {
+                "Set-Cookie": "session=abc123; Domain=127.0.0.1; HttpOnly; Secure; SameSite=Lax",
+            },
+        }
         module_test.set_expect_requests(request_args, respond_args)
 
     def check(self, module_test, events):
@@ -48,6 +55,17 @@ class TestHTTPXBase(ModuleTestBase):
                     open_port = True
                 elif e.data["path"] == "/url":
                     assert "login-page" in e.tags
+                    assert e.data["responseBodyHash"] == sha256(self.html_with_login.encode()).hexdigest()
+                    assert e.data["cookies"] == [
+                        {
+                            "name": "session",
+                            "value": "abc123",
+                            "domain": "127.0.0.1",
+                            "secure": True,
+                            "httponly": True,
+                            "samesite": "Lax",
+                        }
+                    ]
                     url = True
         assert url, "Failed to visit target URL"
         assert open_port, "Failed to visit target OPEN_TCP_PORT"
