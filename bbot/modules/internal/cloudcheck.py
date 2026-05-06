@@ -7,6 +7,7 @@ from bbot.modules.base import BaseInterceptModule
 
 class CloudCheck(BaseInterceptModule):
     watched_events = ["*"]
+    produced_events = ["GEOLOCATION", "STORAGE_BUCKET"]
     meta = {
         "description": "Tag events by cloud provider, identify cloud resources like storage buckets",
         "created_date": "2024-07-07",
@@ -45,6 +46,8 @@ class CloudCheck(BaseInterceptModule):
             for provider in cloudcheck_results:
                 provider_name = provider["name"].lower()
                 tags = provider.get("tags", [])
+                if host_is_ip:
+                    await self.emit_cloud_ip_metadata(event, host, provider_name, tags)
                 for tag in tags:
                     event.add_tag(tag)
                     event.add_tag(f"{tag}-{provider_name}")
@@ -123,3 +126,22 @@ class CloudCheck(BaseInterceptModule):
             "google": "gcp",
             "microsoft": "azure",
         }.get(provider_name, provider_name)
+
+    async def emit_cloud_ip_metadata(self, event, host, provider_name, tags):
+        provider_slug = self._provider_slug(provider_name)
+        tag_set = {str(tag).lower() for tag in tags}
+        is_cdn = "cdn" in tag_set
+        data = {
+            "ip": str(host),
+            "cloudProvider": provider_slug,
+            "providerType": "cdn" if is_cdn else "cloud",
+        }
+        if is_cdn:
+            data["isCdn"] = True
+            data["cdnName"] = provider_slug
+        await self.emit_event(
+            data,
+            "GEOLOCATION",
+            parent=event,
+            context=f"{{module}} classified {host} as {{event.type}} cloud metadata",
+        )

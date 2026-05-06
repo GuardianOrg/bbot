@@ -53,15 +53,29 @@ class Ipstack(BaseModule):
                 self.warning(error_msg)
             return
         elif geo_data:
-            country = geo_data.get("country_name", "unknown country")
-            region = geo_data.get("region_name", "unknown region")
-            city = geo_data.get("city", "unknown city")
-            lat = geo_data.get("latitude", "")
-            long = geo_data.get("longitude", "")
+            normalized_geo_data = {
+                **geo_data,
+                "country": self.clean_string(geo_data.get("country_name")),
+                "region": self.clean_string(geo_data.get("region_name")),
+                "city": self.clean_string(geo_data.get("city")),
+                "latitude": geo_data.get("latitude") if isinstance(geo_data.get("latitude"), (int, float)) else None,
+                "longitude": geo_data.get("longitude") if isinstance(geo_data.get("longitude"), (int, float)) else None,
+            }
+            normalized_geo_data = {k: v for k, v in normalized_geo_data.items() if v not in (None, "", [])}
+            country = normalized_geo_data.get("country", "unknown country")
+            region = normalized_geo_data.get("region", "unknown region")
+            city = normalized_geo_data.get("city", "unknown city")
+            lat = normalized_geo_data.get("latitude", "")
+            long = normalized_geo_data.get("longitude", "")
             description = f"{city}, {region}, {country} ({lat}, {long})"
             await self.emit_event(
-                geo_data,
+                normalized_geo_data,
                 "GEOLOCATION",
                 event,
                 context=f'{{module}} queried ipstack.com\'s API for "{event.data}" and found {{event.type}}: {description}',
             )
+
+    def clean_string(self, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None

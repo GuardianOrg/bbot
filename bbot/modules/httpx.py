@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 from pathlib import Path
 from http.cookies import SimpleCookie
+from urllib.parse import unquote
 
 from bbot.modules.base import BaseModule
 
@@ -230,6 +231,14 @@ class httpx(BaseModule):
         resume_file.unlink(missing_ok=True)
 
     def enrich_http_response(self, response):
+        title = response.get("title", None)
+        if isinstance(title, str) and title:
+            response["title"] = unquote(title)
+
+        headers = self.get_response_headers(response)
+        if headers:
+            response["responseHeaders"] = headers
+
         response_body_hash = self.get_response_body_hash(response)
         if response_body_hash:
             response["responseBodyHash"] = response_body_hash
@@ -237,6 +246,24 @@ class httpx(BaseModule):
         cookies = self.get_response_cookies(response)
         if cookies:
             response["cookies"] = cookies
+
+        header_fields = {
+            "server": self.get_first_header_value(response, "server"),
+            "csp": self.get_first_header_value(response, "content-security-policy"),
+            "corsOrigin": self.get_first_header_value(response, "access-control-allow-origin"),
+            "xFrameOptions": self.get_first_header_value(response, "x-frame-options"),
+            "contentType": self.get_first_header_value(response, "content-type"),
+        }
+        for key, value in header_fields.items():
+            if value:
+                response[key] = value
+
+        content_length = self.get_content_length(response)
+        if content_length is not None:
+            response["contentLength"] = content_length
+
+        if self.get_first_header_value(response, "strict-transport-security"):
+            response["hsts"] = True
 
     def get_response_body_hash(self, response):
         response_hash = response.get("hash", {})
@@ -298,6 +325,44 @@ class httpx(BaseModule):
                 name, value = line.split(":", 1)
                 if name.strip().lower() == header_name:
                     yield value.strip()
+
+    def get_response_headers(self, response):
+        header_dict = response.get("header-dict", {})
+        if isinstance(header_dict, dict):
+            headers = []
+            for name, value in header_dict.items():
+                if isinstance(value, list):
+                    headers.extend({"name": str(name), "value": str(v)} for v in value)
+                else:
+                    headers.append({"name": str(name), "value": str(value)})
+            if headers:
+                return headers
+
+        raw_header = response.get("raw_header", "")
+        if not isinstance(raw_header, str):
+            return []
+        headers = []
+        for line in raw_header.splitlines():
+            if ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            headers.append({"name": name.strip().lower(), "value": value.strip()})
+        return headers
+
+    def get_first_header_value(self, response, header_name):
+        for value in self.get_header_values(response, header_name):
+            return value
+        return None
+
+    def get_content_length(self, response):
+        content_length = self.get_first_header_value(response, "content-length")
+        if content_length is None:
+            content_length = response.get("content_length", None)
+        try:
+            content_length = int(content_length)
+        except (TypeError, ValueError):
+            return None
+        return content_length if content_length >= 0 else None
 
     def split_set_cookie_header(self, value):
         cookies = []

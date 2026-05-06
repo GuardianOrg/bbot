@@ -61,15 +61,46 @@ class ipwhois(BaseModule):
                 self.warning(error_msg)
             return
 
-        country = geo_data.get("country", "unknown country")
-        region = geo_data.get("region", "unknown region")
-        city = geo_data.get("city", "unknown city")
-        lat = geo_data.get("latitude", "")
-        long = geo_data.get("longitude", "")
+        normalized_geo_data = {
+            **geo_data,
+            "ip": self.clean_string(geo_data.get("ip")) or str(event.data),
+            "country": self.clean_string(geo_data.get("country")),
+            "region": self.clean_string(geo_data.get("region")),
+            "city": self.clean_string(geo_data.get("city")),
+            "latitude": geo_data.get("latitude") if isinstance(geo_data.get("latitude"), (int, float)) else None,
+            "longitude": geo_data.get("longitude") if isinstance(geo_data.get("longitude"), (int, float)) else None,
+            "isp": self.clean_string(geo_data.get("connection", {}).get("isp") if isinstance(geo_data.get("connection"), dict) else None),
+            "asn": self.clean_asn(geo_data.get("connection", {}).get("asn") if isinstance(geo_data.get("connection"), dict) else None),
+            "cloudProvider": self.clean_string(geo_data.get("datacenter", {}).get("datacenter") if isinstance(geo_data.get("datacenter"), dict) else None),
+            "providerType": self.clean_string(geo_data.get("company", {}).get("type") if isinstance(geo_data.get("company"), dict) else None),
+        }
+        normalized_geo_data = {k: v for k, v in normalized_geo_data.items() if v not in (None, "", [])}
+
+        country = normalized_geo_data.get("country", "unknown country")
+        region = normalized_geo_data.get("region", "unknown region")
+        city = normalized_geo_data.get("city", "unknown city")
+        lat = normalized_geo_data.get("latitude", "")
+        long = normalized_geo_data.get("longitude", "")
         description = f"{city}, {region}, {country} ({lat}, {long})"
         await self.emit_event(
-            geo_data,
+            normalized_geo_data,
             "GEOLOCATION",
             event,
             context=f'{{module}} queried ipwho.is API for "{event.data}" and found {{event.type}}: {description}',
         )
+
+    def clean_string(self, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    def clean_asn(self, value):
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            value = value.strip().upper()
+            if value.startswith("AS"):
+                value = value[2:]
+            if value.isdigit():
+                return int(value)
+        return None

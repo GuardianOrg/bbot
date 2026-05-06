@@ -40,6 +40,10 @@ class TestHTTPXBase(ModuleTestBase):
         respond_args = {
             "response_data": self.html_with_login,
             "headers": {
+                "Content-Security-Policy": "default-src 'self'",
+                "X-Frame-Options": "DENY",
+                "Access-Control-Allow-Origin": "https://example.com",
+                "Strict-Transport-Security": "max-age=31536000",
                 "Set-Cookie": "session=abc123; Domain=127.0.0.1; HttpOnly; Secure; SameSite=Lax",
             },
         }
@@ -56,6 +60,14 @@ class TestHTTPXBase(ModuleTestBase):
                 elif e.data["path"] == "/url":
                     assert "login-page" in e.tags
                     assert e.data["responseBodyHash"] == sha256(self.html_with_login.encode()).hexdigest()
+                    assert e.data["server"]
+                    assert e.data["contentType"].startswith("text/")
+                    assert e.data["contentLength"] == len(self.html_with_login)
+                    assert e.data["csp"] == "default-src 'self'"
+                    assert e.data["xFrameOptions"] == "DENY"
+                    assert e.data["corsOrigin"] == "https://example.com"
+                    assert e.data["hsts"] is True
+                    assert {"name": "content-security-policy", "value": "default-src 'self'"} in e.data["responseHeaders"]
                     assert e.data["cookies"] == [
                         {
                             "name": "session",
