@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from bbot.core.engine import EngineServer
 from bbot.core.helpers.misc import bytes_to_human, human_to_bytes, get_exception_chain, truncate_string
+from .ssl_context import create_ssl_context_noverify
 
 log = logging.getLogger("bbot.core.helpers.web.engine")
 
@@ -165,13 +166,7 @@ class HTTPEngine(EngineServer):
 
     def ssl_context_noverify(self):
         if self._ssl_context_noverify is None:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            ssl_context.options &= ~ssl.OP_NO_SSLv2 & ~ssl.OP_NO_SSLv3
-            ssl_context.set_ciphers("ALL:@SECLEVEL=0")
-            ssl_context.options |= 0x4  # Add the OP_LEGACY_SERVER_CONNECT option
-            self._ssl_context_noverify = ssl_context
+            self._ssl_context_noverify = create_ssl_context_noverify()
         return self._ssl_context_noverify
 
     @asynccontextmanager

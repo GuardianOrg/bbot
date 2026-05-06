@@ -23,6 +23,12 @@ class azure_tenant(BaseModule):
         return True
 
     async def handle_event(self, event):
+        _, event_domain = self.helpers.split_domain(event.data)
+        domain_hash = hash(event_domain)
+        if domain_hash in self.processed:
+            return
+        self.processed.add(domain_hash)
+
         _, registered_domain = self.helpers.split_domain(event.data)
         query_candidates = []
         for candidate in (str(event.data).lower(), registered_domain.lower()):
@@ -40,22 +46,19 @@ class azure_tenant(BaseModule):
         if not tenant_data:
             return
 
-        realm_info = await self.query_user_realm(query)
-        dns_evidence = await self.query_dns_evidence(query)
-        if not self.should_emit_tenant(
-            query,
-            tenant_data.get("tenant_id"),
-            realm_info,
-            tenant_data.get("email_domains", []),
-            dns_evidence,
-        ):
-            self.verbose(f'Skipping azure_tenant result for "{query}" because tenant evidence was too weak')
-            return
-
         tenant_id = tenant_data.get("tenant_id")
         tenant_name = tenant_data.get("tenant_name")
         email_domains = tenant_data.get("email_domains", [])
         source = tenant_data.get("_source", "azmap.dev")
+
+        realm_info = {}
+        dns_evidence = {}
+        if not self.should_emit_tenant(query, tenant_id, realm_info, email_domains, dns_evidence):
+            realm_info = await self.query_user_realm(query)
+            dns_evidence = await self.query_dns_evidence(query)
+            if not self.should_emit_tenant(query, tenant_id, realm_info, email_domains, dns_evidence):
+                self.verbose(f'Skipping azure_tenant result for "{query}" because tenant evidence was too weak')
+                return
 
         if email_domains:
             self.verbose(
