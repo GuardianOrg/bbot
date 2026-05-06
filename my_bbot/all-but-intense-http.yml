@@ -16,7 +16,7 @@ modules:
   - crt
   - crt_db
   - dehashed
-  - dnscaa
+  - domain_whois
   - dnscommonsrv
   - dnsbrute
   - dnsbrute_mutations
@@ -35,6 +35,7 @@ modules:
   - httpx
   - host_reputation
   - hunterio
+  - ip_privacy
   - ipwhois
   - ipstack
   - jadx
@@ -184,6 +185,25 @@ config:
       api_key: ${env:GITLAB_COM_API_KEY}
     hunterio:
       api_key: ${env:HUNTERIO_API_KEY}
+    ip_privacy:
+      tor_urls:
+        - https://check.torproject.org/torbulkexitlist
+        - https://opendbl.net/tor-exit.list
+        - https://raw.githubusercontent.com/alireza-rezaee/tor-nodes/master/tor_exit_nodes_ip.txt
+      proxy_urls:
+        - https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_proxies.netset
+        - https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_anonymous.netset
+        - https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt
+        - https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt
+        - https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt
+        - https://raw.githubusercontent.com/iplocate/free-proxy-list/main/all-proxies.txt
+      vpn_urls:
+        - https://raw.githubusercontent.com/X4BNet/lists_vpn/master/output/vpn/ipv4.txt
+        - https://raw.githubusercontent.com/NazgulCoder/IPLists/main/vpn/ipv4.txt
+        - https://raw.githubusercontent.com/az0/vpn_ip/master/ip.txt
+        - https://raw.githubusercontent.com/TN3W/ProtonVPN-IPs/main/protonvpn_ips.txt
+        - https://raw.githubusercontent.com/TN3W/Windscribe-IPs/main/windscribe_ips.txt
+      cache_for: 86400
     ipstack:
       api_key: ${env:IPSTACK_API_KEY}
     leaklookup:
@@ -192,6 +212,9 @@ config:
       api_key: ${env:OTX_API_KEY}
     securitytrails:
       api_key: ${env:SECURITYTRAILS_API_KEY}
+    shodan_idb:
+      api_key: ${env:SHODAN_API_KEY}
+      full_host: true
     shodan_dns:
       api_key: ${env:SHODAN_API_KEY}
     subfinder:

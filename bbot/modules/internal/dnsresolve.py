@@ -1,15 +1,41 @@
 import ipaddress
+import re
 from contextlib import suppress
 
 from bbot.errors import ValidationError
 from bbot.core.helpers.dns.engine import all_rdtypes
-from bbot.core.helpers.dns.helpers import extract_targets
+from bbot.core.helpers.dns.helpers import extract_targets, service_record
+from bbot.core.helpers.regexes import dns_name_extraction_regex, email_regex, url_regexes
 from bbot.modules.base import BaseInterceptModule, BaseModule
+
+
+_caa_regex = r"^(?P<flags>[0-9]+) +(?P<property>\w+) +\"(?P<text>[^;\"]*);* *(?P<extensions>[^\"]*)\"$"
+caa_regex = re.compile(_caa_regex)
+
+_bimi_regex = r"^v=(?P<v>BIMI1);\s?(?:l=(?P<l>https?://[^;\s]{1,255})?)?;?(?:\s?a=(?P<a>https://[^;\s]{1,255})?;?)?$"
+bimi_regex = re.compile(_bimi_regex, re.I)
+
+_dmarc_regex = r"^v=(?P<v>DMARC1); *(?P<kvps>.*)$"
+dmarc_regex = re.compile(_dmarc_regex, re.I)
+
+_dmarc_kvp_regex = r"(?P<k>\w+)\s*=\s*(?P<v>[^;]+);*"
+dmarc_kvp_regex = re.compile(_dmarc_kvp_regex)
+
+_tlsrpt_regex = r"^v=(?P<v>TLSRPTv[0-9]+); *(?P<kvps>.*)$"
+tlsrpt_regex = re.compile(_tlsrpt_regex, re.I)
+
+_tlsrpt_kvp_regex = r"(?P<k>\w+)=(?P<v>[^;]+);*"
+tlsrpt_kvp_regex = re.compile(_tlsrpt_kvp_regex)
+
+_csul = r"(?P<uri>[^, ]+)"
+csul = re.compile(_csul)
+
+simple_url_regex = re.compile(r"https?://[^;\s]+", re.I)
 
 
 class DNSResolve(BaseInterceptModule):
     watched_events = ["*"]
-    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD"]
+    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD", "EMAIL_ADDRESS", "URL_UNVERIFIED", "FINDING"]
     meta = {"description": "Perform DNS resolution", "created_date": "2022-04-08", "author": "@TheTechromancer"}
     _priority = 1
     scope_distance_modifier = None
@@ -37,11 +63,18 @@ class DNSResolve(BaseInterceptModule):
         self.dns_search_distance = max(0, int(self.dns_config.get("search_distance", 1)))
         self.emit_out_of_scope_children = self.dns_config.get("emit_out_of_scope_children", True)
         self._emit_raw_records = None
+        self.bimi_selectors = [
+            selector.strip()
+            for selector in str(self.dns_config.get("bimi_selectors", "default,email,mail,bimi")).split(",")
+            if selector.strip()
+        ]
 
         self.host_module = self.HostModule(self.scan)
         self.children_emitted = set()
         self.children_emitted_raw = set()
         self.hosts_resolved = set()
+        self.policy_queries_done = set()
+        self.policy_events_emitted = set()
 
         return True
 
@@ -81,6 +114,8 @@ class DNSResolve(BaseInterceptModule):
             # if the event is within our dns search distance, resolve the rest of our records
             if main_host_event.scope_distance < self._dns_search_distance:
                 await self.resolve_event(main_host_event, types=non_minimal_rdtypes)
+                if new_event or event is main_host_event:
+                    await self.emit_policy_events(main_host_event)
                 # check for wildcards if the event is within the scan's search distance
                 if new_event and main_host_event.scope_distance <= self.scan.scope_search_distance:
                     event_data_changed = await self.handle_wildcard_event(main_host_event)
@@ -219,6 +254,276 @@ class DNSResolve(BaseInterceptModule):
                             tags=tags,
                             context=f"{rdtype} lookup on {{event.parent.host}} produced {{event.type}}",
                         )
+
+    async def emit_policy_events(self, event):
+        host = str(event.host or "").strip().rstrip(".").lower()
+        if not host or not self.helpers.is_domain(host):
+            return
+        if "_wildcard" in host.split("."):
+            return
+        if service_record(host) is True:
+            return
+
+        await self.emit_google_workspace_finding(event, host)
+        await self.emit_caa_enrichments(event, host)
+        await self.emit_dmarc_enrichments(event, host)
+        await self.emit_tlsrpt_enrichments(event, host)
+        await self.emit_bimi_enrichments(event, host)
+
+    async def emit_google_workspace_finding(self, event, host):
+        dedup_key = ("google-workspace", host)
+        if dedup_key in self.policy_queries_done:
+            return
+        self.policy_queries_done.add(dedup_key)
+
+        signals = set()
+        for answer in event.raw_dns_records.get("TXT", set()):
+            value = self.normalize_txt_answer(answer.to_text()).lower()
+            if "include:_spf.google.com" in value:
+                signals.add("spf-google")
+
+        for answer in event.raw_dns_records.get("MX", set()):
+            value = answer.to_text().strip().lower()
+            if any(
+                marker in value
+                for marker in (
+                    " smtp.google.com",
+                    " aspmx.l.google.com",
+                    ".googlemail.com",
+                    ".google.com",
+                )
+            ):
+                signals.add("mx-google")
+
+        if not signals:
+            return
+
+        await self.emit_unique_policy_event(
+            ("FINDING", host, "google-workspace"),
+            {
+                "host": host,
+                "title": f"Google Workspace detected for {host}",
+                "category": "domain-classification",
+                "description": f"Detected Google Workspace DNS signals for {host}: {', '.join(sorted(signals))}",
+                "is_google_workspace": True,
+                "signals": sorted(signals),
+                "template": "dnsresolve-google-workspace",
+            },
+            "FINDING",
+            event,
+            ["domain-classification", "google-workspace"],
+            f'{{module}} analyzed DNS for "{host}" and produced {{event.type}}',
+        )
+
+    async def emit_caa_enrichments(self, event, host):
+        dedup_key = ("caa", host)
+        if dedup_key in self.policy_queries_done:
+            return
+        self.policy_queries_done.add(dedup_key)
+
+        answers = list(event.raw_dns_records.get("CAA", set()))
+        if not answers:
+            results = await self.helpers.resolve_raw(host, type="CAA")
+            if results:
+                raw_results, _errors = results
+                answers = list(raw_results)
+
+        for answer in answers:
+            value = answer.to_text().strip().replace('" "', "")
+            caa_match = caa_regex.search(value)
+            if not caa_match or not caa_match.group("property") or not caa_match.group("text"):
+                continue
+
+            property_name = caa_match.group("property").lower()
+            text = caa_match.group("text")
+            tags = ["caa-record"]
+            if property_name == "iodef":
+                await self.emit_email_matches(event, host, text, tags)
+                await self.emit_url_matches(event, host, text, tags)
+            elif property_name.startswith("issue"):
+                for match in dns_name_extraction_regex.finditer(text):
+                    start, end = match.span()
+                    dns_name = text[start:end]
+                    await self.emit_unique_policy_event(
+                        ("DNS_NAME", host, dns_name.lower(), property_name),
+                        dns_name,
+                        "DNS_NAME",
+                        event,
+                        tags,
+                        f'{{module}} parsed a CAA record for "{host}" and found {{event.type}}: {{event.data}}',
+                    )
+
+    async def emit_dmarc_enrichments(self, event, host):
+        dedup_key = ("dmarc", host)
+        if dedup_key in self.policy_queries_done:
+            return
+        self.policy_queries_done.add(dedup_key)
+
+        record_host = f"_dmarc.{host}"
+        answers = await self.resolve_policy_txt_answers(event, record_host, ["dmarc-record"])
+        for answer in answers:
+            value = self.normalize_txt_answer(answer.to_text())
+            dmarc_match = dmarc_regex.search(value)
+            if not dmarc_match or not dmarc_match.group("kvps"):
+                continue
+
+            for kvp_match in dmarc_kvp_regex.finditer(dmarc_match.group("kvps")):
+                key = kvp_match.group("k").lower()
+                if key not in ("rua", "ruf"):
+                    continue
+                for candidate in [entry.strip() for entry in kvp_match.group("v").split(",") if entry.strip()]:
+                    await self.emit_email_matches(event, record_host, candidate, ["dmarc-record", f"dmarc-record-{key}"])
+                    await self.emit_url_matches(event, record_host, candidate, ["dmarc-record", f"dmarc-record-{key}"])
+
+    async def emit_tlsrpt_enrichments(self, event, host):
+        dedup_key = ("tlsrpt", host)
+        if dedup_key in self.policy_queries_done:
+            return
+        self.policy_queries_done.add(dedup_key)
+
+        record_host = f"_smtp._tls.{host}"
+        answers = await self.resolve_policy_txt_answers(event, record_host, ["tlsrpt-record"])
+        for answer in answers:
+            value = self.normalize_txt_answer(answer.to_text())
+            tlsrpt_match = tlsrpt_regex.search(value)
+            if not tlsrpt_match or not tlsrpt_match.group("kvps"):
+                continue
+
+            for kvp_match in tlsrpt_kvp_regex.finditer(tlsrpt_match.group("kvps")):
+                key = kvp_match.group("k").lower()
+                if key != "rua":
+                    continue
+                for csul_match in csul.finditer(kvp_match.group("v")):
+                    uri = csul_match.group("uri")
+                    if not uri:
+                        continue
+                    await self.emit_email_matches(event, record_host, uri, ["tlsrpt-record", f"tlsrpt-record-{key}"])
+                    await self.emit_url_matches(event, record_host, uri, ["tlsrpt-record", f"tlsrpt-record-{key}"])
+
+    async def emit_bimi_enrichments(self, event, host):
+        bimi_domains = [host]
+        parent_domain = self.helpers.parent_domain(host)
+        if parent_domain and parent_domain != host:
+            bimi_domains.append(parent_domain)
+
+        for bimi_domain in dict.fromkeys(bimi_domains):
+            dedup_key = ("bimi", bimi_domain)
+            if dedup_key in self.policy_queries_done:
+                continue
+            self.policy_queries_done.add(dedup_key)
+
+            for selector in self.bimi_selectors:
+                record_host = f"{selector}._bimi.{bimi_domain}"
+                tags = ["bimi-record", f"bimi-{selector}"]
+                answers = await self.resolve_policy_txt_answers(event, record_host, tags)
+                for answer in answers:
+                    value = self.normalize_txt_answer(answer.to_text())
+                    bimi_values = self.parse_semicolon_kv_record(value)
+                    if str(bimi_values.get("v", "")).upper() != "BIMI1":
+                        continue
+
+                    await self.emit_url_matches(event, record_host, value, tags)
+
+                    location = str(bimi_values.get("l", "")).strip().rstrip(";,.")
+                    if location:
+                        await self.emit_unique_policy_event(
+                            ("URL_UNVERIFIED", record_host, location, "bimi-location"),
+                            location,
+                            "URL_UNVERIFIED",
+                            event,
+                            tags + ["bimi-location"],
+                            f'{{module}} parsed a BIMI record for "{record_host}" and found {{event.type}}: {{event.data}}',
+                        )
+
+                    authority = str(bimi_values.get("a", "")).strip().rstrip(";,.")
+                    if authority:
+                        await self.emit_unique_policy_event(
+                            ("URL_UNVERIFIED", record_host, authority, "bimi-authority"),
+                            authority,
+                            "URL_UNVERIFIED",
+                            event,
+                            tags + ["bimi-authority"],
+                            f'{{module}} parsed a BIMI record for "{record_host}" and found {{event.type}}: {{event.data}}',
+                        )
+
+    async def resolve_policy_txt_answers(self, event, hostname, tags):
+        results = await self.helpers.resolve_raw(hostname, type="TXT")
+        if not results:
+            return []
+
+        raw_results, _errors = results
+        if self.emit_raw_records:
+            for answer in raw_results:
+                await self.emit_unique_policy_event(
+                    ("RAW_DNS_RECORD", hostname, answer.to_text()),
+                    {"host": hostname, "type": "TXT", "answer": answer.to_text()},
+                    "RAW_DNS_RECORD",
+                    event,
+                    list(tags) + ["txt-record"],
+                    f"TXT lookup on {hostname} produced {{event.type}}",
+                )
+
+        return list(raw_results)
+
+    async def emit_email_matches(self, event, record_host, text, tags):
+        for match in email_regex.finditer(text):
+            start, end = match.span()
+            email = text[start:end]
+            await self.emit_unique_policy_event(
+                ("EMAIL_ADDRESS", record_host, email.lower(), tuple(tags)),
+                email,
+                "EMAIL_ADDRESS",
+                event,
+                tags,
+                f'{{module}} parsed DNS policy data for "{record_host}" and found {{event.type}}: {{event.data}}',
+            )
+
+    async def emit_url_matches(self, event, record_host, text, tags):
+        matched_urls = []
+        for url_regex in url_regexes:
+            for match in url_regex.finditer(text):
+                start, end = match.span()
+                url = text[start:end].strip('"').strip().rstrip(";,.")
+                matched_urls.append(url)
+
+        if not matched_urls:
+            matched_urls.extend(
+                match.group(0).strip('"').strip().rstrip(";,.") for match in simple_url_regex.finditer(str(text or ""))
+            )
+
+        for url in dict.fromkeys(matched_urls):
+            await self.emit_unique_policy_event(
+                ("URL_UNVERIFIED", record_host, url, tuple(tags)),
+                url,
+                "URL_UNVERIFIED",
+                event,
+                tags,
+                f'{{module}} parsed DNS policy data for "{record_host}" and found {{event.type}}: {{event.data}}',
+            )
+
+    async def emit_unique_policy_event(self, dedup_key, payload, event_type, parent, tags, context):
+        if dedup_key in self.policy_events_emitted:
+            return
+        self.policy_events_emitted.add(dedup_key)
+        await self.emit_event(payload, event_type, parent=parent, tags=tags, context=context)
+
+    def normalize_txt_answer(self, value):
+        text = str(value or "").strip()
+        if ((text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'"))):
+            return text[1:-1]
+        return text.replace('" "', "").replace('"', "")
+
+    def parse_semicolon_kv_record(self, value):
+        parsed = {}
+        for part in str(value or "").split(";"):
+            if "=" not in part:
+                continue
+            key, raw_value = part.split("=", 1)
+            key = key.strip().lower()
+            if not key:
+                continue
+            parsed[key] = raw_value.strip()
+        return parsed
 
     def check_scope(self, event):
         whitelisted = False

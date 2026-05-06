@@ -31,7 +31,7 @@ class postman(postman):
                 elif event.type == "ORG_STUB":
                     context = f'{{module}} searched postman.com for "{owner}" and found matching workspace "{repo_name}" at {{event.type}}: {repo_url}'
                 await self.emit_event(
-                    {"url": repo_url},
+                    {"url": repo_url, "platform": "postman", "owner": owner, "repo_name": repo_name},
                     "CODE_REPOSITORY",
                     tags="postman",
                     parent=event,

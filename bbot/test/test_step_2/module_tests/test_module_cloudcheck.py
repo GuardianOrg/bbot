@@ -68,6 +68,9 @@ class TestCloudCheck(ModuleTestBase):
                 for e in events
                 if e.type == "STORAGE_BUCKET"
                 and e.data["name"] == "asdf"
+                and e.data["provider"] == "aws"
+                and e.data["resource_type"] == "storage_bucket"
+                and e.data["is_public"] is False
                 and str(e.module) == "cloudcheck"
                 and "cloud-amazon" in e.tags
                 and "amazon-domain" in e.tags
@@ -80,6 +83,9 @@ class TestCloudCheck(ModuleTestBase):
                 for e in events
                 if e.type == "STORAGE_BUCKET"
                 and e.data["name"] == "asdf2"
+                and e.data["provider"] == "gcp"
+                and e.data["resource_type"] == "storage_bucket"
+                and e.data["is_public"] is False
                 and str(e.module) == "cloudcheck"
                 and "cloud-google" in e.tags
                 and "google-domain" in e.tags

@@ -46,6 +46,29 @@ class TestVirusTotal(ModuleTestBase):
                 },
             },
         )
+        module_test.httpx_mock.add_response(
+            url="https://www.virustotal.com/api/v3/domains/blacklanternsecurity.com/resolutions",
+            json={
+                "data": [
+                    {
+                        "attributes": {
+                            "date": 1591813960,
+                            "host_name": "blacklanternsecurity.com",
+                            "ip_address": "1.2.3.4",
+                            "resolver": "VirusTotal",
+                        },
+                        "type": "resolution",
+                    }
+                ],
+                "links": {"self": "https://www.virustotal.com/api/v3/domains/blacklanternsecurity.com/resolutions"},
+            },
+        )
 
     def check(self, module_test, events):
         assert any(e.data == "asdf.blacklanternsecurity.com" for e in events), "Failed to detect subdomain"
+        assert any(
+            e.type == "DOMAIN_DNS_HISTORY"
+            and e.data["host"] == "blacklanternsecurity.com"
+            and e.data["records"][0]["ip"] == "1.2.3.4"
+            for e in events
+        ), "Failed to emit domain DNS history"

@@ -53,7 +53,7 @@ class Bucket_Amazon_Base(ModuleTestBase):
     async def setup_after_prep(self, module_test):
         self.bucket_setup()
         # patch mutations
-        module_test.scan.helpers.word_cloud.mutations = lambda b, cloud=False: [
+        module_test.scan.helpers.word_cloud.mutations = lambda b, **kwargs: [
             (b, "dev"),
         ]
         module_test.set_expect_requests(
@@ -64,10 +64,44 @@ class Bucket_Amazon_Base(ModuleTestBase):
                 url=self.url_2,
                 text=self.open_bucket_body,
             )
+            if self.module_name == "bucket_amazon":
+                module_test.httpx_mock.add_response(
+                    url=self.url_2.rstrip("/"),
+                    text=self.open_bucket_body,
+                )
+            elif self.module_name == "bucket_firebase":
+                module_test.httpx_mock.add_response(
+                    url=self.url_2,
+                    text=self.open_bucket_body,
+                )
+                module_test.httpx_mock.add_response(
+                    url=f"{self.url_2.rstrip('/')}/.json",
+                    text=self.open_bucket_body,
+                )
+                module_test.httpx_mock.add_response(
+                    url=f"{self.url_2.rstrip('/')}/.json",
+                    text=self.open_bucket_body,
+                )
+            elif self.module_name == "bucket_google":
+                permissions = "&".join(["=".join(("permissions", p)) for p in module_test.module.bad_permissions])
+                module_test.httpx_mock.add_response(
+                    url=f"https://www.googleapis.com/storage/v1/b/{random_bucket_name_2}/iam/testPermissions?{permissions}",
+                    json={"permissions": module_test.module.bad_permissions},
+                )
+            elif self.module_name == "bucket_microsoft":
+                module_test.httpx_mock.add_response(
+                    url=f"https://{random_bucket_name_2}.blob.core.windows.net/{random_bucket_name_2}?restype=container&comp=list",
+                    text=self.open_bucket_body,
+                )
         module_test.httpx_mock.add_response(
             url=self.url_3,
             text="",
         )
+        if self.module_name == "bucket_amazon":
+            module_test.httpx_mock.add_response(
+                url=f"{self.url_3.rstrip('/')}/index.html",
+                text="",
+            )
         if self.nonexistent_is_404:
             module_test.httpx_mock.add_response(url=re.compile(".*"), text="", status_code=404)
 
@@ -99,6 +133,9 @@ class Bucket_Amazon_Base(ModuleTestBase):
                 e
                 for e in storage_buckets
                 if e.data["name"] == random_bucket_name_3
+                and e.data["provider"] == module_test.module.provider_slug
+                and e.data["resource_type"] == "storage_bucket"
+                and e.data["is_public"] is False
                 and str(e.module) == str(self.module_name)
                 and f"cloud-{module_test.module.cloudcheck_provider_name.lower()}" in e.tags
                 and f"{module_test.module.cloudcheck_provider_name.lower()}-domain" in e.tags
@@ -109,10 +146,14 @@ class Bucket_Amazon_Base(ModuleTestBase):
             assert 1 == len(
                 [
                     e
-                    for e in events
-                    if e.type == "FINDING"
-                    and str(e.module) == self.module_name
-                    and e.data.get("url") == f"https://{self.random_bucket_2}/"
+                for e in events
+                if e.type == "FINDING"
+                and str(e.module) == self.module_name
+                and str(e.data.get("url", "")).rstrip("/") == f"https://{self.random_bucket_2}".rstrip("/")
+                and e.data.get("provider") == module_test.module.provider_slug
+                and e.data.get("resource_type") == "storage_bucket"
+                and e.data.get("bucket_name") == random_bucket_name_2
+                and e.data.get("is_public") is True
                 ]
             ), f'open bucket not found for module "{self.module_name}"'
         # make sure bucket mutations were found

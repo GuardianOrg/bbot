@@ -25,7 +25,7 @@ class google_playstore(BaseModule):
             if "android" not in event.tags and "play.google.com/store/apps/details" not in repo_url:
                 return False, "event is not an android repository"
         elif event.type == "ORG_STUB":
-            if "target" not in event.tags:
+            if "target" not in event.tags and event.scope_distance > 0:
                 return False, "event is not a target org stub"
         return True
 
@@ -39,7 +39,7 @@ class google_playstore(BaseModule):
         repo_url = event.data.get("url")
         app_id = repo_url.split("id=")[1].split("&")[0]
         await self.emit_event(
-            {"id": app_id, "url": repo_url},
+            {"id": app_id, "url": repo_url, "platform": "android"},
             "MOBILE_APP",
             tags="android",
             parent=event,
@@ -54,7 +54,7 @@ class google_playstore(BaseModule):
             if valid_apk:
                 self.verbose(f"Got {apk_name} from playstore")
                 await self.emit_event(
-                    {"id": apk_name, "url": f"{self.base_url}/store/apps/details?id={apk_name}"},
+                    {"id": apk_name, "url": f"{self.base_url}/store/apps/details?id={apk_name}", "platform": "android"},
                     "MOBILE_APP",
                     tags="android",
                     parent=event,

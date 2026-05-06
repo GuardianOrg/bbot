@@ -39,7 +39,19 @@ class GitLabBaseModule(BaseModule):
         for project in await self.gitlab_json_request(projects_url):
             project_url = project.get("web_url", "")
             if project_url:
-                code_event = self.make_event({"url": project_url}, "CODE_REPOSITORY", tags="git", parent=event)
+                namespace = project.get("path_with_namespace", "")
+                namespace_parts = [part for part in str(namespace).split("/") if part]
+                code_event = self.make_event(
+                    {
+                        "url": project_url,
+                        "platform": "git",
+                        "owner": namespace_parts[0] if namespace_parts else "unknown",
+                        "repo_name": namespace_parts[-1] if namespace_parts else project_url.rstrip("/").split("/")[-1],
+                    },
+                    "CODE_REPOSITORY",
+                    tags="git",
+                    parent=event,
+                )
                 await self.emit_event(
                     code_event,
                     context=f"{{module}} enumerated projects and found {{event.type}} at {project_url}",

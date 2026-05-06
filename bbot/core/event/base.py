@@ -1406,6 +1406,9 @@ class STORAGE_BUCKET(DictEvent, URL_UNVERIFIED):
     class _data_validator(BaseModel):
         name: str
         url: str
+        provider: Optional[str] = None
+        resource_type: Optional[str] = None
+        is_public: Optional[bool] = None
         _validate_url = field_validator("url")(validators.validate_url)
 
     def sanitize_data(self, data):
@@ -1731,6 +1734,39 @@ class AZURE_TENANT(DictEvent):
     _quick_emit = True
 
 
+class DOMAIN_WHOIS(DictHostEvent):
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        registrar: Optional[str] = None
+        registration_date: Optional[str] = None
+        expiration_date: Optional[str] = None
+        updated_date: Optional[str] = None
+        registrant_name: Optional[str] = None
+        registrant_email: Optional[str] = None
+        registrant_org: Optional[str] = None
+        registrant_country: Optional[str] = None
+        dnssec: Optional[bool] = None
+        whois_status: Optional[list[str]] = None
+        raw: Optional[dict] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+
+
+class DOMAIN_DNS_CONFIG(DictHostEvent):
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        zone_transfer_possible: Optional[bool] = None
+        zone_transfer_nameservers: Optional[list[str]] = None
+        is_wildcard: Optional[bool] = None
+        wildcard_ips: Optional[list[str]] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+
+
 class WAF(DictHostEvent):
     _always_emit = True
     _quick_emit = True
@@ -1775,6 +1811,11 @@ class FILESYSTEM(DictPathEvent):
 class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
     # don't emit raw DNS records for affiliates
     _always_emit_tags = ["target"]
+
+
+class DOMAIN_DNS_HISTORY(DictHostEvent):
+    _always_emit = True
+    _quick_emit = True
 
 
 class MOBILE_APP(DictEvent):

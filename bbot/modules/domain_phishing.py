@@ -277,6 +277,7 @@ class domain_phishing(BaseModule):
                 "template": "domain-phishing",
                 "source-domain": root_domain,
                 "fuzzer": fuzzer,
+                "probability": score,
                 "score": score,
             }
 

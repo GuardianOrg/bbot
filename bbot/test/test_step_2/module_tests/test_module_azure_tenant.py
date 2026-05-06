@@ -37,6 +37,8 @@ class TestAzure_Tenant(ModuleTestBase):
 
 
 class TestAzure_TenantSubdomain(ModuleTestBase):
+    module_name = "azure_tenant"
+
     tenant_response = {
         "tenant_id": "fdd066e1-ee37-49bc-b08f-d0e152119b04",
         "tenant_name": "hacktricks-training",
@@ -48,6 +50,9 @@ class TestAzure_TenantSubdomain(ModuleTestBase):
     }
 
     targets = ["azure.training.hacktricks.xyz"]
+
+    async def setup_before_prep(self, module_test):
+        await module_test.mock_dns({"azure.training.hacktricks.xyz": {"A": ["127.0.0.89"]}})
 
     async def setup_after_prep(self, module_test):
         module_test.httpx_mock.add_response(

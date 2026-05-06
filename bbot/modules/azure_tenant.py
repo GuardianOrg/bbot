@@ -83,7 +83,7 @@ class azure_tenant(BaseModule):
                     if tenantname and tenantname not in tenant_names:
                         tenant_names.append(tenantname)
 
-            event_data = {"tenant-names": tenant_names, "domains": sorted(email_domains)}
+            event_data = {"tenant-names": tenant_names, "domains": sorted(email_domains), "is_entraid_workspace": True}
             tenant_names_str = ",".join(tenant_names)
             if tenant_id:
                 event_data["tenant-id"] = tenant_id

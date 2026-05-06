@@ -28,3 +28,9 @@ class TestOTX(ModuleTestBase):
 
     def check(self, module_test, events):
         assert any(e.data == "asdf.blacklanternsecurity.com" for e in events), "Failed to detect subdomain"
+        assert any(
+            e.type == "DOMAIN_DNS_HISTORY"
+            and e.data["host"] == "asdf.blacklanternsecurity.com"
+            and e.data["records"][0]["ip"] == "2606:50c0:8000::153"
+            for e in events
+        ), "Failed to emit passive DNS history"

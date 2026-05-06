@@ -90,16 +90,21 @@ class bucket_template(BaseModule):
         if self.supports_open_check:
             description, tags = await self._check_bucket_open(bucket_name, url)
             if description:
+                finding_tags = set(tags).union(self.provider_tags)
                 event_data = {"host": event.host, "url": url, "description": description}
+                event_data["provider"] = self.provider_slug
+                event_data["resource_type"] = "storage_bucket"
+                event_data["bucket_name"] = bucket_name
+                event_data["is_public"] = True
                 await self.emit_event(
                     event_data,
                     "FINDING",
                     parent=event,
-                    tags=tags,
+                    tags=finding_tags,
                     context=f"{{module}} scanned {event.type} and identified {{event.type}}: {description}",
                 )
 
-        if self.expand_found_buckets:
+        if self.permutations or self.expand_found_buckets:
             async for bucket_name, new_url, tags, num_buckets in self.brute_buckets(
                 [bucket_name], permutations=self.permutations, omit_base=True
             ):
@@ -113,13 +118,35 @@ class bucket_template(BaseModule):
 
     async def emit_storage_bucket(self, event_data, event_type, parent, tags, context):
         event_data["url"] = self.clean_bucket_url(event_data["url"])
+        event_data.setdefault("provider", self.provider_slug)
+        event_data.setdefault("resource_type", "storage_bucket")
+        event_data.setdefault("is_public", False)
+        event_tags = set(tags).union(self.provider_tags)
         await self.emit_event(
             event_data,
             event_type,
             parent=parent,
-            tags=tags,
+            tags=event_tags,
             context=context,
         )
+
+    @property
+    def provider_slug(self):
+        provider_name = str(self.cloudcheck_provider_name or "").strip().lower()
+        return {
+            "amazon": "aws",
+            "google": "gcp",
+            "microsoft": "azure",
+        }.get(provider_name, provider_name)
+
+    @property
+    def provider_tags(self):
+        provider_name = str(self.cloudcheck_provider_name or "").strip().lower()
+        tags = {f"cloud-{provider_name}", f"{provider_name}-domain"}
+        provider_slug = self.provider_slug
+        if provider_slug and provider_slug != provider_name:
+            tags.add(f"cloud-{provider_slug}")
+        return tags
 
     async def brute_buckets(self, buckets, permutations=False, omit_base=False):
         bucket_list = list(dict.fromkeys(buckets))

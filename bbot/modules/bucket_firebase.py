@@ -45,7 +45,8 @@ class bucket_firebase(bucket_template):
         return status_code == 200, set()
 
     async def check_bucket_open(self, bucket_name, url):
-        response = await self.helpers.request(url)
+        probe_url = url if str(url).rstrip("/").endswith(".json") else f"{str(url).rstrip('/')}/.json"
+        response = await self.helpers.request(probe_url)
         tags = self.gen_tags_exists(response)
         status_code = getattr(response, "status_code", 404)
         msg = ""

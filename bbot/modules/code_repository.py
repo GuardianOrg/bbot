@@ -1,5 +1,6 @@
 import re
 from bbot.modules.base import BaseModule
+from urllib.parse import urlparse
 
 
 class code_repository(BaseModule):
@@ -44,8 +45,9 @@ class code_repository(BaseModule):
                     if not case_sensitive:
                         url = url.lower()
                     url = f"https://{url}"
+                    parsed = self.parse_repo_url(url, platform)
                     repo_event = self.make_event(
-                        {"url": url},
+                        {"url": url, **parsed},
                         "CODE_REPOSITORY",
                         tags=platform,
                         parent=event,
@@ -54,3 +56,10 @@ class code_repository(BaseModule):
                         repo_event,
                         context=f"{{module}} detected {platform} {{event.type}} at {url}",
                     )
+
+    def parse_repo_url(self, url, platform):
+        parsed = urlparse(url)
+        path_parts = [part for part in parsed.path.split("/") if part]
+        owner = path_parts[0] if path_parts else parsed.netloc
+        repo_name = path_parts[1] if len(path_parts) > 1 else owner
+        return {"platform": platform, "owner": owner, "repo_name": repo_name}

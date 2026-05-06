@@ -68,6 +68,7 @@ class CloudCheck(BaseInterceptModule):
         for regex_name, regex in regexes.items():
             for host in hosts_to_check:
                 if match := regex.match(host):
+                    provider_attr = regex_name.split("-STORAGE_BUCKET_HOSTNAME-", 1)[0]
                     try:
                         bucket_name, bucket_domain = match.groups()
                     except Exception as e:
@@ -77,14 +78,19 @@ class CloudCheck(BaseInterceptModule):
                         continue
                     bucket_name, bucket_domain = match.groups()
                     bucket_url = f"https://{bucket_name}.{bucket_domain}"
+                    provider_slug = self._provider_slug(provider_attr)
                     await self.emit_event(
                         {
                             "name": bucket_name,
                             "url": bucket_url,
+                            "provider": provider_slug,
+                            "resource_type": "storage_bucket",
+                            "is_public": False,
                             "context": f"{{module}} analyzed {event.type} and found {{event.type}}: {bucket_url}",
                         },
                         "STORAGE_BUCKET",
                         parent=event,
+                        tags={f"cloud-{provider_attr.lower()}", f"{provider_attr.lower()}-domain"},
                     )
 
     async def cloud_hostname_regexes(self):
@@ -109,3 +115,11 @@ class CloudCheck(BaseInterceptModule):
                                 self.error(f"Error compiling regex for {attr}-{regex_name}: {e}")
                                 continue
             return self._cloud_hostname_regexes
+
+    def _provider_slug(self, provider_attr_name):
+        provider_name = str(provider_attr_name or "").strip().lower()
+        return {
+            "amazon": "aws",
+            "google": "gcp",
+            "microsoft": "azure",
+        }.get(provider_name, provider_name)

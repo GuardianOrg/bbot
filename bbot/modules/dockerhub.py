@@ -53,8 +53,9 @@ class dockerhub(BaseModule):
         self.verbose(f"Searching for docker images belonging to {username}")
         repos = await self.get_repos(username)
         for repo in repos:
+            repo_name = repo.rstrip("/").split("/")[-1]
             await self.emit_event(
-                {"url": repo},
+                {"url": repo, "platform": "docker", "owner": username, "repo_name": repo_name},
                 "CODE_REPOSITORY",
                 tags="docker",
                 parent=event,
