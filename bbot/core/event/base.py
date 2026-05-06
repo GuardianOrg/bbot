@@ -1409,6 +1409,8 @@ class STORAGE_BUCKET(DictEvent, URL_UNVERIFIED):
         provider: Optional[str] = None
         resource_type: Optional[str] = None
         is_public: Optional[bool] = None
+        region: Optional[str] = None
+        permissions: Optional[list[str]] = None
         _validate_url = field_validator("url")(validators.validate_url)
 
     def sanitize_data(self, data):

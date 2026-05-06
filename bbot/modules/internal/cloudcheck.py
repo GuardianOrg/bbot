@@ -1,6 +1,7 @@
 import asyncio
 import regex as re
 from contextlib import suppress
+from urllib.parse import urlparse
 
 from bbot.modules.base import BaseInterceptModule
 
@@ -72,25 +73,30 @@ class CloudCheck(BaseInterceptModule):
             for host in hosts_to_check:
                 if match := regex.match(host):
                     provider_attr = regex_name.split("-STORAGE_BUCKET_HOSTNAME-", 1)[0]
-                    try:
-                        bucket_name, bucket_domain = match.groups()
-                    except Exception as e:
+                    bucket_name = match.groupdict().get("name")
+                    if not bucket_name:
+                        with suppress(IndexError):
+                            bucket_name = match.groups()[0]
+                    if not bucket_name:
                         self.error(
-                            f"Bucket regex {regex_name} ({regex}) is not formatted correctly to extract bucket name and domain: {e}"
+                            f"Bucket regex {regex_name} ({regex}) did not expose a bucket name capture group"
                         )
                         continue
-                    bucket_name, bucket_domain = match.groups()
-                    bucket_url = f"https://{bucket_name}.{bucket_domain}"
+                    bucket_url = f"https://{host}"
                     provider_slug = self._provider_slug(provider_attr)
+                    region = self.get_bucket_region(bucket_url)
+                    event_data = {
+                        "name": bucket_name,
+                        "url": bucket_url,
+                        "provider": provider_slug,
+                        "resource_type": "storage_bucket",
+                        "is_public": False,
+                        "context": f"{{module}} analyzed {event.type} and found {{event.type}}: {bucket_url}",
+                    }
+                    if region:
+                        event_data["region"] = region
                     await self.emit_event(
-                        {
-                            "name": bucket_name,
-                            "url": bucket_url,
-                            "provider": provider_slug,
-                            "resource_type": "storage_bucket",
-                            "is_public": False,
-                            "context": f"{{module}} analyzed {event.type} and found {{event.type}}: {bucket_url}",
-                        },
+                        event_data,
                         "STORAGE_BUCKET",
                         parent=event,
                         tags={f"cloud-{provider_attr.lower()}", f"{provider_attr.lower()}-domain"},
@@ -126,6 +132,18 @@ class CloudCheck(BaseInterceptModule):
             "google": "gcp",
             "microsoft": "azure",
         }.get(provider_name, provider_name)
+
+    def get_bucket_region(self, url):
+        parsed = urlparse(str(url or ""))
+        host = (parsed.hostname or "").lower().rstrip(".")
+        for pattern in (
+            r"\.s3[.-]([a-z0-9-]+)\.amazonaws\.com$",
+            r"\.([a-z0-9-]+)\.digitaloceanspaces\.com$",
+        ):
+            match = re.search(pattern, host)
+            if match:
+                return match.group(1)
+        return None
 
     async def emit_cloud_ip_metadata(self, event, host, provider_name, tags):
         provider_slug = self._provider_slug(provider_name)

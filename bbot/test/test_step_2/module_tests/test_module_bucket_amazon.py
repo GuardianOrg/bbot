@@ -141,6 +141,12 @@ class Bucket_Amazon_Base(ModuleTestBase):
                 and f"{module_test.module.cloudcheck_provider_name.lower()}-domain" in e.tags
             ]
         )
+        if self.module_name == "bucket_amazon":
+            regional_bucket = next(e for e in storage_buckets if e.data["name"] == random_bucket_name_2)
+            assert regional_bucket.data.get("region") == "ap-southeast-2"
+        if self.module_name == "bucket_digitalocean":
+            module_bucket = next(e for e in storage_buckets if e.data["name"] == random_bucket_name_3)
+            assert module_bucket.data.get("region") == "fra1"
         # make sure open buckets were found
         if module_test.module.supports_open_check:
             assert 1 == len(
@@ -154,6 +160,7 @@ class Bucket_Amazon_Base(ModuleTestBase):
                 and e.data.get("resource_type") == "storage_bucket"
                 and e.data.get("bucket_name") == random_bucket_name_2
                 and e.data.get("is_public") is True
+                and any(p in e.data.get("permissions", []) for p in ("read", "list", "write", "delete", "admin"))
                 ]
             ), f'open bucket not found for module "{self.module_name}"'
         # make sure bucket mutations were found

@@ -52,4 +52,5 @@ class bucket_firebase(bucket_template):
         msg = ""
         if status_code == 200:
             msg = "Open storage bucket"
-        return (msg, tags)
+            return msg, tags, {"permissions": ["read"]}
+        return (msg, tags, {})

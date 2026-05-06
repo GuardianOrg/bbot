@@ -1,6 +1,7 @@
 import importlib
 import regex as re
 from functools import cached_property
+from urllib.parse import urlparse
 from bbot.modules.base import BaseModule
 
 
@@ -75,9 +76,12 @@ class bucket_template(BaseModule):
             for d in self.delimiters:
                 bucket_name = d.join(split)
                 buckets.add(bucket_name)
-        async for bucket_name, url, tags, num_buckets in self.brute_buckets(buckets, permutations=self.permutations):
+        async for bucket_name, url, tags, num_buckets, metadata in self.brute_buckets(
+            buckets,
+            permutations=self.permutations,
+        ):
             await self.emit_storage_bucket(
-                {"name": bucket_name, "url": url},
+                {"name": bucket_name, "url": url, **metadata},
                 "STORAGE_BUCKET",
                 parent=event,
                 tags=tags,
@@ -88,10 +92,10 @@ class bucket_template(BaseModule):
         url = event.data["url"]
         bucket_name = event.data["name"]
         if self.supports_open_check:
-            description, tags = await self._check_bucket_open(bucket_name, url)
+            description, tags, metadata = await self._check_bucket_open(bucket_name, url)
             if description:
                 finding_tags = set(tags).union(self.provider_tags)
-                event_data = {"host": event.host, "url": url, "description": description}
+                event_data = {"host": event.host, "url": url, "description": description, **metadata}
                 event_data["provider"] = self.provider_slug
                 event_data["resource_type"] = "storage_bucket"
                 event_data["bucket_name"] = bucket_name
@@ -105,11 +109,11 @@ class bucket_template(BaseModule):
                 )
 
         if self.permutations or self.expand_found_buckets:
-            async for bucket_name, new_url, tags, num_buckets in self.brute_buckets(
+            async for bucket_name, new_url, tags, num_buckets, metadata in self.brute_buckets(
                 [bucket_name], permutations=self.permutations, omit_base=True
             ):
                 await self.emit_storage_bucket(
-                    {"name": bucket_name, "url": new_url},
+                    {"name": bucket_name, "url": new_url, **metadata},
                     "STORAGE_BUCKET",
                     parent=event,
                     tags=tags,
@@ -121,6 +125,12 @@ class bucket_template(BaseModule):
         event_data.setdefault("provider", self.provider_slug)
         event_data.setdefault("resource_type", "storage_bucket")
         event_data.setdefault("is_public", False)
+        region = self.get_bucket_region(event_data["url"])
+        if region:
+            event_data.setdefault("region", region)
+        permissions = self.normalize_permissions(event_data.get("permissions", []))
+        if permissions:
+            event_data["permissions"] = permissions
         event_tags = set(tags).union(self.provider_tags)
         await self.emit_event(
             event_data,
@@ -194,13 +204,20 @@ class bucket_template(BaseModule):
         async for url, kwargs, (bucket_name, base_domain, region), response in self.helpers.request_custom_batch(
             bucket_urls_kwargs
         ):
-            existent_bucket, tags = self._check_bucket_exists(bucket_name, response)
+            existent_bucket, tags, metadata = self._check_bucket_exists(bucket_name, response)
+            if region:
+                metadata.setdefault("region", region)
             if not existent_bucket:
-                secondary_exists, secondary_tags = await self._check_bucket_exists_secondary(bucket_name, url, response)
+                secondary_exists, secondary_tags, secondary_metadata = await self._check_bucket_exists_secondary(
+                    bucket_name,
+                    url,
+                    response,
+                )
                 existent_bucket = existent_bucket or secondary_exists
                 tags = set(tags).union(secondary_tags)
+                metadata.update(secondary_metadata)
             if existent_bucket:
-                yield bucket_name, url, tags, num_buckets
+                yield bucket_name, url, tags, num_buckets, metadata
 
     def clean_bucket_url(self, url):
         # if needed, modify the bucket url before emitting it
@@ -212,7 +229,7 @@ class bucket_template(BaseModule):
 
     def _check_bucket_exists(self, bucket_name, response):
         self.debug(f'Checking if bucket exists: "{bucket_name}"')
-        return self.check_bucket_exists(bucket_name, response)
+        return self.normalize_bucket_result(self.check_bucket_exists(bucket_name, response))
 
     def check_bucket_exists(self, bucket_name, response):
         tags = self.gen_tags_exists(response)
@@ -222,12 +239,12 @@ class bucket_template(BaseModule):
 
     async def _check_bucket_open(self, bucket_name, url):
         self.debug(f'Checking if bucket is misconfigured: "{bucket_name}"')
-        return await self.check_bucket_open(bucket_name, url)
+        return self.normalize_bucket_result(await self.check_bucket_open(bucket_name, url))
 
     async def _check_bucket_exists_secondary(self, bucket_name, url, response):
         if hasattr(self, "check_bucket_exists_secondary"):
-            return await self.check_bucket_exists_secondary(bucket_name, url, response)
-        return False, set()
+            return self.normalize_bucket_result(await self.check_bucket_exists_secondary(bucket_name, url, response))
+        return False, set(), {}
 
     async def check_bucket_open(self, bucket_name, url):
         response = await self.helpers.request(url)
@@ -238,7 +255,8 @@ class bucket_template(BaseModule):
         msg = ""
         if open_bucket:
             msg = "Open storage bucket"
-        return (msg, tags)
+            return msg, tags, {"permissions": ["read", "list"]}
+        return (msg, tags, {})
 
     def valid_bucket_name(self, bucket_name):
         valid = self.is_valid_bucket_name(bucket_name)
@@ -262,6 +280,70 @@ class bucket_template(BaseModule):
 
     def build_url(self, bucket_name, base_domain, region):
         return f"https://{bucket_name}.{base_domain}/"
+
+    def normalize_bucket_result(self, result):
+        if not isinstance(result, tuple):
+            return result, set(), {}
+        if len(result) == 2:
+            value, tags = result
+            return value, tags, {}
+        if len(result) == 3:
+            value, tags, metadata = result
+            return value, tags, self.normalize_bucket_metadata(metadata)
+        return result[0], result[1], self.normalize_bucket_metadata(result[2])
+
+    def normalize_bucket_metadata(self, metadata):
+        if not isinstance(metadata, dict):
+            return {}
+        metadata = dict(metadata)
+        permissions = self.normalize_permissions(metadata.get("permissions", []))
+        if permissions:
+            metadata["permissions"] = permissions
+        else:
+            metadata.pop("permissions", None)
+        return metadata
+
+    def normalize_permissions(self, permissions):
+        if not permissions:
+            return []
+        if isinstance(permissions, str):
+            permissions = [permissions]
+        if not isinstance(permissions, (list, tuple, set)):
+            return []
+        normalized = []
+        for permission in permissions:
+            normalized_permission = self.normalize_permission(permission)
+            if normalized_permission and normalized_permission not in normalized:
+                normalized.append(normalized_permission)
+        return normalized
+
+    def normalize_permission(self, permission):
+        lowered = str(permission or "").strip().lower()
+        if lowered in ("read", "list", "write", "delete", "admin"):
+            return lowered
+        if any(marker in lowered for marker in ("setiampolicy", "admin", "owner")):
+            return "admin"
+        if "delete" in lowered:
+            return "delete"
+        if any(marker in lowered for marker in ("create", "write", "put", "upload")):
+            return "write"
+        if any(marker in lowered for marker in ("list", "enumerate")):
+            return "list"
+        if any(marker in lowered for marker in ("get", "read", "download")):
+            return "read"
+        return None
+
+    def get_bucket_region(self, url):
+        parsed = urlparse(str(url or ""))
+        host = (parsed.hostname or "").lower().rstrip(".")
+        for pattern in (
+            r"\.s3[.-]([a-z0-9-]+)\.amazonaws\.com$",
+            r"\.([a-z0-9-]+)\.digitaloceanspaces\.com$",
+        ):
+            match = re.search(pattern, host)
+            if match:
+                return match.group(1)
+        return None
 
     def gen_tags_exists(self, response):
         return set()

@@ -53,14 +53,14 @@ class bucket_microsoft(bucket_template):
         response = await self.helpers.request(list_url)
         status_code = getattr(response, "status_code", 0)
         if status_code == 200:
-            return ("Open storage bucket", set())
+            return ("Open storage bucket", set(), {"permissions": ["read", "list"]})
 
         for candidate in ("index.html", "robots.txt", "favicon.ico"):
             probe_url = f"https://{bucket_name}.blob.core.windows.net/{candidate}"
             probe = await self.helpers.request(probe_url)
             if getattr(probe, "status_code", 0) == 200:
-                return (f"Open storage bucket (public object: {candidate})", set())
-        return ("", set())
+                return (f"Open storage bucket (public object: {candidate})", set(), {"permissions": ["read"]})
+        return ("", set(), {})
 
     def clean_bucket_url(self, url):
         # only return root URL
