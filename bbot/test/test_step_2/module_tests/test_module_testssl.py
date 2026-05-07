@@ -39,6 +39,7 @@ class TestTestssl(ModuleTestBase):
                             "severity": "MEDIUM",
                             "finding": "TLS 1.0 is offered",
                             "cwe": "CWE-326",
+                            "cve": "CVE-2024-9999",
                         },
                         {
                             "id": "HSTS",
@@ -74,8 +75,18 @@ class TestTestssl(ModuleTestBase):
 
         assert len(self.commands) == 1
         assert "blacklanternsecurity.com:443" in self.commands[0]
-        assert any(e.data.get("title") == "TLS: TLS1 (CWE-326)" for e in vulnerabilities)
-        assert any(e.data.get("severity") == "MEDIUM" for e in vulnerabilities)
+        tls1 = next((e for e in vulnerabilities if e.data.get("testssl_id") == "TLS1"), None)
+        assert tls1 is not None
+        assert tls1.data.get("title") == "TLS: TLS1 (CVE-2024-9999, CWE-326)"
+        assert tls1.data.get("severity") == "MEDIUM"
+        assert tls1.data.get("category") == "TLS"
+        assert tls1.data.get("description") == "TLS 1.0 is offered"
+        assert tls1.data.get("recommendation") == "Disable TLS 1.0 unless a documented legacy requirement remains."
+        assert "CVE-2024-9999" in tls1.data.get("evidence", "")
+        assert "CWE-326" in tls1.data.get("evidence", "")
+        assert tls1.data.get("url") == "https://blacklanternsecurity.com/"
+        assert tls1.data.get("cve") == "CVE-2024-9999"
+        assert tls1.data.get("cwe") == "CWE-326"
         assert any(e.data.get("testssl_id") == "HSTS" for e in findings)
         assert not any(e.data.get("testssl_id") == "cert_chain_of_trust" for e in findings + vulnerabilities)
         assert not any(e.data.get("testssl_id") == "TLS1_3" for e in findings + vulnerabilities)

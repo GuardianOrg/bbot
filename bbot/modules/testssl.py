@@ -216,15 +216,19 @@ class testssl(BaseModule):
             finding = item_id
         cwe = str(item.get("cwe") or "").strip()
         cve = str(item.get("cve") or "").strip()
+        identifiers = [identifier for identifier in (cve, cwe) if identifier]
         title = f"TLS: {item_id}"
-        if cwe:
-            title = f"{title} ({cwe})"
+        if identifiers:
+            title = f"{title} ({', '.join(identifiers)})"
+        evidence = f"testssl.sh finding: {item_id} = {finding}"
+        if identifiers:
+            evidence = f"{evidence} ({', '.join(identifiers)})"
         return {
             "id": item_id,
             "title": title,
             "severity": severity,
             "description": finding,
-            "evidence": f"testssl.sh finding: {item_id} = {finding}",
+            "evidence": evidence,
             "recommendation": self.RECOMMENDATIONS.get(item_id, f"Review TLS configuration for {item_id}."),
             "cwe": cwe or None,
             "cve": cve or None,
