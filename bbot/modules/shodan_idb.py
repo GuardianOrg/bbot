@@ -39,19 +39,30 @@ class shodan_idb(BaseModule):
     }
     """
 
-    watched_events = ["DNS_NAME", "IP_ADDRESS"]
-    produced_events = ["TECHNOLOGY", "VULNERABILITY", "FINDING", "OPEN_TCP_PORT", "DNS_NAME", "GEOLOCATION"]
+    watched_events = ["DNS_NAME", "IP_ADDRESS", "IP_RANGE"]
+    produced_events = [
+        "IP_ADDRESS",
+        "TECHNOLOGY",
+        "VULNERABILITY",
+        "FINDING",
+        "OPEN_TCP_PORT",
+        "OPEN_UDP_PORT",
+        "PROTOCOL",
+        "DNS_NAME",
+        "GEOLOCATION",
+    ]
     flags = ["passive", "safe", "portscan"]
     meta = {
         "description": "Query Shodan's InternetDB for open ports, hostnames, technologies, and vulnerabilities",
         "created_date": "2023-12-22",
         "author": "@TheTechromancer",
     }
-    options = {"retries": None, "api_key": "", "full_host": True}
+    options = {"retries": None, "api_key": "", "full_host": True, "max_range_pages": 3}
     options_desc = {
         "retries": "How many times to retry API requests (e.g. after a 429 error). Overrides the global web.api_retries setting.",
         "api_key": "Optional Shodan API key. If present, shodan_idb also queries /shodan/host/{ip} for OS/provider metadata.",
         "full_host": "Use the authenticated Shodan host API when an API key is available.",
+        "max_range_pages": "Maximum authenticated /shodan/host/search result pages to fetch for an IP range target.",
     }
 
     # we typically don't want to abort this module
@@ -68,7 +79,10 @@ class shodan_idb(BaseModule):
         await super().setup()
         self.last_request_time = 0
         self.queried_ips = set()
+        self.queried_ranges = set()
+        self.reported_vulnerabilities = set()
         self.full_host = bool(self.config.get("full_host", True))
+        self.max_range_pages = max(1, int(self.config.get("max_range_pages", 3)))
         self.api_key = self.get_shodan_api_keys()
         return True
 
@@ -95,6 +109,10 @@ class shodan_idb(BaseModule):
         return self.config.get("retries", None) or super().api_retries
 
     async def handle_event(self, event):
+        if event.type == "IP_RANGE":
+            await self.handle_range_event(event)
+            return
+
         ip = self.get_ip(event)
         if ip is None:
             return
@@ -138,6 +156,69 @@ class shodan_idb(BaseModule):
 
         if self.full_host and self.api_key:
             await self.query_full_host(event, ip)
+
+    async def handle_range_event(self, event):
+        cidr = str(event.data).strip()
+        if not cidr or cidr in self.queried_ranges:
+            return
+        self.queried_ranges.add(cidr)
+
+        if not self.api_key:
+            self.debug(f"Skipping authenticated Shodan range search for {cidr}: no API key configured")
+            return
+
+        for page in range(1, self.max_range_pages + 1):
+            url = (
+                f"https://api.shodan.io/shodan/host/search?key={self.api_key}"
+                f"&query={self.helpers.quote(f'net:{cidr}')}&page={page}"
+            )
+            r = await self.helpers.request(url)
+            if r is None:
+                self.cycle_api_key()
+                continue
+            try:
+                data = r.json()
+            except Exception as e:
+                self.verbose(f"Error parsing JSON response from Shodan host search for {cidr}: {e}")
+                self.trace()
+                return
+
+            if r.status_code == 200 and isinstance(data, dict):
+                matches = data.get("matches", [])
+                if not isinstance(matches, list) or not matches:
+                    return
+                for match in matches:
+                    if isinstance(match, dict):
+                        await self.emit_range_match(match, event, cidr)
+                total = data.get("total")
+                if not isinstance(total, int) or page * len(matches) >= total:
+                    return
+                continue
+
+            if r.status_code in (401, 402, 403, 404):
+                return
+
+            err_data = data.get("error", data.get("type", "")) if isinstance(data, dict) else ""
+            err_msg = data.get("msg", "") if isinstance(data, dict) else ""
+            self.verbose(f"Shodan host search error for {cidr}: {err_data}: {err_msg}")
+            self.cycle_api_key()
+
+    async def emit_range_match(self, data, event, cidr):
+        ip = self.clean_string(data.get("ip_str") or data.get("ip"))
+        if not ip:
+            return
+
+        ip_event = self.make_event(ip, "IP_ADDRESS", parent=event)
+        if ip_event is None:
+            return
+
+        self.queried_ips.add(ip)
+        await self.emit_event(
+            ip_event,
+            context=f'{{module}} queried Shodan host search for "net:{cidr}" and found {{event.type}}: {{event.data}}',
+        )
+        await self._parse_response(data=data, event=ip_event, ip=ip)
+        await self._parse_host_response(data=data, event=ip_event, ip=ip, source=f"Shodan host search net:{cidr}")
 
     async def query_full_host(self, event, ip):
         for _ in range(self.api_retries):
@@ -190,20 +271,13 @@ class shodan_idb(BaseModule):
                 parent=event,
                 context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
             )
-        vulns = data.get("vulns", [])
-        if vulns:
-            vulns_str = ", ".join([str(v) for v in vulns])
-            await self.emit_event(
-                {"description": f"Shodan reported possible vulnerabilities: {vulns_str}", "host": str(event.host)},
-                "FINDING",
-                parent=event,
-                context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found potential {{event.type}}: {vulns_str}',
-            )
+        await self.emit_vulnerability_events(data=data, event=event, ip=ip, query_host=query_host, source="Shodan InternetDB")
 
     async def _parse_host_response(self, data: dict, event, ip, source):
         tags = self.normalize_string_list(data.get("tags", []))
         hostnames = self.normalize_string_list(data.get("hostnames", []))
-        service_os = self.first_service_os(data.get("data", []))
+        services = data.get("data", [])
+        service_os = self.first_service_os(services)
         os_name = self.clean_os(data.get("os")) or service_os
         org = self.clean_string(data.get("org"))
         isp = self.clean_string(data.get("isp")) or org
@@ -221,6 +295,7 @@ class shodan_idb(BaseModule):
             "longitude": data.get("longitude") if isinstance(data.get("longitude"), (int, float)) else None,
             "asn": asn,
             "isp": isp,
+            "reverseDns": hostnames,
             "os": os_name,
             "cloudProvider": provider,
             "providerType": self.provider_type(provider=provider, cdn_name=cdn_name, privacy_flags=privacy_flags, tags=tags),
@@ -229,15 +304,86 @@ class shodan_idb(BaseModule):
             **privacy_flags,
         }
         geo_data = {k: v for k, v in geo_data.items() if v not in (None, "", [])}
-        if len(geo_data) <= 1:
+        if len(geo_data) > 1:
+            await self.emit_event(
+                geo_data,
+                "GEOLOCATION",
+                parent=event,
+                context=f'{{module}} queried {source} for "{ip}" and found {{event.type}} metadata',
+            )
+
+        await self.emit_protocol_events(services, event, ip, source)
+        await self.emit_vulnerability_events(data=data, event=event, ip=ip, query_host=ip, source=source)
+
+    async def emit_protocol_events(self, services, event, ip, source):
+        if not isinstance(services, list):
             return
 
-        await self.emit_event(
-            geo_data,
-            "GEOLOCATION",
-            parent=event,
-            context=f'{{module}} queried {source} for "{ip}" and found {{event.type}} metadata',
-        )
+        for service in services:
+            if not isinstance(service, dict):
+                continue
+            port = service.get("port")
+            if not isinstance(port, int):
+                continue
+
+            transport = self.clean_string(service.get("transport")) or "tcp"
+            await self.emit_event(
+                self.helpers.make_netloc(event.data, port),
+                "OPEN_UDP_PORT" if transport.lower() == "udp" else "OPEN_TCP_PORT",
+                parent=event,
+                context=f'{{module}} queried {source} for "{ip}" and found {{event.type}}: {{event.data}}',
+            )
+
+            protocol_data = {
+                "host": str(event.host or event.data or ip),
+                "ip": ip,
+                "port": port,
+                "transport": transport.lower(),
+                "protocol": self.service_protocol(service),
+                "banner": self.clean_string(service.get("data")),
+                "product": self.clean_string(service.get("product")),
+                "version": self.clean_string(service.get("version")),
+                "os": self.clean_os(service.get("os")),
+                "tls_version": self.service_tls_version(service),
+                "cipher_suite": self.service_cipher_suite(service),
+                "cpes": self.service_cpes(service),
+            }
+            protocol_data = {k: v for k, v in protocol_data.items() if v not in (None, "", [])}
+            if len(protocol_data) <= 3:
+                continue
+
+            await self.emit_event(
+                protocol_data,
+                "PROTOCOL",
+                parent=event,
+                context=f'{{module}} queried {source} for "{ip}" and found {{event.type}} details on port {port}',
+            )
+
+    async def emit_vulnerability_events(self, data, event, ip, query_host, source):
+        for vuln in self.iter_vulnerabilities(data):
+            vuln_id = vuln.get("id")
+            if not vuln_id:
+                continue
+            dedupe_key = (str(ip), str(vuln_id))
+            if dedupe_key in self.reported_vulnerabilities:
+                continue
+            self.reported_vulnerabilities.add(dedupe_key)
+
+            await self.emit_event(
+                {
+                    "host": str(ip),
+                    "severity": self.vulnerability_severity(vuln.get("cvss")),
+                    "title": f"Shodan detected {vuln_id}",
+                    "category": "Shodan",
+                    "description": self.vulnerability_description(vuln_id, vuln.get("summary"), query_host, source),
+                    "recommendation": "Validate the exposed service, confirm the fingerprint, and remediate or patch the affected software if the issue is present.",
+                    "evidence": self.vulnerability_evidence(vuln_id, source, vuln.get("cvss")),
+                    "cve": vuln_id,
+                },
+                "VULNERABILITY",
+                parent=event,
+                context=f'{{module}} queried {source} for "{query_host}" and found {{event.type}}: {vuln_id}',
+            )
 
     def detect_privacy_flags(self, tags):
         normalized = {tag.lower() for tag in tags}
@@ -369,4 +515,86 @@ class shodan_idb(BaseModule):
         for host in sorted(getattr(event, "resolved_hosts", set())):
             if self.helpers.is_ip(host):
                 return host
+        return None
+
+    def service_protocol(self, service):
+        module = service.get("_shodan", {}) if isinstance(service.get("_shodan"), dict) else {}
+        protocol = self.clean_string(module.get("module")) or self.clean_string(service.get("service"))
+        return protocol.upper() if protocol else None
+
+    def service_tls_version(self, service):
+        ssl_info = service.get("ssl") if isinstance(service.get("ssl"), dict) else {}
+        versions = ssl_info.get("versions", []) if isinstance(ssl_info.get("versions", []), list) else []
+        for version in versions:
+            cleaned = self.clean_string(version)
+            if cleaned:
+                return cleaned
+        return None
+
+    def service_cipher_suite(self, service):
+        ssl_info = service.get("ssl") if isinstance(service.get("ssl"), dict) else {}
+        cipher = ssl_info.get("cipher") if isinstance(ssl_info.get("cipher"), dict) else {}
+        return self.clean_string(cipher.get("name"))
+
+    def service_cpes(self, service):
+        cpes = []
+        for key in ("cpe23", "cpe", "cpes"):
+            value = service.get(key)
+            if isinstance(value, list):
+                cpes.extend(self.normalize_string_list(value))
+            elif isinstance(value, str):
+                cleaned = self.clean_string(value)
+                if cleaned:
+                    cpes.append(cleaned)
+        normalized = self.normalize_string_list(cpes)
+        return normalized or None
+
+    def iter_vulnerabilities(self, data):
+        vulns = data.get("vulns", []) if isinstance(data, dict) else []
+        if isinstance(vulns, list):
+            for vuln in vulns:
+                vuln_id = self.clean_string(vuln)
+                if vuln_id:
+                    yield {"id": vuln_id, "summary": None, "cvss": None}
+            return
+
+        if isinstance(vulns, dict):
+            for vuln_id, details in vulns.items():
+                cleaned_id = self.clean_string(vuln_id)
+                if not cleaned_id:
+                    continue
+                details = details if isinstance(details, dict) else {}
+                yield {
+                    "id": cleaned_id,
+                    "summary": self.clean_string(details.get("summary") or details.get("description")),
+                    "cvss": self.to_float(details.get("cvss") or details.get("cvss_score")),
+                }
+
+    def vulnerability_severity(self, cvss):
+        if isinstance(cvss, (int, float)):
+            if cvss >= 7:
+                return "HIGH"
+            if cvss >= 4:
+                return "MEDIUM"
+            return "LOW"
+        return "MEDIUM"
+
+    def vulnerability_description(self, vuln_id, summary, query_host, source):
+        prefix = f"{source} reported {vuln_id} for {query_host}."
+        return f"{prefix} {summary}" if summary else prefix
+
+    def vulnerability_evidence(self, vuln_id, source, cvss):
+        evidence = f"{source} listed {vuln_id} on the scanned host"
+        if isinstance(cvss, (int, float)):
+            evidence += f" with CVSS {cvss}"
+        return evidence
+
+    def to_float(self, value):
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
         return None

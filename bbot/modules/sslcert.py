@@ -1,6 +1,8 @@
 import asyncio
+import datetime
 from OpenSSL import crypto
 from contextlib import suppress
+from urllib.parse import urlparse
 
 from bbot.errors import ValidationError
 from bbot.modules.base import BaseModule
@@ -9,8 +11,8 @@ from bbot.core.helpers.web.ssl_context import ssl_context_noverify
 
 
 class sslcert(BaseModule):
-    watched_events = ["OPEN_TCP_PORT"]
-    produced_events = ["DNS_NAME", "EMAIL_ADDRESS"]
+    watched_events = ["OPEN_TCP_PORT", "URL", "HTTP_RESPONSE"]
+    produced_events = ["DNS_NAME", "EMAIL_ADDRESS", "TLS_CERTIFICATE"]
     flags = ["affiliates", "subdomain-enum", "email-enum", "active", "safe", "web-basic"]
     meta = {
         "description": "Visit open ports and retrieve SSL certificates",
@@ -41,16 +43,31 @@ class sslcert(BaseModule):
         return True
 
     async def filter_event(self, event):
+        if event.type in ("URL", "HTTP_RESPONSE"):
+            url = event.data.get("url", "") if isinstance(event.data, dict) else str(event.data)
+            parsed = urlparse(url)
+            if parsed.scheme.lower() != "https":
+                return False, "only accepts HTTPS URLs"
+            return True
         if self.skip_non_ssl and event.port in self.non_ssl_ports:
             return False, f"Port {event.port} doesn't typically use SSL"
         return True
 
     async def handle_event(self, event):
-        _host = event.host
-        if event.port:
-            port = event.port
+        url = None
+        if event.type in ("URL", "HTTP_RESPONSE"):
+            url = event.data.get("url", "") if isinstance(event.data, dict) else str(event.data)
+            parsed = urlparse(url)
+            _host = parsed.hostname or event.host
+            port = parsed.port or 443
         else:
-            port = 443
+            _host = event.host
+            if event.port:
+                port = event.port
+            else:
+                port = 443
+            if _host:
+                url = f"https://{self.helpers.make_netloc(_host, port)}/"
 
         # turn hostnames into IP address(es)
         if self.helpers.is_ip(_host):
@@ -63,12 +80,26 @@ class sslcert(BaseModule):
         else:
             abort_threshold = self.out_of_scope_abort_threshold
 
-        tasks = [self.visit_host(host, port) for host in hosts]
+        server_name = None if self.helpers.is_ip(_host) else str(_host)
+        tasks = [self.visit_host(host, port, server_name=server_name) for host in hosts]
         async for task in self.helpers.as_completed(tasks):
             result = await task
-            if not isinstance(result, tuple) or not len(result) == 3:
+            if not isinstance(result, tuple) or not len(result) == 4:
                 continue
-            dns_names, emails, (host, port) = result
+            dns_names, emails, cert_data, (host, port) = result
+            if cert_data:
+                cert_event_data = {
+                    **cert_data,
+                    "host": str(event.host or _host or host),
+                    "url": url,
+                    "port": port,
+                }
+                await self.emit_event(
+                    cert_event_data,
+                    "TLS_CERTIFICATE",
+                    parent=event,
+                    context=f"{{module}} retrieved TLS certificate metadata from {cert_event_data['host']}:{port}",
+                )
             if len(dns_names) > abort_threshold:
                 netloc = self.helpers.make_netloc(host, port)
                 self.verbose(
@@ -101,16 +132,16 @@ class sslcert(BaseModule):
         if parent_scope_distance == 0 and event.scope_distance > 0:
             event.add_tag("affiliate")
 
-    async def visit_host(self, host, port):
+    async def visit_host(self, host, port, server_name=None):
         host = self.helpers.make_ip_type(host)
         netloc = self.helpers.make_netloc(host, port)
-        host_hash = hash((host, port))
+        host_hash = hash((host, port, server_name))
         dns_names = []
         emails = set()
         async with self.ip_lock.lock(host_hash):
             if host_hash in self.hosts_visited:
                 self.debug(f"Already processed {host} on port {port}, skipping")
-                return [], [], (host, port)
+                return [], [], None, (host, port)
             else:
                 self.hosts_visited.add(host_hash)
 
@@ -120,19 +151,19 @@ class sslcert(BaseModule):
             try:
                 transport, _ = await asyncio.wait_for(
                     self.helpers.loop.create_connection(
-                        lambda: asyncio.Protocol(), host, port, ssl=ssl_context_noverify
+                        lambda: asyncio.Protocol(), host, port, ssl=ssl_context_noverify, server_hostname=server_name
                     ),
                     timeout=self.timeout,
                 )
             except asyncio.TimeoutError:
                 self.debug(f"Timed out after {self.timeout} seconds while connecting to {netloc}")
-                return [], [], (host, port)
+                return [], [], None, (host, port)
             except Exception as e:
                 log_fn = self.warning
                 if isinstance(e, OSError):
                     log_fn = self.debug
                 log_fn(f"Error connecting to {netloc}: {e}")
-                return [], [], (host, port)
+                return [], [], None, (host, port)
             finally:
                 with suppress(Exception):
                     transport.close()
@@ -142,19 +173,19 @@ class sslcert(BaseModule):
                 ssl_object = transport.get_extra_info("ssl_object")
             except Exception as e:
                 self.verbose(f"Error getting ssl_object: {e}", trace=True)
-                return [], [], (host, port)
+                return [], [], None, (host, port)
 
             # Get the certificate
             try:
                 der = ssl_object.getpeercert(binary_form=True)
             except Exception as e:
                 self.verbose(f"Error getting peer cert: {e}", trace=True)
-                return [], [], (host, port)
+                return [], [], None, (host, port)
             try:
                 cert = crypto.load_certificate(crypto.FILETYPE_ASN1, der)
             except Exception as e:
                 self.verbose(f"Error loading certificate: {e}", trace=True)
-                return [], [], (host, port)
+                return [], [], None, (host, port)
             issuer = cert.get_issuer()
             if issuer.emailAddress and self.helpers.regexes.email_regex.match(issuer.emailAddress):
                 emails.add(issuer.emailAddress)
@@ -166,7 +197,54 @@ class sslcert(BaseModule):
             with suppress(KeyError):
                 dns_names.remove(common_name)
             dns_names = [common_name] + list(dns_names)
-        return dns_names, list(emails), (host, port)
+            cert_data = self.get_cert_metadata(cert, dns_names)
+        return dns_names, list(emails), cert_data, (host, port)
+
+    def get_cert_metadata(self, cert, dns_names):
+        subject = cert.get_subject()
+        issuer = cert.get_issuer()
+        not_after = self.parse_asn1_time(cert.get_notAfter())
+        fingerprint = cert.digest("sha256").decode().replace(":", "").lower()
+        subject_components = self.name_components(subject)
+        issuer_components = self.name_components(issuer)
+        return {
+            "certificate": {
+                "subject": subject_components,
+                "issuer": issuer_components,
+                "serialNumber": str(cert.get_serial_number()),
+                "version": cert.get_version(),
+                "notBefore": self.parse_asn1_time(cert.get_notBefore()),
+                "notAfter": not_after,
+                "fingerprintSha256": fingerprint,
+                "sanDomains": sorted({name for name in dns_names if name}),
+            },
+            "certSubjectCn": subject_components.get("CN"),
+            "certIssuerCn": issuer_components.get("CN"),
+            "certFingerprintSha256": fingerprint,
+            "certSanDomains": sorted({name for name in dns_names if name}),
+            "certNotAfter": not_after,
+            "certIsExpired": cert.has_expired(),
+        }
+
+    def name_components(self, name):
+        components = {}
+        for key, value in name.get_components():
+            key = key.decode(errors="ignore")
+            value = value.decode(errors="ignore")
+            if key and value:
+                components[key] = value
+        return components
+
+    def parse_asn1_time(self, value):
+        if isinstance(value, bytes):
+            value = value.decode(errors="ignore")
+        if not value:
+            return None
+        try:
+            parsed = datetime.datetime.strptime(str(value), "%Y%m%d%H%M%SZ")
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=datetime.timezone.utc).isoformat()
 
     @staticmethod
     def get_cert_sans(cert):

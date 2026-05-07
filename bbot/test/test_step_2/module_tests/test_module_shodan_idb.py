@@ -1,3 +1,5 @@
+import re
+
 from .base import ModuleTestBase
 
 
@@ -5,6 +7,13 @@ class TestShodan_IDB(ModuleTestBase):
     config_overrides = {"dns": {"minimal": False}, "modules": {"shodan_idb": {"api_key": "asdf"}}}
 
     async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+
         await module_test.mock_dns(
             {
                 "blacklanternsecurity.com": {"A": ["1.2.3.4"]},
@@ -50,7 +59,26 @@ class TestShodan_IDB(ModuleTestBase):
                 "hostnames": ["edge.example.com", "cdn.example.com"],
                 "tags": ["cdn", "vpn"],
                 "cloud": {"provider": "Amazon", "region": "us-east-1", "service": "AMAZON"},
-                "data": [{"port": 443, "os": None}],
+                "data": [
+                    {
+                        "port": 443,
+                        "transport": "tcp",
+                        "product": "nginx",
+                        "version": "1.25.4",
+                        "os": None,
+                        "data": "HTTP/1.1 200 OK",
+                        "cpe23": ["cpe:/a:nginx:nginx:1.25.4"],
+                        "ssl": {"versions": ["TLSv1.3"], "cipher": {"name": "TLS_AES_256_GCM_SHA384"}},
+                        "_shodan": {"module": "https"},
+                    },
+                    {
+                        "port": 53,
+                        "transport": "udp",
+                        "product": "domain",
+                        "data": "recursive resolver",
+                        "_shodan": {"module": "dns-udp"},
+                    },
+                ],
             },
         )
         for ip in ("2.3.4.5", "3.4.5.6"):
@@ -78,8 +106,11 @@ class TestShodan_IDB(ModuleTestBase):
                 if e.type == "OPEN_TCP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"
             ]
         )
-        assert 1 == len([e for e in events if e.type == "FINDING" and str(e.module) == "shodan_idb"])
-        assert 1 == len([e for e in events if e.type == "FINDING" and "CVE-2021-26857" in e.data["description"]])
+        assert 1 == len(
+            [e for e in events if e.type == "OPEN_UDP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"]
+        )
+        assert 2 == len([e for e in events if e.type == "VULNERABILITY" and str(e.module) == "shodan_idb"])
+        assert any(e.type == "VULNERABILITY" and e.data["title"] == "Shodan detected CVE-2021-26857" for e in events)
         assert 2 == len([e for e in events if e.type == "TECHNOLOGY" and str(e.module) == "shodan_idb"])
         assert 1 == len(
             [
@@ -92,7 +123,7 @@ class TestShodan_IDB(ModuleTestBase):
             e.type == "GEOLOCATION"
             and e.data["ip"] == "1.2.3.4"
             and e.data["isVpn"] is True
-            and "reverseDns" not in e.data
+            and e.data.get("reverseDns") == ["autodiscover.blacklanternsecurity.com", "mail.blacklanternsecurity.com"]
             for e in events
         ), "Failed to emit InternetDB IP metadata"
         assert any(
@@ -104,6 +135,83 @@ class TestShodan_IDB(ModuleTestBase):
             and e.data.get("providerType") == "vpn"
             and e.data.get("isCdn") is True
             and e.data.get("cdnName") == "cloudflare"
-            and "reverseDns" not in e.data
+            and e.data.get("reverseDns") == ["cdn.example.com", "edge.example.com"]
             for e in events
         ), "Failed to emit Shodan host API IP metadata"
+        assert any(
+            e.type == "PROTOCOL"
+            and e.data.get("host") == "blacklanternsecurity.com"
+            and e.data.get("port") == 443
+            and e.data.get("protocol") == "HTTPS"
+            and e.data.get("banner") == "HTTP/1.1 200 OK"
+            for e in events
+        ), "Failed to emit Shodan host API service metadata"
+
+
+class TestShodan_IDB_RangeSearch(ModuleTestBase):
+    module_name = "shodan_idb"
+    targets = ["1.2.3.0/24"]
+    config_overrides = {"scope": {"report_distance": 2}, "modules": {"shodan_idb": {"api_key": "asdf", "max_range_pages": 1}}}
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+        await module_test.mock_dns({"edge.blacklanternsecurity.com": {"A": ["1.2.3.44"]}})
+
+    async def setup_after_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url=re.compile(r"https://api\.shodan\.io/shodan/host/search\?key=asdf&query=net%3A1\.2\.3\.0.*page=1"),
+            json={
+                "total": 1,
+                "matches": [
+                    {
+                        "ip_str": "1.2.3.44",
+                        "hostnames": ["edge.blacklanternsecurity.com"],
+                        "data": [
+                            {
+                                "port": 8443,
+                                "transport": "tcp",
+                                "product": "nginx",
+                                "version": "1.25.4",
+                                "data": "HTTP/1.1 200 OK",
+                                "_shodan": {"module": "https"},
+                            }
+                        ],
+                        "vulns": {
+                            "CVE-2024-12345": {
+                                "summary": "Example vulnerable service fingerprint.",
+                                "cvss": 8.1,
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+
+    def check(self, module_test, events):
+        assert any(e.type == "IP_ADDRESS" and e.data == "1.2.3.44" for e in events), (
+            "Failed to emit IP_ADDRESS from Shodan range search"
+        )
+        assert any(e.type == "DNS_NAME" and e.data == "edge.blacklanternsecurity.com" for e in events), (
+            "Failed to emit hostname from Shodan range search"
+        )
+        assert any(
+            e.type == "PROTOCOL"
+            and e.data.get("ip") == "1.2.3.44"
+            and e.data.get("port") == 8443
+            and e.data.get("protocol") == "HTTPS"
+            and e.data.get("product") == "nginx"
+            for e in events
+        ), "Failed to emit protocol details from Shodan range search"
+        assert any(
+            e.type == "VULNERABILITY"
+            and e.data.get("host") == "1.2.3.44"
+            and e.data.get("severity") == "HIGH"
+            and e.data.get("cve") == "CVE-2024-12345"
+            and "Example vulnerable service fingerprint" in e.data.get("description", "")
+            for e in events
+        ), "Failed to emit vulnerability details from Shodan range search"

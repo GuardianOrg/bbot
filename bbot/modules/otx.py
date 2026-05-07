@@ -3,7 +3,7 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum_apikey
 
 class otx(subdomain_enum_apikey):
     flags = ["subdomain-enum", "passive", "safe"]
-    watched_events = ["DNS_NAME"]
+    watched_events = ["DNS_NAME", "IP_ADDRESS"]
     produced_events = ["DNS_NAME", "DOMAIN_DNS_HISTORY"]
     meta = {
         "description": "Query otx.alienvault.com for subdomains",
@@ -25,7 +25,7 @@ class otx(subdomain_enum_apikey):
         return hash(str(event.data).strip().lower())
 
     async def handle_event(self, event):
-        query = self.make_query(event)
+        query = str(event.data).strip() if event.type == "IP_ADDRESS" else self.make_query(event)
         if query in self.queries_done:
             return
         self.queries_done.add(query)
@@ -35,6 +35,7 @@ class otx(subdomain_enum_apikey):
             return
         data = response.json()
         results, histories = self.parse_passive_dns(data)
+        is_ip_query = event.type == "IP_ADDRESS"
 
         for hostname in results:
             try:
@@ -42,7 +43,14 @@ class otx(subdomain_enum_apikey):
             except ValueError as e:
                 self.verbose(e)
                 continue
-            if hostname and hostname.endswith(f".{query}") and not hostname == event.data:
+            if hostname and is_ip_query:
+                await self.emit_event(
+                    hostname,
+                    "DNS_NAME",
+                    event,
+                    context=f'{{module}} searched {self.source_pretty_name} passive DNS for "{query}" and found {{event.type}}: {{event.data}}',
+                )
+            elif hostname and hostname.endswith(f".{query}") and not hostname == event.data:
                 await self.emit_event(
                     hostname,
                     "DNS_NAME",
@@ -64,7 +72,11 @@ class otx(subdomain_enum_apikey):
         return url, kwargs
 
     def request_url(self, query):
-        url = f"{self.base_url}/api/v1/indicators/domain/{self.helpers.quote(query)}/passive_dns"
+        if self.helpers.is_ip(query):
+            indicator_type = "IPv6" if ":" in query else "IPv4"
+            url = f"{self.base_url}/api/v1/indicators/{indicator_type}/{self.helpers.quote(query)}/passive_dns"
+        else:
+            url = f"{self.base_url}/api/v1/indicators/domain/{self.helpers.quote(query)}/passive_dns"
         return self.api_request(url)
 
     async def parse_results(self, r, query):

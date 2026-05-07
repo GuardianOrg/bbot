@@ -1,5 +1,3 @@
-import json
-
 from .base import ModuleTestBase
 
 
@@ -9,7 +7,7 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         "deps": {"behavior": "disable"},
         "modules": {
             "domain_config_dns_audit": {
-                "binary": "/bin/echo",
+                "quick": True,
                 "wildcard_nameservers": ["1.1.1.1", "8.8.8.8", "9.9.9.9"],
             }
         },
@@ -24,38 +22,34 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
 
     async def setup_after_prep(self, module_test):
-        from bbot.modules.base import BaseModule
+        async def fake_collect_basic_dns(domain):
+            return {
+                "A": ["1.2.3.4"],
+                "AAAA": [],
+                "NS": ["ns1.blacklanternsecurity.com"],
+                "MX": ["10 mail.blacklanternsecurity.com"],
+                "TXT": ["v=spf1 +all"],
+                "SOA": "ns1.blacklanternsecurity.com hostmaster.blacklanternsecurity.com 2026050701 3600 600 1209600 300",
+            }
 
-        self.captured_commands = []
+        async def fake_query_dns(domain, rdtype, nameserver=None, raise_on_nxdomain=False):
+            if domain == "ns1.blacklanternsecurity.com" and rdtype == "A":
+                return True, ["192.0.2.53"]
+            if domain == "mail.blacklanternsecurity.com" and rdtype == "A":
+                return True, ["192.0.2.25"]
+            if domain == "blacklanternsecurity.com" and rdtype == "SOA" and nameserver:
+                return True, [
+                    "ns1.blacklanternsecurity.com hostmaster.blacklanternsecurity.com 2026050701 3600 600 1209600 300"
+                ]
+            return True, []
 
-        async def fake_run_process(self_module, cmd, *args, **kwargs):
-            self.captured_commands.append(cmd)
+        async def fake_query_dns_with_ttl(domain, rdtype, nameserver=None):
+            return True, []
 
-            class FakeResult:
-                returncode = 0
-                stdout = json.dumps(
-                    [
-                        {
-                            "domain": "blacklanternsecurity.com",
-                            "findings": [
-                                {
-                                    "title": "Weak DMARC policy",
-                                    "severity": "medium",
-                                    "category": "Email",
-                                    "description": "DMARC policy is monitor-only.",
-                                    "evidence": "p=none",
-                                    "recommendation": "Move to quarantine or reject.",
-                                    "command": "domain-config-dns-audit blacklanternsecurity.com",
-                                }
-                            ],
-                        }
-                    ]
-                )
-                stderr = ""
+        async def fake_query_dns_full(domain, rdtype, nameserver=None):
+            return False, None
 
-            return FakeResult()
-
-        async def fake_check_zone_transfer(host):
+        async def fake_check_zone_transfer(domain, records):
             return {
                 "zone_transfer_possible": False,
                 "zone_transfer_nameservers": ["ns1.blacklanternsecurity.com"],
@@ -67,7 +61,10 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
                 "wildcard_ips": ["1.2.3.4", "2001:db8::1"],
             }
 
-        module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
+        module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns", fake_query_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns_with_ttl", fake_query_dns_with_ttl)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns_full", fake_query_dns_full)
         module_test.monkeypatch.setattr(module_test.module, "check_zone_transfer", fake_check_zone_transfer)
         module_test.monkeypatch.setattr(module_test.module, "check_wildcard", fake_check_wildcard)
 
@@ -82,6 +79,12 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         assert domain_config_events[0].data["is_wildcard"] is True
         assert domain_config_events[0].data["wildcard_ips"] == ["1.2.3.4", "2001:db8::1"]
 
-        assert any(e.data.get("title") == "Weak DMARC policy" for e in vulnerabilities)
-        assert any("domain security grade" in e.data.get("description", "").lower() for e in findings)
-        assert all("--quick" not in cmd for cmd in self.captured_commands)
+        finding_titles = {e.data.get("title") for e in findings}
+        vulnerability_titles = {e.data.get("title") for e in vulnerabilities}
+
+        assert "No IPv6 (AAAA) Record" in finding_titles
+        assert "Insufficient Nameservers" in vulnerability_titles
+        assert "SPF Allows All Senders" in vulnerability_titles
+        assert "Missing DMARC Record" in vulnerability_titles
+        assert "Missing CAA Records" in vulnerability_titles
+        assert all("testssl" not in str(e.data).lower() for e in findings + vulnerabilities)

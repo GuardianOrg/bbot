@@ -10,7 +10,7 @@ import ipaddress
 import traceback
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from copy import copy, deepcopy
 from contextlib import suppress
 from radixtarget import RadixTarget
@@ -1683,6 +1683,14 @@ class PROTOCOL(DictHostEvent):
         host: str
         protocol: str
         port: Optional[int] = None
+        ip: Optional[str] = None
+        transport: Optional[str] = None
+        product: Optional[str] = None
+        version: Optional[str] = None
+        os: Optional[str] = None
+        tls_version: Optional[str] = None
+        cipher_suite: Optional[str] = None
+        cpes: Optional[List[str]] = None
         banner: Optional[str] = None
         _validate_host = field_validator("host")(validators.validate_host)
         _validate_port = field_validator("port")(validators.validate_port)
@@ -1767,6 +1775,26 @@ class DOMAIN_DNS_CONFIG(DictHostEvent):
         is_wildcard: Optional[bool] = None
         wildcard_ips: Optional[list[str]] = None
         _validate_host = field_validator("host")(validators.validate_host)
+
+
+class TLS_CERTIFICATE(DictHostEvent):
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        url: Optional[str] = None
+        port: Optional[int] = None
+        certificate: Optional[dict] = None
+        certSubjectCn: Optional[str] = None
+        certIssuerCn: Optional[str] = None
+        certFingerprintSha256: Optional[str] = None
+        certSanDomains: Optional[list[str]] = None
+        certNotAfter: Optional[str] = None
+        certIsExpired: Optional[bool] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+        _validate_url = field_validator("url")(validators.validate_url)
+        _validate_port = field_validator("port")(validators.validate_port)
 
 
 class WAF(DictHostEvent):
