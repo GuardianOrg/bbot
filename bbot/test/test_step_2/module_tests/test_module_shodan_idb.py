@@ -164,7 +164,7 @@ class TestShodan_IDB_RangeSearch(ModuleTestBase):
 
     async def setup_after_prep(self, module_test):
         module_test.httpx_mock.add_response(
-            url=re.compile(r"https://api\.shodan\.io/shodan/host/search\?key=asdf&query=net%3A1\.2\.3\.0.*page=1"),
+            url=re.compile(r"https://api\.shodan\.io/shodan/host/search\?key=asdf&query=net%3A1\.2\.3\.0.*page=1&minify=false"),
             json={
                 "total": 1,
                 "matches": [

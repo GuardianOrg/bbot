@@ -167,10 +167,11 @@ class shodan_idb(BaseModule):
             self.debug(f"Skipping authenticated Shodan range search for {cidr}: no API key configured")
             return
 
+        seen_matches = 0
         for page in range(1, self.max_range_pages + 1):
             url = (
                 f"https://api.shodan.io/shodan/host/search?key={self.api_key}"
-                f"&query={self.helpers.quote(f'net:{cidr}')}&page={page}"
+                f"&query={self.helpers.quote(f'net:{cidr}')}&page={page}&minify=false"
             )
             r = await self.helpers.request(url)
             if r is None:
@@ -190,8 +191,9 @@ class shodan_idb(BaseModule):
                 for match in matches:
                     if isinstance(match, dict):
                         await self.emit_range_match(match, event, cidr)
+                        seen_matches += 1
                 total = data.get("total")
-                if not isinstance(total, int) or page * len(matches) >= total:
+                if not isinstance(total, int) or seen_matches >= total:
                     return
                 continue
 
