@@ -33,30 +33,41 @@ class TestTestssl(ModuleTestBase):
             output_file = command[command.index("--jsonfile-pretty") + 1]
             with open(output_file, "w") as f:
                 json.dump(
-                    [
-                        {
-                            "id": "TLS1",
-                            "severity": "MEDIUM",
-                            "finding": "TLS 1.0 is offered",
-                            "cwe": "CWE-326",
-                            "cve": "CVE-2024-9999",
-                        },
-                        {
-                            "id": "HSTS",
-                            "severity": "WARN",
-                            "finding": "No HSTS header",
-                        },
-                        {
-                            "id": "cert_chain_of_trust",
-                            "severity": "INFO",
-                            "finding": "certificate chain is trusted",
-                        },
-                        {
-                            "id": "TLS1_3",
-                            "severity": "OK",
-                            "finding": "TLS 1.3 offered",
-                        },
-                    ],
+                    {
+                        "scanResult": [
+                            {
+                                "targetHost": "blacklanternsecurity.com",
+                                "protocols": [
+                                    {
+                                        "id": "TLS1",
+                                        "severity": "MEDIUM",
+                                        "finding": "TLS 1.0 is offered",
+                                        "cwe": "CWE-326",
+                                        "cve": "CVE-2024-9999",
+                                    },
+                                    {
+                                        "id": "TLS1_3",
+                                        "severity": "OK",
+                                        "finding": "TLS 1.3 offered",
+                                    },
+                                ],
+                                "serverDefaults": [
+                                    {
+                                        "id": "cert_chain_of_trust",
+                                        "severity": "INFO",
+                                        "finding": "certificate chain is trusted",
+                                    }
+                                ],
+                                "headers": [
+                                    {
+                                        "id": "HSTS",
+                                        "severity": "WARN",
+                                        "finding": "No HSTS header",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
                     f,
                 )
 

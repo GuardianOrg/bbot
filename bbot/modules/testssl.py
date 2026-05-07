@@ -82,7 +82,8 @@ class testssl(BaseModule):
         "WARNING": "INFO",
         "INFO": "INFO",
     }
-    SKIP_INFO_IDS = {"service", "cert_trust", "cert_chain_of_trust"}
+    SKIP_IDS = {"engine_problem", "scanProblem"}
+    SKIP_INFO_IDS = {"service", "cert_trust", "cert_chain_of_trust", "pre_128cipher"}
 
     async def setup(self):
         self.timeout = max(1, int(self.config.get("timeout", 150)))
@@ -190,19 +191,45 @@ class testssl(BaseModule):
 
     def normalize_results_container(self, payload):
         if isinstance(payload, list):
-            return payload
+            return self.flatten_result_items(payload)
         if isinstance(payload, dict):
+            if self.is_result_item(payload):
+                return [payload]
             for key in ("scanResult", "scan_results", "results", "findings"):
                 value = payload.get(key)
                 if isinstance(value, list):
-                    return value
-            return [payload]
+                    return self.flatten_result_items(value)
         return []
+
+    def flatten_result_items(self, payload):
+        results = []
+        if isinstance(payload, list):
+            for item in payload:
+                results.extend(self.flatten_result_items(item))
+            return results
+        if not isinstance(payload, dict):
+            return results
+        if self.is_result_item(payload):
+            results.append(payload)
+        for value in payload.values():
+            if isinstance(value, (dict, list)):
+                results.extend(self.flatten_result_items(value))
+        return results
+
+    def is_result_item(self, item):
+        return (
+            isinstance(item, dict)
+            and bool(str(item.get("id") or item.get("idName") or item.get("findingId") or "").strip())
+            and bool(str(item.get("severity") or "").strip())
+            and any(str(item.get(key) or "").strip() for key in ("finding", "message", "value"))
+        )
 
     def normalize_result(self, item):
         if not isinstance(item, dict):
             return None
         item_id = str(item.get("id") or item.get("idName") or item.get("findingId") or "unknown").strip()
+        if item_id in self.SKIP_IDS:
+            return None
         raw_severity = str(item.get("severity") or "INFO").upper().strip()
         if raw_severity == "OK":
             return None

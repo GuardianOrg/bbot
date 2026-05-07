@@ -94,10 +94,16 @@ class shodan_idb(BaseModule):
             if isinstance(api_key, str):
                 api_key = [api_key]
             for key in api_key:
-                key = str(key).strip()
+                key = self.clean_api_key(key)
                 if key:
                     api_keys.add(key)
         return list(api_keys)
+
+    def clean_api_key(self, key):
+        key = str(key or "").strip()
+        if "#" in key:
+            key = key.split("#", 1)[0].strip()
+        return key.strip("\"'")
 
     def _incoming_dedup_hash(self, event):
         ip = self.get_ip(event)

@@ -4,7 +4,7 @@ from .base import ModuleTestBase
 
 
 class TestShodan_IDB(ModuleTestBase):
-    config_overrides = {"dns": {"minimal": False}, "modules": {"shodan_idb": {"api_key": "asdf"}}}
+    config_overrides = {"dns": {"minimal": False}, "modules": {"shodan_idb": {"api_key": '"asdf" # inline comment'}}}
 
     async def setup_before_prep(self, module_test):
         from bbot.core.helpers.depsinstaller.installer import DepsInstaller
