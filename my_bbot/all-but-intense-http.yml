@@ -61,6 +61,7 @@ modules:
   - subzy
   - thc_rdns
   - tcp_connect_verify
+  - udpx
   - trufflehog
   - urlscan
   - virustotal
@@ -118,6 +119,11 @@ config:
       retries: 3
       timeout_ms: 3000
       process_timeout_multiplier: 4
+
+    udpx:
+      concurrency: 64
+      timeout_ms: 750
+      capture_banner: true
       process_timeout_grace: 60
       exclude_cdn: false
       scan_all_ips: false
