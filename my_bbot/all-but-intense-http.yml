@@ -94,7 +94,7 @@ config:
       batch_size: 5
       module_threads: 32
       skip_common_web: false
-      timeout_ms: 500
+      timeout_ms: 1000
       fast: false
     nuclei_takeover:
       ratelimit: 30
