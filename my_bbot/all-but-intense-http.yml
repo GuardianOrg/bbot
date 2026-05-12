@@ -177,7 +177,7 @@ config:
       probe_all_ips: false
     host_reputation:
       abuseipdb_api_key: ${env:ABUSEIPDB_KEY}
-      virustotal_api_keys: ${env:VT_KEY},${env:VT_KEY_1},${env:VT_KEY_2},${env:VT_KEY_3},${env:VT_KEY_4}
+      virustotal_api_keys: ${env:VT_KEY_1},${env:VT_KEY_2},${env:VT_KEY_3},${env:VT_KEY_4}
       otx_api_key: ${env:OTX_KEY}
     jadx:
       threads: 1
@@ -240,4 +240,4 @@ config:
       max_time: 30
       rate_limit: 0
     virustotal:
-      api_key: ${env:VT_API_KEY}
+      api_key: ${env:VT_KEY_1}
