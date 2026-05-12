@@ -40,6 +40,7 @@ class nuclei(BaseModule):
         "retries": 0,
         "batch_size": 200,
         "module_timeout": 21600,  # 6 hours
+        "verbose_templates": False,
     }
     options_desc = {
         "version": "nuclei version",
@@ -59,6 +60,7 @@ class nuclei(BaseModule):
         "retries": "number of times to retry a failed request (default 0)",
         "batch_size": "Number of targets to send to Nuclei per batch (default 200)",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
+        "verbose_templates": "Log templates loaded by nuclei for debugging slow scans",
     }
     deps_ansible = [
         {
@@ -146,6 +148,7 @@ class nuclei(BaseModule):
         self.iserver = self.scan.config.get("interactsh_server", None)
         self.itoken = self.scan.config.get("interactsh_token", None)
         self.retries = int(self.config.get("retries", 0))
+        self.verbose_templates = bool(self.config.get("verbose_templates", False))
         self.mobile_app_discovered = False
 
         if self.mode not in ("technology", "severe", "manual", "budget"):
@@ -573,6 +576,9 @@ class nuclei(BaseModule):
 
         if self.mode == "technology":
             command.append("-as")
+
+        if self.verbose_templates:
+            command.append("-vv")
 
         if self.mode == "budget":
             command.append("-t")

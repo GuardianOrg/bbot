@@ -73,6 +73,7 @@ output_modules:
   - sqlite
 
 config:
+  interactsh_disable: true
   modules:
     nuclei:
       mode: manual
@@ -81,12 +82,18 @@ config:
       mobile_template_sources: /workspace/bbot-guardian/my_bbot/mobile-nuclei-templates
       severity: ""
       etags: ""
-      ratelimit: 30
-      concurrency: 5
+      ratelimit: 60
+      concurrency: 10
       retries: 1
-      batch_size: 400
+      batch_size: 200
+      module_timeout: 1800
+      verbose_templates: true
       directory_only: false
       silent: true
+    fingerprintx:
+      batch_size: 50
+      module_threads: 8
+      skip_common_web: false
     nuclei_takeover:
       ratelimit: 30
       concurrency: 5
