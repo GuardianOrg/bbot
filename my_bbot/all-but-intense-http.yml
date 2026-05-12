@@ -94,8 +94,8 @@ config:
       directory_only: true
       silent: true
     fingerprintx:
-      batch_size: 5
-      module_threads: 32
+      batch_size: 1
+      module_threads: 64
       skip_common_web: false
       timeout_ms: 1000
       fast: false
