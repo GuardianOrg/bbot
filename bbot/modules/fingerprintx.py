@@ -12,14 +12,22 @@ class fingerprintx(BaseModule):
         "created_date": "2023-01-30",
         "author": "@TheTechromancer",
     }
-    options = {"version": "1.1.4"}
-    options_desc = {"version": "fingerprintx version"}
     _batch_size = 10
     _module_threads = 2
     _priority = 2
 
-    options = {"skip_common_web": True}
-    options_desc = {"skip_common_web": "Skip common web ports such as 80, 443, 8080, 8443, etc."}
+    options = {
+        "version": "1.1.4",
+        "skip_common_web": True,
+        "timeout_ms": 2000,
+        "fast": False,
+    }
+    options_desc = {
+        "version": "fingerprintx version",
+        "skip_common_web": "Skip common web ports such as 80, 443, 8080, 8443, etc.",
+        "timeout_ms": "Per-target fingerprintx timeout in milliseconds",
+        "fast": "Enable fingerprintx fast mode",
+    }
 
     deps_ansible = [
         {
@@ -53,6 +61,8 @@ class fingerprintx(BaseModule):
 
     async def setup(self):
         self.skip_common_web = self.config.get("skip_common_web", True)
+        self.timeout_ms = int(self.config.get("timeout_ms", 2000))
+        self.fast = bool(self.config.get("fast", False))
         return True
 
     async def filter_event(self, event):
@@ -64,7 +74,9 @@ class fingerprintx(BaseModule):
 
     async def handle_batch(self, *events):
         _input = {e.data: e for e in events}
-        command = ["fingerprintx", "--json"]
+        command = ["fingerprintx", "--json", "--timeout", str(self.timeout_ms)]
+        if self.fast:
+            command.append("--fast")
         async for line in self.run_process_live(command, input=list(_input), stderr=subprocess.DEVNULL):
             try:
                 j = json.loads(line)

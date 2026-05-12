@@ -94,6 +94,8 @@ config:
       batch_size: 50
       module_threads: 8
       skip_common_web: false
+      timeout_ms: 500
+      fast: true
     nuclei_takeover:
       ratelimit: 30
       concurrency: 5
