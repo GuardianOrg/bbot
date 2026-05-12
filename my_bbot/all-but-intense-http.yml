@@ -76,11 +76,11 @@ config:
   interactsh_disable: true
   modules:
     nuclei:
-      mode: manual
+      mode: technology
       tags: ""
       templates: ""
       mobile_template_sources: /workspace/bbot-guardian/my_bbot/mobile-nuclei-templates
-      severity: ""
+      severity: "critical,high"
       etags: ""
       ratelimit: 60
       concurrency: 10
