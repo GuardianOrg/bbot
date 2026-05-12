@@ -80,15 +80,18 @@ config:
       tags: ""
       templates: ""
       mobile_template_sources: /workspace/bbot-guardian/my_bbot/mobile-nuclei-templates
-      severity: "critical,high"
-      etags: ""
-      ratelimit: 60
-      concurrency: 10
-      retries: 1
-      batch_size: 200
-      module_timeout: 1800
+      severity: "critical,high,medium"
+      etags: "dos,fuzz,fuzzing,intrusive,destructive"
+      exclude_types: "code,headless,javascript,tcp"
+      ratelimit: 120
+      concurrency: 20
+      bulk_size: 10
+      retries: 0
+      timeout: 5
+      batch_size: 50
+      module_timeout: 900
       verbose_templates: true
-      directory_only: false
+      directory_only: true
       silent: true
     fingerprintx:
       batch_size: 5

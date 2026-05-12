@@ -38,6 +38,10 @@ class nuclei(BaseModule):
         "silent": False,
         "directory_only": True,
         "retries": 0,
+        "timeout": 10,
+        "bulk_size": 25,
+        "exclude_types": "",
+        "exclude_templates": "",
         "batch_size": 200,
         "module_timeout": 21600,  # 6 hours
         "verbose_templates": False,
@@ -58,6 +62,10 @@ class nuclei(BaseModule):
         "silent": "Don't display nuclei's banner or status messages",
         "directory_only": "Filter out 'file' URL event (default True)",
         "retries": "number of times to retry a failed request (default 0)",
+        "timeout": "time to wait in seconds before timeout for each request (default 10)",
+        "bulk_size": "maximum number of hosts to analyze in parallel per template",
+        "exclude_types": "template protocol types to exclude, comma-separated (maps to nuclei -ept)",
+        "exclude_templates": "template paths to exclude, comma-separated (maps to nuclei -et)",
         "batch_size": "Number of targets to send to Nuclei per batch (default 200)",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
         "verbose_templates": "Log templates loaded by nuclei for debugging slow scans",
@@ -148,6 +156,10 @@ class nuclei(BaseModule):
         self.iserver = self.scan.config.get("interactsh_server", None)
         self.itoken = self.scan.config.get("interactsh_token", None)
         self.retries = int(self.config.get("retries", 0))
+        self.timeout = int(self.config.get("timeout", 10))
+        self.bulk_size = int(self.config.get("bulk_size", 25))
+        self.exclude_types = self.config.get("exclude_types", "")
+        self.exclude_templates = self.config.get("exclude_templates", "")
         self.verbose_templates = bool(self.config.get("verbose_templates", False))
         self.mobile_app_discovered = False
 
@@ -530,6 +542,10 @@ class nuclei(BaseModule):
             "-stats-json",
             "-retries",
             self.retries,
+            "-timeout",
+            self.timeout,
+            "-bulk-size",
+            self.bulk_size,
         ]
 
         if self.helpers.system_resolvers:
@@ -547,6 +563,12 @@ class nuclei(BaseModule):
             if option:
                 command.append(f"-{cli_option}")
                 command.append(option)
+
+        if self.exclude_types:
+            command.extend(["-ept", self.exclude_types])
+
+        if self.exclude_templates:
+            command.extend(["-et", self.exclude_templates])
 
         if include_mobile_templates and self.mobile_template_source_dirs and not self.templates and not self.template_source_dirs:
             command.extend(["-t", ",".join(str(path) for path in self.mobile_template_source_dirs)])
