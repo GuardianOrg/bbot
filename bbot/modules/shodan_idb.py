@@ -527,8 +527,14 @@ class shodan_idb(BaseModule):
 
     def service_protocol(self, service):
         module = service.get("_shodan", {}) if isinstance(service.get("_shodan"), dict) else {}
-        protocol = self.clean_string(module.get("module")) or self.clean_string(service.get("service"))
+        protocol = self.clean_protocol(module.get("module")) or self.clean_protocol(service.get("service"))
         return protocol.upper() if protocol else None
+
+    def clean_protocol(self, value):
+        protocol = self.clean_string(value)
+        if protocol and protocol.lower() not in ("auto", "nodata-tcp", "unknown", "none"):
+            return protocol
+        return None
 
     def service_tls_version(self, service):
         ssl_info = service.get("ssl") if isinstance(service.get("ssl"), dict) else {}
