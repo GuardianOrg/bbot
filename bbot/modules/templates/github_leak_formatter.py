@@ -120,10 +120,12 @@ class github_leak_formatter:
 
         relative_path = self.relative_file_path(scan_path, file_path)
         commit_url = self.build_commit_url(repository_url, commit)
-        github_url = self.build_blob_url(repository_url, relative_path, line=line, commit=commit) or commit_url or repository_url
+        blob_url = self.build_blob_url(repository_url, relative_path, line=line, commit=commit)
+        finding_url = commit_url or repository_url
 
         leak_value = str(leak or "").strip()
         rule_name = str(detector or "").strip()
+        leak_type = rule_name or "secret"
         leak_fingerprint = sha256(leak_value.encode("utf-8", errors="ignore")).hexdigest() if leak_value else ""
         secret_fingerprint = f"sha256:{leak_fingerprint}" if leak_fingerprint else ""
         dedupe_parts = [repository_url, leak_value]
@@ -133,21 +135,38 @@ class github_leak_formatter:
             location_parts.append(relative_path)
         if line not in (None, "", "?"):
             location_parts.append(f"line {line}")
-        location = " at " + ":".join(location_parts) if location_parts else ""
-        rule_suffix = f" ({rule_name})" if rule_name else ""
+        source_location = ":".join(location_parts)
+        source_suffix = f" in {source_location}" if source_location else ""
+        poc_parts = [
+            f"Repository: {repository_url}",
+            f"Commit URL: {finding_url}",
+            f"Leak type: {leak_type}",
+            f"Secret value: {leak_value}",
+        ]
+        if source_location:
+            poc_parts.insert(2, f"Source location: {source_location}")
+        if blob_url:
+            poc_parts.insert(3 if source_location else 2, f"File URL: {blob_url}")
         data = {
-            "url": github_url,
+            "url": finding_url,
+            "location": finding_url,
             "repository_url": repository_url,
             "tool": tool_name,
             "rule": rule_name,
-            "title": f"{tool_name} detected a possible secret{rule_suffix}",
+            "leak_type": leak_type,
+            "leakType": leak_type,
+            "secretType": leak_type,
+            "title": f"Git Leak of {leak_type} detected",
             "category": "secret",
-            "description": f"{tool_name} detected a possible secret{rule_suffix} in {repository_url}{location}.",
-            "poc": f"Repository: {repository_url}\nLocation: {github_url}\nRule: {rule_name or 'unknown'}\nSecret value: {leak_value}",
+            "description": f"{tool_name} detected a Git leak of type {leak_type}{source_suffix}.",
+            "poc": "\n".join(poc_parts),
             "severity": severity or ("High" if verified else "Medium"),
             "force_finding": True,
             "dedupe_key": "github-leak:" + ":".join(dedupe_parts),
         }
+        if blob_url:
+            data["file_url"] = blob_url
+            data["blob_url"] = blob_url
         if leak_value:
             data["secretValue"] = leak_value
             data["secret_value"] = leak_value
