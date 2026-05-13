@@ -128,7 +128,10 @@ class github_leak_formatter:
         leak_type = rule_name or "secret"
         leak_fingerprint = sha256(leak_value.encode("utf-8", errors="ignore")).hexdigest() if leak_value else ""
         secret_fingerprint = f"sha256:{leak_fingerprint}" if leak_fingerprint else ""
-        dedupe_parts = [repository_url, leak_value]
+        if leak_fingerprint:
+            dedupe_key = f"github-leak-secret:sha256:{leak_fingerprint}"
+        else:
+            dedupe_key = "github-leak:" + ":".join([repository_url, leak_type, relative_path, str(line or "")])
         tool_name = getattr(self, "name", "")
         location_parts = []
         if relative_path:
@@ -162,7 +165,7 @@ class github_leak_formatter:
             "poc": "\n".join(poc_parts),
             "severity": severity or ("High" if verified else "Medium"),
             "force_finding": True,
-            "dedupe_key": "github-leak:" + ":".join(dedupe_parts),
+            "dedupe_key": dedupe_key,
         }
         if blob_url:
             data["file_url"] = blob_url
