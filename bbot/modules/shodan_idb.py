@@ -86,6 +86,11 @@ class shodan_idb(BaseModule):
         self.api_key = self.get_shodan_api_keys()
         return True
 
+    async def filter_event(self, event):
+        if event.type == "DNS_NAME" and event.scope_distance > 0:
+            return False, "only querying Shodan IDB for in-scope DNS names"
+        return True
+
     def get_shodan_api_keys(self):
         api_keys = set()
         for module_name in ("shodan", "shodan_dns", "shodan_port", "shodan_idb"):
