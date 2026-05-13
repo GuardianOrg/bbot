@@ -8,7 +8,7 @@ class ipwhois(BaseModule):
 
     watched_events = ["IP_ADDRESS"]
     produced_events = ["GEOLOCATION"]
-    flags = ["passive", "safe"]
+    flags = ["passive", "safe", "ip-enum"]
     meta = {
         "description": "Query ipwho.is API for geolocation information.",
         "created_date": "2026-02-23",

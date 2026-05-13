@@ -12,7 +12,7 @@ class ip_privacy(BaseModule):
 
     watched_events = ["IP_ADDRESS"]
     produced_events = ["GEOLOCATION"]
-    flags = ["passive", "safe"]
+    flags = ["passive", "safe", "ip-enum"]
     meta = {
         "description": "Classify IPs as Tor/proxy/VPN using free public IP list feeds.",
         "created_date": "2026-05-06",

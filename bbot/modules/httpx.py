@@ -13,7 +13,7 @@ from bbot.modules.base import BaseModule
 class httpx(BaseModule):
     watched_events = ["OPEN_TCP_PORT", "URL_UNVERIFIED", "URL"]
     produced_events = ["URL", "HTTP_RESPONSE"]
-    flags = ["active", "safe", "web-basic", "social-enum", "subdomain-enum", "cloud-enum"]
+    flags = ["active", "safe", "web-basic", "service-web", "social-enum", "subdomain-enum", "cloud-enum"]
     meta = {
         "description": "Visit webpages. Many other modules rely on httpx",
         "created_date": "2022-07-08",

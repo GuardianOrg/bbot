@@ -13,7 +13,7 @@ from bbot.core.helpers.web.ssl_context import ssl_context_noverify
 class sslcert(BaseModule):
     watched_events = ["OPEN_TCP_PORT", "URL", "HTTP_RESPONSE"]
     produced_events = ["DNS_NAME", "EMAIL_ADDRESS", "TLS_CERTIFICATE"]
-    flags = ["affiliates", "subdomain-enum", "email-enum", "active", "safe", "web-basic"]
+    flags = ["affiliates", "subdomain-enum", "email-enum", "active", "safe", "web-basic", "service-web"]
     meta = {
         "description": "Visit open ports and retrieve SSL certificates",
         "created_date": "2022-03-30",

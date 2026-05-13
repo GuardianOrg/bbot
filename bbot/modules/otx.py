@@ -2,7 +2,7 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum_apikey
 
 
 class otx(subdomain_enum_apikey):
-    flags = ["subdomain-enum", "passive", "safe"]
+    flags = ["subdomain-enum", "passive", "safe", "ip-enum"]
     watched_events = ["DNS_NAME", "IP_ADDRESS"]
     produced_events = ["DNS_NAME", "DOMAIN_DNS_HISTORY"]
     meta = {

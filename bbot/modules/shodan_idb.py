@@ -51,7 +51,7 @@ class shodan_idb(BaseModule):
         "DNS_NAME",
         "GEOLOCATION",
     ]
-    flags = ["passive", "safe", "portscan"]
+    flags = ["passive", "safe", "portscan", "ip-enum"]
     meta = {
         "description": "Query Shodan's InternetDB for open ports, hostnames, technologies, and vulnerabilities",
         "created_date": "2023-12-22",

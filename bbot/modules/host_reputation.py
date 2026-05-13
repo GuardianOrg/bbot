@@ -8,7 +8,7 @@ from bbot.modules.base import BaseModule
 class host_reputation(BaseModule):
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED", "IP_ADDRESS"]
     produced_events = ["FINDING"]
-    flags = ["passive", "safe"]
+    flags = ["passive", "safe", "ip-enum"]
     meta = {
         "description": "Check domains and IP addresses against AbuseIPDB, VirusTotal, OTX, and MalwareWorld",
         "created_date": "2026-04-27",
