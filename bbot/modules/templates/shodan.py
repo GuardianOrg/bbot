@@ -18,8 +18,10 @@ class shodan(subdomain_enum):
             api_key = module_config.get("api_key", "")
             if isinstance(api_key, str):
                 api_key = [api_key]
+            elif api_key is None:
+                api_key = []
             for key in api_key:
-                key = key.strip()
+                key = str(key or "").strip()
                 if key:
                     api_keys.add(key)
         if not api_keys:

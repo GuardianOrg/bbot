@@ -98,6 +98,8 @@ class shodan_idb(BaseModule):
             api_key = module_config.get("api_key", "")
             if isinstance(api_key, str):
                 api_key = [api_key]
+            elif api_key is None:
+                api_key = []
             for key in api_key:
                 key = self.clean_api_key(key)
                 if key:

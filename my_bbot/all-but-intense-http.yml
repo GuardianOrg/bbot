@@ -73,8 +73,16 @@ output_modules:
   - sqlite
 
 config:
+  omit_event_types:
+    - RAW_TEXT
+    - FILESYSTEM
+    - WEB_PARAMETER
+  dns:
+    emit_out_of_scope_children: false
   interactsh_disable: true
   modules:
+    stdout:
+      accept_dupes: true
     nuclei:
       mode: technology
       tags: ""
@@ -117,8 +125,9 @@ config:
       process_timeout_grace: 60
       exclude_cdn: false
       scan_all_ips: false
-      expand_ip_ranges: true
+      verify: false
       max_expanded_ip_range_hosts: 4096
+      expand_ip_ranges: false
       port_chunk_size: 0
       scan_passes: 1
       scan_individual_targets: true
@@ -131,6 +140,14 @@ config:
       retries: 3
       timeout_ms: 3000
       process_timeout_multiplier: 4
+      process_timeout_grace: 60
+      exclude_cdn: false
+      scan_all_ips: false
+      verify: false
+      port_chunk_size: 0
+      scan_passes: 1
+      scan_individual_targets: true
+      target_concurrency: 1
 
     udpx:
       concurrency: 64
@@ -151,6 +168,31 @@ config:
       target_concurrency: 4
       timeout_ms: 500
       retries: 1
+    bucket_amazon:
+      permutations: true
+      max_candidates: 5000
+      permutation_numbers: 0
+      expand_found_buckets: false
+    bucket_digitalocean:
+      permutations: true
+      max_candidates: 5000
+      permutation_numbers: 0
+      expand_found_buckets: false
+    bucket_firebase:
+      permutations: true
+      max_candidates: 5000
+      permutation_numbers: 0
+      expand_found_buckets: false
+    bucket_google:
+      permutations: true
+      max_candidates: 5000
+      permutation_numbers: 0
+      expand_found_buckets: false
+    bucket_microsoft:
+      permutations: true
+      max_candidates: 5000
+      permutation_numbers: 0
+      expand_found_buckets: false
     dnsbrute:
       wordlist: https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt
       max_depth: 3
@@ -179,9 +221,9 @@ config:
       store_responses: false
       probe_all_ips: false
     host_reputation:
-      abuseipdb_api_key: ${env:ABUSEIPDB_KEY}
-      virustotal_api_keys: ${env:VT_KEY_1},${env:VT_KEY_2},${env:VT_KEY_3},${env:VT_KEY_4}
-      otx_api_key: ${env:OTX_KEY}
+      abuseipdb_api_key: ${env:ABUSEIPDB_KEY,${env:ABUSEIPDB_API_KEY,""}}
+      virustotal_api_keys: ${env:VT_KEY_1,""},${env:VT_KEY_2,""},${env:VT_KEY_3,""},${env:VT_KEY_4,""}
+      otx_api_key: ${env:OTX_KEY,${env:OTX_API_KEY,""}}
     jadx:
       threads: 1
     thc_rdns:
@@ -192,17 +234,17 @@ config:
       concurrency: 4
       deleted_forks: false
     chaos:
-      api_key: ${env:CHAOS_API_KEY}
+      api_key: ${env:CHAOS_API_KEY,""}
     dehashed:
-      api_key: ${env:DEHASHED_API_KEY}
+      api_key: ${env:DEHASHED_API_KEY,""}
     github_org:
-      api_key: ${env:GITHUB_ORG_API_KEY}
+      api_key: ${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_ORG_API_KEY,""}}}
     github_workflows:
-      api_key: ${env:GITHUB_WORKFLOWS_API_KEY}
+      api_key: ${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_WORKFLOWS_API_KEY,""}}}
     gitlab_com:
-      api_key: ${env:GITLAB_COM_API_KEY}
+      api_key: ${env:GITLAB_COM_API_KEY,""}
     hunterio:
-      api_key: ${env:HUNTERIO_API_KEY}
+      api_key: ${env:HUNTERIO_API_KEY,""}
     ip_privacy:
       tor_urls:
         - https://check.torproject.org/torbulkexitlist
@@ -223,18 +265,22 @@ config:
         - https://raw.githubusercontent.com/TN3W/Windscribe-IPs/main/windscribe_ips.txt
       cache_for: 86400
     ipstack:
-      api_key: ${env:IPSTACK_API_KEY}
+      api_key: ${env:IPSTACK_API_KEY,""}
+    leakix:
+      api_key: ${env:LEAKIX_API_KEY,""}
     leaklookup:
-      api_key: ${env:LEAKLOOKUP_API_KEY}
+      api_key: ${env:LEAKLOOKUP_API_KEY,""}
+    leaklookup_hash:
+      api_key: ${env:LEAKLOOKUP_API_KEY,""}
     otx:
-      api_key: ${env:OTX_API_KEY}
+      api_key: ${env:OTX_API_KEY,${env:OTX_KEY,""}}
     securitytrails:
-      api_key: ${env:SECURITYTRAILS_API_KEY}
+      api_key: ${env:SECURITYTRAILS_API_KEY,""}
     shodan_idb:
-      api_key: ${env:SHODAN_API_KEY}
+      api_key: ${env:SHODAN_API_KEY,${env:SHODAN_DNS_API_KEY,""}}
       full_host: true
     shodan_dns:
-      api_key: ${env:SHODAN_API_KEY}
+      api_key: ${env:SHODAN_API_KEY,${env:SHODAN_DNS_API_KEY,""}}
     subfinder:
       all: true
       recursive: false
@@ -243,4 +289,4 @@ config:
       max_time: 30
       rate_limit: 0
     virustotal:
-      api_key: ${env:VT_KEY_1}
+      api_key: ${env:VT_KEY_1,""}
