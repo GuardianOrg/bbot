@@ -42,7 +42,7 @@ modules:
 config:
   modules:
     github_org:
-      api_key: ${env:GITHUB_ORG_API_KEY}
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     postman:
       api_key: ${env:POSTMAN_API_KEY}
 ```

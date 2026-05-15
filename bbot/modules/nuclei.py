@@ -70,6 +70,7 @@ class nuclei(BaseModule):
         "module_timeout": "Max time in seconds to spend handling each batch of events",
         "verbose_templates": "Log templates loaded by nuclei for debugging slow scans",
     }
+    mobile_app_seed_scope_only = True
     deps_ansible = [
         {
             "name": "Download nuclei",

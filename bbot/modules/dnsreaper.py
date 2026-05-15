@@ -22,6 +22,7 @@ class dnsreaper(BaseModule):
         "resolver": "",
         "disable_probable": False,
         "enable_unlikely": False,
+        "check_unresolved": False,
         "signatures": [],
         "exclude_signatures": [],
     }
@@ -33,11 +34,13 @@ class dnsreaper(BaseModule):
         "resolver": "Optional custom resolver list (comma separated)",
         "disable_probable": "Skip potential/probable findings",
         "enable_unlikely": "Enable unlikely confidence findings",
+        "check_unresolved": "Also check DNS_NAME_UNRESOLVED events",
         "signatures": "Only run these signatures",
         "exclude_signatures": "Exclude these signatures",
     }
     _batch_size = 500
     in_scope_only = True
+    domain_seed_scope_only = True
     deps_ansible = [
         {
             "name": "Install python venv",
@@ -85,6 +88,7 @@ class dnsreaper(BaseModule):
         self.resolver = str(self.config.get("resolver", "")).strip()
         self.disable_probable = bool(self.config.get("disable_probable", False))
         self.enable_unlikely = bool(self.config.get("enable_unlikely", False))
+        self.check_unresolved = bool(self.config.get("check_unresolved", False))
         self.signatures = self.helpers.chain_lists(self.config.get("signatures", []))
         self.exclude_signatures = self.helpers.chain_lists(self.config.get("exclude_signatures", []))
         if "/" in self.binary:
@@ -92,6 +96,11 @@ class dnsreaper(BaseModule):
                 return None, f"dnsreaper binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
             return None, f'dnsreaper binary "{self.binary}" was not found in PATH'
+        return True
+
+    async def filter_event(self, event):
+        if event.type == "DNS_NAME_UNRESOLVED" and not self.check_unresolved:
+            return False, "unresolved DNS takeover checks are disabled"
         return True
 
     async def handle_batch(self, *events):

@@ -24,6 +24,7 @@ class bucket_template(BaseModule):
         "expand_found_buckets": "Whether to recursively mutate discovered bucket names for more bucket guesses",
     }
     scope_distance_modifier = 3
+    domain_seed_scope_only = True
 
     cloudcheck_provider_name = "Amazon|Google|DigitalOcean|etc"
     delimiters = ("", ".", "-")

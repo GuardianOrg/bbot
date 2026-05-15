@@ -1,9 +1,10 @@
 import re
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.code_repository_scope import code_repository_scope
 from urllib.parse import urlparse
 
 
-class code_repository(BaseModule):
+class code_repository(code_repository_scope, BaseModule):
     watched_events = ["URL_UNVERIFIED"]
     produced_events = ["CODE_REPOSITORY"]
     meta = {
@@ -12,7 +13,6 @@ class code_repository(BaseModule):
         "author": "@domwhewell-sage",
     }
     flags = ["passive", "safe", "code-enum"]
-
     # platform name : (regex, case_sensitive)
     code_repositories = {
         "git": [
@@ -26,6 +26,7 @@ class code_repository(BaseModule):
     scope_distance_modifier = 1
 
     async def setup(self):
+        self.setup_repository_scope()
         self.compiled_regexes = {}
         for k, v in self.code_repositories.items():
             if isinstance(v, list):
@@ -45,6 +46,9 @@ class code_repository(BaseModule):
                     if not case_sensitive:
                         url = url.lower()
                     url = f"https://{url}"
+                    if not self.is_code_repository_in_scope(url):
+                        self.debug(f"Skipping out-of-repository-scope CODE_REPOSITORY: {url}")
+                        continue
                     parsed = self.parse_repo_url(url, platform)
                     repo_event = self.make_event(
                         {"url": url, **parsed},

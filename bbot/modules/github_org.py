@@ -2,7 +2,7 @@ from bbot.modules.templates.github import github
 
 
 class github_org(github):
-    watched_events = ["ORG_STUB", "SOCIAL"]
+    watched_events = ["ORG_STUB", "SOCIAL", "CODE_REPOSITORY_OWNER"]
     produced_events = ["CODE_REPOSITORY"]
     flags = ["passive", "subdomain-enum", "safe", "code-enum"]
     meta = {
@@ -39,8 +39,31 @@ class github_org(github):
         return True
 
     async def handle_event(self, event):
+        # handle explicit GitHub repository owner scope
+        if event.type == "CODE_REPOSITORY_OWNER":
+            if "github" not in event.tags:
+                return
+            user = event.data.get("url", "").rstrip("/").split("/")[-1]
+            if not user:
+                return
+            self.verbose(f"Searching for repos belonging to explicit GitHub owner {user}")
+            for repo_url in await self.query_owner_repos(user):
+                repo_name = repo_url.rstrip("/").split("/")[-1]
+                repo_event = self.make_event(
+                    {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
+                    "CODE_REPOSITORY",
+                    tags=["git", "github"],
+                    parent=event,
+                )
+                if not repo_event:
+                    continue
+                await self.emit_event(
+                    repo_event,
+                    context=f"{{module}} listed repos for explicit GitHub owner and discovered {{event.type}}: {repo_url}",
+                )
+
         # handle github profile
-        if event.type == "SOCIAL":
+        elif event.type == "SOCIAL":
             user = event.data.get("profile_name", "")
             in_scope = False
             if "github-org-member" in event.tags:
@@ -65,9 +88,9 @@ class github_org(github):
             for repo_url in repos:
                 repo_name = repo_url.rstrip("/").split("/")[-1]
                 repo_event = self.make_event(
-                    {"url": repo_url, "platform": "git", "owner": user, "repo_name": repo_name},
+                    {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
                     "CODE_REPOSITORY",
-                    tags="git",
+                    tags=["git", "github"],
                     parent=event,
                 )
                 if not repo_event:
@@ -215,3 +238,14 @@ class github_org(github):
             )
             in_scope = True
         return is_org, in_scope
+
+    async def query_owner_repos(self, query):
+        repos = []
+        seen = set()
+        for repo_url in [*await self.query_org_repos(query), *await self.query_user_repos(query)]:
+            normalized = repo_url.rstrip("/")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            repos.append(repo_url)
+        return repos

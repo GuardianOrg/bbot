@@ -2,7 +2,7 @@ from bbot.modules.templates.gitlab import GitLabBaseModule
 
 
 class gitlab_com(GitLabBaseModule):
-    watched_events = ["SOCIAL"]
+    watched_events = ["SOCIAL", "CODE_REPOSITORY_OWNER"]
     produced_events = [
         "CODE_REPOSITORY",
     ]
@@ -20,9 +20,20 @@ class gitlab_com(GitLabBaseModule):
     scope_distance_modifier = 2
 
     async def handle_event(self, event):
-        await self.handle_social(event)
+        if event.type == "CODE_REPOSITORY_OWNER":
+            await self.handle_repository_owner(event)
+        else:
+            await self.handle_social(event)
 
     async def filter_event(self, event):
+        if event.type == "CODE_REPOSITORY_OWNER":
+            if "gitlab" not in event.tags:
+                return False, "event is not a GitLab repository owner"
+            _, domain = self.helpers.split_domain(event.host)
+            if domain not in self.saas_domains:
+                return False, "gitlab owner is not on gitlab.com/org"
+            return True
+
         if event.data["platform"] != "gitlab":
             return False, "platform is not gitlab"
         _, domain = self.helpers.split_domain(event.host)

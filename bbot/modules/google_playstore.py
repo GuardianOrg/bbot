@@ -27,6 +27,17 @@ class google_playstore(BaseModule):
         elif event.type == "ORG_STUB":
             if "target" not in event.tags and event.scope_distance > 0:
                 return False, "event is not a target org stub"
+            root_seed_type = self._event_root_seed_type(event)
+            if root_seed_type not in {
+                "ORG_STUB",
+                "DNS_NAME",
+                "URL",
+                "URL_UNVERIFIED",
+                "EMAIL_ADDRESS",
+                "CODE_REPOSITORY",
+                "MOBILE_APP",
+            }:
+                return False, f"org stub came from {root_seed_type or 'unknown'} seed, not an explicit org/domain/mobile/code target"
         return True
 
     async def handle_event(self, event):

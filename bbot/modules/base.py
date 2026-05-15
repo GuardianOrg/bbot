@@ -104,6 +104,8 @@ class BaseModule:
     target_only = False
     in_scope_only = False
     accept_url_special = False
+    domain_seed_scope_only = False
+    mobile_app_seed_scope_only = False
     _module_threads = 1
     _batch_size = 1
 
@@ -910,6 +912,18 @@ class BaseModule:
         if not filter_result:
             return filter_result, reason
 
+        # Domain-expansion modules should only recurse from domains that were
+        # explicitly seeded by the user. IP/range scans often discover PTR,
+        # certificate, and archive names; those are evidence, not permission to
+        # enumerate arbitrary third-party domains.
+        filter_result, reason = self._domain_seed_scope_check(event)
+        if not filter_result:
+            return filter_result, reason
+
+        filter_result, reason = self._mobile_app_seed_scope_check(event)
+        if not filter_result:
+            return filter_result, reason
+
         # custom filtering
         async with self.scan._acatch(context=self.filter_event):
             try:
@@ -927,6 +941,72 @@ class BaseModule:
 
         self.debug(f"{event} passed post-check")
         return True, ""
+
+    def _event_root_seed_type(self, event):
+        with suppress(Exception):
+            for parent in event.get_parents(include_self=True):
+                if getattr(getattr(parent, "parent", None), "type", None) == "SCAN":
+                    return parent.type
+        return None
+
+    def _domain_seed_scope_check(self, event):
+        if not self._domain_seed_scope_applies(event):
+            return True, ""
+
+        host = str(getattr(event, "host", "") or "").strip().rstrip(".").lower()
+        if not host:
+            return False, "domain expansion requires a domain host"
+
+        roots = self._domain_seed_scope_roots()
+        if not roots:
+            return False, "domain expansion requires an explicit domain or URL seed"
+
+        for root in roots:
+            if host == root or host.endswith(f".{root}"):
+                return True, ""
+
+        return False, f'domain expansion host "{host}" is outside explicit domain seeds'
+
+    def _domain_seed_scope_applies(self, event):
+        event_type = str(getattr(event, "type", "") or "")
+        if event_type not in ("DNS_NAME", "DNS_NAME_UNRESOLVED"):
+            return False
+        if getattr(self, "disable_domain_seed_scope", False):
+            return False
+        return bool(getattr(self, "domain_seed_scope_only", False) or "subdomain-enum" in getattr(self, "flags", []))
+
+    def _mobile_app_seed_scope_check(self, event):
+        if not getattr(self, "mobile_app_seed_scope_only", False):
+            return True, ""
+        if str(getattr(event, "type", "") or "") != "MOBILE_APP":
+            return True, ""
+
+        root_seed_type = self._event_root_seed_type(event)
+        if root_seed_type in {"MOBILE_APP", "ORG_STUB", "DNS_NAME", "URL", "URL_UNVERIFIED", "EMAIL_ADDRESS", "CODE_REPOSITORY"}:
+            return True, ""
+
+        return False, f"mobile app analysis requires an explicit mobile, org, domain, URL, email, or code repository seed (got {root_seed_type or 'unknown'})"
+
+    def _domain_seed_scope_roots(self):
+        try:
+            return self._domain_seed_scope_roots_cache
+        except AttributeError:
+            pass
+
+        roots = set()
+        target = getattr(self.scan, "target", None)
+        seeds = getattr(getattr(target, "seeds", None), "event_seeds", []) or []
+        for seed in seeds:
+            host = str(getattr(seed, "host", "") or "").strip().rstrip(".").lower()
+            if not host:
+                continue
+            if self.helpers.is_ip(host, include_network=True):
+                continue
+            if self.helpers.is_dns_name(host) or self.helpers.is_domain(host):
+                roots.add(host)
+
+        self._domain_seed_scope_roots_cache = tuple(sorted(roots, key=lambda value: (value.count("."), len(value)), reverse=True))
+        return self._domain_seed_scope_roots_cache
 
     def _scope_distance_check(self, event):
         if self.in_scope_only:

@@ -23,6 +23,7 @@ class tcp_connect_verify(BaseModule):
         "top_ports": "1000",
         "connect_concurrency": 5,
         "target_concurrency": 6,
+        "global_connect_concurrency": 400,
         "timeout_ms": 1000,
         "retries": 2,
         "module_timeout": 259200,
@@ -32,6 +33,7 @@ class tcp_connect_verify(BaseModule):
         "top_ports": "Top ports to verify when ports is empty. Currently supports 1000.",
         "connect_concurrency": "Maximum concurrent TCP connects per target host",
         "target_concurrency": "Maximum target hosts to verify in parallel",
+        "global_connect_concurrency": "Maximum concurrent TCP connects across all target hosts",
         "timeout_ms": "Per-port TCP connect timeout in milliseconds",
         "retries": "TCP connect attempts per port",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
@@ -45,6 +47,7 @@ class tcp_connect_verify(BaseModule):
         self.top_ports = str(self.config.get("top_ports", "1000")).strip() or "1000"
         self.connect_concurrency = max(1, int(self.config.get("connect_concurrency", 5)))
         self.target_concurrency = max(1, int(self.config.get("target_concurrency", 6)))
+        self.global_connect_concurrency = max(1, int(self.config.get("global_connect_concurrency", 400)))
         self.timeout_ms = int(self.config.get("timeout_ms", 1000))
         self.retries = max(1, int(self.config.get("retries", 1)))
         self.open_port_cache = {}
@@ -62,11 +65,13 @@ class tcp_connect_verify(BaseModule):
             return
 
         emitted = set()
+        emitted_lock = asyncio.Lock()
+        connect_semaphore = asyncio.Semaphore(self.global_connect_concurrency)
         target_semaphore = asyncio.Semaphore(self.target_concurrency)
 
         async def verify_target(target):
             async with target_semaphore:
-                await self.verify_target_ports(target, correlator, emitted)
+                await self.verify_target_ports(target, correlator, emitted, emitted_lock, connect_semaphore)
 
         await asyncio.gather(*(verify_target(target) for target in sorted(targets, key=str)))
 
@@ -101,13 +106,13 @@ class tcp_connect_verify(BaseModule):
 
         return targets, correlator
 
-    async def verify_target_ports(self, target, correlator, emitted):
+    async def verify_target_ports(self, target, correlator, emitted, emitted_lock, connect_semaphore):
         ip = ipaddress.ip_address(str(target))
-        semaphore = asyncio.Semaphore(self.connect_concurrency)
+        per_target_semaphore = asyncio.Semaphore(self.connect_concurrency)
         timeout = max(0.2, self.timeout_ms / 1000)
 
         async def verify(port):
-            async with semaphore:
+            async with per_target_semaphore, connect_semaphore:
                 for _ in range(self.retries):
                     writer = None
                     try:
@@ -142,10 +147,11 @@ class tcp_connect_verify(BaseModule):
             for parent_event in parent_events:
                 host = parent_event.host if parent_event.type == "DNS_NAME" else ip
                 emit_key = (str(host), port, getattr(parent_event, "id", str(parent_event)))
-                if emit_key in emitted:
-                    continue
+                async with emitted_lock:
+                    if emit_key in emitted:
+                        continue
+                    emitted.add(emit_key)
                 await self.emit_open_port(host, port, parent_event)
-                emitted.add(emit_key)
 
     async def emit_open_port(self, host, port, parent_event):
         event_data = self.helpers.make_netloc(str(host), port)

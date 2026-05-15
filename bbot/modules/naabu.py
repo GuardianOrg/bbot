@@ -2,6 +2,7 @@ import json
 import ipaddress
 import math
 import subprocess
+import asyncio
 from contextlib import suppress
 
 from radixtarget import RadixTarget, host_size_key
@@ -131,37 +132,38 @@ class naabu(BaseModule):
 
         emitted = set()
         target_groups = [[target] for target in sorted(targets, key=str)] if self.scan_individual_targets else [targets]
-        for target_group in target_groups:
-            await self._scan_target_group(target_group, correlator, emitted)
+        if self.target_concurrency <= 1:
+            for target_group in target_groups:
+                await self._scan_target_group(target_group, correlator, emitted)
+            return
 
-    async def _scan_target_group(self, target_group, correlator, emitted):
+        emitted_lock = asyncio.Lock()
+        semaphore = asyncio.Semaphore(self.target_concurrency)
+
+        async def scan_group(target_group):
+            async with semaphore:
+                await self._scan_target_group(target_group, correlator, emitted, emitted_lock)
+
+        await asyncio.gather(*(scan_group(target_group) for target_group in target_groups))
+
+    async def _scan_target_group(self, target_group, correlator, emitted, emitted_lock=None):
         target_file = self.helpers.tempfile(target_group, pipe=False)
         try:
             for command in self._build_naabu_commands(target_file, target_group):
-                await self._run_naabu_command(command, target_group, correlator, emitted)
+                await self._run_naabu_command(command, target_group, correlator, emitted, emitted_lock)
         finally:
             target_file.unlink(missing_ok=True)
 
-    async def _run_naabu_command(self, command, targets, correlator, emitted):
+    async def _run_naabu_command(self, command, targets, correlator, emitted, emitted_lock=None):
         use_sudo = self.scan_type in ("s", "syn")
         try:
             async for line in self.run_process_live(command, sudo=use_sudo, stderr=subprocess.DEVNULL, check=True):
                 for ip, port in self.parse_json_line(line):
-                    parent_events = correlator.search(ip)
-                    if parent_events is None:
-                        self.debug(f"Failed to correlate {ip} to targets")
-                        continue
-                    emitted_hosts = set()
-                    for parent_event in parent_events:
-                        if parent_event.type == "DNS_NAME":
-                            host = parent_event.host
-                        else:
-                            host = ip
-                        emit_key = (str(host), port, getattr(parent_event, "id", str(parent_event)))
-                        if host not in emitted_hosts and emit_key not in emitted:
-                            await self.emit_open_port(host, port, parent_event)
-                            emitted_hosts.add(host)
-                            emitted.add(emit_key)
+                    if emitted_lock is None:
+                        await self.emit_correlated_port(ip, port, correlator, emitted)
+                    else:
+                        async with emitted_lock:
+                            await self.emit_correlated_port(ip, port, correlator, emitted)
         except subprocess.CalledProcessError as e:
             if e.returncode in (124, 137):
                 self.warning(
@@ -169,6 +171,23 @@ class naabu(BaseModule):
                 )
             else:
                 raise
+
+    async def emit_correlated_port(self, ip, port, correlator, emitted):
+        parent_events = correlator.search(ip)
+        if parent_events is None:
+            self.debug(f"Failed to correlate {ip} to targets")
+            return
+        emitted_hosts = set()
+        for parent_event in parent_events:
+            if parent_event.type == "DNS_NAME":
+                host = parent_event.host
+            else:
+                host = ip
+            emit_key = (str(host), port, getattr(parent_event, "id", str(parent_event)))
+            if host not in emitted_hosts and emit_key not in emitted:
+                await self.emit_open_port(host, port, parent_event)
+                emitted_hosts.add(host)
+                emitted.add(emit_key)
 
     async def make_targets(self, events, scanned_tracker):
         """Convert events into a list of targets, skipping ones that have already been scanned."""

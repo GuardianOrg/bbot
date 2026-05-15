@@ -95,8 +95,19 @@ async def run(self, *command, check=False, text=True, idle_timeout=None, **kwarg
                     stdout, stderr = await asyncio.wait_for(proc.communicate(_input), timeout=idle_timeout)
                 else:
                     stdout, stderr = await proc.communicate(_input)
-            except asyncio.exceptions.TimeoutError:
-                proc.send_signal(SIGINT)
+            except (asyncio.exceptions.TimeoutError, asyncio.CancelledError):
+                try:
+                    proc.send_signal(SIGINT)
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except (asyncio.exceptions.TimeoutError, ProcessLookupError):
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    await proc.wait()
                 raise
 
             # surface stderr
@@ -190,8 +201,19 @@ async def run_live(self, *command, check=False, text=True, idle_timeout=None, **
                         line = await asyncio.wait_for(proc.stdout.readline(), timeout=idle_timeout)
                     else:
                         line = await proc.stdout.readline()
-                except asyncio.exceptions.TimeoutError:
-                    proc.send_signal(SIGINT)
+                except (asyncio.exceptions.TimeoutError, asyncio.CancelledError):
+                    try:
+                        proc.send_signal(SIGINT)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=2)
+                    except (asyncio.exceptions.TimeoutError, ProcessLookupError):
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass
+                        await proc.wait()
                     raise
                 except ValueError as e:
                     command_str = " ".join(command)

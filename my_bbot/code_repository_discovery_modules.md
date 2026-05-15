@@ -49,9 +49,9 @@ modules:
 config:
   modules:
     git_clone:
-      api_key: ${env:GIT_CLONE_API_KEY}
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     github_workflows:
-      api_key: ${env:GITHUB_WORKFLOWS_API_KEY}
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     postman_download:
       api_key: ${env:POSTMAN_DOWNLOAD_API_KEY}
 ```

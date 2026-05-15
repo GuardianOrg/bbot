@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import ipaddress
 import json
 from contextlib import suppress
@@ -21,6 +22,8 @@ class udpx(BaseModule):
     options = {
         "binary": "udpx",
         "concurrency": 64,
+        "target_concurrency": 1,
+        "target_batch_size": 256,
         "timeout_ms": 750,
         "service": "",
         "capture_banner": True,
@@ -29,6 +32,8 @@ class udpx(BaseModule):
     options_desc = {
         "binary": "Path to the udpx executable",
         "concurrency": "Maximum concurrent UDP probes per udpx run",
+        "target_concurrency": "Maximum udpx target batches to run in parallel",
+        "target_batch_size": "Maximum target hosts per udpx process when target_concurrency is greater than 1",
         "timeout_ms": "Socket read timeout per probe in milliseconds",
         "service": "Optional udpx service filter (for example dns, ntp, snmp)",
         "capture_banner": "Store udpx response data as a banner string or hex when available",
@@ -53,6 +58,8 @@ class udpx(BaseModule):
     async def setup(self):
         self.binary = str(self.config.get("binary", "udpx")).strip() or "udpx"
         self.concurrency = max(1, int(self.config.get("concurrency", 64)))
+        self.target_concurrency = max(1, int(self.config.get("target_concurrency", 1)))
+        self.target_batch_size = max(1, int(self.config.get("target_batch_size", 256)))
         self.timeout_ms = max(100, int(self.config.get("timeout_ms", 750)))
         self.service = str(self.config.get("service", "")).strip().lower()
         self.capture_banner = bool(self.config.get("capture_banner", True))
@@ -65,23 +72,38 @@ class udpx(BaseModule):
         if not targets:
             return
 
-        targets_file = self.helpers.tempfile(sorted(targets), pipe=False)
+        emitted_ports = set()
+        emitted_protocols = set()
+        emitted_lock = asyncio.Lock()
+        semaphore = asyncio.Semaphore(self.target_concurrency)
+
+        async def scan_batch(batch):
+            async with semaphore:
+                results = await self.scan_target_batch(batch)
+                for ip, services in results.items():
+                    self.service_cache[hash(ip)] = tuple(services)
+                    parent_events = correlator.search(ip)
+                    if parent_events is None:
+                        self.debug(f"udpx found UDP services on {ip} but could not correlate them to an input event")
+                        continue
+                    for service in services:
+                        for parent_event in parent_events:
+                            async with emitted_lock:
+                                await self.emit_service_events(ip, service, parent_event, emitted_ports, emitted_protocols)
+
+        sorted_targets = sorted(targets)
+        batches = [
+            sorted_targets[offset : offset + self.target_batch_size]
+            for offset in range(0, len(sorted_targets), self.target_batch_size)
+        ]
+        await asyncio.gather(*(scan_batch(batch) for batch in batches))
+
+    async def scan_target_batch(self, targets):
+        targets_file = self.helpers.tempfile(targets, pipe=False)
         output_file = self.helpers.tempfile("", pipe=False, extension="jsonl")
         try:
             await self.run_process(self._build_command(targets_file, output_file), _log_stderr=False)
-            results = self._load_results(output_file)
-
-            emitted_ports = set()
-            emitted_protocols = set()
-            for ip, services in results.items():
-                self.service_cache[hash(ip)] = tuple(services)
-                parent_events = correlator.search(ip)
-                if parent_events is None:
-                    self.debug(f"udpx found UDP services on {ip} but could not correlate them to an input event")
-                    continue
-                for service in services:
-                    for parent_event in parent_events:
-                        await self.emit_service_events(ip, service, parent_event, emitted_ports, emitted_protocols)
+            return self._load_results(output_file)
         finally:
             targets_file.unlink(missing_ok=True)
             output_file.unlink(missing_ok=True)

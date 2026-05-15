@@ -106,14 +106,16 @@ config:
       api_key: ${env:CHAOS_API_KEY}
     dehashed:
       api_key: ${env:DEHASHED_API_KEY}
+    github_codesearch:
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     git_clone:
-      api_key: ${env:GIT_CLONE_API_KEY}
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     github_org:
-      api_key: ${env:GITHUB_ORG_API_KEY}
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     github_workflows:
-      api_key: ${env:GITHUB_WORKFLOWS_API_KEY}
+      api_key: ${env:BBOT_GITHUB_TOKEN}
     gitlab_com:
-      api_key: ${env:GITLAB_COM_API_KEY}
+      api_key: ${env:BBOT_GITLAB_TOKEN}
     hunterio:
       api_key: ${env:HUNTERIO_API_KEY}
     ipstack:
@@ -141,10 +143,8 @@ config:
 |---|---|---|
 | `CHAOS_API_KEY` | `chaos` | Query ProjectDiscovery Chaos for subdomain discovery. |
 | `DEHASHED_API_KEY` | `dehashed` | Query DeHashed for exposed credentials related to targets. |
-| `GIT_CLONE_API_KEY` | `git_clone` | Authenticate repository cloning when required by `git_clone`. |
-| `GITHUB_ORG_API_KEY` | `github_org` | Access GitHub org data for repositories and org intelligence. |
-| `GITHUB_WORKFLOWS_API_KEY` | `github_workflows` | Access GitHub Actions/workflow artifacts from repositories. |
-| `GITLAB_COM_API_KEY` | `gitlab_com` | Access GitLab.com project/org data during social/repo discovery. |
+| `BBOT_GITHUB_TOKEN` | `git_clone`, `github_org`, `github_workflows`, `github_codesearch` | Access GitHub repositories, owners, workflows, and authenticated cloning/search where permitted. |
+| `BBOT_GITLAB_TOKEN` | `gitlab_com` | Access GitLab.com project/org data during social/repo discovery. |
 | `HUNTERIO_API_KEY` | `hunterio` | Query Hunter.io for emails and related domains. |
 | `IPSTACK_API_KEY` | `ipstack` | Enrich IPs with Ipstack geolocation data. |
 | `LEAKLOOKUP_API_KEY` | `leaklookup`, `leaklookup_hash` | Query LeakLookup for leaked credentials and hash lookups. |
@@ -159,10 +159,8 @@ config:
 ```bash
 export CHAOS_API_KEY=""
 export DEHASHED_API_KEY=""
-export GIT_CLONE_API_KEY=""
-export GITHUB_ORG_API_KEY=""
-export GITHUB_WORKFLOWS_API_KEY=""
-export GITLAB_COM_API_KEY=""
+export BBOT_GITHUB_TOKEN=""
+export BBOT_GITLAB_TOKEN=""
 export HUNTERIO_API_KEY=""
 export IPSTACK_API_KEY=""
 export LEAKLOOKUP_API_KEY=""

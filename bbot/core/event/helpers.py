@@ -235,9 +235,23 @@ class CODE_REPOSITORY(BaseEventSeed):
     @staticmethod
     def _sanitize_and_extract_host(data):
         parsed_url = validators.clean_url(data["url"], url_querystring_remove=False)
-        host = make_ip_type(validators.validate_host(parsed_url.hostname))
-        port = parsed_url.port
-        return {"url": parsed_url.geturl()}, host, port
+        return {"url": parsed_url.geturl()}, None, None
+
+    @staticmethod
+    def handle_match(match):
+        return {"url": match.group(1)}
+
+
+class CODE_REPOSITORY_OWNER(BaseEventSeed):
+    regexes = (re.compile(r"^(?:CODE_REPOSITORY_OWNER|REPOSITORY_OWNER|REPO_OWNER):(.*)"),)
+
+    def _override_input(self, input):
+        return f"CODE_REPOSITORY_OWNER:{self.data['url']}"
+
+    @staticmethod
+    def _sanitize_and_extract_host(data):
+        parsed_url = validators.clean_url(data["url"], url_querystring_remove=False)
+        return {"url": parsed_url.geturl()}, None, None
 
     @staticmethod
     def handle_match(match):

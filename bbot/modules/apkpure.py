@@ -16,6 +16,7 @@ class apkpure(BaseModule):
     options_desc = {
         "output_folder": "Folder to download APKs to. If not specified, downloaded APKs will be deleted when the scan completes, to minimize disk usage."
     }
+    mobile_app_seed_scope_only = True
 
     async def setup(self):
         output_folder = self.config.get("output_folder", "")

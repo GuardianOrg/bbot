@@ -19,6 +19,7 @@ class subzy(BaseModule):
         "timeout": 10,
         "https": False,
         "verify_ssl": False,
+        "check_unresolved": False,
     }
     options_desc = {
         "binary": "Path to subzy executable",
@@ -26,6 +27,7 @@ class subzy(BaseModule):
         "timeout": "Request timeout in seconds",
         "https": "Use HTTPS when protocol is not supplied",
         "verify_ssl": "Only check sites with valid SSL certs",
+        "check_unresolved": "Also check DNS_NAME_UNRESOLVED events",
     }
     deps_apt = ["golang-go"]
     deps_ansible = [
@@ -41,6 +43,7 @@ class subzy(BaseModule):
     ]
     _batch_size = 500
     in_scope_only = True
+    domain_seed_scope_only = True
 
     async def setup(self):
         self.binary = str(self.config.get("binary", "subzy")).strip()
@@ -48,11 +51,17 @@ class subzy(BaseModule):
         self.timeout = int(self.config.get("timeout", 10))
         self.https = bool(self.config.get("https", False))
         self.verify_ssl = bool(self.config.get("verify_ssl", False))
+        self.check_unresolved = bool(self.config.get("check_unresolved", False))
         if "/" in self.binary:
             if not Path(self.binary).is_file():
                 return None, f"subzy binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
             return None, f'subzy binary "{self.binary}" was not found in PATH'
+        return True
+
+    async def filter_event(self, event):
+        if event.type == "DNS_NAME_UNRESOLVED" and not self.check_unresolved:
+            return False, "unresolved DNS takeover checks are disabled"
         return True
 
     async def handle_batch(self, *events):

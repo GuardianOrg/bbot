@@ -1,5 +1,6 @@
 import json
 import os
+import asyncio
 import subprocess
 from urllib.parse import urlparse
 
@@ -25,6 +26,8 @@ class nuclei_takeover(BaseModule):
         "concurrency": 25,
         "retries": 1,
         "timeout": 10,
+        "module_timeout": 180,
+        "check_unresolved": False,
         "silent": True,
     }
     options_desc = {
@@ -36,6 +39,8 @@ class nuclei_takeover(BaseModule):
         "concurrency": "Nuclei template concurrency",
         "retries": "Nuclei retries",
         "timeout": "Nuclei timeout in seconds",
+        "module_timeout": "Maximum seconds to wait for a nuclei takeover batch before skipping it",
+        "check_unresolved": "Also run takeover templates against DNS_NAME_UNRESOLVED events",
         "silent": "Only show findings output from nuclei",
     }
 
@@ -52,6 +57,7 @@ class nuclei_takeover(BaseModule):
     ]
     _batch_size = 500
     in_scope_only = True
+    domain_seed_scope_only = True
 
     async def setup(self):
         self.nuclei_bin = str((self.helpers.tools_dir / "nuclei").resolve())
@@ -83,7 +89,14 @@ class nuclei_takeover(BaseModule):
         self.concurrency = int(self.config.get("concurrency", 25))
         self.retries = int(self.config.get("retries", 1))
         self.timeout = int(self.config.get("timeout", 10))
+        self.module_timeout = int(self.config.get("module_timeout", 180))
+        self.check_unresolved = bool(self.config.get("check_unresolved", False))
         self.silent = bool(self.config.get("silent", True))
+        return True
+
+    async def filter_event(self, event):
+        if event.type == "DNS_NAME_UNRESOLVED" and not self.check_unresolved:
+            return False, "unresolved DNS takeover checks are disabled"
         return True
 
     async def handle_batch(self, *events):
@@ -129,70 +142,77 @@ class nuclei_takeover(BaseModule):
         command += ["-l", target_file]
         self.info(f"Running nuclei takeover command: {' '.join(str(part) for part in command)}")
         process = self.run_process_live(command, stderr=subprocess.DEVNULL)
-        async for line in process:
-            self.info(f"nuclei_takeover raw output: {line}")
-            try:
-                finding = json.loads(line)
-            except Exception:
-                self.warning(f"nuclei_takeover failed to parse line: {line}")
-                continue
+        try:
+            async with asyncio.timeout(self.module_timeout):
+                async for line in process:
+                    self.info(f"nuclei_takeover raw output: {line}")
+                    try:
+                        finding = json.loads(line)
+                    except Exception:
+                        self.warning(f"nuclei_takeover failed to parse line: {line}")
+                        continue
 
-            host = self.normalize_host(finding.get("host", "") or finding.get("matched-at", ""))
-            if not host:
-                continue
-            parent_event = parent_by_host.get(host)
-            if parent_event is None:
-                continue
+                    host = self.normalize_host(finding.get("host", "") or finding.get("matched-at", ""))
+                    if not host:
+                        continue
+                    parent_event = parent_by_host.get(host)
+                    if parent_event is None:
+                        continue
 
-            info = finding.get("info", {}) if isinstance(finding.get("info"), dict) else {}
-            template_id = finding.get("template-id", "unknown")
-            name = info.get("name", "unknown")
-            matched_at = finding.get("matched-at", "")
-            matcher = finding.get("matcher-name", "")
-            extracted = finding.get("extracted-results", [])
-            if isinstance(extracted, list) and extracted:
-                extracted_str = ",".join(str(x) for x in extracted[:8])
-            else:
-                extracted_str = ""
+                    info = finding.get("info", {}) if isinstance(finding.get("info"), dict) else {}
+                    template_id = finding.get("template-id", "unknown")
+                    name = info.get("name", "unknown")
+                    matched_at = finding.get("matched-at", "")
+                    matcher = finding.get("matcher-name", "")
+                    extracted = finding.get("extracted-results", [])
+                    if isinstance(extracted, list) and extracted:
+                        extracted_str = ",".join(str(x) for x in extracted[:8])
+                    else:
+                        extracted_str = ""
 
-            description = f'Nuclei takeover match template [{template_id}] name [{name}] at [{matched_at}]'
-            if matcher:
-                description += f" matcher [{matcher}]"
-            if extracted_str:
-                description += f" extracted [{extracted_str}]"
+                    description = f'Nuclei takeover match template [{template_id}] name [{name}] at [{matched_at}]'
+                    if matcher:
+                        description += f" matcher [{matcher}]"
+                    if extracted_str:
+                        description += f" extracted [{extracted_str}]"
 
-            severity = str(info.get("severity", "")).lower().strip()
-            event_type = "VULNERABILITY"
-            poc_parts = []
-            if matched_at:
-                poc_parts.append(f"Matched At: {matched_at}")
-            if extracted_str:
-                poc_parts.append(f"Extracted Results: {extracted_str}")
-            if matcher:
-                poc_parts.append(f"Matcher: {matcher}")
-            url_value = matched_at if "://" in str(matched_at) else None
-            event_data = {
-                "title": name,
-                "category": "subdomain-takeover",
-                "description": description,
-                "recommendation": "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over.",
-                "host": host,
-                "url": url_value,
-                "poc": "\n".join(poc_parts) or None,
-            }
-            if severity in ("info", "unknown", ""):
-                event_type = "FINDING"
-            else:
-                event_data["severity"] = severity.upper()
+                    severity = str(info.get("severity", "")).lower().strip()
+                    event_type = "VULNERABILITY"
+                    poc_parts = []
+                    if matched_at:
+                        poc_parts.append(f"Matched At: {matched_at}")
+                    if extracted_str:
+                        poc_parts.append(f"Extracted Results: {extracted_str}")
+                    if matcher:
+                        poc_parts.append(f"Matcher: {matcher}")
+                    url_value = matched_at if "://" in str(matched_at) else None
+                    event_data = {
+                        "title": name,
+                        "category": "subdomain-takeover",
+                        "description": description,
+                        "recommendation": "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over.",
+                        "host": host,
+                        "url": url_value,
+                        "poc": "\n".join(poc_parts) or None,
+                    }
+                    if severity in ("info", "unknown", ""):
+                        event_type = "FINDING"
+                    else:
+                        event_data["severity"] = severity.upper()
 
-            await self.emit_event(
-                event_data,
-                event_type,
-                parent_event,
-                tags=["takeover", "nuclei-takeover"],
-                context=f'{{module}} used nuclei takeover templates and found {{event.type}} on "{host}"',
+                    await self.emit_event(
+                        event_data,
+                        event_type,
+                        parent_event,
+                        tags=["takeover", "nuclei-takeover"],
+                        context=f'{{module}} used nuclei takeover templates and found {{event.type}} on "{host}"',
+                    )
+        except TimeoutError:
+            self.warning(
+                f"nuclei_takeover exceeded {self.module_timeout:g}s for batch of {len(targets)} targets, skipping batch"
             )
-        await process.aclose()
+        finally:
+            await process.aclose()
 
     @staticmethod
     def normalize_host(value):

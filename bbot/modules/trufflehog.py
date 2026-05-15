@@ -1,13 +1,12 @@
 import json
 import shlex
-from pathlib import Path
-from subprocess import CalledProcessError
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.code_repository_scope import code_repository_scope
 from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
-class trufflehog(github_leak_formatter, BaseModule):
+class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
@@ -50,14 +49,9 @@ class trufflehog(github_leak_formatter, BaseModule):
         return True
 
     async def setup(self):
+        self.setup_repository_scope()
         self.verified = self.config.get("only_verified", True)
         self.concurrency = int(self.config.get("concurrency", 8))
-        output_folder = self.config.get("output_folder", "")
-        if output_folder:
-            self.output_dir = Path(output_folder) / "code_repos" / self.name
-        else:
-            self.output_dir = self.scan.temp_dir / "code_repos" / self.name
-        self.helpers.mkdir(self.output_dir)
 
         self.deleted_forks = self.config.get("deleted_forks", False)
         self.github_token = ""
@@ -80,6 +74,8 @@ class trufflehog(github_leak_formatter, BaseModule):
 
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":
+            if not self.is_code_repository_in_scope(event):
+                return False, "CODE_REPOSITORY is outside configured repository owner/repo scope"
             if self.deleted_forks:
                 if "git" not in event.tags:
                     return False, "Module only accepts git CODE_REPOSITORY events"
@@ -196,29 +192,6 @@ class trufflehog(github_leak_formatter, BaseModule):
             path.unlink(missing_ok=True)
         elif cleanup_path is not None and cleanup_path.exists():
             self.helpers.rm_rf(cleanup_path, ignore_errors=True)
-
-    async def clone_git_repository(self, repository_url):
-        repo_name = self.helpers.tagify(repository_url, maxlen=80)
-        repo_path = self.output_dir / repo_name
-        self.helpers.rm_rf(repo_path, ignore_errors=True)
-
-        command = ["git", "clone", "--depth", "1", repository_url, str(repo_path)]
-        last_error = None
-        for attempt in range(1, 4):
-            try:
-                output = await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, check=True)
-                self.debug(f"Git clone output: {output.stdout}")
-                break
-            except CalledProcessError as e:
-                last_error = e
-                self.helpers.rm_rf(repo_path, ignore_errors=True)
-                if attempt < 3:
-                    await self.helpers.sleep(3 * attempt)
-        else:
-            self.warning(f"Error cloning {repository_url}. STDERR: {repr(getattr(last_error, 'stderr', ''))}")
-            return None
-
-        return repo_path
 
     async def execute_trufflehog(self, module, path=None, string=None):
         command = [

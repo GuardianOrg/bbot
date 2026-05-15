@@ -58,6 +58,9 @@ class bucket_google(bucket_template):
             list_permissions = "&".join(["=".join(("permissions", p)) for p in self.bad_permissions])
             url = f"https://www.googleapis.com/storage/v1/b/{bucket_name}/iam/testPermissions?" + list_permissions
             response = await self.helpers.request(url)
+            if response is None:
+                self.debug(f'No response while enumerating permissions for bucket "{bucket_name}"')
+                return ("", set(), {})
             permissions = response.json()
             if isinstance(permissions, dict):
                 bad_permissions = list(permissions.get("permissions", {}))

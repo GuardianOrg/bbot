@@ -2,10 +2,11 @@ from pathlib import Path
 from subprocess import CalledProcessError
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.code_repository_scope import code_repository_scope
 from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
-class code_secret_scanner(github_leak_formatter, BaseModule):
+class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModule):
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
@@ -23,6 +24,7 @@ class code_secret_scanner(github_leak_formatter, BaseModule):
     scope_distance_modifier = 2
 
     async def setup(self):
+        self.setup_repository_scope()
         output_folder = self.config.get("output_folder", "")
         self.clone_repositories = bool(self.config.get("clone_repositories", True))
         if output_folder:
@@ -34,6 +36,8 @@ class code_secret_scanner(github_leak_formatter, BaseModule):
 
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":
+            if not self.is_code_repository_in_scope(event):
+                return False, "CODE_REPOSITORY is outside configured repository owner/repo scope"
             if "git" not in event.tags:
                 return False, "event is not a git repository"
             if not self.clone_repositories:

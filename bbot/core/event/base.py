@@ -1150,6 +1150,7 @@ class ASN(DictEvent):
 
 class CODE_REPOSITORY(DictHostEvent):
     _always_emit = True
+    _scope_distance_increment_same_host = True
 
     class _data_validator(BaseModel):
         url: str
@@ -1174,6 +1175,38 @@ class CODE_REPOSITORY(DictHostEvent):
             self.add_tag("git-directory")
         if "play.google.com/store/apps/details" in url:
             self.add_tag("android")
+
+    def _pretty_string(self):
+        return self.data["url"]
+
+
+class CODE_REPOSITORY_OWNER(DictHostEvent):
+    _always_emit = True
+    _scope_distance_increment_same_host = True
+
+    class _data_validator(BaseModel):
+        url: str
+
+        @field_validator("url")
+        @classmethod
+        def _validate_url(cls, url):
+            parsed_url = validators.clean_url(url, url_querystring_remove=False)
+            if parsed_url.netloc.lower() not in {"github.com", "gitlab.com", "bitbucket.org"}:
+                raise ValueError("CODE_REPOSITORY_OWNER must be github.com, gitlab.com, or bitbucket.org")
+            path_parts = [part for part in parsed_url.path.split("/") if part]
+            if len(path_parts) != 1:
+                raise ValueError("CODE_REPOSITORY_OWNER must point at a single owner/workspace path")
+            return parsed_url.geturl()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        url = str(self.data.get("url", "")).lower()
+        if "github.com/" in url:
+            self.add_tag("github")
+        elif "gitlab.com/" in url:
+            self.add_tag("gitlab")
+        elif "bitbucket.org/" in url:
+            self.add_tag("bitbucket")
 
     def _pretty_string(self):
         return self.data["url"]

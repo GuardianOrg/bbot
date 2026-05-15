@@ -91,8 +91,7 @@ class httpx(BaseModule):
         if event.type.startswith("URL"):
             # we NEED the port, otherwise httpx will try HTTPS even for HTTP URLs
             url = event.with_port().geturl()
-            if event.parsed_url.path == "/":
-                url_hash = hash((event.host, event.port, has_spider_max))
+            url_hash = hash((url, has_spider_max))
         else:
             url = str(event.data)
             url_hash = hash((event.host, event.port, has_spider_max))
@@ -115,7 +114,7 @@ class httpx(BaseModule):
             return
 
         command = [
-            "httpx",
+            str(self.helpers.tools_dir / "httpx"),
             "-silent",
             "-json",
             "-include-response",
@@ -209,6 +208,16 @@ class httpx(BaseModule):
             if url_event:
                 if url_event != parent_event:
                     await self.emit_event(url_event)
+                if parent_event.type.startswith("URL") and str(parent_event.data) != str(url_event.data):
+                    input_url_event = self.make_event(
+                        str(parent_event.data),
+                        "URL",
+                        parent_event,
+                        tags=tags,
+                        context=url_context,
+                    )
+                    if input_url_event and input_url_event != parent_event and input_url_event != url_event:
+                        await self.emit_event(input_url_event)
                 # HTTP response
                 self.enrich_http_response(j)
                 content_type = j.get("header", {}).get("content_type", "unspecified").split(";")[0]
