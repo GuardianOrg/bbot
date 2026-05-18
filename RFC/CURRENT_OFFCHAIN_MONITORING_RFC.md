@@ -94,24 +94,29 @@ nextWeeklyScanAt: p.datetime().nullable(),
 
 ### 3.4 Effective Scope Enforcement
 
-The implemented weekly scan treats the World's initial inputs as the only authority for scope expansion:
+The current implementation treats the World's configured offchain inputs as the authority boundary for recurring and ad hoc scans. `World.domains` and `World.offchainSeedTargets` are combined into the effective seed scope. If an operator launches a scan with explicit `scanTargets`, those targets are first filtered against that effective seed scope; they can narrow the run, but they cannot widen the World's authority boundary.
 
-1. **Domains / subdomains**: only FQDNs that are equal to, or are subdomains of, the seeded domain roots are allowed to become `DNS_NAME`/`DNS_NAME_UNRESOLVED` entities and downstream scan subjects. Domain-like strings found in attributes such as phishing history, WHOIS payloads, MX answers, TXT content, or external CNAME targets may still be stored as attributes on an in-scope node, but they do **not** widen scan scope and must not trigger downstream analysis or notifications as standalone domain assets.
-2. **Code repositories**: only repositories that exactly match a seeded `code_repository` URL, or that belong to a seeded `code_repository_owner` / `org_stub`, are allowed to remain in the BBOT event stream and become `CodeRepositoryNode`s. Repositories discovered outside that allowlist are dropped before downstream repo-analysis modules fan out on them.
-3. **IP addresses**: absent an explicit IP seed, only IPs learned from `A` / `AAAA` resolution of an in-scope domain are allowed to become `IPAddressNode`s or to drive downstream IP-based analysis (`OPEN_*_PORT`, `PROTOCOL`, `TLS_CERTIFICATE`, geolocation, reputation, etc.). IPs found in other DNS record types such as `MX`, `SOA`, or unrelated payload attributes may still be stored inside the parent domain's raw attributes/history, but they do **not** become standalone IP assets.
-4. **URLs**: URLs are only allowed when their host is already allowed by the effective world scope. That means GuardianSentry accepts URLs that were explicitly configured as scan seeds, plus any URLs whose host is an allowed domain/subdomain or an allowed IP/IP-range target. URLs whose hosts fall outside that scope are dropped and must not create standalone `URLObject`s or downstream web-analysis events.
+Current behavior by persisted type:
+
+| Type | Persisted as | Allowed when | Not allowed when | Notes |
+|------|--------------|--------------|------------------|-------|
+| Domain / subdomain | `DomainNode` | The FQDN is equal to, or a subdomain of, a seed domain root. A seed `url` or `email` also contributes its host/domain as a domain root. | The FQDN is outside those roots, or is a synthetic wildcard placeholder. | This means a configured `https://portal.example.com/login` authorizes `portal.example.com` as a DNS/web host root. CNAME targets only become `DomainNode`s when they also match the effective domain roots. Other domain-like strings may be stored as attributes/history on an in-scope domain. |
+| IP address | `IPAddressNode` | The IP is an explicit seeded `ip_address`, is inside a seeded `ip_range`, or is learned from `A` / `AAAA` resolution of an in-scope domain event. | The IP appears only in unrelated payloads or non-address DNS records such as `MX`, `SOA`, `NS`, `TXT`, or historical/reputation data. | `A` / `AAAA` answers may create IP nodes and `ResolvesTo` edges. Other IP-like values may still be retained as raw attributes on the parent object. Existing IP rows can be enriched if later events resolve back to the same stored IP. |
+| IP range | `IPRangeNode` | The CIDR exactly matches a seeded `ip_range`. | The CIDR is discovered through ASN/enrichment data but was not seeded. | Small IPv4 ranges may also be expanded into individual seed IPs for initial graph visibility. |
+| Network service / open port | `NetworkServiceNode` | The service can be resolved to an allowed `IPAddressNode`. | No allowed IP can be resolved from the event host, parent, or `resolved_hosts`. | Applies to `OPEN_TCP_PORT`, `OPEN_UDP_PORT`, and `PROTOCOL`. |
+| URL | `URLObject` | The URL host is an allowed domain/subdomain, an allowed IP, or the event is tied to an allowed cloud-resource parent. A configured URL seed also authorizes its host as a domain/web root. | The URL host is outside the allowed domain/IP scope and has no allowed parent. | Stored URLs are canonicalized to the origin root, so multiple paths on the same allowed host update the same row. |
+| Email address | `EmailAddress` | Any valid email event can be stored. If its domain is in scope, it is linked to that `DomainNode`; otherwise it is stored without a domain link. | The payload is not a valid email shape. | Email seed domains also contribute to domain roots. |
+| Code repository | `CodeRepositoryNode` | The repo URL exactly matches a seeded `code_repository`, or its owner matches a seeded `code_repository_owner` or `org_stub`. | The repo is outside the exact repo/owner allowlist or is not a supported repository URL. | Supported hosts are GitHub, GitLab, Bitbucket, and Docker Hub for repository URLs. Owner scope applies to GitHub/GitLab/Bitbucket owner URLs and `org_stub`s. |
+| Social profile | `SocialProfileNode` | It is parented by a stored email, matches a seeded `org_stub`, or matches a seeded repository owner handle on GitHub/GitLab/Bitbucket. | It has no email parent and does not match allowed org/repository-owner scope. | Profiles are keyed by platform plus handle. |
+| Mobile app | `MobileAppNode` | The app store URL or bundle/package id matches a seeded `mobile_app`. | It does not match a seeded mobile app target. | Android package ids can be configured directly and are normalized to Play Store URLs for BBOT. |
+| Cloud resource / storage bucket | `CloudResourceNode` | Its resource URL is in allowed URL scope, or the event is parented by an allowed domain, URL, IP, or already-allowed cloud resource. | It has no allowed URL or parent relationship. | Public bucket findings may enrich an already-stored cloud resource. |
+| Azure tenant metadata | Domain attributes on `DomainNode` | At least one tenant domain maps to an in-scope domain, or the event is parented by an in-scope domain. | No tenant domain can be associated with an in-scope domain. | Tenant names/domains are attributes; they do not independently widen domain scope. |
+| Generic findings and vulnerabilities | `TrackedFinding` | Any BBOT `FINDING`, `VULNERABILITY`, `PASSWORD`, or `HASHED_PASSWORD` event that reaches GuardianSentry ingestion and is not handled by a more specific scoped branch. | The event is malformed enough that no meaningful finding can be built. | These are intentionally allowed because findings can be emitted by modules from rich parent context. Specialized branches such as host reputation, domain classification, phishing history, public bucket enrichment, and code/mobile/cloud objects may still apply their own scope checks before creating or enriching graph entities. |
 
 This enforcement is implemented in two layers:
 
-1. **BBOT intercept filtering** drops out-of-scope `DNS_NAME`, `CODE_REPOSITORY`, and IP-driven follow-on events before scan modules can continue expanding on them.
-2. **GuardianSentry ingestion** re-checks scope before persisting nodes, edges, alerts, or tracked findings.
-
-When an operator launches an ad hoc scan with explicit `scanTargets`, those targets are treated only as the **starting subset** for the run. The system still loads the World's original configured scope and applies the same allowlist rules to:
-
-1. the requested ad hoc targets themselves, and
-2. every new domain, repository, IP, and URL discovered while scanning from those targets.
-
-In other words, requested scan targets can narrow the scan, but they cannot widen the World's authority boundary.
+1. **BBOT intercept filtering** drops out-of-scope domain, repository, IP-range, web, and IP-analysis events before scan modules continue expanding on them. Event types outside that filter's scope, including generic findings and vulnerabilities, are allowed through.
+2. **GuardianSentry ingestion** re-checks scope before persisting graph nodes and dependent model rows. Generic `TrackedFinding` creation is intentionally less restrictive than graph-node creation.
 
 --
 
