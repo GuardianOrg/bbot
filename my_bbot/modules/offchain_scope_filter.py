@@ -1,5 +1,6 @@
 import json
 import ipaddress
+import os
 from urllib.parse import urlparse
 
 from bbot.modules.base import BaseInterceptModule
@@ -32,6 +33,10 @@ REPOSITORY_HOSTS = REPOSITORY_OWNER_HOSTS | {"hub.docker.com"}
 class offchain_scope_filter(BaseInterceptModule):
     watched_events = ["*"]
     flags = ["passive", "safe"]
+    options = {"scope_targets": []}
+    options_desc = {
+        "scope_targets": "GuardianSentry effective offchain scope targets, encoded as type:value strings",
+    }
     meta = {
         "description": "Drop offchain events outside the seeded GuardianSentry scope",
         "created_date": "2026-05-18",
@@ -136,6 +141,8 @@ class offchain_scope_filter(BaseInterceptModule):
 
     def _load_config_scope(self):
         scope_targets = self.config.get("scope_targets", [])
+        if not scope_targets:
+            scope_targets = os.environ.get("GUARDIAN_OFFCHAIN_SCOPE_TARGETS", "")
         if isinstance(scope_targets, str):
             try:
                 scope_targets = json.loads(scope_targets)
