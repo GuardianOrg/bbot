@@ -92,6 +92,27 @@ lastWeeklyScanAt: p.datetime().nullable(),
 nextWeeklyScanAt: p.datetime().nullable(),
 ```
 
+### 3.4 Effective Scope Enforcement
+
+The implemented weekly scan treats the World's initial inputs as the only authority for scope expansion:
+
+1. **Domains / subdomains**: only FQDNs that are equal to, or are subdomains of, the seeded domain roots are allowed to become `DNS_NAME`/`DNS_NAME_UNRESOLVED` entities and downstream scan subjects. Domain-like strings found in attributes such as phishing history, WHOIS payloads, MX answers, TXT content, or external CNAME targets may still be stored as attributes on an in-scope node, but they do **not** widen scan scope and must not trigger downstream analysis or notifications as standalone domain assets.
+2. **Code repositories**: only repositories that exactly match a seeded `code_repository` URL, or that belong to a seeded `code_repository_owner` / `org_stub`, are allowed to remain in the BBOT event stream and become `CodeRepositoryNode`s. Repositories discovered outside that allowlist are dropped before downstream repo-analysis modules fan out on them.
+3. **IP addresses**: absent an explicit IP seed, only IPs learned from `A` / `AAAA` resolution of an in-scope domain are allowed to become `IPAddressNode`s or to drive downstream IP-based analysis (`OPEN_*_PORT`, `PROTOCOL`, `TLS_CERTIFICATE`, geolocation, reputation, etc.). IPs found in other DNS record types such as `MX`, `SOA`, or unrelated payload attributes may still be stored inside the parent domain's raw attributes/history, but they do **not** become standalone IP assets.
+4. **URLs**: URLs are only allowed when their host is already allowed by the effective world scope. That means GuardianSentry accepts URLs that were explicitly configured as scan seeds, plus any URLs whose host is an allowed domain/subdomain or an allowed IP/IP-range target. URLs whose hosts fall outside that scope are dropped and must not create standalone `URLObject`s or downstream web-analysis events.
+
+This enforcement is implemented in two layers:
+
+1. **BBOT intercept filtering** drops out-of-scope `DNS_NAME`, `CODE_REPOSITORY`, and IP-driven follow-on events before scan modules can continue expanding on them.
+2. **GuardianSentry ingestion** re-checks scope before persisting nodes, edges, alerts, or tracked findings.
+
+When an operator launches an ad hoc scan with explicit `scanTargets`, those targets are treated only as the **starting subset** for the run. The system still loads the World's original configured scope and applies the same allowlist rules to:
+
+1. the requested ad hoc targets themselves, and
+2. every new domain, repository, IP, and URL discovered while scanning from those targets.
+
+In other words, requested scan targets can narrow the scan, but they cannot widen the World's authority boundary.
+
 --
 
 ## 4. Entity Model — Sentry Integration
@@ -212,7 +233,7 @@ Below is the current implemented attribute specification per node type. Common f
 
 #### 4.4.2 IPAddressNode
 
-> An IPv4 or IPv6 address.
+> An IPv4 or IPv6 address that is explicitly seeded or derived from `A` / `AAAA` resolution of an in-scope domain.
 
 **Identity**: `address` (IP string)
 
@@ -312,7 +333,7 @@ Below is the current implemented attribute specification per node type. Common f
 
 #### 4.4.6 CodeRepositoryNode
 
-> Source code repository.
+> Source code repository that is explicitly seeded or belongs to an allowed seeded owner/org.
 
 **Identity**: `repo_url` (URL)
 
@@ -2334,12 +2355,12 @@ Complete mapping of bbot events to the new entity model:
 
 | bbot Event | New Entity | Key Transformation |
 |-----------|-----------|-------------------|
-| `DNS_NAME` | DomainNode | FQDN → `name`, DNS records populated via resolution |
-| `DNS_NAME_UNRESOLVED` | DomainNode (`is_resolved: false`) | Same entity, state flag |
-| `RAW_DNS_RECORD` | DomainNode DNS attributes | Parsed into typed fields (`dns_a`, `dns_mx`, etc.) |
-| `IP_ADDRESS` | IPAddressNode | IP string → `address`, geo/network via enrichment |
+| `DNS_NAME` | DomainNode | FQDN → `name`, but only when the name stays inside the seeded domain roots |
+| `DNS_NAME_UNRESOLVED` | DomainNode (`is_resolved: false`) | Same entity, state flag, same seeded-domain restriction |
+| `RAW_DNS_RECORD` | DomainNode DNS attributes | Parsed into typed fields (`dns_a`, `dns_mx`, etc.); non-scope answers do not widen scope |
+| `IP_ADDRESS` | IPAddressNode | IP string → `address`, but only for explicit IP seeds or `A` / `AAAA` results of in-scope domains |
 | `IP_RANGE` | IPRangeNode | CIDR → `cidr` |
-| `URL` | URLObject (`is_verified: true`) | Full URL → `url`, FK links to DomainNode/IPAddressNode |
+| `URL` | URLObject (`is_verified: true`) | Full URL → `url`, FK links to DomainNode/IPAddressNode only when the host stays inside enforced domain/IP scope |
 | `URL_UNVERIFIED` | URLObject (`is_verified: false`) | Same entity, verification state |
 | `URL_HINT` | URLObject (`is_verified: false`) | Low-confidence discovery currently maps to the same persisted fields as other unverified URLs |
 | `HTTP_RESPONSE` | URLObject attributes | Status, headers, body → URLObject attrs |
@@ -2347,7 +2368,7 @@ Complete mapping of bbot events to the new entity model:
 | `TECHNOLOGY` | URLObject.`technologies[]` | Tech info becomes URLObject attribute |
 | `VHOST` | URLObject.`host` / `responseHeaders` / related DomainNode context | No dedicated `vhosts[]` field is implemented |
 | `WEBSCREENSHOT` | deferred / raw artifact only | No `screenshot_b64` attribute is implemented on `URLObject` |
-| `GEOLOCATION` | IPAddressNode geo attributes | Geo data attached to IP |
+| `GEOLOCATION` | IPAddressNode geo attributes | Geo data attached only to an already-allowed IP |
 | `OPEN_TCP_PORT` | NetworkServiceNode (`transport: tcp`) | `host:port` → NetworkServiceNode |
 | `OPEN_UDP_PORT` | NetworkServiceNode (`transport: udp`) | Same pattern |
 | `PROTOCOL` | NetworkServiceNode.`protocol` | Protocol is service attribute |
@@ -2359,7 +2380,7 @@ Complete mapping of bbot events to the new entity model:
 | `FINDING` | TrackedFinding or entity attribute | Mapped by finding type |
 | `STORAGE_BUCKET` | CloudResourceNode (`resource_type: storage_bucket`) | Bucket → cloud resource |
 | `AZURE_TENANT` | CloudResourceNode (`resource_type: tenant`) | Tenant → cloud resource |
-| `CODE_REPOSITORY` | CodeRepositoryNode | Repo URL → `repo_url` |
+| `CODE_REPOSITORY` | CodeRepositoryNode | Repo URL → `repo_url`, but only for exact seeded repos or repos under seeded owners/orgs |
 | `MOBILE_APP` | MobileAppNode | Store + ID → `store_id` |
 | `ASN` | IPAddressNode/IPRangeNode attributes (`asn`, `isp`, `range_name`, `country`) | ASN data attached to IP/IP range, no standalone ASN node |
 | `FILESYSTEM` | TrackedFinding metadata (`location`) | File evidence retained as finding provenance |

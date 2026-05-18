@@ -1,5 +1,8 @@
 description: Generic discovery preset excluding deep/intense URL-internal probing modules
 
+module_dirs:
+  - /workspace/bbot-guardian/my_bbot/modules
+
 modules:
   - apkpure
   - azure_tenant
@@ -21,6 +24,7 @@ modules:
   - dnsbrute
   - dnsbrute_mutations
   - dnsdumpster
+  - offchain_scope_filter
   - domain_config_dns_audit
   - domain_phishing
   - docker_pull
