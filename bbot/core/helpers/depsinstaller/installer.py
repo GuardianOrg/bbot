@@ -446,6 +446,13 @@ class DepsInstaller:
                     log.warning("Incorrect password")
 
     async def install_core_deps(self):
+        if self.deps_behavior == "disable":
+            log.debug("Skipping core dependency installation because deps.behavior=disable")
+            return
+        if os.environ.get("BBOT_TESTING", "") == "True" and os.environ.get("BBOT_TEST_INSTALL_CORE_DEPS", "") != "True":
+            log.debug("Skipping core dependency installation while BBOT_TESTING=True")
+            return
+
         # skip if we've already successfully installed core deps for this definition
         core_deps_hash = str(mmh3.hash(orjson.dumps(self.CORE_DEPS, option=orjson.OPT_SORT_KEYS)))
         core_deps_cache_file = self.parent_helper.cache_dir / core_deps_hash

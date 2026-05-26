@@ -138,8 +138,8 @@ class tcp_connect_verify(BaseModule):
         if normalized_open_ports:
             self.info(f"tcp_connect_verify found {len(normalized_open_ports):,} open TCP ports on {ip}")
 
-        parent_events = correlator.search(ip)
-        if parent_events is None:
+        parent_events = correlator.search(ip) or correlator.search(ipaddress.ip_network(f"{ip}/{ip.max_prefixlen}", strict=False))
+        if not parent_events:
             self.warning(f"tcp_connect_verify found open ports on {ip} but could not correlate it to an input event")
             return
 

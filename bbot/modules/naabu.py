@@ -173,8 +173,8 @@ class naabu(BaseModule):
                 raise
 
     async def emit_correlated_port(self, ip, port, correlator, emitted):
-        parent_events = correlator.search(ip)
-        if parent_events is None:
+        parent_events = correlator.search(ip) or correlator.search(ipaddress.ip_network(f"{ip}/{ip.max_prefixlen}", strict=False))
+        if not parent_events:
             self.debug(f"Failed to correlate {ip} to targets")
             return
         emitted_hosts = set()

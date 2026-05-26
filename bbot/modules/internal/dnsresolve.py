@@ -73,6 +73,8 @@ class DNSResolve(BaseInterceptModule):
         self.children_emitted = set()
         self.children_emitted_raw = set()
         self.hosts_resolved = set()
+        self.host_resolution_cache = {}
+        self.wildcard_events_seen = set()
         self.policy_queries_done = set()
         self.policy_events_emitted = set()
 
@@ -94,37 +96,95 @@ class DNSResolve(BaseInterceptModule):
 
         # first, we find or create the main DNS_NAME or IP_ADDRESS associated with this event
         main_host_event, whitelisted, blacklisted, new_event = self.get_dns_parent(event)
+        host_cache_key = self._host_resolution_cache_key(event.host)
+        queried_rdtypes = set()
         original_tags = set(event.tags)
 
         # minimal resolution - first, we resolve A/AAAA records for scope purposes
         if new_event or event is main_host_event:
-            await self.resolve_event(main_host_event, types=minimal_rdtypes)
-            # are any of its IPs whitelisted/blacklisted?
-            whitelisted, blacklisted = self.check_scope(main_host_event)
-            if whitelisted and event.scope_distance > 0:
-                self.debug(f"Making {main_host_event} in-scope because it resolves to an in-scope resource (A/AAAA)")
-                main_host_event.scope_distance = 0
+            cached_resolution = self.host_resolution_cache.get(host_cache_key)
+            if cached_resolution is not None:
+                queried_rdtypes.update(cached_resolution.get("queried_rdtypes", set()))
+                event_data_changed = self.apply_host_resolution_cache(main_host_event, cached_resolution)
+                whitelisted, blacklisted = self.check_scope(main_host_event)
+                if blacklisted:
+                    return False, "it has a blacklisted DNS record"
+                if event_data_changed:
+                    if self.is_duplicate_wildcard_event(event):
+                        if not event._graph_important:
+                            return (
+                                False,
+                                "it's a DNS wildcard, and its module already emitted a similar wildcard event",
+                            )
+                        else:
+                            self.debug(
+                                f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
+                            )
+                    if event.type == "DNS_NAME" and self.scan.ingress_module.is_incoming_duplicate(event, add=True):
+                        if not event._graph_important:
+                            return (
+                                False,
+                                "it's a DNS wildcard, and its module already emitted a similar wildcard event",
+                            )
+                        else:
+                            self.debug(
+                                f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
+                            )
+                needs_non_minimal = (
+                    (not event_is_ip)
+                    and main_host_event.scope_distance < self._dns_search_distance
+                    and not set(non_minimal_rdtypes).issubset(queried_rdtypes)
+                )
+                if not needs_non_minimal:
+                    event.scope_distance = main_host_event.scope_distance
+                    event._resolved_hosts = main_host_event.resolved_hosts
+                    return
+            else:
+                await self.resolve_event(main_host_event, types=minimal_rdtypes)
+                queried_rdtypes.update(minimal_rdtypes)
+                # are any of its IPs whitelisted/blacklisted?
+                whitelisted, blacklisted = self.check_scope(main_host_event)
+                if whitelisted and event.scope_distance > 0:
+                    self.debug(f"Making {main_host_event} in-scope because it resolves to an in-scope resource (A/AAAA)")
+                    main_host_event.scope_distance = 0
 
         # abort if the event resolves to something blacklisted
         if blacklisted:
+            self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
             return False, "it has a blacklisted DNS record"
 
         # DNS resolution for hosts that aren't IPs
         if not event_is_ip:
             # if the event is within our dns search distance, resolve the rest of our records
             if main_host_event.scope_distance < self._dns_search_distance:
-                await self.resolve_event(main_host_event, types=non_minimal_rdtypes)
-                if new_event or event is main_host_event:
+                non_minimal_rdtypes_to_resolve = tuple(
+                    rdtype for rdtype in non_minimal_rdtypes if rdtype not in queried_rdtypes
+                )
+                await self.resolve_event(main_host_event, types=non_minimal_rdtypes_to_resolve)
+                queried_rdtypes.update(non_minimal_rdtypes_to_resolve)
+                if (new_event or event is main_host_event) and non_minimal_rdtypes_to_resolve:
                     await self.emit_policy_events(main_host_event)
                 # check for wildcards if the event is within the scan's search distance
                 if new_event and main_host_event.scope_distance <= self.scan.scope_search_distance:
                     event_data_changed = await self.handle_wildcard_event(main_host_event)
                     if event_data_changed:
+                        if self.is_duplicate_wildcard_event(event):
+                            if not event._graph_important:
+                                self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
+                                return (
+                                    False,
+                                    "it's a DNS wildcard, and its module already emitted a similar wildcard event",
+                                )
+                            else:
+                                self.debug(
+                                    f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
+                                )
                         # since data has changed, we check again whether it's a duplicate
                         if event.type == "DNS_NAME" and self.scan.ingress_module.is_incoming_duplicate(
                             event, add=True
                         ):
                             if not event._graph_important:
+                                self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
                                 return (
                                     False,
                                     "it's a DNS wildcard, and its module already emitted a similar wildcard event",
@@ -138,6 +198,8 @@ class DNSResolve(BaseInterceptModule):
         if not main_host_event.raw_dns_records and not event_is_ip:
             main_host_event.add_tag("unresolved")
             main_host_event.type = "DNS_NAME_UNRESOLVED"
+
+        self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
 
         # main_host_event.add_tag(f"resolve-distance-{main_host_event.dns_resolve_distance}")
 
@@ -163,11 +225,71 @@ class DNSResolve(BaseInterceptModule):
                 and event is not main_host_event
                 and main_host_event.scope_distance <= self._dns_search_distance
             ):
-                await self.emit_event(main_host_event)
+                if self.is_duplicate_wildcard_event(main_host_event):
+                    if main_host_event._graph_important:
+                        await self.emit_event(main_host_event)
+                    else:
+                        self.debug(
+                            f"Not queueing {main_host_event} because its wildcard DNS_NAME was already emitted"
+                        )
+                else:
+                    await self.emit_event(main_host_event)
 
         # transfer scope distance to event
         event.scope_distance = main_host_event.scope_distance
         event._resolved_hosts = main_host_event.resolved_hosts
+
+    def cache_host_resolution(self, host_cache_key, event, queried_rdtypes):
+        if not host_cache_key:
+            return
+        self.hosts_resolved.add(host_cache_key)
+        self.host_resolution_cache[host_cache_key] = {
+            "data": event.data,
+            "type": event.type,
+            "scope_distance": event.scope_distance,
+            "tags": set(event.tags),
+            "resolved_hosts": set(event.resolved_hosts),
+            "raw_dns_records": self.copy_dns_map(event.raw_dns_records),
+            "dns_children": self.copy_dns_map(event.dns_children),
+            "queried_rdtypes": set(queried_rdtypes),
+        }
+
+    def apply_host_resolution_cache(self, event, cached_resolution):
+        original_data = event.data
+        cached_data = cached_resolution.get("data")
+        if cached_data and "target" not in event.tags:
+            event.data = cached_data
+        cached_type = cached_resolution.get("type")
+        if cached_type == "DNS_NAME_UNRESOLVED":
+            event.type = cached_type
+        cached_scope_distance = cached_resolution.get("scope_distance")
+        if isinstance(cached_scope_distance, int):
+            event.scope_distance = min(event.scope_distance, cached_scope_distance)
+        for tag in cached_resolution.get("tags", set()):
+            if tag == "target" and "target" not in event.tags:
+                continue
+            event.add_tag(tag)
+        event._resolved_hosts = set(cached_resolution.get("resolved_hosts", set()))
+        event.raw_dns_records = self.copy_dns_map(cached_resolution.get("raw_dns_records", {}))
+        event.dns_children = self.copy_dns_map(cached_resolution.get("dns_children", {}))
+        return event.data != original_data
+
+    def copy_dns_map(self, dns_map):
+        return {rdtype: set(values) for rdtype, values in dns_map.items()}
+
+    def _host_resolution_cache_key(self, host):
+        return str(host or "").strip().rstrip(".").lower()
+
+    def is_duplicate_wildcard_event(self, event):
+        if event.type != "DNS_NAME":
+            return False
+        if "_wildcard" not in str(event.data).split("."):
+            return False
+        wildcard_key = self._host_resolution_cache_key(event.data)
+        if wildcard_key in self.wildcard_events_seen:
+            return True
+        self.wildcard_events_seen.add(wildcard_key)
+        return False
 
     async def handle_wildcard_event(self, event):
         rdtypes = tuple(event.raw_dns_records)
@@ -186,7 +308,7 @@ class DNSResolve(BaseInterceptModule):
             event.add_tag(f"{rdtype}-{wildcard_tag}")
 
         # wildcard event modification (www.evilcorp.com --> _wildcard.evilcorp.com)
-        if wildcard_rdtypes and "target" not in event.tags:
+        if wildcard_rdtypes:
             # these are the rdtypes that have wildcards
             wildcard_rdtypes_set = set(wildcard_rdtypes)
             # consider the event a full wildcard if all its records are wildcards
@@ -195,14 +317,21 @@ class DNSResolve(BaseInterceptModule):
                 event_is_wildcard = all(r[0] is True for r in wildcard_rdtypes.values())
 
             if event_is_wildcard:
+                event.add_tag("wildcard-child")
                 if event.type in ("DNS_NAME",) and "_wildcard" not in event.data.split("."):
                     wildcard_parent = self.helpers.parent_domain(event.host)
                     for rdtype, (_is_wildcard, _parent_domain) in wildcard_rdtypes.items():
                         if _is_wildcard:
                             wildcard_parent = _parent_domain
                             break
+                    event.add_tag(f"wildcard-parent-{wildcard_parent}")
                     wildcard_data = f"_wildcard.{wildcard_parent}"
                     if wildcard_data != event.data:
+                        if "target" in event.tags:
+                            self.debug(
+                                f'Wildcard detected for target "{event.data}" under "{wildcard_parent}"; keeping target data and tagging it as wildcard-child'
+                            )
+                            return False
                         self.debug(f'Wildcard detected, changing event.data "{event.data}" --> "{wildcard_data}"')
                         event.data = wildcard_data
                         return True

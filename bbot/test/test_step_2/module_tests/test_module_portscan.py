@@ -1,4 +1,5 @@
 from .base import ModuleTestBase
+from types import SimpleNamespace
 
 
 class TestPortscan(ModuleTestBase):
@@ -12,13 +13,29 @@ class TestPortscan(ModuleTestBase):
         "8.8.4.4/24",
     ]
     scan_name = "test_portscan"
-    config_overrides = {"modules": {"portscan": {"ports": "443", "wait": 1}}, "dns": {"minimal": False}}
+    config_overrides = {
+        "deps": {"behavior": "disable"},
+        "modules": {"portscan": {"ports": "443", "wait": 1}},
+        "dns": {"minimal": False},
+    }
 
     masscan_output_1 = """{   "ip": "8.8.8.8",   "timestamp": "1680197558", "ports": [ {"port": 443, "proto": "tcp", "status": "open", "reason": "syn-ack", "ttl": 54} ] }"""
     masscan_output_2 = """{   "ip": "8.8.4.5",   "timestamp": "1680197558", "ports": [ {"port": 80, "proto": "tcp", "status": "open", "reason": "syn-ack", "ttl": 54} ] }"""
     masscan_output_3 = """{   "ip": "8.8.4.6",   "timestamp": "1680197558", "ports": [ {"port": 631, "proto": "tcp", "status": "open", "reason": "syn-ack", "ttl": 54} ] }"""
 
     masscan_output_ping = """{   "ip": "8.8.8.8",   "timestamp": "1719862594", "ports": [ {"port": 0, "proto": "icmp", "status": "open", "reason": "none", "ttl": 54} ] }"""
+
+    async def setup_before_prep(self, module_test):
+        from bbot.modules.base import BaseModule
+
+        async def fake_masscan_dry_run(self_module, *args, **kwargs):
+            return SimpleNamespace(returncode=0, stderr="")
+
+        module_test.monkeypatch.setattr(
+            "bbot.core.helpers.depsinstaller.installer.DepsInstaller.ensure_root",
+            lambda *args, **kwargs: None,
+        )
+        module_test.monkeypatch.setattr(BaseModule, "run_process", fake_masscan_dry_run)
 
     async def setup_after_prep(self, module_test):
         from bbot.modules.base import BaseModule

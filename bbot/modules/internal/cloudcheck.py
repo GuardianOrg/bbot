@@ -21,6 +21,7 @@ class CloudCheck(BaseInterceptModule):
     async def setup(self):
         self._cloud_hostname_regexes = None
         self._cloud_hostname_regexes_lock = asyncio.Lock()
+        self.scope_input_only = bool(self.config.get("scope_input_only", False))
         # perform a test lookup during setup to force signature update
         await self.helpers.cloudcheck.lookup("8.8.8.8")
         return True
@@ -28,6 +29,8 @@ class CloudCheck(BaseInterceptModule):
     async def filter_event(self, event):
         if (not event.host) or (event.type in ("IP_RANGE",)):
             return False, "event does not have host attribute"
+        if self.scope_input_only and "target" not in event.tags:
+            return False, "cloudcheck is limited to explicit scan input events"
         return True
 
     async def handle_event(self, event, **kwargs):

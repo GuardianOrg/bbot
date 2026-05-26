@@ -1807,6 +1807,7 @@ class DOMAIN_DNS_CONFIG(DictHostEvent):
         zone_transfer_nameservers: Optional[list[str]] = None
         is_wildcard: Optional[bool] = None
         wildcard_ips: Optional[list[str]] = None
+        wildcard_records: Optional[dict[str, list[str]]] = None
         _validate_host = field_validator("host")(validators.validate_host)
 
 

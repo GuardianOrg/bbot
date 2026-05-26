@@ -59,6 +59,11 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
             return {
                 "is_wildcard": True,
                 "wildcard_ips": ["1.2.3.4", "2001:db8::1"],
+                "wildcard_records": {
+                    "A": ["1.2.3.4"],
+                    "AAAA": ["2001:db8::1"],
+                    "CNAME": ["wildcard.edge.blacklanternsecurity.com"],
+                },
             }
 
         module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
@@ -78,6 +83,11 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         assert domain_config_events[0].data["zone_transfer_possible"] is False
         assert domain_config_events[0].data["is_wildcard"] is True
         assert domain_config_events[0].data["wildcard_ips"] == ["1.2.3.4", "2001:db8::1"]
+        assert domain_config_events[0].data["wildcard_records"] == {
+            "A": ["1.2.3.4"],
+            "AAAA": ["2001:db8::1"],
+            "CNAME": ["wildcard.edge.blacklanternsecurity.com"],
+        }
 
         finding_titles = {e.data.get("title") for e in findings}
         vulnerability_titles = {e.data.get("title") for e in vulnerabilities}
@@ -88,3 +98,60 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         assert "Missing DMARC Record" in vulnerability_titles
         assert "Missing CAA Records" in vulnerability_titles
         assert all("testssl" not in str(e.data).lower() for e in findings + vulnerabilities)
+
+
+class TestDomainConfigDnsAuditTargetSubdomain(TestDomainConfigDnsAudit):
+    targets = ["app.blacklanternsecurity.com"]
+
+    async def setup_before_prep(self, module_test):
+        await super().setup_before_prep(module_test)
+        await module_test.mock_dns(
+            {
+                "blacklanternsecurity.com": {"A": ["127.0.0.88"]},
+                "app.blacklanternsecurity.com": {"A": ["127.0.0.89"]},
+            }
+        )
+
+    def check(self, module_test, events):
+        domain_config_events = [e for e in events if e.type == "DOMAIN_DNS_CONFIG"]
+        domain_config_by_host = {e.data.get("host"): e for e in domain_config_events}
+
+        assert set(domain_config_by_host) == {"blacklanternsecurity.com", "app.blacklanternsecurity.com"}
+        assert domain_config_by_host["blacklanternsecurity.com"].data["zone_transfer_possible"] is False
+        assert domain_config_by_host["blacklanternsecurity.com"].data["is_wildcard"] is True
+        assert domain_config_by_host["app.blacklanternsecurity.com"].data["is_wildcard"] is True
+        assert domain_config_by_host["app.blacklanternsecurity.com"].data["wildcard_ips"] == [
+            "1.2.3.4",
+            "2001:db8::1",
+        ]
+        assert domain_config_by_host["app.blacklanternsecurity.com"].data["wildcard_records"]["CNAME"] == [
+            "wildcard.edge.blacklanternsecurity.com",
+        ]
+
+
+class TestDomainConfigDnsAuditWildcardChildTarget(TestDomainConfigDnsAudit):
+    targets = ["fake.blacklanternsecurity.com"]
+    config_overrides = {
+        **TestDomainConfigDnsAudit.config_overrides,
+        "dns": {"wildcard_ignore": []},
+    }
+
+    async def setup_before_prep(self, module_test):
+        await super().setup_before_prep(module_test)
+        await module_test.mock_dns(
+            {
+                "blacklanternsecurity.com": {"A": ["127.0.0.88"]},
+            },
+            custom_lookup_fn="""
+def custom_lookup(query, rdtype):
+    if rdtype == "A" and query.strip(".").endswith("blacklanternsecurity.com"):
+        return {"127.0.0.88"}
+""",
+        )
+
+    def check(self, module_test, events):
+        domain_config_events = [e for e in events if e.type == "DOMAIN_DNS_CONFIG"]
+        domain_config_hosts = {e.data.get("host") for e in domain_config_events}
+
+        assert "blacklanternsecurity.com" in domain_config_hosts
+        assert "fake.blacklanternsecurity.com" not in domain_config_hosts

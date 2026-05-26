@@ -184,6 +184,43 @@ async def test_dns_resolution(bbot_scanner):
 
 
 @pytest.mark.asyncio
+async def test_dnsresolve_reuses_host_resolution_cache(bbot_scanner, monkeypatch):
+    scan = bbot_scanner("evilcorp.com", config={"dns": {"minimal": True}})
+    await scan.helpers.dns._mock_dns({"one.one.one.one": {"A": ["1.1.1.1"]}})
+    await scan._prep()
+
+    dnsresolve = scan.modules["dnsresolve"]
+    resolve_calls = []
+    original_resolve_event = dnsresolve.resolve_event
+
+    async def counted_resolve_event(event, types):
+        resolve_calls.append((str(event.host), tuple(types)))
+        await original_resolve_event(event, types)
+
+    monkeypatch.setattr(dnsresolve, "resolve_event", counted_resolve_event)
+
+    dns_name_event1 = scan.make_event("one.one.one.one", "DNS_NAME", parent=scan.root_event)
+    await dnsresolve.handle_event(dns_name_event1)
+    assert len(resolve_calls) == 1
+    assert "one.one.one.one" in dnsresolve.hosts_resolved
+    assert "1.1.1.1" in dns_name_event1.resolved_hosts
+
+    url_event = scan.make_event("http://one.one.one.one/", "URL_UNVERIFIED", parent=scan.root_event)
+    await dnsresolve.handle_event(url_event)
+    assert len(resolve_calls) == 1
+    assert url_event.resolved_hosts == dns_name_event1.resolved_hosts
+    assert not url_event.raw_dns_records
+
+    dns_name_event2 = scan.make_event("one.one.one.one", "DNS_NAME", parent=scan.root_event)
+    await dnsresolve.handle_event(dns_name_event2)
+    assert len(resolve_calls) == 1
+    assert dns_name_event2.resolved_hosts == dns_name_event1.resolved_hosts
+    assert "a-record" in dns_name_event2.tags
+
+    await scan._cleanup()
+
+
+@pytest.mark.asyncio
 async def test_wildcards(bbot_scanner):
     scan = bbot_scanner("1.1.1.1")
     helpers = scan.helpers
@@ -348,6 +385,8 @@ def custom_lookup(query, rdtype):
         "txt-record",
         "txt-wildcard",
         "wildcard",
+        "wildcard-child",
+        "wildcard-parent-test-evilcorp-com",
     }
     assert dns_names_by_host["_wildcard.test.evilcorp.com"].resolved_hosts == set()
     assert dns_names_by_host["www.test.evilcorp.com"].tags == {
@@ -366,6 +405,8 @@ def custom_lookup(query, rdtype):
         "txt-record",
         "txt-wildcard",
         "wildcard",
+        "wildcard-child",
+        "wildcard-parent-test-evilcorp-com",
     }
     assert dns_names_by_host["bbot.fdsa.www.test.evilcorp.com"].resolved_hosts == set()
 
@@ -507,9 +548,11 @@ def custom_lookup(query, rdtype):
     await dnsresolve.handle_event(wildcard_event2)
     await dnsresolve.handle_event(wildcard_event3)
     assert "wildcard" in wildcard_event1.tags
+    assert "wildcard-child" in wildcard_event1.tags
     assert "a-wildcard" in wildcard_event1.tags
     assert "srv-wildcard" not in wildcard_event1.tags
     assert "wildcard" in wildcard_event2.tags
+    assert "wildcard-child" in wildcard_event2.tags
     assert "a-wildcard" in wildcard_event2.tags
     assert "srv-wildcard" not in wildcard_event2.tags
     assert wildcard_event1.data == "_wildcard.github.io"

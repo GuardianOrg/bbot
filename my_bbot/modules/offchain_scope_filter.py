@@ -28,6 +28,7 @@ IP_ANALYSIS_EVENT_TYPES = {
 REPOSITORY_SCOPE_EVENT_TYPES = {"CODE_REPOSITORY", "CODE_REPOSITORY_OWNER"}
 REPOSITORY_OWNER_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
 REPOSITORY_HOSTS = REPOSITORY_OWNER_HOSTS | {"hub.docker.com"}
+EMAIL_SCOPE_EVENT_TYPES = {"EMAIL_ADDRESS"}
 
 
 class offchain_scope_filter(BaseInterceptModule):
@@ -48,6 +49,7 @@ class offchain_scope_filter(BaseInterceptModule):
 
     async def setup(self):
         self.allowed_domain_roots = set()
+        self.allowed_email_addresses = set()
         self.allowed_repo_tuples = set()
         self.allowed_repo_owners = set()
         self.allowed_ips = set()
@@ -60,6 +62,11 @@ class offchain_scope_filter(BaseInterceptModule):
     async def handle_event(self, event, **kwargs):
         if event.type in REPOSITORY_SCOPE_EVENT_TYPES:
             return self._handle_repository_event(event)
+
+        if event.type in EMAIL_SCOPE_EVENT_TYPES:
+            if self._event_email_allowed(event):
+                return True
+            return False, "email address is outside the seeded email or domain scope"
 
         if event.type in DNS_SCOPE_EVENT_TYPES:
             if not self._event_domain_in_scope(event):
@@ -99,10 +106,9 @@ class offchain_scope_filter(BaseInterceptModule):
                 continue
 
             if seed_type == "EMAIL_ADDRESS":
-                _, _, domain = str(seed_data).rpartition("@")
-                normalized = self._normalize_domain(domain)
-                if normalized:
-                    self.allowed_domain_roots.add(normalized)
+                email = self._normalize_email(seed_data)
+                if email:
+                    self.allowed_email_addresses.add(email)
                 continue
 
             if seed_type == "URL":
@@ -176,10 +182,9 @@ class offchain_scope_filter(BaseInterceptModule):
                 continue
 
             if target_type == "email":
-                _, _, domain = target_value.rpartition("@")
-                normalized = self._normalize_domain(domain)
-                if normalized:
-                    self.allowed_domain_roots.add(normalized)
+                email = self._normalize_email(target_value)
+                if email:
+                    self.allowed_email_addresses.add(email)
                 continue
 
             if target_type == "ip_address":
@@ -235,6 +240,15 @@ class offchain_scope_filter(BaseInterceptModule):
             if any(domain == root or domain.endswith(f".{root}") for root in self.allowed_domain_roots):
                 return True
         return False
+
+    def _event_email_allowed(self, event):
+        email = self._event_email_address(event)
+        if not email:
+            return False
+        if email in self.allowed_email_addresses:
+            return True
+        _, _, domain = email.rpartition("@")
+        return bool(domain and any(domain == root or domain.endswith(f".{root}") for root in self.allowed_domain_roots))
 
     def _event_has_allowed_ip(self, event):
         return any(self._ip_allowed(candidate) for candidate in self._event_ip_candidates(event))
@@ -300,11 +314,15 @@ class offchain_scope_filter(BaseInterceptModule):
         data = self._event_data(event)
         candidates = [
             event.host,
+            getattr(event, "netloc", None),
             data.get("host"),
             data.get("ip"),
             self._extract_event_url_host(event),
             getattr(event, "data", None) if event.type == "IP_ADDRESS" else None,
         ]
+        if event.type in IP_ANALYSIS_EVENT_TYPES:
+            candidates.append(self._extract_netloc_ip(getattr(event, "data", None)))
+            candidates.append(self._extract_netloc_ip(getattr(event, "netloc", None)))
 
         for resolved_host in getattr(event, "resolved_hosts", []) or []:
             candidates.append(resolved_host)
@@ -320,6 +338,45 @@ class offchain_scope_filter(BaseInterceptModule):
             if self._is_ip(candidate):
                 normalized.append(str(candidate).strip())
         return normalized
+
+    def _event_email_address(self, event):
+        data = self._event_data(event)
+        candidates = [
+            getattr(event, "data", None),
+            data.get("email"),
+            data.get("email_address"),
+            data.get("address"),
+        ]
+        for candidate in candidates:
+            email = self._normalize_email(candidate)
+            if email:
+                return email
+        return None
+
+    def _normalize_email(self, value):
+        if not isinstance(value, str):
+            return None
+        email = value.strip().lower()
+        if not email or email.count("@") != 1:
+            return None
+        local, domain = email.rsplit("@", 1)
+        if not local or not self._normalize_domain(domain):
+            return None
+        return email
+
+    def _extract_netloc_ip(self, value):
+        if not isinstance(value, str) or not value.strip():
+            return None
+        value = value.strip()
+        if self._is_ip(value):
+            return value
+        if value.startswith("["):
+            host, separator, _ = value[1:].partition("]")
+            return host if separator and self._is_ip(host) else None
+        host, separator, port = value.rpartition(":")
+        if not separator or not port.isdigit():
+            return None
+        return host if self._is_ip(host) else None
 
     def _extract_event_url(self, event):
         data = self._event_data(event)

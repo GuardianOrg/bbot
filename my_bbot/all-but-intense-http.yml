@@ -84,7 +84,7 @@ config:
     - WEB_PARAMETER
   dns:
     emit_out_of_scope_children: false
-    threads: 100
+    threads: 150
   interactsh_disable: true
   modules:
     stdout:
@@ -245,6 +245,8 @@ config:
       deleted_forks: false
     chaos:
       api_key: ${env:CHAOS_API_KEY,""}
+    cloudcheck:
+      scope_input_only: true
     dehashed:
       api_key: ${env:DEHASHED_API_KEY,""}
     github_org:

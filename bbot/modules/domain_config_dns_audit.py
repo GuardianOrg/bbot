@@ -82,7 +82,7 @@ class domain_config_dns_audit(BaseModule):
 
     _batch_size = 150
     in_scope_only = True
-    per_domain_only = True
+    per_domain_only = False
 
     async def setup(self):
         self.quick = bool(self.config.get("quick", False))
@@ -97,6 +97,8 @@ class domain_config_dns_audit(BaseModule):
         self.dns_cache = {}
         self.dns_ttl_cache = {}
         self.dns_full_cache = {}
+        self.audited_domains = set()
+        self.wildcard_checked_hosts = set()
         if len(self.wildcard_nameservers) < 3:
             return None, "domain_config_dns_audit requires at least 3 wildcard_nameservers"
         return True
@@ -116,22 +118,34 @@ class domain_config_dns_audit(BaseModule):
             return False, "event host is empty"
         if "_wildcard" in host.split("."):
             return False, "event is wildcard"
-        if not self.helpers.is_domain(host):
-            return False, "host is not a domain"
+        if not self.helpers.is_dns_name(host):
+            return False, "host is not a DNS name"
         return True
 
     async def handle_batch(self, *events):
         parent_by_domain = {}
+        target_hosts = {}
         for event in events:
             host = str(event.host or "").strip().rstrip(".").lower()
-            if not host or not self.helpers.is_domain(host):
+            if not host or not self.helpers.is_dns_name(host):
                 continue
             _, registered_domain = self.helpers.split_domain(host)
             audit_domain = (registered_domain or host).lower().rstrip(".")
             parent_by_domain.setdefault(audit_domain, event)
+            if "target" in event.tags and "wildcard-child" not in event.tags:
+                target_hosts.setdefault(host, event)
 
         for domain, parent_event in parent_by_domain.items():
+            if domain in self.audited_domains:
+                continue
+            self.audited_domains.add(domain)
             await self.audit_domain(parent_event, domain)
+
+        for host, parent_event in target_hosts.items():
+            if host in self.wildcard_checked_hosts or host in self.audited_domains:
+                continue
+            self.wildcard_checked_hosts.add(host)
+            await self.emit_wildcard_dns_config(parent_event, host)
 
     async def audit_domain(self, parent_event, domain):
         records = await self.collect_basic_dns(domain)
@@ -142,6 +156,7 @@ class domain_config_dns_audit(BaseModule):
             "zone_transfer_nameservers": records.get("NS", []),
             "is_wildcard": False,
             "wildcard_ips": [],
+            "wildcard_records": {},
         }
 
         checks = [
@@ -204,6 +219,7 @@ class domain_config_dns_audit(BaseModule):
             wildcard_status = await self.check_wildcard(domain)
             dns_config["is_wildcard"] = wildcard_status["is_wildcard"]
             dns_config["wildcard_ips"] = wildcard_status["wildcard_ips"]
+            dns_config["wildcard_records"] = wildcard_status["wildcard_records"]
         except Exception:
             self.verbose(f"check_wildcard failed for {domain}", trace=True)
 
@@ -242,6 +258,25 @@ class domain_config_dns_audit(BaseModule):
             parent_event,
             tags=["dns-audit", "domain-config-dns-audit", f"dns-audit-{severity.lower()}"],
             context=f'{{module}} audited "{domain}" and produced {{event.type}}',
+        )
+
+    async def emit_wildcard_dns_config(self, parent_event, domain):
+        try:
+            wildcard_status = await self.check_wildcard(domain)
+        except Exception:
+            self.verbose(f"check_wildcard failed for {domain}", trace=True)
+            return
+
+        await self.emit_event(
+            {
+                "host": domain,
+                "is_wildcard": wildcard_status["is_wildcard"],
+                "wildcard_ips": wildcard_status["wildcard_ips"],
+                "wildcard_records": wildcard_status["wildcard_records"],
+            },
+            "DOMAIN_DNS_CONFIG",
+            parent_event,
+            context=f'{{module}} checked wildcard DNS configuration for "{domain}"',
         )
 
     async def collect_basic_dns(self, domain):
@@ -425,26 +460,28 @@ class domain_config_dns_audit(BaseModule):
         return dns.zone.from_xfr(transfer)
 
     async def check_wildcard(self, domain):
-        nameservers = self.wildcard_nameservers[:3]
-        baseline_by_nameserver = {}
-        for nameserver in nameservers:
-            ips = await self._resolve_ip_records(domain, nameserver)
-            if ips:
-                baseline_by_nameserver[nameserver] = set(ips)
-        if len(baseline_by_nameserver) < 3:
-            return {"is_wildcard": False, "wildcard_ips": []}
-        for parent in self.wildcard_candidate_parents(domain):
-            matching = {}
-            for nameserver in nameservers:
-                wildcard_ips = set()
-                for _ in range(self.wildcard_probe_count):
-                    wildcard_ips.update(await self._resolve_ip_records(f"{uuid.uuid4().hex[:12]}.{parent}", nameserver))
-                overlap = sorted(baseline_by_nameserver.get(nameserver, set()).intersection(wildcard_ips))
-                if overlap:
-                    matching[nameserver] = overlap
-            if len(matching) >= 3:
-                return {"is_wildcard": True, "wildcard_ips": sorted({ip for ips in matching.values() for ip in ips})}
-        return {"is_wildcard": False, "wildcard_ips": []}
+        wildcard_domains = await self.helpers.is_wildcard_domain(domain, rdtypes=("A", "AAAA", "CNAME"))
+        wildcard_records = wildcard_domains.get(domain, {})
+        wildcard_ips = set()
+        normalized_records = {}
+        for rdtype, (wildcard_results, wildcard_results_raw) in wildcard_records.items():
+            normalized_values = set()
+            for value in set(wildcard_results).union(wildcard_results_raw):
+                if self.helpers.is_ip(value):
+                    wildcard_ips.add(value)
+                if rdtype == "CNAME":
+                    normalized_value = str(value).strip().rstrip(".").lower()
+                    if normalized_value:
+                        normalized_values.add(normalized_value)
+                elif rdtype in ("A", "AAAA") and self.helpers.is_ip(value):
+                    normalized_values.add(value)
+            if normalized_values:
+                normalized_records[rdtype] = sorted(normalized_values)
+        return {
+            "is_wildcard": bool(wildcard_records),
+            "wildcard_ips": sorted(wildcard_ips),
+            "wildcard_records": normalized_records,
+        }
 
     def wildcard_candidate_parents(self, domain):
         labels = [label for label in str(domain or "").split(".") if label]

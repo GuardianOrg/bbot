@@ -16,8 +16,8 @@ def make_event(event_type, data=None, host=None, resolved_hosts=None, dns_childr
     )
 
 
-async def create_scope_filter(scope_targets):
-    seed_events = [
+async def create_scope_filter(scope_targets, seed_events=None):
+    seed_events = seed_events if seed_events is not None else [
         SimpleNamespace(type="DNS_NAME", data="example.com", input="example.com"),
     ]
     scan = SimpleNamespace(
@@ -60,6 +60,39 @@ async def test_offchain_scope_filter_limits_domains_and_repositories_to_world_sc
 
     assert blocked_domain_result == (False, "dns event is outside the seeded domain scope")
     assert blocked_repo_result == (False, "repository is outside the seeded repository scope")
+
+
+@pytest.mark.asyncio
+async def test_offchain_scope_filter_email_seed_does_not_authorize_domain_scope():
+    module = await create_scope_filter(["email:security@example.com"], seed_events=[])
+
+    exact_email = make_event("EMAIL_ADDRESS", data="security@example.com")
+    sibling_email = make_event("EMAIL_ADDRESS", data="admin@example.com")
+    domain_event = make_event("DNS_NAME", data="example.com", host="example.com")
+
+    assert await module.handle_event(exact_email) is True
+    assert await module.handle_event(sibling_email) == (
+        False,
+        "email address is outside the seeded email or domain scope",
+    )
+    assert await module.handle_event(domain_event) == (
+        False,
+        "dns event is outside the seeded domain scope",
+    )
+
+
+@pytest.mark.asyncio
+async def test_offchain_scope_filter_allows_emails_discovered_from_seeded_domains():
+    module = await create_scope_filter(["domain:example.com"])
+
+    allowed_email = make_event("EMAIL_ADDRESS", data="security@mail.example.com")
+    blocked_email = make_event("EMAIL_ADDRESS", data="security@vendor.net")
+
+    assert await module.handle_event(allowed_email) is True
+    assert await module.handle_event(blocked_email) == (
+        False,
+        "email address is outside the seeded email or domain scope",
+    )
 
 
 @pytest.mark.asyncio
@@ -140,6 +173,24 @@ async def test_offchain_scope_filter_only_allows_ips_from_a_and_aaaa_resolution(
         "IP analysis event is not tied to an allowed IP from seeded domain A/AAAA data",
     )
     assert blocked_domain_tied_result == (
+        False,
+        "IP analysis event is not tied to an allowed IP from seeded domain A/AAAA data",
+    )
+
+
+@pytest.mark.asyncio
+async def test_offchain_scope_filter_allows_open_ports_by_netloc_for_seeded_ips():
+    module = await create_scope_filter(["ip_address:10.0.0.2"])
+
+    allowed_tcp_port = make_event("OPEN_TCP_PORT", data="10.0.0.2:443")
+    allowed_udp_port = make_event("OPEN_UDP_PORT", data="10.0.0.2:123")
+    allowed_protocol = make_event("PROTOCOL", data={"host": "10.0.0.2", "port": 443, "transport": "tcp"})
+    blocked_tcp_port = make_event("OPEN_TCP_PORT", data="10.0.0.3:443")
+
+    assert await module.handle_event(allowed_tcp_port) is True
+    assert await module.handle_event(allowed_udp_port) is True
+    assert await module.handle_event(allowed_protocol) is True
+    assert await module.handle_event(blocked_tcp_port) == (
         False,
         "IP analysis event is not tied to an allowed IP from seeded domain A/AAAA data",
     )
