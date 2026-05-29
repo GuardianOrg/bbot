@@ -13,7 +13,7 @@ description: Generic discovery preset with all modules marked "Should use = Yes"
 
 modules:
   - ajaxpro
-  - apkpure
+  - apkeep
   - aspnet_bin_exposure
   - azure_tenant
   - baddns

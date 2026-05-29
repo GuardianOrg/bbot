@@ -4,7 +4,7 @@ module_dirs:
   - /workspace/bbot-guardian/my_bbot/modules
 
 modules:
-  - apkpure
+  - apkeep
   - azure_tenant
   - badsecrets
   - bucket_amazon
@@ -84,6 +84,8 @@ config:
     - WEB_PARAMETER
   dns:
     emit_out_of_scope_children: false
+    emit_unresolved: false
+    max_unresolved_subdomains_per_module: 50
     threads: 150
   interactsh_disable: true
   modules:
@@ -94,6 +96,7 @@ config:
       tags: ""
       templates: ""
       mobile_template_sources: /workspace/bbot-guardian/my_bbot/mobile-nuclei-templates
+      mobile_download_enabled: false
       severity: "critical,high,medium"
       etags: "dos,fuzz,fuzzing,intrusive,destructive"
       exclude_types: "code,headless,javascript,tcp"
@@ -201,6 +204,8 @@ config:
       max_depth: 3
     dnsbrute_mutations:
       max_mutations: 5000
+    speculate:
+      unresolved_parent_domains: false
     dnsreaper:
       parallelism: 20
       disable_probable: false

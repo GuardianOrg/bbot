@@ -78,6 +78,12 @@ class TestShodan_IDB(ModuleTestBase):
                         "data": "recursive resolver",
                         "_shodan": {"module": "dns-udp"},
                     },
+                    {
+                        "port": 8080,
+                        "transport": "tcp",
+                        "product": "cloudflare",
+                        "data": "HTTP/1.1 403 Forbidden\r\nServer: cloudflare",
+                    },
                 ],
             },
         )
@@ -99,7 +105,7 @@ class TestShodan_IDB(ModuleTestBase):
             [e for e in events if e.type == "DNS_NAME" and e.data == "autodiscover.blacklanternsecurity.com"]
         )
         assert 1 == len([e for e in events if e.type == "DNS_NAME" and e.data == "mail.blacklanternsecurity.com"])
-        assert 3 == len(
+        assert 4 == len(
             [
                 e
                 for e in events
@@ -146,6 +152,14 @@ class TestShodan_IDB(ModuleTestBase):
             and e.data.get("banner") == "HTTP/1.1 200 OK"
             for e in events
         ), "Failed to emit Shodan host API service metadata"
+        assert any(
+            e.type == "PROTOCOL"
+            and e.data.get("host") == "blacklanternsecurity.com"
+            and e.data.get("port") == 8080
+            and e.data.get("protocol") == "HTTP"
+            and e.data.get("banner") == "HTTP/1.1 403 Forbidden\r\nServer: cloudflare"
+            for e in events
+        ), "Failed to infer protocol from Shodan host API HTTP banner"
 
 
 class TestShodan_IDB_RangeSearch(ModuleTestBase):

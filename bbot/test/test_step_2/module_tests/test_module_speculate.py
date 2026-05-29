@@ -80,3 +80,19 @@ class TestSpeculate_OpenPorts_Portscanner(TestSpeculate_OpenPorts):
             x in events_data
             for x in ("evilcorp.com:80", "evilcorp.com:443", "asdf.evilcorp.com:80", "asdf.evilcorp.com:443")
         )
+
+
+class TestSpeculate_SkipUnresolvedParentDomains(ModuleTestBase):
+    targets = ["www.bbottest.notreal"]
+    modules_overrides = ["speculate"]
+    config_overrides = {
+        "speculate": True,
+        "modules": {"speculate": {"unresolved_parent_domains": False}},
+    }
+
+    def check(self, module_test, events):
+        assert any(e.type == "DNS_NAME_UNRESOLVED" and e.data == "www.bbottest.notreal" for e in events)
+        assert not any(
+            e.type == "DNS_NAME_UNRESOLVED" and e.data == "bbottest.notreal" and str(e.module) == "speculate"
+            for e in events
+        )

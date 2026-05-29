@@ -7,9 +7,9 @@ class TestIpPrivacy(ModuleTestBase):
     config_overrides = {
         "modules": {
             "ip_privacy": {
-                "tor_urls": "https://feeds.example.test/tor.txt",
-                "proxy_urls": "https://feeds.example.test/proxy.netset",
-                "vpn_urls": "https://feeds.example.test/vpn.txt",
+                "tor_urls": ["https://feeds.example.test/tor.txt"],
+                "proxy_urls": ["https://feeds.example.test/proxy.netset"],
+                "vpn_urls": ["https://feeds.example.test/vpn.txt"],
             }
         }
     }

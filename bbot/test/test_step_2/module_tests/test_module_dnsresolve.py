@@ -1,3 +1,5 @@
+import asyncio
+
 from .base import ModuleTestBase
 
 
@@ -176,3 +178,188 @@ class TestDNSREsolve(ModuleTestBase):
                 and e.data.get("host") == "default._bimi.blacklanternsecurity.com"
             ]
         )
+
+
+class TestDNSResolveDropUnresolved(ModuleTestBase):
+    modules_overrides = ["speculate"]
+    config_overrides = {
+        "dns": {"emit_unresolved": False},
+        "deps": {"behavior": "disable"},
+    }
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+
+    async def setup_after_prep(self, module_test):
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["192.168.0.7"]}})
+
+        dnsresolve = module_test.scan.modules["dnsresolve"]
+        event = module_test.scan.make_event(
+            "missing.blacklanternsecurity.com", "DNS_NAME", parent=module_test.scan.root_event
+        )
+        event.scope_distance = 0
+        result = await dnsresolve.handle_event(event)
+        assert result == (False, "unresolved DNS events are disabled")
+
+        cache_key = dnsresolve._host_resolution_cache_key(event.host)
+        assert dnsresolve.host_resolution_cache[cache_key]["type"] == "DNS_NAME_UNRESOLVED"
+
+    def check(self, module_test, events):
+        assert not any(e.type == "DNS_NAME_UNRESOLVED" and e.data == "missing.blacklanternsecurity.com" for e in events)
+
+
+class TestDNSResolveUnresolvedSubdomainBudget(ModuleTestBase):
+    modules_overrides = ["speculate"]
+    config_overrides = {
+        "dns": {"emit_unresolved": False, "max_unresolved_subdomains_per_module": 1},
+        "deps": {"behavior": "disable"},
+    }
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+
+    async def setup_after_prep(self, module_test):
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["192.168.0.7"]}})
+
+        dnsresolve = module_test.scan.modules["dnsresolve"]
+        tool_a = module_test.scan._make_dummy_module(name="tool_a")
+        tool_b = module_test.scan._make_dummy_module(name="tool_b")
+        tool_c = module_test.scan._make_dummy_module(name="tool_c")
+        tool_d = module_test.scan._make_dummy_module(name="tool_d")
+
+        first_event = module_test.scan.make_event(
+            "missing1.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_a,
+        )
+        first_event.scope_distance = 0
+        assert await dnsresolve.handle_event(first_event) == (False, "unresolved DNS events are disabled")
+
+        resolve_calls = []
+        original_resolve_event = dnsresolve.resolve_event
+
+        async def count_resolve_event(event, *args, **kwargs):
+            resolve_calls.append((str(event.module), event.host))
+            return await original_resolve_event(event, *args, **kwargs)
+
+        module_test.monkeypatch.setattr(dnsresolve, "resolve_event", count_resolve_event)
+
+        skipped_by_tool_a = module_test.scan.make_event(
+            "missing2.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_a,
+        )
+        skipped_by_tool_a.scope_distance = 0
+        assert await dnsresolve.handle_event(skipped_by_tool_a) == (
+            False,
+            'unresolved subdomain budget exceeded for module "tool_a"',
+        )
+        missing2_cache_key = dnsresolve._host_resolution_cache_key(skipped_by_tool_a.host)
+        assert missing2_cache_key not in dnsresolve.host_resolution_cache
+        assert resolve_calls == []
+
+        skipped_url_by_tool_a = module_test.scan.make_event(
+            "https://missing-url.blacklanternsecurity.com/",
+            "URL_UNVERIFIED",
+            parent=module_test.scan.root_event,
+            module=tool_a,
+        )
+        skipped_url_by_tool_a.scope_distance = 0
+        assert await dnsresolve.handle_event(skipped_url_by_tool_a) == (
+            False,
+            'unresolved subdomain budget exceeded for module "tool_a"',
+        )
+        missing_url_cache_key = dnsresolve._host_resolution_cache_key(skipped_url_by_tool_a.host)
+        assert missing_url_cache_key not in dnsresolve.host_resolution_cache
+        assert resolve_calls == []
+
+        pending_by_tool_c = module_test.scan.make_event(
+            "pending.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_c,
+        )
+        pending_allowed, pending_module, pending_host_key = await dnsresolve._reserve_unresolved_subdomain_budget(
+            pending_by_tool_c
+        )
+        assert pending_allowed is True
+        assert pending_module == "tool_c"
+
+        blocked_while_tool_c_pending = module_test.scan.make_event(
+            "blocked.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_c,
+        )
+        blocked_while_tool_c_pending.scope_distance = 0
+        blocked_task = asyncio.create_task(dnsresolve.handle_event(blocked_while_tool_c_pending))
+        await asyncio.sleep(0.1)
+        assert not blocked_task.done()
+        assert resolve_calls == []
+
+        await dnsresolve._release_unresolved_subdomain_budget(pending_module, pending_host_key, unresolved=True)
+        assert await blocked_task == (
+            False,
+            'unresolved subdomain budget exceeded for module "tool_c"',
+        )
+        blocked_cache_key = dnsresolve._host_resolution_cache_key(blocked_while_tool_c_pending.host)
+        assert blocked_cache_key not in dnsresolve.host_resolution_cache
+        assert resolve_calls == []
+
+        checked_by_tool_b = module_test.scan.make_event(
+            "missing2.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_b,
+        )
+        checked_by_tool_b.scope_distance = 0
+        assert await dnsresolve.handle_event(checked_by_tool_b) == (False, "unresolved DNS events are disabled")
+        assert resolve_calls
+        assert all(call == ("tool_b", "missing2.blacklanternsecurity.com") for call in resolve_calls)
+        assert dnsresolve.host_resolution_cache[missing2_cache_key]["type"] == "DNS_NAME_UNRESOLVED"
+
+        cached_but_still_skipped_by_tool_a = module_test.scan.make_event(
+            "missing2.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_a,
+        )
+        cached_but_still_skipped_by_tool_a.scope_distance = 0
+        assert await dnsresolve.handle_event(cached_but_still_skipped_by_tool_a) == (
+            False,
+            'unresolved subdomain budget exceeded for module "tool_a"',
+        )
+
+        async def fail_resolve_event(*args, **kwargs):
+            raise RuntimeError("resolver failed")
+
+        module_test.monkeypatch.setattr(dnsresolve, "resolve_event", fail_resolve_event)
+        failing_by_tool_d = module_test.scan.make_event(
+            "failure.blacklanternsecurity.com",
+            "DNS_NAME",
+            parent=module_test.scan.root_event,
+            module=tool_d,
+        )
+        failing_by_tool_d.scope_distance = 0
+        try:
+            await dnsresolve.handle_event(failing_by_tool_d)
+        except RuntimeError as e:
+            assert str(e) == "resolver failed"
+        else:
+            assert False, "expected resolver failure"
+        assert not dnsresolve.pending_unresolved_subdomains_by_module.get("tool_d")
+
+    def check(self, module_test, events):
+        assert not any(e.type == "DNS_NAME_UNRESOLVED" and e.data.endswith(".blacklanternsecurity.com") for e in events)

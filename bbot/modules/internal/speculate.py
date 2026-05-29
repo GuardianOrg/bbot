@@ -32,11 +32,12 @@ class speculate(BaseInternalModule):
         "author": "@liquidsec",
     }
 
-    options = {"max_hosts": 65536, "ports": "80,443", "essential_only": False}
+    options = {"max_hosts": 65536, "ports": "80,443", "essential_only": False, "unresolved_parent_domains": True}
     options_desc = {
         "max_hosts": "Max number of IP_RANGE hosts to convert into IP_ADDRESS events",
         "ports": "The set of ports to speculate on",
         "essential_only": "Only enable essential speculate features (no extra discovery)",
+        "unresolved_parent_domains": "Derive parent DNS_NAME events from DNS_NAME_UNRESOLVED events",
     }
     scope_distance_modifier = 1
     _priority = 4
@@ -54,6 +55,10 @@ class speculate(BaseInternalModule):
         self.range_to_ip = True
         self.dns_disable = self.scan.config.get("dns", {}).get("disable", False)
         self.essential_only = self.config.get("essential_only", False)
+        self.unresolved_parent_domains = self.config.get("unresolved_parent_domains", True)
+        if not self.unresolved_parent_domains:
+            self._watched_events = set(self.watched_events)
+            self._watched_events.discard("DNS_NAME_UNRESOLVED")
         self.org_stubs_seen = set()
 
         port_string = self.config.get("ports", "80,443")
@@ -122,7 +127,7 @@ class speculate(BaseInternalModule):
             return
 
         # parent domains
-        if event.type.startswith("DNS_NAME"):
+        if event.type == "DNS_NAME" or (event.type == "DNS_NAME_UNRESOLVED" and self.unresolved_parent_domains):
             parent = self.helpers.parent_domain(event.host_original)
             if parent != event.data:
                 await self.emit_event(

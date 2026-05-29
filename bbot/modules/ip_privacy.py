@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import ast
 from urllib.parse import urlparse
 
 from bbot.modules.base import BaseModule
@@ -88,8 +89,16 @@ class ip_privacy(BaseModule):
         if isinstance(value, list):
             raw_urls = value
         else:
-            raw_urls = str(value or "").split(",")
-        return [url.strip() for url in raw_urls if url and url.strip()]
+            raw_value = str(value or "").strip()
+            if raw_value.startswith("[") and raw_value.endswith("]"):
+                try:
+                    parsed = ast.literal_eval(raw_value)
+                except (SyntaxError, ValueError):
+                    parsed = None
+                raw_urls = parsed if isinstance(parsed, list) else raw_value.split(",")
+            else:
+                raw_urls = raw_value.split(",")
+        return [str(url).strip() for url in raw_urls if url and str(url).strip()]
 
     async def load_feeds(self):
         async with self._feeds_lock:

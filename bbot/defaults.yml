@@ -45,6 +45,10 @@ dns:
   search_distance: 1
   # Emit DNS child events for record targets outside scan scope (MX/NS/CNAME/etc.)
   emit_out_of_scope_children: true
+  # Emit unresolved DNS_NAME_UNRESOLVED events. When false, unresolved lookups are still cached but not distributed.
+  emit_unresolved: true
+  # Stop resolving new subdomains from a module after this many unique unresolved subdomains (0 == disabled)
+  max_unresolved_subdomains_per_module: 0
   # Limit how many DNS records can be followed in a row (stop malicious/runaway DNS records)
   runaway_limit: 5
   # DNS query timeout

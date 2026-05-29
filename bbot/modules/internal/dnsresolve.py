@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import re
 from contextlib import suppress
@@ -55,6 +56,10 @@ class DNSResolve(BaseInterceptModule):
             return None, "DNS resolution is disabled in the config"
 
         self.minimal = self.dns_config.get("minimal", False)
+        self.emit_unresolved = self.dns_config.get("emit_unresolved", True)
+        self.max_unresolved_subdomains_per_module = max(
+            0, int(self.dns_config.get("max_unresolved_subdomains_per_module", 0) or 0)
+        )
         self.minimal_rdtypes = ("A", "AAAA", "CNAME")
         if self.minimal:
             self.non_minimal_rdtypes = ()
@@ -74,6 +79,10 @@ class DNSResolve(BaseInterceptModule):
         self.children_emitted_raw = set()
         self.hosts_resolved = set()
         self.host_resolution_cache = {}
+        self.unresolved_subdomains_by_module = {}
+        self.pending_unresolved_subdomains_by_module = {}
+        self.unresolved_subdomain_budget_condition = asyncio.Condition()
+        self.unresolved_subdomains_module_warned = set()
         self.wildcard_events_seen = set()
         self.policy_queries_done = set()
         self.policy_events_emitted = set()
@@ -99,9 +108,14 @@ class DNSResolve(BaseInterceptModule):
         host_cache_key = self._host_resolution_cache_key(event.host)
         queried_rdtypes = set()
         original_tags = set(event.tags)
+        budget_module = None
+        budget_host_key = None
 
         # minimal resolution - first, we resolve A/AAAA records for scope purposes
         if new_event or event is main_host_event:
+            if self._unresolved_subdomain_budget_exceeded(main_host_event):
+                budget_module = self._unresolved_subdomain_module(main_host_event) or main_host_event.module
+                return False, f'unresolved subdomain budget exceeded for module "{budget_module}"'
             cached_resolution = self.host_resolution_cache.get(host_cache_key)
             if cached_resolution is not None:
                 queried_rdtypes.update(cached_resolution.get("queried_rdtypes", set()))
@@ -109,6 +123,8 @@ class DNSResolve(BaseInterceptModule):
                 whitelisted, blacklisted = self.check_scope(main_host_event)
                 if blacklisted:
                     return False, "it has a blacklisted DNS record"
+                if self._should_drop_unresolved(main_host_event):
+                    return False, "unresolved DNS events are disabled"
                 if event_data_changed:
                     if self.is_duplicate_wildcard_event(event):
                         if not event._graph_important:
@@ -140,59 +156,77 @@ class DNSResolve(BaseInterceptModule):
                     event._resolved_hosts = main_host_event.resolved_hosts
                     return
             else:
-                await self.resolve_event(main_host_event, types=minimal_rdtypes)
-                queried_rdtypes.update(minimal_rdtypes)
-                # are any of its IPs whitelisted/blacklisted?
-                whitelisted, blacklisted = self.check_scope(main_host_event)
-                if whitelisted and event.scope_distance > 0:
-                    self.debug(f"Making {main_host_event} in-scope because it resolves to an in-scope resource (A/AAAA)")
-                    main_host_event.scope_distance = 0
+                budget_allowed, budget_module, budget_host_key = await self._reserve_unresolved_subdomain_budget(
+                    main_host_event
+                )
+                if not budget_allowed:
+                    return False, f'unresolved subdomain budget exceeded for module "{budget_module}"'
+                try:
+                    await self.resolve_event(main_host_event, types=minimal_rdtypes)
+                    queried_rdtypes.update(minimal_rdtypes)
+                    # are any of its IPs whitelisted/blacklisted?
+                    whitelisted, blacklisted = self.check_scope(main_host_event)
+                    if whitelisted and event.scope_distance > 0:
+                        self.debug(
+                            f"Making {main_host_event} in-scope because it resolves to an in-scope resource (A/AAAA)"
+                        )
+                        main_host_event.scope_distance = 0
+                except BaseException:
+                    await self._release_unresolved_subdomain_budget(budget_module, budget_host_key)
+                    raise
 
         # abort if the event resolves to something blacklisted
         if blacklisted:
             self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
+            await self._release_unresolved_subdomain_budget(budget_module, budget_host_key)
             return False, "it has a blacklisted DNS record"
 
         # DNS resolution for hosts that aren't IPs
         if not event_is_ip:
             # if the event is within our dns search distance, resolve the rest of our records
             if main_host_event.scope_distance < self._dns_search_distance:
-                non_minimal_rdtypes_to_resolve = tuple(
-                    rdtype for rdtype in non_minimal_rdtypes if rdtype not in queried_rdtypes
-                )
-                await self.resolve_event(main_host_event, types=non_minimal_rdtypes_to_resolve)
-                queried_rdtypes.update(non_minimal_rdtypes_to_resolve)
-                if (new_event or event is main_host_event) and non_minimal_rdtypes_to_resolve:
-                    await self.emit_policy_events(main_host_event)
-                # check for wildcards if the event is within the scan's search distance
-                if new_event and main_host_event.scope_distance <= self.scan.scope_search_distance:
-                    event_data_changed = await self.handle_wildcard_event(main_host_event)
-                    if event_data_changed:
-                        if self.is_duplicate_wildcard_event(event):
-                            if not event._graph_important:
-                                self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
-                                return (
-                                    False,
-                                    "it's a DNS wildcard, and its module already emitted a similar wildcard event",
-                                )
-                            else:
-                                self.debug(
-                                    f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
-                                )
-                        # since data has changed, we check again whether it's a duplicate
-                        if event.type == "DNS_NAME" and self.scan.ingress_module.is_incoming_duplicate(
-                            event, add=True
-                        ):
-                            if not event._graph_important:
-                                self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
-                                return (
-                                    False,
-                                    "it's a DNS wildcard, and its module already emitted a similar wildcard event",
-                                )
-                            else:
-                                self.debug(
-                                    f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
-                                )
+                try:
+                    non_minimal_rdtypes_to_resolve = tuple(
+                        rdtype for rdtype in non_minimal_rdtypes if rdtype not in queried_rdtypes
+                    )
+                    await self.resolve_event(main_host_event, types=non_minimal_rdtypes_to_resolve)
+                    queried_rdtypes.update(non_minimal_rdtypes_to_resolve)
+                    if (new_event or event is main_host_event) and non_minimal_rdtypes_to_resolve:
+                        await self.emit_policy_events(main_host_event)
+                    # check for wildcards if the event is within the scan's search distance
+                    if new_event and main_host_event.scope_distance <= self.scan.scope_search_distance:
+                        event_data_changed = await self.handle_wildcard_event(main_host_event)
+                        if event_data_changed:
+                            if self.is_duplicate_wildcard_event(event):
+                                if not event._graph_important:
+                                    self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
+                                    await self._release_unresolved_subdomain_budget(budget_module, budget_host_key)
+                                    return (
+                                        False,
+                                        "it's a DNS wildcard, and its module already emitted a similar wildcard event",
+                                    )
+                                else:
+                                    self.debug(
+                                        f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
+                                    )
+                            # since data has changed, we check again whether it's a duplicate
+                            if event.type == "DNS_NAME" and self.scan.ingress_module.is_incoming_duplicate(
+                                event, add=True
+                            ):
+                                if not event._graph_important:
+                                    self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
+                                    await self._release_unresolved_subdomain_budget(budget_module, budget_host_key)
+                                    return (
+                                        False,
+                                        "it's a DNS wildcard, and its module already emitted a similar wildcard event",
+                                    )
+                                else:
+                                    self.debug(
+                                        f"Event {event} was already emitted by its module, but it's graph-important so it gets a pass"
+                                    )
+                except BaseException:
+                    await self._release_unresolved_subdomain_budget(budget_module, budget_host_key)
+                    raise
 
         # if there weren't any DNS children and it's not an IP address, tag as unresolved
         if not main_host_event.raw_dns_records and not event_is_ip:
@@ -200,6 +234,12 @@ class DNSResolve(BaseInterceptModule):
             main_host_event.type = "DNS_NAME_UNRESOLVED"
 
         self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
+        await self._release_unresolved_subdomain_budget(
+            budget_module, budget_host_key, unresolved=main_host_event.type == "DNS_NAME_UNRESOLVED"
+        )
+
+        if self._should_drop_unresolved(main_host_event):
+            return False, "unresolved DNS events are disabled"
 
         # main_host_event.add_tag(f"resolve-distance-{main_host_event.dns_resolve_distance}")
 
@@ -273,6 +313,73 @@ class DNSResolve(BaseInterceptModule):
         event.raw_dns_records = self.copy_dns_map(cached_resolution.get("raw_dns_records", {}))
         event.dns_children = self.copy_dns_map(cached_resolution.get("dns_children", {}))
         return event.data != original_data
+
+    def _should_drop_unresolved(self, event):
+        return not self.emit_unresolved and event.type == "DNS_NAME_UNRESOLVED" and "target" not in event.tags
+
+    def _unresolved_subdomain_module(self, event):
+        if (
+            not self.max_unresolved_subdomains_per_module
+            or "target" in event.tags
+            or "subdomain" not in event.tags
+            or self.helpers.is_ip(event.host)
+        ):
+            return None
+        module = getattr(event, "module", None)
+        if str(getattr(module, "name", module) or "") == self.host_module.name:
+            module = getattr(getattr(event, "parent", None), "module", module)
+        module_name = str(getattr(module, "name", module) or "")
+        if not module_name:
+            return None
+        return module_name
+
+    def _unresolved_subdomain_budget_exceeded(self, event):
+        module_name = self._unresolved_subdomain_module(event)
+        if not module_name:
+            return False
+        unresolved = self.unresolved_subdomains_by_module.get(module_name, set())
+        if len(unresolved) < self.max_unresolved_subdomains_per_module:
+            return False
+        if module_name not in self.unresolved_subdomains_module_warned:
+            self.unresolved_subdomains_module_warned.add(module_name)
+            self.warning(
+                f'Skipping further subdomain DNS resolution for "{module_name}" after '
+                f"{len(unresolved):,} unresolved subdomains"
+            )
+        return True
+
+    async def _reserve_unresolved_subdomain_budget(self, event):
+        module_name = self._unresolved_subdomain_module(event)
+        if not module_name:
+            return True, None, None
+        host_key = self._host_resolution_cache_key(event.host)
+        async with self.unresolved_subdomain_budget_condition:
+            while True:
+                unresolved = self.unresolved_subdomains_by_module.setdefault(module_name, set())
+                if len(unresolved) >= self.max_unresolved_subdomains_per_module or host_key in unresolved:
+                    if module_name not in self.unresolved_subdomains_module_warned:
+                        self.unresolved_subdomains_module_warned.add(module_name)
+                        self.warning(
+                            f'Skipping further subdomain DNS resolution for "{module_name}" after '
+                            f"{len(unresolved):,} unresolved subdomains"
+                        )
+                    return False, module_name, host_key
+                pending = self.pending_unresolved_subdomains_by_module.setdefault(module_name, set())
+                if len(unresolved) + len(pending) < self.max_unresolved_subdomains_per_module:
+                    pending.add(host_key)
+                    return True, module_name, host_key
+                await self.unresolved_subdomain_budget_condition.wait()
+
+    async def _release_unresolved_subdomain_budget(self, module_name, host_key, unresolved=False):
+        if not module_name or not host_key:
+            return
+        async with self.unresolved_subdomain_budget_condition:
+            pending = self.pending_unresolved_subdomains_by_module.get(module_name)
+            if pending is not None:
+                pending.discard(host_key)
+            if unresolved:
+                self.unresolved_subdomains_by_module.setdefault(module_name, set()).add(host_key)
+            self.unresolved_subdomain_budget_condition.notify_all()
 
     def copy_dns_map(self, dns_map):
         return {rdtype: set(values) for rdtype, values in dns_map.items()}

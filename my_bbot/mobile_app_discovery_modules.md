@@ -7,21 +7,21 @@ This doc is entry-event based and lists modules that support `MOBILE_APP` input 
 
 ## Quick start (recommended)
 - Run with a focused set of `MOBILE_APP` modules (example):
-  - `bbot -t example.com -m apkpure`
+  - `bbot -t example.com -m apkeep`
 - If the chosen modules are passive-capable, you can force passive mode:
-  - `bbot -t example.com -m apkpure -rf passive`
+  - `bbot -t example.com -m apkeep -rf passive`
 
 ## Enable a specific set of `MOBILE_APP` modules
 Use `-m` to list modules explicitly (example):
-`bbot -t example.com -m apkpure`
+`bbot -t example.com -m apkeep`
 
 ## API keys
 Put keys in your config (or pass via `-c`):
-- Example: `bbot -t example.com -m apkpure -c modules.<module>.api_key=YOURKEY`
+- Example: `bbot -t example.com -m apkeep -c modules.<module>.api_key=YOURKEY`
 
 ## What these modules do
 - Grouped by emitted event type:
-- Emit `FILESYSTEM`: `apkpure`.
+- Emit `FILESYSTEM`: `apkeep`.
 
 ## Preset config enabling all `Should use = Yes` modules
 Save this as a preset, for example `mobile_app-discovery-yes.yml`, and run with:
@@ -31,13 +31,13 @@ Save this as a preset, for example `mobile_app-discovery-yes.yml`, and run with:
 description: MOBILE_APP discovery with all modules marked "Should use = Yes"
 
 modules:
-  - apkpure
+  - apkeep
 ```
 
 ## Modules supporting entry event `MOBILE_APP`
 | Module | Emitted event | What it does (1 sentence) | Needs API key | Notes | Should use |
 |---|---|---|---:|---|---:|
-| apkpure | FILESYSTEM | Module `apkpure` functionality. | No | Yes, recommended | Yes |
+| apkeep | FILESYSTEM | Download Android APK/XAPK artifacts with apkeep. | No | Yes, recommended | Yes |
 
 ## Notes
 - This list is auto-generated from `bbot/modules/*.py` class metadata (`watched_events` and `produced_events`).

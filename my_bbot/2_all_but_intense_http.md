@@ -12,7 +12,7 @@ Goal: keep broad coverage with generic/root URL checks.
 description: Generic discovery preset excluding deep/intense URL-internal probing modules
 
 modules:
-  - apkpure
+  - apkeep
   - azure_tenant
   - baddns
   - baddns_direct

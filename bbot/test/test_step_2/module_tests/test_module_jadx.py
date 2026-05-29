@@ -1,4 +1,5 @@
 from pathlib import Path
+from subprocess import CompletedProcess
 from bbot.core.helpers.libmagic import get_magic_info
 from bbot.test.test_step_2.module_tests.base import ModuleTestBase, tempapkfile
 
@@ -6,11 +7,11 @@ from ...bbot_fixtures import *
 
 
 class TestJadx(ModuleTestBase):
-    modules_overrides = ["apkpure", "google_playstore", "speculate", "jadx"]
+    modules_overrides = ["apkeep", "google_playstore", "speculate", "jadx"]
     config_overrides = {
         "modules": {
-            "apkpure": {
-                "output_folder": bbot_test_dir / "apkpure",
+            "apkeep": {
+                "output_folder": bbot_test_dir / "apkeep",
             },
         }
     }
@@ -44,14 +45,14 @@ class TestJadx(ModuleTestBase):
             </body>
             </html>""",
         )
-        module_test.httpx_mock.add_response(
-            url="https://d.apkpure.com/b/XAPK/com.bbot.test?version=latest",
-            content=self.apk_file,
-            headers={
-                "Content-Type": "application/vnd.android.package-archive",
-                "Content-Disposition": "attachment; filename=com.bbot.test.apk",
-            },
-        )
+        async def fake_run_process(command, *args, **kwargs):
+            output_dir = Path(command[-1])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            with open(output_dir / "com.bbot.test.apk", "wb") as f:
+                f.write(self.apk_file)
+            return CompletedProcess(command, 0, stdout="com.bbot.test downloaded successfully!", stderr="")
+
+        module_test.monkeypatch.setattr(module_test.scan.modules["apkeep"], "run_process", fake_run_process)
 
     def check(self, module_test, events):
         filesystem_events = [e for e in events if e.type == "FILESYSTEM"]

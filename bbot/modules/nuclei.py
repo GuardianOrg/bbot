@@ -29,6 +29,7 @@ class nuclei(BaseModule):
         "template_sources": "",
         "mobile_template_sources": "",
         "mobile_apk_cache_dir": "",
+        "mobile_download_enabled": True,
         "severity": "",
         "ratelimit": 150,
         "concurrency": 25,
@@ -51,7 +52,8 @@ class nuclei(BaseModule):
         "tags": "execute a subset of templates that contain the provided tags",
         "template_sources": "Comma-separated local directories or Git URLs to sync and use as additional template sources",
         "mobile_template_sources": "Comma-separated local directories or Git URLs to sync and use as mobile-focused template sources when a mobile app artifact is processed",
-        "mobile_apk_cache_dir": "Optional local APKPure output folder to reuse for mobile app nuclei scans",
+        "mobile_apk_cache_dir": "Optional APK downloader output folder to reuse for mobile app nuclei scans",
+        "mobile_download_enabled": "Download MOBILE_APP events directly when no cached APK is available. Disable when another module emits APK FILESYSTEM events.",
         "templates": "template or template directory paths to include in the scan",
         "severity": "Filter based on severity field available in the template.",
         "ratelimit": "maximum number of requests to send per second (default 150)",
@@ -137,6 +139,7 @@ class nuclei(BaseModule):
         self.templates = self.config.get("templates")
         cache_dir = str(self.config.get("mobile_apk_cache_dir") or "").strip()
         self.mobile_apk_cache_dir = Path(cache_dir) if cache_dir else None
+        self.mobile_download_enabled = bool(self.config.get("mobile_download_enabled", True))
         if self.templates:
             self.info(f"Using custom template(s) at: [{self.templates}]")
         if self.template_source_dirs:
@@ -403,6 +406,8 @@ class nuclei(BaseModule):
                     mobile_paths_by_event[event] = scan_path
                     scan_events.append(event)
             elif event.type == "MOBILE_APP" and self._is_mobile_artifact(event):
+                if not self.mobile_download_enabled:
+                    continue
                 path = await self._download_mobile_app(event)
                 if path:
                     scan_path = self._prepare_mobile_scan_path(path)
