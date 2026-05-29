@@ -8,7 +8,7 @@ from bbot.modules.base import BaseModule
 
 class apkeep(BaseModule):
     watched_events = ["MOBILE_APP"]
-    produced_events = ["FILESYSTEM"]
+    produced_events = ["FILESYSTEM", "FINDING"]
     flags = ["passive", "safe", "code-enum", "download"]
     meta = {
         "description": "Download Android applications with apkeep",
@@ -17,18 +17,28 @@ class apkeep(BaseModule):
     }
     options = {
         "binary": "apkeep",
-        "download_source": "apk-pure",
+        "download_source": "google-play",
         "output_folder": "",
         "options": "",
+        "google_email": "",
+        "google_aas_token": "",
+        "google_auth_token": "",
+        "google_oauth_token": "",
+        "google_accept_tos": False,
         "sleep_duration": 0,
         "parallel": 1,
         "timeout": 900,
     }
     options_desc = {
         "binary": "apkeep binary path",
-        "download_source": "apkeep source: apk-pure, f-droid, google-play, or huawei-app-gallery",
+        "download_source": "apkeep source: google-play, apk-pure, f-droid, or huawei-app-gallery",
         "output_folder": "Folder to download APKs to. If not specified, downloaded APKs will be deleted when the scan completes.",
         "options": "Comma-separated additional options passed to apkeep with -o",
+        "google_email": "Google account email address for the google-play source",
+        "google_aas_token": "Google AAS token for the google-play source",
+        "google_auth_token": "Google auth token for the google-play source, e.g. from Aurora dispenser",
+        "google_oauth_token": "Google OAuth token used by apkeep to retrieve a long-lived AAS token",
+        "google_accept_tos": "Pass --accept-tos to apkeep for the google-play source",
         "sleep_duration": "Sleep duration in milliseconds before apkeep download requests",
         "parallel": "Number of parallel APK fetches used by apkeep",
         "timeout": "Idle timeout in seconds for apkeep downloads",
@@ -70,6 +80,8 @@ class apkeep(BaseModule):
                 parent=event,
                 context=f'{{module}} downloaded the mobile app "{app_id}" to: {path}',
             )
+        else:
+            await self.emit_download_failure(event, app_id)
 
     async def download_apk(self, app_id):
         app_dir = self.output_dir / app_id
@@ -81,10 +93,14 @@ class apkeep(BaseModule):
             "-a",
             app_id,
             "-d",
-            str(self.config.get("download_source", "apk-pure") or "apk-pure"),
+            str(self.config.get("download_source", "google-play") or "google-play"),
             "-r",
             str(int(self.config.get("parallel", 1) or 1)),
         ]
+        google_play_args = self.google_play_args(command[command.index("-d") + 1])
+        if google_play_args is None:
+            return None
+        command.extend(google_play_args)
 
         sleep_duration = int(self.config.get("sleep_duration", 0) or 0)
         if sleep_duration > 0:
@@ -152,3 +168,52 @@ class apkeep(BaseModule):
 
     def _is_package_id(self, app_id):
         return bool(re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", str(app_id or "")))
+
+    def google_play_args(self, source):
+        if source != "google-play":
+            return []
+
+        email = str(self.config.get("google_email", "") or "").strip()
+        aas_token = str(self.config.get("google_aas_token", "") or "").strip()
+        auth_token = str(self.config.get("google_auth_token", "") or "").strip()
+        oauth_token = str(self.config.get("google_oauth_token", "") or "").strip()
+        if not email or not (aas_token or auth_token or oauth_token):
+            self.warning(
+                "apkeep google-play downloads require google_email and one of google_aas_token, "
+                "google_auth_token, or google_oauth_token"
+            )
+            return None
+
+        args = ["--email", email]
+        if aas_token:
+            args.extend(["--aas-token", aas_token])
+        elif auth_token:
+            args.extend(["--auth-token", auth_token])
+        else:
+            args.extend(["--oauth-token", oauth_token])
+
+        if self.config.get("google_accept_tos", False):
+            args.append("--accept-tos")
+        return args
+
+    async def emit_download_failure(self, event, app_id):
+        severity = "medium" if "target" in event.tags else "info"
+        await self.emit_event(
+            {
+                "host": app_id,
+                "severity": severity,
+                "category": "mobile-apk-analysis-failed",
+                "title": f"Mobile APK analysis did not run for {app_id}",
+                "description": (
+                    f'apkeep could not download an APK/XAPK/APKS for "{app_id}", so downstream mobile file analysis '
+                    "modules could not inspect the application package."
+                ),
+                "recommendation": (
+                    "Confirm the package id and download source, provide any required store credentials, or run the "
+                    "mobile APK analysis with a known-good APK artifact."
+                ),
+            },
+            "FINDING",
+            parent=event,
+            context=f'{{module}} could not download the mobile app "{app_id}" for APK analysis',
+        )

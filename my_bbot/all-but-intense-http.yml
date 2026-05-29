@@ -91,6 +91,13 @@ config:
   modules:
     stdout:
       accept_dupes: true
+    apkeep:
+      download_source: google-play
+      google_email: ${env:APKEEP_GOOGLE_EMAIL,""}
+      google_aas_token: ${env:APKEEP_GOOGLE_AAS_TOKEN,""}
+      google_auth_token: ${env:APKEEP_GOOGLE_AUTH_TOKEN,""}
+      google_oauth_token: ${env:APKEEP_GOOGLE_OAUTH_TOKEN,""}
+      google_accept_tos: ${env:APKEEP_GOOGLE_ACCEPT_TOS,false}
     nuclei:
       mode: technology
       tags: ""
