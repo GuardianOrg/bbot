@@ -448,10 +448,12 @@ class DNSResolve(BaseInterceptModule):
         for rdtype, children in event.dns_children.items():
             module = self._make_dummy_module(rdtype)
             for child_host in children:
+                child_is_address_record_ip = rdtype in ("A", "AAAA") and self.helpers.is_ip(str(child_host))
+                child_event_type = "IP_ADDRESS" if child_is_address_record_ip else "DNS_NAME"
                 try:
                     child_event = self.scan.make_event(
                         child_host,
-                        "DNS_NAME",
+                        child_event_type,
                         module=module,
                         parent=event,
                         context=f"{rdtype} record for {event.host} contains {{event.type}}: {{event.host}}",
@@ -460,12 +462,19 @@ class DNSResolve(BaseInterceptModule):
                     self.warning(f'Event validation failed for DNS child of {event}: "{child_host}" ({rdtype}): {e}')
                     continue
 
-                child_hash = hash(f"{event.host}:{module}:{child_host}")
+                child_hash = hash(f"{event.host}:{module}:{child_event_type}:{child_host}")
                 # if we haven't emitted this one before
                 if child_hash not in self.children_emitted:
                     # and it's either in-scope or inside our dns search distance
                     child_is_in_scope = self.preset.in_scope(child_host)
-                    if child_is_in_scope or (self.emit_out_of_scope_children and child_event.scope_distance <= self._dns_search_distance):
+                    parent_is_in_scope = event.scope_distance <= self.scan.scope_search_distance
+                    if child_is_address_record_ip and parent_is_in_scope:
+                        child_event.scope_distance = event.scope_distance
+                    if (
+                        child_is_in_scope
+                        or (child_is_address_record_ip and parent_is_in_scope)
+                        or (self.emit_out_of_scope_children and child_event.scope_distance <= self._dns_search_distance)
+                    ):
                         self.children_emitted.add(child_hash)
                         # if it's a hostname and it's only one hop away, mark it as affiliate
                         if child_event.type == "DNS_NAME" and child_event.scope_distance == 1:

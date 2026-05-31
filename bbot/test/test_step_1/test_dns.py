@@ -184,6 +184,23 @@ async def test_dns_resolution(bbot_scanner):
 
 
 @pytest.mark.asyncio
+async def test_dns_emits_ip_address_for_in_scope_a_records_with_out_of_scope_children_disabled(bbot_scanner):
+    scan = bbot_scanner(
+        "resolved.example",
+        config={"dns": {"minimal": False, "emit_out_of_scope_children": False}},
+    )
+    await scan.helpers.dns._mock_dns({"resolved.example": {"A": ["1.1.1.1"], "AAAA": ["2606:4700:4700::1111"]}})
+
+    try:
+        events = [e async for e in scan.async_start()]
+
+        assert 1 == len([e for e in events if e.type == "IP_ADDRESS" and e.data == "1.1.1.1"])
+        assert 1 == len([e for e in events if e.type == "IP_ADDRESS" and e.data == "2606:4700:4700::1111"])
+    finally:
+        await scan._cleanup()
+
+
+@pytest.mark.asyncio
 async def test_dnsresolve_reuses_host_resolution_cache(bbot_scanner, monkeypatch):
     scan = bbot_scanner("evilcorp.com", config={"dns": {"minimal": True}})
     await scan.helpers.dns._mock_dns({"one.one.one.one": {"A": ["1.1.1.1"]}})

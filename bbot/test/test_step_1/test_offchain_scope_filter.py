@@ -5,15 +5,27 @@ import pytest
 from my_bbot.modules.offchain_scope_filter import offchain_scope_filter
 
 
-def make_event(event_type, data=None, host=None, resolved_hosts=None, dns_children=None, tags=None):
-    return SimpleNamespace(
+def make_event(event_type, data=None, host=None, resolved_hosts=None, dns_children=None, tags=None, parent=None):
+    event = SimpleNamespace(
         type=event_type,
         data=data,
         host=host,
         resolved_hosts=resolved_hosts or [],
         dns_children=dns_children,
         tags=tags or [],
+        parent=parent,
     )
+
+    def get_parents(include_self=False):
+        parents = [event] if include_self else []
+        parent_event = event.parent
+        while parent_event is not None and not isinstance(parent_event, str):
+            parents.append(parent_event)
+            parent_event = getattr(parent_event, "parent", None)
+        return parents
+
+    event.get_parents = get_parents
+    return event
 
 
 async def create_scope_filter(scope_targets, seed_events=None):
@@ -142,6 +154,21 @@ async def test_offchain_scope_filter_only_allows_ips_from_a_and_aaaa_resolution(
         data={"host": "api.example.com", "type": "A", "answer": "1.1.1.1"},
         host="api.example.com",
     )
+    allowed_domain = make_event(
+        "DNS_NAME",
+        data="api.example.com",
+        host="api.example.com",
+        resolved_hosts=["2.2.2.2"],
+        dns_children={"A": ["2.2.2.2"]},
+    )
+    allowed_ip_from_domain = make_event("IP_ADDRESS", data="2.2.2.2", host="2.2.2.2", parent=allowed_domain)
+    allowed_port_from_domain_ip = make_event("OPEN_TCP_PORT", data="2.2.2.2:443", host="2.2.2.2")
+    blocked_domain_port_with_resolved_hosts = make_event(
+        "OPEN_TCP_PORT",
+        data="api.example.com:443",
+        host="api.example.com",
+        resolved_hosts=["2.2.2.2"],
+    )
     blocked_mx_record = make_event(
         "RAW_DNS_RECORD",
         data={"host": "api.example.com", "type": "MX", "answer": "9.9.9.9"},
@@ -157,6 +184,13 @@ async def test_offchain_scope_filter_only_allows_ips_from_a_and_aaaa_resolution(
     blocked_domain_tied_geolocation = make_event("GEOLOCATION", data={"ip": "8.8.8.8"}, host="8.8.8.8")
 
     assert await module.handle_event(allowed_a_record) is True
+    assert await module.handle_event(allowed_domain) is True
+    assert await module.handle_event(allowed_ip_from_domain) is True
+    assert await module.handle_event(allowed_port_from_domain_ip) is True
+    assert await module.handle_event(blocked_domain_port_with_resolved_hosts) == (
+        False,
+        "port/protocol event is not keyed to an allowed IP address",
+    )
     assert await module.handle_event(blocked_mx_record) is True
     assert await module.handle_event(allowed_geolocation) is True
 
@@ -192,7 +226,7 @@ async def test_offchain_scope_filter_allows_open_ports_by_netloc_for_seeded_ips(
     assert await module.handle_event(allowed_protocol) is True
     assert await module.handle_event(blocked_tcp_port) == (
         False,
-        "IP analysis event is not tied to an allowed IP from seeded domain A/AAAA data",
+        "port/protocol event is not keyed to an allowed IP address",
     )
 
 

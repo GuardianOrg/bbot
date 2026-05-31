@@ -32,12 +32,19 @@ class speculate(BaseInternalModule):
         "author": "@liquidsec",
     }
 
-    options = {"max_hosts": 65536, "ports": "80,443", "essential_only": False, "unresolved_parent_domains": True}
+    options = {
+        "max_hosts": 65536,
+        "ports": "80,443",
+        "essential_only": False,
+        "unresolved_parent_domains": True,
+        "open_ports_from_ip_only": False,
+    }
     options_desc = {
         "max_hosts": "Max number of IP_RANGE hosts to convert into IP_ADDRESS events",
         "ports": "The set of ports to speculate on",
         "essential_only": "Only enable essential speculate features (no extra discovery)",
         "unresolved_parent_domains": "Derive parent DNS_NAME events from DNS_NAME_UNRESOLVED events",
+        "open_ports_from_ip_only": "Only speculate OPEN_TCP_PORT events from IP_ADDRESS or IP-host URL events",
     }
     scope_distance_modifier = 1
     _priority = 4
@@ -56,6 +63,7 @@ class speculate(BaseInternalModule):
         self.dns_disable = self.scan.config.get("dns", {}).get("disable", False)
         self.essential_only = self.config.get("essential_only", False)
         self.unresolved_parent_domains = self.config.get("unresolved_parent_domains", True)
+        self.open_ports_from_ip_only = self.config.get("open_ports_from_ip_only", False)
         if not self.unresolved_parent_domains:
             self._watched_events = set(self.watched_events)
             self._watched_events.discard("DNS_NAME_UNRESOLVED")
@@ -112,7 +120,7 @@ class speculate(BaseInternalModule):
                 if self.dns_disable or event.resolved_hosts:
                     usable_dns = True
 
-            if event.type == "IP_ADDRESS" or usable_dns:
+            if event.type == "IP_ADDRESS" or (usable_dns and not self.open_ports_from_ip_only):
                 for port in self.ports:
                     await self.emit_event(
                         self.helpers.make_netloc(event.data, port),
@@ -139,13 +147,14 @@ class speculate(BaseInternalModule):
         if event_is_url or (event.type == "URL_UNVERIFIED" and self.open_port_consumers):
             # only speculate port from a URL if it wouldn't be speculated naturally from the host
             if event.host and (event.port not in self.ports or not speculate_open_ports):
-                await self.emit_event(
-                    self.helpers.make_netloc(event.host, event.port),
-                    "OPEN_TCP_PORT",
-                    parent=event,
-                    internal=not event_is_url,  # if the URL is verified, the port is definitely open
-                    context=f"speculated {{event.type}} from {event.type}: {{event.data}}",
-                )
+                if not self.open_ports_from_ip_only or self.helpers.is_ip(event.host):
+                    await self.emit_event(
+                        self.helpers.make_netloc(event.host, event.port),
+                        "OPEN_TCP_PORT",
+                        parent=event,
+                        internal=not event_is_url,  # if the URL is verified, the port is definitely open
+                        context=f"speculated {{event.type}} from {event.type}: {{event.data}}",
+                    )
 
         # speculate sub-directory URLS from URLS
         if event.type == "URL":

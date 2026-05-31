@@ -213,6 +213,7 @@ config:
       max_mutations: 5000
     speculate:
       unresolved_parent_domains: false
+      open_ports_from_ip_only: true
     dnsreaper:
       parallelism: 20
       disable_probable: false
@@ -239,7 +240,7 @@ config:
       probe_all_ips: false
     host_reputation:
       abuseipdb_api_key: ${env:ABUSEIPDB_KEY,${env:ABUSEIPDB_API_KEY,""}}
-      virustotal_api_keys: ${env:VT_KEY_1,""},${env:VT_KEY_2,""},${env:VT_KEY_3,""},${env:VT_KEY_4,""}
+      virustotal_api_keys: ${env:VT_KEY_1,${env:VT_API_KEY,${env:VIRUSTOTAL_API_KEY,${env:VT_KEY,""}}}},${env:VT_KEY_2,""},${env:VT_KEY_3,""},${env:VT_KEY_4,""}
       otx_api_key: ${env:OTX_KEY,${env:OTX_API_KEY,""}}
     jadx:
       threads: 1
@@ -247,10 +248,10 @@ config:
       limit: 20
       max_pages: 1
     github_codesearch:
-      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_API_KEY,""}}}}}
+      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_CODESEARCH_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
       limit: 10
     git_clone:
-      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_API_KEY,""}}}}}
+      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GIT_CLONE_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
     trufflehog:
       only_verified: true
       concurrency: 4
@@ -262,11 +263,11 @@ config:
     dehashed:
       api_key: ${env:DEHASHED_API_KEY,""}
     github_org:
-      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_API_KEY,""}}}}}
+      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_ORG_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
     github_workflows:
-      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_API_KEY,""}}}}}
+      api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_WORKFLOWS_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
     gitlab_com:
-      api_key: ${env:BBOT_WORLD_GITLAB_TOKEN,${env:BBOT_GITLAB_TOKEN,${env:GITLAB_TOKEN,${env:GITLAB_API_KEY,""}}}}
+      api_key: ${env:BBOT_WORLD_GITLAB_TOKEN,${env:BBOT_GITLAB_TOKEN,${env:GITLAB_TOKEN,${env:GITLAB_COM_API_KEY,${env:GITLAB_API_KEY,""}}}}}
     hunterio:
       api_key: ${env:HUNTERIO_API_KEY,""}
     ip_privacy:
@@ -314,4 +315,4 @@ config:
       max_time: 30
       rate_limit: 0
     virustotal:
-      api_key: ${env:VT_KEY_1,""}
+      api_key: ${env:VT_KEY_1,${env:VT_API_KEY,${env:VIRUSTOTAL_API_KEY,${env:VT_KEY,""}}}}

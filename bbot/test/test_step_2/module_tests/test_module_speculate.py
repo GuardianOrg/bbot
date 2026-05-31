@@ -82,6 +82,20 @@ class TestSpeculate_OpenPorts_Portscanner(TestSpeculate_OpenPorts):
         )
 
 
+class TestSpeculate_OpenPortsIpOnly(TestSpeculate_OpenPorts):
+    targets = ["evilcorp.com"]
+    modules_overrides = ["speculate", "certspotter", "shodan_idb"]
+    config_overrides = {"speculate": True, "modules": {"speculate": {"open_ports_from_ip_only": True}}}
+
+    def check(self, module_test, events):
+        events_data = {e.data for e in module_test.scan.modules["dummy"].events}
+        assert not any(
+            x in events_data
+            for x in ("evilcorp.com:80", "evilcorp.com:443", "asdf.evilcorp.com:80", "asdf.evilcorp.com:443")
+        )
+        assert all(x in events_data for x in ("127.0.254.1:80", "127.0.254.1:443"))
+
+
 class TestSpeculate_SkipUnresolvedParentDomains(ModuleTestBase):
     targets = ["www.bbottest.notreal"]
     modules_overrides = ["speculate"]

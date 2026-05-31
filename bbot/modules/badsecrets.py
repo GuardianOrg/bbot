@@ -1,7 +1,25 @@
 import multiprocessing
 from pathlib import Path
 from .base import BaseModule
-from badsecrets.base import carve_all_modules
+from badsecrets.base import BadsecretsBase
+
+
+def carve_all_modules_safely(**kwargs):
+    results = []
+    errors = []
+    for module_class in BadsecretsBase.__subclasses__():
+        try:
+            module = module_class(custom_resource=kwargs.get("custom_resource", None))
+            module_results = module.carve(**kwargs)
+        except Exception as e:
+            errors.append(f"{module_class.__name__}: {e}")
+            continue
+
+        for result in module_results or []:
+            result["detecting_module"] = module_class.__name__
+            results.append(result)
+
+    return results, errors
 
 
 class badsecrets(BaseModule):
@@ -53,8 +71,8 @@ class badsecrets(BaseModule):
                         resp_cookies[c2[0]] = c2[1]
         if resp_body or resp_cookies:
             try:
-                r_list = await self.helpers.run_in_executor_mp(
-                    carve_all_modules,
+                r_list, errors = await self.helpers.run_in_executor_mp(
+                    carve_all_modules_safely,
                     body=resp_body,
                     headers=resp_headers,
                     cookies=resp_cookies,
@@ -64,6 +82,8 @@ class badsecrets(BaseModule):
             except Exception as e:
                 self.warning(f"Error processing {event}: {e}")
                 return
+            for error in errors:
+                self.debug(f"badsecrets detector failed for {event.data.get('url', None)}: {error}")
             if r_list:
                 for r in r_list:
                     if r["type"] == "SecretFound":

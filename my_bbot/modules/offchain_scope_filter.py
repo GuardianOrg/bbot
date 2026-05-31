@@ -25,6 +25,7 @@ IP_ANALYSIS_EVENT_TYPES = {
     "GEOLOCATION",
     "ASN",
 }
+PORT_SERVICE_EVENT_TYPES = {"OPEN_TCP_PORT", "OPEN_UDP_PORT", "PROTOCOL"}
 REPOSITORY_SCOPE_EVENT_TYPES = {"CODE_REPOSITORY", "CODE_REPOSITORY_OWNER"}
 REPOSITORY_OWNER_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
 REPOSITORY_HOSTS = REPOSITORY_OWNER_HOSTS | {"hub.docker.com"}
@@ -87,7 +88,13 @@ class offchain_scope_filter(BaseInterceptModule):
             return False, "web event is outside the seeded domain and IP scope"
 
         if event.type in IP_ANALYSIS_EVENT_TYPES:
-            if self._event_has_allowed_ip(event):
+            if event.type in PORT_SERVICE_EVENT_TYPES:
+                if self._event_has_allowed_primary_ip(event):
+                    self._remember_allowed_primary_ips(event)
+                    return True
+                return False, "port/protocol event is not keyed to an allowed IP address"
+            if self._event_has_allowed_ip(event) or self._event_is_allowed_domain_resolution_ip(event):
+                self._remember_allowed_analysis_ips(event)
                 return True
             return False, "IP analysis event is not tied to an allowed IP from seeded domain A/AAAA data"
 
@@ -252,6 +259,70 @@ class offchain_scope_filter(BaseInterceptModule):
 
     def _event_has_allowed_ip(self, event):
         return any(self._ip_allowed(candidate) for candidate in self._event_ip_candidates(event))
+
+    def _event_has_allowed_primary_ip(self, event):
+        return any(self._ip_allowed(candidate) for candidate in self._event_primary_ip_candidates(event))
+
+    def _event_is_allowed_domain_resolution_ip(self, event):
+        if event.type != "IP_ADDRESS":
+            return False
+
+        address = self._event_primary_ip(event)
+        if not address:
+            return False
+
+        for parent in self._parent_events(event):
+            if parent.type not in DNS_SCOPE_EVENT_TYPES:
+                continue
+            if not self._event_domain_in_scope(parent):
+                continue
+            if address in self._event_a_aaaa_ip_candidates(parent):
+                return True
+
+        return False
+
+    def _remember_allowed_analysis_ips(self, event):
+        for candidate in self._event_ip_candidates(event):
+            if self._is_ip(candidate):
+                self.allowed_ips.add(str(candidate).strip())
+
+    def _remember_allowed_primary_ips(self, event):
+        for candidate in self._event_primary_ip_candidates(event):
+            if self._is_ip(candidate):
+                self.allowed_ips.add(str(candidate).strip())
+
+    def _event_primary_ip(self, event):
+        for candidate in self._event_primary_ip_candidates(event):
+            if self._is_ip(candidate):
+                return str(candidate).strip()
+        return None
+
+    def _event_primary_ip_candidates(self, event):
+        data = self._event_data(event)
+        candidates = [
+            getattr(event, "data", None) if event.type == "IP_ADDRESS" else None,
+            getattr(event, "host", None),
+            data.get("host"),
+            data.get("ip"),
+            self._extract_netloc_ip(getattr(event, "data", None)),
+            self._extract_netloc_ip(getattr(event, "netloc", None)),
+        ]
+        return [str(candidate).strip() for candidate in candidates if self._is_ip(candidate)]
+
+    def _parent_events(self, event):
+        get_parents = getattr(event, "get_parents", None)
+        if callable(get_parents):
+            try:
+                return list(get_parents())
+            except Exception:
+                return []
+
+        parents = []
+        parent = getattr(event, "parent", None)
+        while parent is not None and not isinstance(parent, str):
+            parents.append(parent)
+            parent = getattr(parent, "parent", None)
+        return parents
 
     def _event_ip_range_allowed(self, event):
         data = self._event_data(event)
