@@ -121,7 +121,7 @@ class github_leak_formatter:
         relative_path = self.relative_file_path(scan_path, file_path)
         commit_url = self.build_commit_url(repository_url, commit)
         blob_url = self.build_blob_url(repository_url, relative_path, line=line, commit=commit)
-        finding_url = commit_url or repository_url
+        finding_url = blob_url or commit_url or repository_url
 
         leak_value = str(leak or "").strip()
         rule_name = str(detector or "").strip()
@@ -140,9 +140,16 @@ class github_leak_formatter:
             location_parts.append(f"line {line}")
         source_location = ":".join(location_parts)
         source_suffix = f" in {source_location}" if source_location else ""
+        leak_description = f"{tool_name} detected a Git leak of type {leak_type}{source_suffix}."
+        if leak_value:
+            leak_description += f" Leaked value: {leak_value}."
+        leak_description += (
+            " This value may also be exposed in other commits; one confirmed exposure is sufficient to "
+            "treat the credential as compromised and rotate or revoke it."
+        )
         poc_parts = [
             f"Repository: {repository_url}",
-            f"Commit URL: {finding_url}",
+            f"Commit URL: {commit_url or repository_url}",
             f"Leak type: {leak_type}",
             f"Secret value: {leak_value}",
         ]
@@ -161,12 +168,14 @@ class github_leak_formatter:
             "secretType": leak_type,
             "title": f"Git Leak of {leak_type} detected",
             "category": "secret",
-            "description": f"{tool_name} detected a Git leak of type {leak_type}{source_suffix}.",
+            "description": leak_description,
             "poc": "\n".join(poc_parts),
             "severity": severity or ("High" if verified else "Medium"),
             "force_finding": True,
             "dedupe_key": dedupe_key,
         }
+        if commit_url:
+            data["commit_url"] = commit_url
         if blob_url:
             data["file_url"] = blob_url
             data["blob_url"] = blob_url

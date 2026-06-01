@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import suppress
 
 from bbot.modules.templates.code_secret_scanner import code_secret_scanner
@@ -113,12 +114,9 @@ class gitleaks(code_secret_scanner):
                         file_name = finding.get("File") or finding.get("file") or str(scan_path)
                         line = finding.get("StartLine") or finding.get("line") or "?"
                         secret = finding.get("Secret") or finding.get("Match") or "<redacted>"
-                        commit = (
-                            finding.get("Commit")
-                            or finding.get("commit")
-                            or finding.get("Fingerprint", "").split(":", 1)[0]
-                            or ""
-                        )
+                        commit = finding.get("Commit") or finding.get("commit") or ""
+                        if not commit:
+                            commit = self.commit_from_fingerprint(finding.get("Fingerprint", ""))
                         yield await self.format_github_leak(
                             event,
                             scan_path,
@@ -132,3 +130,9 @@ class gitleaks(code_secret_scanner):
                         )
         finally:
             report_file.unlink(missing_ok=True)
+
+    def commit_from_fingerprint(self, fingerprint):
+        fingerprint_prefix = str(fingerprint or "").split(":", 1)[0].strip()
+        if re.fullmatch(r"[0-9a-fA-F]{7,40}", fingerprint_prefix):
+            return fingerprint_prefix
+        return ""

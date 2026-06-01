@@ -117,7 +117,7 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
         repo_path = self.output_dir / repo_name
         self.helpers.rm_rf(repo_path, ignore_errors=True)
 
-        command = ["git", "clone", "--depth", "1", repository_url, str(repo_path)]
+        command = ["git", "clone", repository_url, str(repo_path)]
         try:
             output = await self.run_process(command, env={"GIT_TERMINAL_PROMPT": "0"}, check=True)
             self.debug(f"Git clone output: {output.stdout}")

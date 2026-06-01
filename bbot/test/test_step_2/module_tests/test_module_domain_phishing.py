@@ -53,14 +53,19 @@ class TestDomainPhishing(ModuleTestBase):
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
 
     def check(self, module_test, events):
-        phishing_events = [e for e in events if e.type in ("FINDING", "VULNERABILITY") and e.data.get("category") == "phishing"]
+        phishing_events = [
+            e
+            for e in events
+            if e.type in ("FINDING", "VULNERABILITY") and e.data.get("category") == "phishing-lookalike-domain"
+        ]
         assert len(phishing_events) == 1
 
         event = phishing_events[0]
         assert event.type == "VULNERABILITY"
         assert event.data["host"] == "blacklanternsecur1ty.com"
+        assert event.data["category"] == "phishing-lookalike-domain"
         assert event.data["source-domain"] == "blacklanternsecurity.com"
         assert event.data["probability"] == event.data["score"]
         assert event.data["probability"] >= 4
-        assert event.data["title"] == "Potential phishing look-alike domain"
+        assert event.data["title"] == "Potential phishing look-alike domain: blacklanternsecur1ty.com"
         assert "Candidate domain: blacklanternsecur1ty.com" in event.data["evidence"]

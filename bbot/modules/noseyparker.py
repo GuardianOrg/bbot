@@ -88,6 +88,7 @@ class noseyparker(code_secret_scanner):
 
                     provenance = first_match.get("provenance") if isinstance(first_match.get("provenance"), list) else []
                     file_name = ""
+                    commit = ""
                     for provenance_item in provenance:
                         if not isinstance(provenance_item, dict):
                             continue
@@ -95,6 +96,13 @@ class noseyparker(code_secret_scanner):
                             first_commit = provenance_item.get("first_commit")
                             if isinstance(first_commit, dict):
                                 file_name = first_commit.get("blob_path") or ""
+                                commit = (
+                                    first_commit.get("commit_id")
+                                    or first_commit.get("commit")
+                                    or first_commit.get("id")
+                                    or first_commit.get("oid")
+                                    or ""
+                                )
                                 if file_name:
                                     break
                         if provenance_item.get("kind") == "file":
@@ -119,6 +127,7 @@ class noseyparker(code_secret_scanner):
                         detector=rule_name,
                         file_path=file_name,
                         line=line,
+                        commit=commit,
                         verified=False,
                         severity="Medium",
                         finding_details=finding,

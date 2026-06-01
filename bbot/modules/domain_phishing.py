@@ -64,6 +64,7 @@ class domain_phishing(BaseModule):
         "tld-swap",
         "addition",
     }
+    FINDING_CATEGORY = "phishing-lookalike-domain"
 
     def _pick(self, item, *keys):
         for key in keys:
@@ -268,8 +269,8 @@ class domain_phishing(BaseModule):
 
             payload = {
                 "host": candidate_domain,
-                "title": "Potential phishing look-alike domain",
-                "category": "phishing",
+                "title": f"Potential phishing look-alike domain: {candidate_domain}",
+                "category": self.FINDING_CATEGORY,
                 "description": description,
                 "recommendation": "Review the look-alike domain for brand abuse, monitoring needs, and potential takedown actions.",
                 "evidence": self._build_evidence(candidate, fuzzer, score, reasons),

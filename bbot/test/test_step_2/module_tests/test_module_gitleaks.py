@@ -65,14 +65,14 @@ def mock_gitleaks(monkeypatch, tmp_path):
 
 @pytest.mark.usefixtures("mock_gitleaks")
 class TestGitleaks(ModuleTestBase):
-    targets = ["blacklanternsecurity.com"]
+    targets = ["https://github.com/layer-3-smart"]
     config_overrides = {"deps": {"behavior": "disable"}}
 
     async def setup_after_prep(self, module_test):
         repo_event = module_test.scan.make_event(
             {"url": "https://github.com/layer-3-smart/test.git"},
             "CODE_REPOSITORY",
-            tags=["git"],
+            tags=["git", "target"],
             parent=module_test.scan.root_event,
         )
         await module_test.module.emit_event(repo_event)
@@ -84,10 +84,17 @@ class TestGitleaks(ModuleTestBase):
         finding = findings[0]
         assert finding.data["tool"] == "gitleaks"
         assert finding.data["rule"] == "generic-api-key"
-        assert finding.data["url"] == "https://github.com/layer-3-smart/test"
-        assert finding.host == "github.com"
-        assert "description" not in finding.data
+        assert finding.data["url"] == (
+            "https://github.com/layer-3-smart/test/blob/"
+            "abcdef1234567890abcdef1234567890abcdef12/test/vesting/Vesting.spec.ts#L20"
+        )
+        assert finding.data["location"] == finding.data["url"]
+        assert finding.data["commit_url"] == (
+            "https://github.com/layer-3-smart/test/commit/abcdef1234567890abcdef1234567890abcdef12"
+        )
+        assert finding.data["file_url"] == finding.data["url"]
+        assert "Leaked value: ghp_fullSecretValue1234567890." in finding.data["description"]
+        assert "one confirmed exposure is sufficient to treat the credential as compromised" in finding.data["description"]
         assert "leak" not in finding.data
         assert "github_url" not in finding.data
-        assert "commit_url" not in finding.data
         assert "dedupe_key" not in finding.data

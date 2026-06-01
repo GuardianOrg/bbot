@@ -148,10 +148,11 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                     break
             data = None
             if host == "github.com" and git_meta:
+                leak_value = rawv2_result or raw_result
                 data = await self.format_github_leak(
                     event,
                     path,
-                    raw_result,
+                    leak_value,
                     detector=detector_name,
                     file_path=git_meta.get("file") or "",
                     line=git_meta.get("line") or "",
