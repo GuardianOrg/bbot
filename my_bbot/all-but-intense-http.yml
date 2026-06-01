@@ -82,6 +82,7 @@ config:
     - RAW_TEXT
     - FILESYSTEM
     - WEB_PARAMETER
+    - DNS_NAME_UNRESOLVED
   dns:
     emit_out_of_scope_children: false
     emit_unresolved: false

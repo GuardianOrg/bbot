@@ -123,7 +123,7 @@ class DNSResolve(BaseInterceptModule):
                 whitelisted, blacklisted = self.check_scope(main_host_event)
                 if blacklisted:
                     return False, "it has a blacklisted DNS record"
-                if self._should_drop_unresolved(main_host_event):
+                if cached_resolution.get("unresolved") and not self.emit_unresolved:
                     return False, "unresolved DNS events are disabled"
                 if event_data_changed:
                     if self.is_duplicate_wildcard_event(event):
@@ -229,16 +229,17 @@ class DNSResolve(BaseInterceptModule):
                     raise
 
         # if there weren't any DNS children and it's not an IP address, tag as unresolved
+        unresolved = False
         if not main_host_event.raw_dns_records and not event_is_ip:
+            unresolved = True
             main_host_event.add_tag("unresolved")
-            main_host_event.type = "DNS_NAME_UNRESOLVED"
+            if self.emit_unresolved:
+                main_host_event.type = "DNS_NAME_UNRESOLVED"
 
-        self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes)
-        await self._release_unresolved_subdomain_budget(
-            budget_module, budget_host_key, unresolved=main_host_event.type == "DNS_NAME_UNRESOLVED"
-        )
+        self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes, unresolved=unresolved)
+        await self._release_unresolved_subdomain_budget(budget_module, budget_host_key, unresolved=unresolved)
 
-        if self._should_drop_unresolved(main_host_event):
+        if unresolved and not self.emit_unresolved:
             return False, "unresolved DNS events are disabled"
 
         # main_host_event.add_tag(f"resolve-distance-{main_host_event.dns_resolve_distance}")
@@ -279,13 +280,14 @@ class DNSResolve(BaseInterceptModule):
         event.scope_distance = main_host_event.scope_distance
         event._resolved_hosts = main_host_event.resolved_hosts
 
-    def cache_host_resolution(self, host_cache_key, event, queried_rdtypes):
+    def cache_host_resolution(self, host_cache_key, event, queried_rdtypes, unresolved=False):
         if not host_cache_key:
             return
         self.hosts_resolved.add(host_cache_key)
         self.host_resolution_cache[host_cache_key] = {
             "data": event.data,
             "type": event.type,
+            "unresolved": bool(unresolved),
             "scope_distance": event.scope_distance,
             "tags": set(event.tags),
             "resolved_hosts": set(event.resolved_hosts),
@@ -300,8 +302,8 @@ class DNSResolve(BaseInterceptModule):
         if cached_data and "target" not in event.tags:
             event.data = cached_data
         cached_type = cached_resolution.get("type")
-        if cached_type == "DNS_NAME_UNRESOLVED":
-            event.type = cached_type
+        if cached_resolution.get("unresolved") and self.emit_unresolved:
+            event.type = "DNS_NAME_UNRESOLVED"
         cached_scope_distance = cached_resolution.get("scope_distance")
         if isinstance(cached_scope_distance, int):
             event.scope_distance = min(event.scope_distance, cached_scope_distance)
@@ -314,14 +316,14 @@ class DNSResolve(BaseInterceptModule):
         event.dns_children = self.copy_dns_map(cached_resolution.get("dns_children", {}))
         return event.data != original_data
 
-    def _should_drop_unresolved(self, event):
-        return not self.emit_unresolved and event.type == "DNS_NAME_UNRESOLVED" and "target" not in event.tags
+    def _is_target_seed_event(self, event):
+        return "target" in event.tags and getattr(event, "parent", None) is self.scan.root_event
 
     def _unresolved_subdomain_module(self, event):
         if (
             not self.max_unresolved_subdomains_per_module
-            or "target" in event.tags
-            or "subdomain" not in event.tags
+            or self._is_target_seed_event(event)
+            or event.type != "DNS_NAME"
             or self.helpers.is_ip(event.host)
         ):
             return None

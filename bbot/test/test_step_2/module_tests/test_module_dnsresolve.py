@@ -207,10 +207,60 @@ class TestDNSResolveDropUnresolved(ModuleTestBase):
         assert result == (False, "unresolved DNS events are disabled")
 
         cache_key = dnsresolve._host_resolution_cache_key(event.host)
-        assert dnsresolve.host_resolution_cache[cache_key]["type"] == "DNS_NAME_UNRESOLVED"
+        assert dnsresolve.host_resolution_cache[cache_key]["type"] == "DNS_NAME"
+        assert dnsresolve.host_resolution_cache[cache_key]["unresolved"] is True
+
+        target_event = module_test.scan.make_event(
+            "target-missing.blacklanternsecurity.com",
+            "DNS_NAME",
+            tags=["target"],
+            parent=module_test.scan.root_event,
+        )
+        target_event.scope_distance = 0
+        target_result = await dnsresolve.handle_event(target_event)
+        assert target_result == (False, "unresolved DNS events are disabled")
+        assert target_event.type == "DNS_NAME"
+        assert "unresolved" in target_event.tags
+
+        parent_target = module_test.scan.make_event(
+            "blacklanternsecurity.com",
+            "DNS_NAME",
+            tags=["target"],
+            parent=module_test.scan.root_event,
+        )
+        inherited_target_subdomain = module_test.scan.make_event(
+            "fake.blacklanternsecurity.com",
+            "DNS_NAME",
+            tags=["target", "subdomain"],
+            parent=parent_target,
+        )
+        inherited_target_subdomain.scope_distance = 0
+        inherited_result = await dnsresolve.handle_event(inherited_target_subdomain)
+        assert inherited_result == (False, "unresolved DNS events are disabled")
+        assert inherited_target_subdomain.type == "DNS_NAME"
+
+        inherited_target_dns_name = module_test.scan.make_event(
+            "fake-no-tag.blacklanternsecurity.com",
+            "DNS_NAME",
+            tags=["target"],
+            parent=parent_target,
+        )
+        inherited_target_dns_name.scope_distance = 0
+        inherited_no_tag_result = await dnsresolve.handle_event(inherited_target_dns_name)
+        assert inherited_no_tag_result == (False, "unresolved DNS events are disabled")
+        assert inherited_target_dns_name.type == "DNS_NAME"
 
     def check(self, module_test, events):
         assert not any(e.type == "DNS_NAME_UNRESOLVED" and e.data == "missing.blacklanternsecurity.com" for e in events)
+        assert not any(
+            e.type == "DNS_NAME_UNRESOLVED" and e.data == "target-missing.blacklanternsecurity.com"
+            for e in events
+        )
+        assert not any(e.type == "DNS_NAME_UNRESOLVED" and e.data == "fake.blacklanternsecurity.com" for e in events)
+        assert not any(
+            e.type == "DNS_NAME_UNRESOLVED" and e.data == "fake-no-tag.blacklanternsecurity.com"
+            for e in events
+        )
 
 
 class TestDNSResolveUnresolvedSubdomainBudget(ModuleTestBase):
@@ -328,7 +378,8 @@ class TestDNSResolveUnresolvedSubdomainBudget(ModuleTestBase):
         assert await dnsresolve.handle_event(checked_by_tool_b) == (False, "unresolved DNS events are disabled")
         assert resolve_calls
         assert all(call == ("tool_b", "missing2.blacklanternsecurity.com") for call in resolve_calls)
-        assert dnsresolve.host_resolution_cache[missing2_cache_key]["type"] == "DNS_NAME_UNRESOLVED"
+        assert dnsresolve.host_resolution_cache[missing2_cache_key]["type"] == "DNS_NAME"
+        assert dnsresolve.host_resolution_cache[missing2_cache_key]["unresolved"] is True
 
         cached_but_still_skipped_by_tool_a = module_test.scan.make_event(
             "missing2.blacklanternsecurity.com",
