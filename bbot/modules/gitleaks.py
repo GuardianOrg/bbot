@@ -21,6 +21,7 @@ class gitleaks(code_secret_scanner):
         "redact": False,
         "output_folder": "",
         "clone_repositories": True,
+        "disabled_rules": ["generic-api-key"],
     }
     options_desc = {
         "version": "gitleaks version",
@@ -28,6 +29,7 @@ class gitleaks(code_secret_scanner):
         "redact": "Redact secrets in command output/report",
         "output_folder": "Folder to clone repositories to. If not specified, repositories are deleted after scanning.",
         "clone_repositories": "Clone CODE_REPOSITORY events before scanning.",
+        "disabled_rules": "Gitleaks rule IDs to suppress after scanning. Defaults to generic-api-key to reduce false positives.",
     }
     deps_ansible = [
         {
@@ -52,6 +54,7 @@ class gitleaks(code_secret_scanner):
 
     async def setup(self):
         self.redact = bool(self.config.get("redact", False))
+        self.disabled_rules = self.parse_disabled_rules(self.config.get("disabled_rules", ["generic-api-key"]))
         return await super().setup()
 
     async def iter_findings(self, scan_path, event):
@@ -111,6 +114,9 @@ class gitleaks(code_secret_scanner):
                         if not isinstance(finding, dict):
                             continue
                         rule = finding.get("RuleID") or finding.get("rule") or "unknown"
+                        if str(rule).strip().lower() in self.disabled_rules:
+                            self.debug(f"Skipping disabled gitleaks rule: {rule}")
+                            continue
                         file_name = finding.get("File") or finding.get("file") or str(scan_path)
                         line = finding.get("StartLine") or finding.get("line") or "?"
                         secret = finding.get("Secret") or finding.get("Match") or "<redacted>"
@@ -136,3 +142,15 @@ class gitleaks(code_secret_scanner):
         if re.fullmatch(r"[0-9a-fA-F]{7,40}", fingerprint_prefix):
             return fingerprint_prefix
         return ""
+
+    def parse_disabled_rules(self, value):
+        if value is None:
+            return set()
+        if isinstance(value, str):
+            items = re.split(r"[\s,]+", value)
+        else:
+            try:
+                items = list(value)
+            except TypeError:
+                items = [value]
+        return {str(item).strip().lower() for item in items if str(item).strip()}
