@@ -41,3 +41,33 @@ class TestSecurityTrails(ModuleTestBase):
             and e.data["records"][0]["ip"] == "1.2.3.4"
             for e in events
         ), "Failed to emit DNS history"
+
+
+class TestSecurityTrailsInvalidHistoryJson(ModuleTestBase):
+    module_name = "securitytrails"
+    config_overrides = {"modules": {"securitytrails": {"api_key": "asdf"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://api.securitytrails.com/v1/ping?apikey=asdf",
+        )
+        module_test.httpx_mock.add_response(
+            url="https://api.securitytrails.com/v1/domain/blacklanternsecurity.com/subdomains?apikey=asdf",
+            json={
+                "subdomains": [
+                    "asdf",
+                ],
+            },
+        )
+        module_test.httpx_mock.add_response(
+            url="https://api.securitytrails.com/v1/history/blacklanternsecurity.com/dns/a?apikey=asdf&page=1",
+            text="",
+        )
+        module_test.httpx_mock.add_response(
+            url="https://api.securitytrails.com/v1/history/blacklanternsecurity.com/dns/aaaa?apikey=asdf&page=1",
+            json={"records": []},
+        )
+
+    def check(self, module_test, events):
+        assert any(e.data == "asdf.blacklanternsecurity.com" for e in events), "Failed to detect subdomain"
+        assert not any(e.type == "DOMAIN_DNS_HISTORY" for e in events), "Unexpected DNS history from invalid JSON"

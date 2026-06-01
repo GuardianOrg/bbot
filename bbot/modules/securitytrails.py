@@ -48,11 +48,19 @@ class securitytrails(subdomain_enum_apikey):
 
     async def parse_results(self, r, query):
         results = set()
-        j = r.json()
+        j = self.parse_json_response(r, f'subdomain query "{query}"')
         if isinstance(j, dict):
             for host in j.get("subdomains", []):
                 results.add(f"{host}.{query}")
         return results
+
+    def parse_json_response(self, response, description):
+        try:
+            return response.json()
+        except Exception as e:
+            status_code = getattr(response, "status_code", "unknown")
+            self.verbose(f"Error parsing SecurityTrails {description} response (status code {status_code}): {e}")
+            self.trace(repr(getattr(response, "text", "")))
 
     async def emit_dns_history(self, host, event):
         if self.max_history_pages <= 0:
@@ -65,9 +73,11 @@ class securitytrails(subdomain_enum_apikey):
                 response = await self.api_request(url)
                 if response is None:
                     break
-                data = response.json()
+                data = self.parse_json_response(response, f'DNS {record_type.upper()} history for "{host}"')
+                if not isinstance(data, dict):
+                    break
                 records.extend(self.parse_history_records(data, record_type))
-                total_pages = data.get("pages", 1) if isinstance(data, dict) else 1
+                total_pages = data.get("pages", 1)
                 if page >= int(total_pages or 1):
                     break
 
