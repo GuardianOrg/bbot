@@ -21,6 +21,26 @@ from bbot.core.helpers.misc import (
 log = logging.getLogger("bbot.core.helpers.dns.engine.server")
 
 all_rdtypes = ["A", "AAAA", "SRV", "MX", "NS", "SOA", "CNAME", "TXT"]
+multi_provider_rdtypes = {"A", "AAAA", "CNAME"}
+
+
+def configured_nameservers(dns_config):
+    nameservers = dns_config.get("nameservers", [])
+    if isinstance(nameservers, str):
+        nameservers = nameservers.split(",")
+    return [str(nameserver).strip() for nameserver in nameservers if str(nameserver).strip()]
+
+
+def dedupe_nameservers(*groups):
+    deduped = []
+    seen = set()
+    for group in groups:
+        for nameserver in group:
+            if nameserver in seen:
+                continue
+            seen.add(nameserver)
+            deduped.append(nameserver)
+    return deduped
 
 
 class DNSEngine(EngineServer):
@@ -49,6 +69,8 @@ class DNSEngine(EngineServer):
         self.resolver.rotate = True
         self.resolver.timeout = self.timeout
         self.resolver.lifetime = self.timeout
+        self.provider_nameservers = configured_nameservers(self.dns_config)[:5]
+        self.resolver.nameservers = dedupe_nameservers(self.resolver.nameservers, self.provider_nameservers)
 
         # skip certain queries
         dns_omit_queries = self.dns_config.get("omit_queries", None)
@@ -223,7 +245,15 @@ class DNSEngine(EngineServer):
                                 )
                             self._dns_warnings.add(parent_hash)
                             return results, errors
-                    results = await self._catch(self.resolver.resolve, query, **kwargs)
+                    if rdtype in multi_provider_rdtypes and self.provider_nameservers:
+                        results, provider_errors, provider_successes = await self._resolve_with_provider_nameservers(
+                            query, **kwargs
+                        )
+                        errors.extend(provider_errors)
+                        if provider_errors and not provider_successes and not results:
+                            raise provider_errors[0]
+                    else:
+                        results = await self._catch(self.resolver.resolve, query, **kwargs)
                     if use_cache:
                         self._dns_cache[dns_cache_hash] = results
                     if parent_hash in self._errors:
@@ -263,6 +293,38 @@ class DNSEngine(EngineServer):
             self.debug(f"Errors for {query} with kwargs={kwargs}: {errors}")
 
         return results, errors
+
+    async def _resolve_with_provider_nameservers(self, query, **kwargs):
+        provider_tasks = [
+            self._resolve_with_nameserver(query, nameserver, **kwargs) for nameserver in self.provider_nameservers
+        ]
+        provider_results = await asyncio.gather(*provider_tasks, return_exceptions=True)
+        answers = []
+        errors = []
+        successes = 0
+
+        for result in provider_results:
+            if isinstance(result, BaseException):
+                errors.append(result)
+                continue
+            successes += 1
+            if result:
+                answers.append(result)
+
+        return answers, errors, successes
+
+    async def _resolve_with_nameserver(self, query, nameserver, **kwargs):
+        resolver = dns.asyncresolver.Resolver(configure=False)
+        resolver.nameservers = [nameserver]
+        resolver.timeout = self.timeout
+        resolver.lifetime = self.timeout
+        try:
+            return await resolver.resolve(query, **kwargs)
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            return None
+        except dns.exception.DNSException as e:
+            self.debug(f"{e} (nameserver={nameserver}, query={query}, kwargs={kwargs})")
+            raise
 
     async def _resolve_ip(self, query, **kwargs):
         """Translate an IP address into a corresponding DNS name.

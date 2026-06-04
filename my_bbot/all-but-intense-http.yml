@@ -84,6 +84,13 @@ config:
     - WEB_PARAMETER
     - DNS_NAME_UNRESOLVED
   dns:
+    minimal: true
+    nameservers:
+      - 1.1.1.1
+      - 8.8.8.8
+      - 9.9.9.9
+      - 208.67.222.222
+      - 223.5.5.5
     emit_out_of_scope_children: false
     emit_unresolved: false
     max_unresolved_subdomains_per_module: 50

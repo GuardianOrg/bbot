@@ -15,6 +15,25 @@ from .engine import DNSEngine
 log = logging.getLogger("bbot.core.helpers.dns")
 
 
+def _configured_nameservers(dns_config):
+    nameservers = dns_config.get("nameservers", [])
+    if isinstance(nameservers, str):
+        nameservers = nameservers.split(",")
+    return [str(nameserver).strip() for nameserver in nameservers if str(nameserver).strip()]
+
+
+def _dedupe_nameservers(*groups):
+    deduped = []
+    seen = set()
+    for group in groups:
+        for nameserver in group:
+            if nameserver in seen:
+                continue
+            seen.add(nameserver)
+            deduped.append(nameserver)
+    return deduped
+
+
 class DNSHelper(EngineClient):
     SERVER_CLASS = DNSEngine
     ERROR_CLASS = DNSError
@@ -72,8 +91,10 @@ class DNSHelper(EngineClient):
         for d in self.dns_config.get("wildcard_ignore", []):
             self.wildcard_ignore.insert(d)
 
-        # copy the system's current resolvers to a text file for tool use
-        self.system_resolvers = dns.resolver.Resolver().nameservers
+        system_nameservers = dns.resolver.Resolver().nameservers
+        configured_nameservers = _configured_nameservers(self.dns_config)
+        self.system_resolvers = _dedupe_nameservers(system_nameservers, configured_nameservers)
+        self.resolver.nameservers = self.system_resolvers
         # TODO: DNS server speed test (start in background task)
         self.resolver_file = self.parent_helper.tempfile(self.system_resolvers, pipe=False)
 
