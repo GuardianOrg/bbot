@@ -230,7 +230,7 @@ Below is the current implemented attribute specification per node type. Common f
 | `whois_status` | `text[]` | WHOIS statuses |
 | `zone_transfer_possible` | `boolean` | AXFR allowed |
 | `phishing_like_domains_history` | `jsonb` | Similar-domain history |
-| `ip_history` | `jsonb` | IP history |
+| `ip_history` | `jsonb` | Historical A/AAAA observations as `{ ip, first_seen, last_seen }` records. Live DNS monitor observations and bbot DNS events merge into this field while preserving the earliest `first_seen` and the latest `last_seen` per IP. |
 | `is_google_workspace` | `boolean` | Google Workspace domain |
 | `is_entraid_workspace` | `boolean` | Entra ID domain |
 
@@ -1312,162 +1312,39 @@ Control Plane (hot reconfiguration without restart):
 
 #### 8.4.1 DNS Record Monitor
 
-**Frequency**: Every 30 seconds
-**Input**: All known DomainNode FQDNs from WorldGraph
-**Method**: Direct DNS resolution (UDP queries via `dns.resolve()` / `dig`)
+**Frequency**: Configured per monitor source; default is every 30 seconds.
+**Input**: Persisted in-scope `DomainNode` FQDNs from the world's graph. A full-scope DNS monitor includes the world seed domain roots plus every persisted in-scope subdomain; a scoped monitor only includes persisted domains under its configured roots. `offchainExcludedDomains` and monitor-level exclusions are applied before resolution.
+**Method**: Direct DNS resolution through the system resolver and public resolver candidates. `A`, `AAAA`, and `CNAME` records are resolved across up to five provider candidates to reduce resolver-local blind spots; other record types use retry/fallback resolution. Failed lookups for a record type are not persisted as an empty result unless the resolver confirms there is no data.
 
 | What is monitored | DomainNode Attribute | Alert Trigger |
 |--------------------|---------------------|---------------|
-| A records | `dns_a` | IP address added/removed |
-| AAAA records | `dns_aaaa` | IPv6 address added/removed |
-| CNAME records | `dns_cname` | CNAME target changed |
-| MX records | `dns_mx` | Mail server changed |
-| NS records | `dns_ns` | Nameserver changed |
-| TXT records | `dns_txt` | TXT record changed (SPF/DMARC/DKIM) |
-| SOA records | `dns_soa` | SOA serial changed |
-| CAA records | `dns_caa` | CAA policy changed |
+| A records | `dnsA` | IPv4 address added/removed |
+| AAAA records | `dnsAaaa` | IPv6 address added/removed |
+| CNAME records | `dnsCname` | CNAME target changed |
+| MX records | `dnsMx` | Mail server changed |
+| NS records | `dnsNs` | Nameserver changed |
+| TXT records | `dnsTxt` | TXT record changed (SPF/DMARC/DKIM) |
+| SOA records | `dnsSoa` | SOA serial changed |
+| SRV records | `dnsSrv` | Service record changed |
+| CAA records | `dnsCaa` | CAA policy changed |
 
-**Implementation** (implements `MonitorHandler<DnsChangeEvent>` + `SourceManager<DnsChangeEvent>` from Section 8.2.3):
+**Implemented graph persistence**:
 
-```typescript
-// src/monitoring/providers/offchainDns.ts
+1. Each poll builds a DNS snapshot for the requested record types and compares it with the current `DomainNode` values. Differences become monitor changes and are persisted through `offchainMonitorChangeService.recordRunBatch()`.
+2. The live DNS fields (`dnsA`, `dnsAaaa`, `dnsCname`, `dnsMx`, `dnsNs`, `dnsTxt`, `dnsSoa`, `dnsSrv`, `dnsCaa`) are replacement fields: when a record type is successfully resolved, the stored field becomes the current snapshot for that type.
+3. `A` and `AAAA` snapshots also update `DomainNode.ipHistory`. Each observed IP is recorded as `{ ip, first_seen, last_seen }` using the poll timestamp for new live observations.
+4. `ipHistory` is merged, never blindly overwritten. For the same IP, the merge keeps the oldest known `first_seen` and the newest known `last_seen`; an older incoming `last_seen` cannot move the stored value backwards, and a later incoming `first_seen` cannot erase an earlier first observation.
+5. bbot normal DNS events (`DNS_NAME` resolved hosts, `DNS_NAME` child A/AAAA records, and `RAW_DNS_RECORD` A/AAAA answers) use the same live-observation merge path. bbot passive DNS history (`DOMAIN_DNS_HISTORY`) normalizes provider-supplied history records and preserves their real `first_seen` / `last_seen` values when present.
 
-// ---------- Event type ----------
-interface DnsChangeEvent {
-  domain: string;
-  recordType: string;
-  previous: string[];
-  current: string[];
-}
+**Graph truth and stale IP retention**:
 
-// ---------- MonitorHandler ----------
-export class OffchainDnsMonitorHandler implements MonitorHandler<DnsChangeEvent> {
-  readonly monitorId: string;
-  readonly sourceKey: string;
-  readonly moduleType = 'offchain-dns-monitor';
-  readonly recordData: OffchainDnsMonitorRecordData;
+1. Current `A`/`AAAA` answers ensure `IPAddressNode` objects and `resolves_to` edges exist.
+2. An IP that disappears from the current DNS answer is not immediately removed from the graph if its `ipHistory.last_seen` is within the last 3 hours and the corresponding IP node still exists in the world graph.
+3. Once the stored `last_seen` is older than 3 hours, the monitor may remove the stale `resolves_to` edge. If the IP is then unused and was not explicitly seeded, `deleteIpIfUnusedAndUnseeded()` can remove the IP node and dependent IP-only objects such as services and URLs.
+4. A non-seeded subdomain whose DNS snapshot is empty is also retained while it has a recently seen stored IP in the 3-hour window. After the window expires, the monitor can remove the stale domain tree and its now-unused dependent objects.
+5. CNAME truth is still synchronized to the current snapshot. In-scope CNAME targets are created as domain nodes; out-of-scope targets are ignored.
 
-  constructor(
-    public readonly sourceRecord: ModuleRecord,
-    public readonly record: Monitor,
-  ) {
-    this.monitorId = record.id;
-    this.recordData = record.recordData as OffchainDnsMonitorRecordData;
-    this.sourceKey = `offchain-dns:${sourceRecord.worldId}`;
-  }
-
-  async handleEvent(event: DnsChangeEvent): Promise<void> {
-    const diff = diffDnsRecords(event);
-    if (!diff.hasChanges) return;
-
-    const severity = classifyDnsSeverity(diff);
-    const dedupeKey = `dns:${event.domain}:${event.recordType}:${hashChanges(diff)}`;
-
-    // Persist alert via MonitorEventService (built-in deduplication via dedupeKey)
-    await monitorEventService.createOrGetExisting({
-      worldId: this.sourceRecord.worldId,
-      monitorId: this.record.id,
-      severity,
-      title: `DNS ${event.recordType} change: ${event.domain}`,
-      description: JSON.stringify(diff.changes),
-      dedupeKey,
-      sourceEventId: `${event.domain}:${event.recordType}:${Date.now()}`,
-      metadata: {
-        domain: event.domain,
-        recordType: event.recordType,
-        previous: event.previous,
-        current: event.current,
-      },
-      occurredAt: new Date(),
-    });
-
-    // Update Monitor.recordData checkpoint
-    await monitorService.update(this.record.id, {
-      recordData: {
-        ...this.recordData,
-        domainStates: {
-          ...this.recordData.domainStates,
-          [event.domain]: event.current,
-        },
-        lastCheckedAt: new Date().toISOString(),
-      },
-    } as any);
-
-    // Create TrackedFinding for high-severity DNS changes (NS hijack, etc.)
-    if (severity === 'high' || severity === 'critical') {
-      await TrackedFinding.create({
-        worldId: this.sourceRecord.worldId,
-        severity,
-        title: `DNS change detected: ${event.domain}`,
-        description: JSON.stringify(diff.changes),
-        valid: true,
-      });
-    }
-  }
-}
-
-// ---------- SourceManager ----------
-export class OffchainDnsSourceManager implements SourceManager<DnsChangeEvent> {
-  readonly sourceKey: string;
-  private handlers: OffchainDnsMonitorHandler[] = [];
-  private running = false;
-  private pollTimer: NodeJS.Timeout | undefined;
-
-  // Polling cadence — configurable per source
-  private readonly pollIntervalMs = 30_000; // 30 seconds
-
-  constructor(private readonly sourceRecord: ModuleRecord) {
-    this.sourceKey = `offchain-dns:${sourceRecord.worldId}`;
-  }
-
-  async syncMonitors(monitors: MonitorHandler<DnsChangeEvent>[], _sourceRecord: ModuleRecord) {
-    this.handlers = monitors as OffchainDnsMonitorHandler[];
-  }
-
-  async start(): Promise<void> {
-    this.running = true;
-    this.schedulePoll();
-  }
-
-  async stop(): Promise<void> {
-    this.running = false;
-    if (this.pollTimer) clearTimeout(this.pollTimer);
-  }
-
-  private schedulePoll() {
-    if (!this.running) return;
-    this.pollTimer = setTimeout(async () => {
-      await this.pollOnce();
-      this.schedulePoll();
-    }, this.pollIntervalMs);
-  }
-
-  private async pollOnce() {
-    const world = await World.findById(this.sourceRecord.worldId);
-    const domains = world.domains;
-    const excluded = new Set(world.offchainExcludedDomains ?? []);
-
-    for (const domain of domains) {
-      if (excluded.has(domain)) continue;
-      const current = await resolveDnsRecords(domain);
-
-      // Dispatch to all active handlers
-      for (const handler of this.handlers) {
-        const previous = handler.recordData.domainStates?.[domain];
-        if (!previous) continue; // first run — baseline only
-        for (const [recordType, values] of Object.entries(current)) {
-          await handler.handleEvent({
-            domain,
-            recordType,
-            previous: previous[recordType] ?? [],
-            current: values,
-          });
-        }
-      }
-    }
-  }
-}
-```
+This means fast DNS rotations do not cause immediate graph churn or repeated bbot expansion scans for the same recently observed IPs. The graph keeps the previous IPs and dependent objects for up to 3 hours after their last observed A/AAAA answer, then cleans them up only if they are still stale and not otherwise used or seeded.
 
 --
 
@@ -1861,6 +1738,8 @@ When a monitor discovers a **new object** (not just an attribute change), we sho
 **Trigger condition**:
 
  New `DomainNode`, `URLObject`, `IPAddressNode`, or `NetworkServiceNode` created by a `MonitorHandler.handleEvent()` call inside a running monitor.
+
+For DNS monitoring specifically, only newly created IP/domain objects are expansion targets. IPs retained by the 3-hour stale-IP grace window are existing graph objects, so they do not enqueue another bbot expansion scan while DNS is rotating or temporarily inconsistent.
 
 **Workflow** (triggered from within `MonitorHandler.handleEvent()`, uses the `@asyncTask(HEAVY_OFFCHAIN_QUEUE)` handler from Section 7.2.2):
 
