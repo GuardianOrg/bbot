@@ -77,7 +77,14 @@ class ajaxpro(BaseModule):
                         "host": str(event.host),
                         "severity": "CRITICAL",
                         "url": event.data if event.type == "URL" else event.data["url"],
-                        "description": f"Ajaxpro Deserialization RCE (CVE-2021-23758) Trigger: [{full_url}]",
+                        "description": (
+                            f"Ajaxpro Deserialization RCE (CVE-2021-23758) Trigger: [{full_url}]. "
+                            "The application exposes an AjaxPro endpoint affected by a known unsafe deserialization remote code execution issue. "
+                            "An unauthenticated attacker may send a crafted request that makes the server execute unintended application code. "
+                            "Successful exploitation can lead to full application compromise, data theft, service disruption, and movement into connected systems. "
+                            "Deserialization issues are dangerous because the server rebuilds objects from data supplied in a request, and vulnerable code may treat that data as trusted instructions. "
+                            "The endpoint should be removed, patched, or restricted immediately, and the application should be reviewed for unusual files, new accounts, outbound connections, or other signs that code execution was attempted."
+                        ),
                     },
                     "VULNERABILITY",
                     event,

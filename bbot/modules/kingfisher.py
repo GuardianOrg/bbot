@@ -9,7 +9,7 @@ class kingfisher(code_secret_scanner):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
-        "description": "Find hardcoded secrets using Kingfisher",
+        "description": "Find exposed credentials, tokens, passwords, and API keys in source code history",
         "created_date": "2026-02-19",
         "author": "@carlospolop",
     }

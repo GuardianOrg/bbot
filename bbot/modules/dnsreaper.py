@@ -10,7 +10,7 @@ class dnsreaper(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
     meta = {
-        "description": "Check potential subdomain takeovers with dnsReaper",
+        "description": "Check potential subdomain takeovers from stale or unclaimed DNS records",
         "created_date": "2026-02-20",
         "author": "@carlospolop",
     }
@@ -178,9 +178,15 @@ class dnsreaper(BaseModule):
                 info = finding.get("info", "")
                 more_info_url = finding.get("more_info_url", "")
                 title = f"Potential subdomain takeover via {signature}"
-                description = f"dnsReaper flagged {host} with {confidence.lower()} confidence for the {signature} takeover signature."
+                description = (
+                    f"{host} may be vulnerable to subdomain takeover because it matches the '{signature}' signature with {confidence.lower()} confidence. "
+                    "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+                    "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+                    "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+                    "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record."
+                )
                 if info:
-                    description += f" {info}"
+                    description += f" Additional detail: {info}"
                 evidence = f"Signature: {signature}; Confidence: {confidence}"
                 if info:
                     evidence += f"; Info: {info}"

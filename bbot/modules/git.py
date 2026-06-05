@@ -30,7 +30,13 @@ class git(BaseModule):
                 text = ""
             if text:
                 if getattr(response, "status_code", 0) == 200 and "[core]" in text and not self.fp_regex.match(text):
-                    description = f"Exposed .git config at {url}"
+                    description = (
+                        f"The Git configuration file is publicly accessible at {url}. "
+                        "Exposed .git metadata can allow attackers to reconstruct repository contents, review source code history, find secrets, and understand application internals. "
+                        "The .git directory is the private working data used by Git to store commits, branches, remotes, and file history. "
+                        "If enough of it is downloadable from the web server, an attacker may recover source code that was never meant to be public, including deleted files and older versions that still contain credentials or security mistakes. "
+                        "Block web access to all .git paths and rotate any secrets that may have been present in the repository history."
+                    )
                     await self.emit_event(
                         {"host": str(event.host), "url": url, "description": description},
                         "FINDING",

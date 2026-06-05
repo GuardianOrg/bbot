@@ -133,7 +133,14 @@ class legba(BaseModule):
                             "confidence": "CONFIRMED",
                             "host": str(event.host),
                             "port": str(event.port),
-                            "description": f"Valid {protocol} credentials found - {message_addition}",
+                            "description": (
+                                f"Valid {protocol} credentials were confirmed for this service. "
+                                "An attacker with these credentials could authenticate to the exposed service and may be able to access data, modify configuration, move laterally, or escalate privileges depending on the account permissions. "
+                                "This should be treated as an active credential compromise, not just a weak configuration finding. "
+                                "The password or key should be changed immediately, the account should be reviewed for unnecessary privileges, and authentication logs should be checked for successful or attempted access from unexpected sources. "
+                                "If the service is internet-facing, restrict access with network controls and remove default or shared credentials wherever possible. "
+                                f"Credential evidence: {message_addition}."
+                            ),
                         },
                         "FINDING",
                         parent=event,

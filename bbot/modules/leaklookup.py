@@ -90,7 +90,12 @@ class leaklookup(subdomain_enum):
                         "host": query,
                         "title": f"Leak-Lookup source matches for {query}",
                         "category": "credential-exposure",
-                        "description": f'Leak-Lookup public API matched sources for "{query}": [{sources}]',
+                        "description": (
+                            f'Public breach-source matches were found for "{query}": [{sources}]. '
+                            "This indicates that accounts, passwords, hashes, or other credential-related records associated with the domain may appear in known breach datasets. "
+                            "The result does not prove that every current user is compromised, but it is a strong signal to review exposed accounts, enforce password resets where needed, and confirm that reused passwords are not accepted on organization systems. "
+                            "Prioritize privileged users, shared mailboxes, service accounts, and accounts without multifactor authentication."
+                        ),
                         "recommendation": (
                             "Investigate the matched breach sources, search for exposed accounts under this domain "
                             "with a paid key or alternate telemetry, and rotate any affected credentials."

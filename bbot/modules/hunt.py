@@ -301,7 +301,13 @@ class hunt(BaseModule):
         if matching_categories:
             # Create a comma-separated string of categories
             category_str = ", ".join(matching_categories)
-            description = f"Found potentially interesting parameter. Name: [{p}] Parameter Type: [{event.data['type']}] Categories: [{category_str}]"
+            description = (
+                f"The parameter [{p}] matches names commonly associated with security-sensitive behavior in web applications. "
+                "Parameters in these categories often influence redirects, file access, templates, commands, object loading, authentication state, or server-side requests, and should be tested carefully for injection or access-control impact. "
+                "This is a triage signal rather than proof of exploitation: many applications use these names safely, but attackers often focus on them because they can control where the server reads from, sends users, loads objects, or executes logic. "
+                "The parameter should be reviewed in its application context, tested with safe payloads, and protected with strict validation, allow-lists, and authorization checks where it affects sensitive behavior. "
+                f"Parameter type: [{event.data['type']}]; categories: [{category_str}]"
+            )
 
             if (
                 "original_value" in event.data.keys()

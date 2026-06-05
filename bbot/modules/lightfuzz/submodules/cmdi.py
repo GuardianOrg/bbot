@@ -75,7 +75,13 @@ class cmdi(BaseLightfuzz):
             self.results.append(
                 {
                     "type": "FINDING",
-                    "description": f"POSSIBLE OS Command Injection. {self.metadata()} Detection Method: [echo canary] CMD Probe Delimeters: [{' '.join(positive_detections)}]",
+                    "description": (
+                        f"Possible OS command injection. {self.metadata()} Detection Method: [echo canary] Command delimiters that changed behavior: [{' '.join(positive_detections)}]. "
+                        "The parameter may be reaching an operating-system command context. If confirmed, an attacker could execute commands on the server and compromise the application host. "
+                        "Command injection happens when application input is combined with a shell command without safe separation between data and instructions. "
+                        "Even limited command execution can expose files, environment variables, service credentials, or network access from the server. "
+                        "The code path should use safe library calls instead of shell commands, pass arguments as structured values, and enforce a strict allow-list for any user-controlled option."
+                    ),
                 }
             )
 

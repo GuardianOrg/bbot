@@ -11,7 +11,7 @@ class baddns(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "web-basic", "baddns", "cloud-enum", "subdomain-hijack"]
     meta = {
-        "description": "Check hosts for domain/subdomain takeovers",
+        "description": "Check potential subdomain takeovers from stale or unclaimed DNS records",
         "created_date": "2024-01-18",
         "author": "@liquidsec",
     }
@@ -93,7 +93,14 @@ class baddns(BaseModule):
                         if confidence in ["CONFIRMED", "PROBABLE"]:
                             data = {
                                 "severity": "MEDIUM",
-                                "description": f"{r_dict['description']}. Confidence: [{confidence}] Signature: [{r_dict['signature']}] Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
+                                "description": (
+                                    f"{event.host} appears vulnerable to subdomain takeover because it matches the {r_dict['signature']} takeover signature with {confidence.lower()} confidence. "
+                                    "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+                                    "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+                                    "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+                                    "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record. "
+                                    f"Evidence: {r_dict['description']}; indicator [{r_dict['indicator']}]; trigger [{r_dict['trigger']}]."
+                                ),
                                 "host": str(event.host),
                             }
                             await self.emit_event(
@@ -107,7 +114,14 @@ class baddns(BaseModule):
                         elif confidence in ["UNLIKELY", "POSSIBLE"]:
                             if not self.only_high_confidence:
                                 data = {
-                                    "description": f"{r_dict['description']} Confidence: [{confidence}] Signature: [{r_dict['signature']}] Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
+                                    "description": (
+                                        f"{event.host} shows signs of a possible subdomain takeover, with the match rated as {confidence.lower()} confidence. "
+                                        "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+                                        "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+                                        "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+                                        "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record. "
+                                        f"Evidence: {r_dict['description']}; signature [{r_dict['signature']}]; indicator [{r_dict['indicator']}]; trigger [{r_dict['trigger']}]."
+                                    ),
                                     "host": str(event.host),
                                 }
                                 await self.emit_event(

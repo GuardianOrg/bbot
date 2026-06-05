@@ -122,7 +122,13 @@ class path(BaseLightfuzz):
                             self.results.append(
                                 {
                                     "type": "FINDING",
-                                    "description": f"POSSIBLE Path Traversal. {self.metadata()} Detection Method: [{path_technique}]",
+                                    "description": (
+                                        f"Possible path traversal. {self.metadata()} Detection Method: [{path_technique}]. "
+                                        "The application response changed when directory traversal payloads were supplied, suggesting file paths may be built from user input. If confirmed, an attacker may be able to read files outside the intended directory. "
+                                        "Path traversal uses sequences such as ../ to move out of the folder the application intended to access. "
+                                        "This can expose configuration files, source code, credentials, logs, or private user uploads. "
+                                        "The application should map user choices to server-side allow-listed files, normalize paths safely, reject traversal sequences, and enforce filesystem permissions that prevent the web process from reading sensitive locations."
+                                    ),
                                 }
                             )
                             # no need to report both techniques if they both work
@@ -149,6 +155,11 @@ class path(BaseLightfuzz):
                 self.results.append(
                     {
                         "type": "FINDING",
-                        "description": f"POSSIBLE Path Traversal. {self.metadata()} Detection Method: [Absolute Path: {path}]",
+                        "description": (
+                            f"Possible path traversal with absolute file access. {self.metadata()} Detection Method: [Absolute Path: {path}]. "
+                            "The application returned content associated with a sensitive local path, which may allow attackers to read system files, application configuration, credentials, or source code. "
+                            "Absolute file access is strong evidence because the response looks like it came from a known operating-system path rather than normal application content. "
+                            "The affected feature should stop accepting raw paths from users, use safe file identifiers instead, and run with permissions that cannot read secrets or system files even if path validation fails."
+                        ),
                     }
                 )

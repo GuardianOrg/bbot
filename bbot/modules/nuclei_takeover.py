@@ -12,7 +12,7 @@ class nuclei_takeover(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
     meta = {
-        "description": "Run nuclei takeover templates (-tags takeover) against discovered hostnames",
+        "description": "Check potential subdomain takeovers from stale or unclaimed DNS records",
         "created_date": "2026-02-20",
         "author": "@carlospolop",
     }
@@ -170,7 +170,13 @@ class nuclei_takeover(BaseModule):
                     else:
                         extracted_str = ""
 
-                    description = f'Nuclei takeover match template [{template_id}] name [{name}] at [{matched_at}]'
+                    description = (
+                        f"The hostname matched a subdomain takeover condition [{template_id}] named [{name}] at [{matched_at}]. "
+                        "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+                        "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+                        "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+                        "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record."
+                    )
                     if matcher:
                         description += f" matcher [{matcher}]"
                     if extracted_str:

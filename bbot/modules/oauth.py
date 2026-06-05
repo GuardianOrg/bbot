@@ -64,7 +64,14 @@ class OAUTH(BaseModule):
                     {
                         "title": "OpenID Connect Endpoint",
                         "category": "oauth",
-                        "description": f"OpenID Connect Endpoint (domain: {source_domain}) found at {url}",
+                        "description": (
+                            f"An OpenID Connect discovery endpoint was found for {source_domain} at {url}. "
+                            "This endpoint publishes identity-provider metadata such as issuer details, authorization URLs, token endpoints, and supported authentication flows. "
+                            "The exposure is usually expected for public identity providers, but it should be reviewed to ensure only intended tenants, clients, and grant types are available. "
+                            "OpenID Connect is a login protocol built on OAuth, and discovery metadata acts like a public directory for how applications should authenticate. "
+                            "If the metadata exposes unexpected issuers, weak flows, or token endpoints for unintended domains, attackers may use it to plan password spraying, client abuse, or tenant confusion attacks. "
+                            "Confirm the endpoint belongs to the organization and that authentication policies, MFA, throttling, and application registration controls are correctly enforced."
+                        ),
                         "host": event.host,
                         "url": url,
                         "recommendation": "Review the exposed identity endpoints and ensure token issuance, application registration, and spray protections are configured as expected.",
@@ -101,7 +108,14 @@ class OAUTH(BaseModule):
         for oauth_task in oauth_tasks:
             url = await oauth_task
             if url:
-                description = f"Potentially Sprayable OAUTH Endpoint (domain: {source_domain}) at {url}"
+                description = (
+                    f"A potentially sprayable OAuth token endpoint was found for {source_domain} at {url}. "
+                    "Password-spray attacks target authentication endpoints with a small set of common passwords across many accounts, and weak throttling or lockout controls can allow repeated attempts without immediate detection. "
+                    "Review rate limiting, account lockout, MFA enforcement, and monitoring for this endpoint. "
+                    "For a non-specialist, the risk is that attackers may not need to know one user's password; they can try common passwords across many users and hope a few accounts are weak. "
+                    "Token endpoints are especially attractive because they are designed for automated authentication flows. "
+                    "The endpoint should enforce strong MFA where possible, alert on distributed failed logins, slow repeated attempts, and block legacy grant types that do not support modern protections."
+                )
                 oauth_finding = self.make_event(
                     {
                         "title": "Potentially Sprayable OAUTH Endpoint",

@@ -119,7 +119,14 @@ class bypass403(BaseModule):
                         reported_signature = f"Added Header: {added_header_tuple[0]}: {added_header_tuple[1]}"
                     else:
                         reported_signature = f"Modified URL: {sig[0]} {sig[1]}"
-                    description = f"403 Bypass Reasons: [{','.join(reasons)}] Sig: [{reported_signature}]"
+                    description = (
+                        "The restricted endpoint returned an accessible response after the request was changed, suggesting the access control may depend on fragile URL or header handling. "
+                        "An attacker may be able to reach content that should remain blocked if the same bypass works consistently. "
+                        "A 403 response means the server normally says access is forbidden, but small request differences can sometimes confuse proxies, routing rules, or application authorization checks. "
+                        "This should be validated manually by comparing the original forbidden request with the modified request and confirming whether sensitive content, APIs, or files are exposed. "
+                        "The durable fix is to enforce authorization in the application or central access-control layer, not only through path filters or edge-server rules. "
+                        f"Reasons: [{','.join(reasons)}]; signature: [{reported_signature}]."
+                    )
                     results.add(description)
                     if len(results) > collapse_threshold:
                         return results
@@ -141,7 +148,12 @@ class bypass403(BaseModule):
         if len(results) > collapse_threshold:
             await self.emit_event(
                 {
-                    "description": f"403 Bypass MULTIPLE SIGNATURES (exceeded threshold {str(collapse_threshold)})",
+                    "description": (
+                        f"The restricted endpoint responded to more than {str(collapse_threshold)} bypass variations, which indicates inconsistent authorization or routing behavior around a protected resource. "
+                        "This should be manually validated because a working bypass can expose pages, files, or APIs that were intended to return 403 Forbidden. "
+                        "Multiple successful variations usually means the access rule is brittle or enforced in a layer that does not normalize requests the same way as the application. "
+                        "Even if some responses are false positives, the endpoint should be reviewed carefully and protected with a single consistent authorization decision after URL normalization."
+                    ),
                     "host": str(event.host),
                     "url": event.data,
                 },

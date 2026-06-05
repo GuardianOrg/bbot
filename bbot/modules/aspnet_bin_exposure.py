@@ -60,7 +60,15 @@ class aspnet_bin_exposure(BaseModule):
                                     and "application/x-msdownload" in confirm_result.headers["content-type"]
                                 )
                             ):
-                                description = f"IIS Bin Directory DLL Exposure. Detection Url: [{test_url}]"
+                                description = (
+                                    f"IIS Bin Directory DLL Exposure. Detection Url: [{test_url}]. "
+                                    "The web server is allowing direct download of ASP.NET DLL files from the application bin directory. "
+                                    "An attacker may download compiled application code and inspect routes, business logic, configuration references, and embedded secrets. "
+                                    "This can expose proprietary code and sensitive implementation details that make further attacks easier. "
+                                    "For a non-specialist, DLL files are compiled pieces of the web application that should normally execute on the server, not be downloadable by visitors. "
+                                    "Even when source code is not directly visible, attackers can often decompile these files to recover readable logic. "
+                                    "The web server should block direct access to the bin directory, and exposed assemblies should be treated as leaked application internals."
+                                )
                                 await self.emit_event(
                                     {
                                         "severity": "HIGH",

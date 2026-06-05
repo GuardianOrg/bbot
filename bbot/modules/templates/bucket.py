@@ -96,6 +96,15 @@ class bucket_template(BaseModule):
             description, tags, metadata = await self._check_bucket_open(bucket_name, url)
             if description:
                 finding_tags = set(tags).union(self.provider_tags)
+                description = (
+                    f"{description} "
+                    "A cloud storage bucket or database related to the target appears to be publicly accessible. "
+                    "Unauthenticated users may be able to list, read, or sometimes modify files depending on the bucket permissions. "
+                    "Public storage exposure can leak customer data, internal files, backups, application assets, or secrets, and writable buckets can be abused to host malicious content. "
+                    "For a non-specialist, a storage bucket is a cloud folder that can hold large numbers of files outside the main web application. "
+                    "Access is controlled separately from the website, so a private application can still leak data if the bucket policy is public. "
+                    "Confirm whether public access is intentional, remove anonymous read or write permissions, and review object contents and access logs for sensitive data exposure."
+                )
                 event_data = {"host": event.host, "url": url, "description": description, **metadata}
                 event_data["provider"] = self.provider_slug
                 event_data["resource_type"] = "storage_bucket"

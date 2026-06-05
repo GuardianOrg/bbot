@@ -132,7 +132,6 @@ class github_leak_formatter:
             dedupe_key = f"github-leak-secret:sha256:{leak_fingerprint}"
         else:
             dedupe_key = "github-leak:" + ":".join([repository_url, leak_type, relative_path, str(line or "")])
-        tool_name = getattr(self, "name", "")
         location_parts = []
         if relative_path:
             location_parts.append(relative_path)
@@ -140,12 +139,19 @@ class github_leak_formatter:
             location_parts.append(f"line {line}")
         source_location = ":".join(location_parts)
         source_suffix = f" in {source_location}" if source_location else ""
-        leak_description = f"{tool_name} detected a Git leak of type {leak_type}{source_suffix}."
+        leak_description = f"A Git leak of type {leak_type}{source_suffix} was identified."
         if leak_value:
             leak_description += f" Leaked value: {leak_value}."
         leak_description += (
             " This value may also be exposed in other commits; one confirmed exposure is sufficient to "
             "treat the credential as compromised and rotate or revoke it."
+        )
+        leak_description = (
+            f"{leak_description} "
+            "A credential, token, password, or API key connected to the target was found in source code history. "
+            "Treat it as compromised even if the current branch no longer contains it, because Git history, forks, local clones, CI logs, build artifacts, and external caches may preserve older values. "
+            "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
+            "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration."
         )
         poc_parts = [
             f"Repository: {repository_url}",
@@ -161,7 +167,6 @@ class github_leak_formatter:
             "url": finding_url,
             "location": finding_url,
             "repository_url": repository_url,
-            "tool": tool_name,
             "rule": rule_name,
             "leak_type": leak_type,
             "leakType": leak_type,

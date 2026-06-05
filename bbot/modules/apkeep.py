@@ -205,8 +205,10 @@ class apkeep(BaseModule):
                 "category": "mobile-apk-analysis-failed",
                 "title": f"Mobile APK analysis did not run for {app_id}",
                 "description": (
-                    f'apkeep could not download an APK/XAPK/APKS for "{app_id}", so downstream mobile file analysis '
-                    "modules could not inspect the application package."
+                    f'An APK, XAPK, or APKS package could not be downloaded for "{app_id}", so downstream mobile file analysis modules could not inspect the application package. '
+                    "This is not a vulnerability in the application by itself, but it creates an analysis gap: static mobile checks cannot review the manifest, permissions, embedded URLs, hardcoded secrets, exported components, certificates, or third-party libraries. "
+                    "The package may require store authentication, may be unavailable in the selected region, may have a different package identifier, or may need to be supplied manually. "
+                    "Confirm the package source and rerun analysis with a known-good artifact so mobile risks are not missed."
                 ),
                 "recommendation": (
                     "Confirm the package id and download source, provide any required store credentials, or run the "

@@ -17,7 +17,7 @@ class nuclei(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY", "TECHNOLOGY"]
     flags = ["active", "aggressive", "deadly"]
     meta = {
-        "description": "Fast and customisable vulnerability scanner",
+        "description": "Check assets against vulnerability, exposure, and misconfiguration templates",
         "created_date": "2022-03-12",
         "author": "@TheTechromancer",
     }
@@ -484,11 +484,29 @@ class nuclei(BaseModule):
             if len(extracted_results) > 0:
                 description_string += f" Extracted Data: [{','.join(extracted_results)}]"
 
+            description = (
+                f"{result.get('description') or description_string} "
+                "The asset matched a vulnerability, exposure, or misconfiguration template. "
+                "Attackers may be able to reproduce the same condition using public techniques if the match is confirmed. "
+                "Depending on the template, this can lead to data exposure, authentication bypass, remote code execution, service compromise, or useful reconnaissance for further attacks. "
+                "For a non-specialist, this means the response looked like a known insecure condition, but the exact risk depends on the matched service and whether the evidence is reachable without special access. "
+                "Validate the finding by reviewing the affected URL or host, confirming the software and configuration, and applying the recommended fix or access restriction before assuming the asset is safe."
+            )
+            category = ",".join(tags) if tags else "template-match"
+            recommendation = result.get("recommendation")
+
+            if self.is_takeover_result(result):
+                category = "subdomain-takeover"
+                description = self.takeover_description(result, matched_at or url)
+                recommendation = (
+                    "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over."
+                )
+
             payload = {
-                "title": f"Nuclei: {name}",
-                "category": ",".join(tags) if tags else "nuclei",
-                "description": result.get("description") or description_string,
-                "recommendation": result.get("recommendation"),
+                "title": name,
+                "category": category,
+                "description": description,
+                "recommendation": recommendation,
                 "poc": result.get("poc"),
             }
             if parent_event.host:
@@ -533,6 +551,32 @@ class nuclei(BaseModule):
         self.verbose(f"Failed to correlate nuclei result for {host}. Possible parent events:")
         for event in events:
             self.verbose(f" - {event.data}")
+
+    def is_takeover_result(self, result):
+        tags = result.get("tags", [])
+        if isinstance(tags, str):
+            tags = [tag.strip() for tag in tags.split(",")]
+        tags = {str(tag).strip().lower() for tag in tags if str(tag).strip()}
+        template = str(result.get("template", "") or "").lower()
+        name = str(result.get("name", "") or "").lower()
+        return "takeover" in tags or "subdomain-takeover" in tags or "/takeovers/" in template or "takeover" in name
+
+    def takeover_description(self, result, matched_at):
+        template = str(result.get("template", "") or "unknown").strip()
+        name = str(result.get("name", "") or "unknown").strip()
+        matched_at = str(matched_at or "").strip()
+        extracted_results = result.get("extracted_results", [])
+        description = (
+            f"The hostname matched a subdomain takeover condition [{template}] named [{name}] at [{matched_at}]. "
+            "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+            "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+            "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+            "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record."
+        )
+        if extracted_results:
+            extracted = ", ".join(str(x) for x in extracted_results[:8])
+            description += f" Evidence extracted from the response: [{extracted}]."
+        return description
 
     async def execute_nuclei(self, nuclei_input, include_mobile_templates=False):
         command = [

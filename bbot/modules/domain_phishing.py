@@ -266,6 +266,14 @@ class domain_phishing(BaseModule):
             )
             if reasons:
                 description += f" Suspicious signals: {'; '.join(reasons)}."
+            description = (
+                f"{description} "
+                "This domain visually or linguistically resembles a protected domain and may be used to impersonate the brand. "
+                "An attacker could use it for phishing, fake login pages, malicious email, wallet-draining pages, or misleading support flows. "
+                "Users, partners, or employees may trust the fake domain, leading to stolen credentials, financial loss, malware delivery, reputational damage, and incident-response costs. "
+                "Look-alike domains are especially risky because the attacker does not need to compromise the real organization-owned domain; they only need a name that victims can mistake for it. "
+                "The domain should be reviewed for active content, mail records, redirects, certificate issuance, and brand-abuse indicators, then monitored or escalated for takedown when it is clearly malicious."
+            )
 
             payload = {
                 "host": candidate_domain,

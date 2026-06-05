@@ -119,7 +119,14 @@ class ntlm(BaseModule):
                     {
                         "host": str(event.host),
                         "url": url,
-                        "description": f"NTLM AUTH: {ntlm_resp_decoded}",
+                        "description": (
+                            "The endpoint advertises NTLM authentication and exposed NTLM challenge metadata. "
+                            "NTLM can increase relay and credential-capture risk when it is exposed on web endpoints, especially without channel binding, signing, or strict network controls. "
+                            "In practical terms, NTLM is an older Microsoft authentication mechanism that can be abused in some network positions to trick systems into authenticating elsewhere or to relay authentication attempts to another service. "
+                            "The endpoint is not automatically compromised, but exposing NTLM on internet-facing or broadly reachable web services increases the attack surface and should be reviewed against business need. "
+                            "Prefer modern authentication methods, restrict access to trusted networks, and ensure relay protections are enabled where NTLM cannot be removed. "
+                            f"Decoded NTLM metadata: {ntlm_resp_decoded}."
+                        ),
                     },
                     "FINDING",
                     parent=event,

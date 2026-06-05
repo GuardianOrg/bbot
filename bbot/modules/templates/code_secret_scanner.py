@@ -139,9 +139,17 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
             return None
 
         if source_description:
-            description = f"{description} Source description: [{source_description}]"
+            description = f"{description} Source context: [{source_description}]."
 
         if description:
+            if len(description) < 500:
+                description = (
+                    f"{description} "
+                    "A credential, token, password, or API key connected to the target was found in code or a downloaded artifact. "
+                    "Treat it as compromised even if the current file no longer contains it, because source history, forks, local clones, CI logs, build artifacts, and external caches may preserve older values. "
+                    "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
+                    "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration."
+                )
             data["description"] = description
         if host:
             data["host"] = host

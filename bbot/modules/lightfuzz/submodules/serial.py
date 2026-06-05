@@ -166,7 +166,12 @@ class serial(BaseLightfuzz):
                     self.results.append(
                         {
                             "type": "FINDING",
-                            "description": f"POSSIBLE Unsafe Deserialization. {self.metadata()} Technique: [Error Resolution (Baseline: [{payload_baseline.baseline.status_code}] {baseline_title} -> Probe: [{status_code}] {probe_title})] Serialization Payload: [{type}]",
+                            "description": (
+                                f"Possible unsafe deserialization. {self.metadata()} Technique: [Error Resolution (Baseline: [{payload_baseline.baseline.status_code}] {baseline_title} -> Probe: [{status_code}] {probe_title})] Serialization Payload: [{type}]. "
+                                "The application response changed when serialized input was altered, suggesting user-controlled serialized data may be parsed server-side. If confirmed, attackers may be able to tamper with objects, bypass logic, or execute code in vulnerable frameworks. "
+                                "Serialized data is a packaged representation of an object or application state. It is dangerous when clients can modify it and the server trusts it during reconstruction. "
+                                "Use signed and encrypted state where client storage is unavoidable, avoid deserializing untrusted formats, and replace native object deserialization with simple data formats and explicit validation."
+                            ),
                         }
                     )
                 # if the first case doesn't match, we check for a telltale error string like "java.io.optionaldataexception" in the response.
@@ -183,7 +188,13 @@ class serial(BaseLightfuzz):
                             self.results.append(
                                 {
                                     "type": "FINDING",
-                                    "description": f"POSSIBLE Unsafe Deserialization. {self.metadata()} Technique: [Differential Error Analysis] Error-String: [{serialization_error}] Payload: [{type}]",
+                                    "description": (
+                                        f"Possible unsafe deserialization. {self.metadata()} Technique: [Differential Error Analysis] Error-String: [{serialization_error}] Payload: [{type}]. "
+                                        "The application exposed a serialization-specific error after the payload was modified. If the serialized data is trusted by server-side code, attackers may be able to manipulate application state or reach code execution paths. "
+                                        "The error suggests the server recognized the payload as serialized data and tried to parse it. "
+                                        "That parsing step should never rely on untrusted client input without integrity protection. "
+                                        "Review the framework and libraries involved, disable dangerous deserialization features, and ensure client-controlled state cannot instantiate arbitrary classes or override server-side decisions."
+                                    ),
                                 }
                             )
                             break

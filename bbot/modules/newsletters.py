@@ -50,7 +50,12 @@ class newsletters(BaseModule):
                     return
                 result = self.find_type(soup)
                 if result:
-                    description = "Found a Newsletter Submission Form that could be used for email bombing attacks"
+                    description = (
+                        "A newsletter subscription form was found that appears to accept email submissions. "
+                        "If the form lacks rate limiting, CAPTCHA, confirmation, or abuse controls, attackers can submit victim addresses repeatedly and use the service for email bombing or harassment. "
+                        "This is not always a vulnerability, because many newsletter forms are intentionally public, but public forms become abuse paths when they send email without verifying that the recipient requested it. "
+                        "The form should require double opt-in or another confirmation step, limit repeated submissions, prevent automated abuse, and avoid revealing whether an address is already subscribed."
+                    )
                     data = {"host": str(_event.host), "description": description, "url": _event.data["url"]}
                     await self.emit_event(
                         data,

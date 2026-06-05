@@ -220,6 +220,14 @@ class generic_ssrf(BaseModule):
                     self.debug(f"Found triggering parameter: {triggering_param}")
                     description += f" [Triggering Parameter: {triggering_param}]"
                 description += f" [{protocol}] Echoed Response: {matched_echoed_response}"
+                description = (
+                    f"{description}. "
+                    "The application made an outbound request that was triggered by externally supplied input. "
+                    "An attacker may be able to force the server to request internal URLs, cloud metadata services, or attacker-controlled endpoints. "
+                    "Confirmed SSRF or XXE can expose internal systems, leak credentials, bypass network boundaries, or become a path toward remote code execution. "
+                    "For a non-specialist, this means the vulnerable application may be acting like a browser or network client on behalf of the attacker. Because the request comes from the server, it may reach private addresses and trusted services that are not reachable from the public internet. "
+                    "The affected input should be validated with strict allow-lists, internal network destinations should be blocked, and cloud metadata endpoints should be protected from server-side requests."
+                )
 
                 self.debug(f"Emitting event with description: {description}")  # Debug the final description
 

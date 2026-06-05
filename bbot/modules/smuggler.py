@@ -38,7 +38,14 @@ class smuggler(BaseModule):
                 if "Issue Found" in f:
                     technique = f.split(":")[0].rstrip()
                     text = f.split(":")[1].split("-")[0].strip()
-                    description = f"[HTTP SMUGGLER] [{text}] Technique: {technique}"
+                    description = (
+                        f"The endpoint showed signs of HTTP request smuggling using the {technique} technique. "
+                        "Request smuggling can cause front-end and back-end servers to disagree about request boundaries, potentially allowing cache poisoning, authentication bypass, request hijacking, or access to internal functionality. "
+                        "For a non-specialist, the issue happens when one server thinks a request ends in one place while another server thinks it continues. "
+                        "That mismatch can let an attacker hide a second request inside the first one and make the backend process it as if it came from another user or trusted component. "
+                        "The affected proxy, load balancer, and application server should be patched and configured to reject ambiguous Content-Length or Transfer-Encoding combinations consistently. "
+                        f"Observed evidence: [{text}]."
+                    )
                     await self.emit_event(
                         {"host": str(event.host), "url": event.data, "description": description},
                         "FINDING",

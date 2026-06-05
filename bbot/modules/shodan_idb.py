@@ -622,8 +622,16 @@ class shodan_idb(BaseModule):
         return "MEDIUM"
 
     def vulnerability_description(self, vuln_id, summary, query_host, source):
-        prefix = f"{source} reported {vuln_id} for {query_host}."
-        return f"{prefix} {summary}" if summary else prefix
+        prefix = f"The exposed host or service at {query_host} is associated with {vuln_id}."
+        description = f"{prefix} {summary}" if summary else prefix
+        return (
+            f"{description} "
+            "A public exposure intelligence source associated the host or service with a known vulnerability. "
+            "Attackers may be able to use public exploit techniques if the exposed service and version are truly affected. "
+            "Depending on the CVE, exploitation can lead to data exposure, authentication bypass, remote code execution, service compromise, or useful reconnaissance for further attacks. "
+            "This should be treated as a validation task rather than blind proof of compromise: confirm the listening service, product, version, and exposure path, then compare them with the vulnerability details. "
+            "If the match is correct, patch or disable the affected service, restrict access with firewall rules or VPN controls, and review logs for exploitation attempts around the period the service was exposed."
+        )
 
     def vulnerability_evidence(self, vuln_id, source, cvss):
         evidence = f"{source} listed {vuln_id} on the scanned host"

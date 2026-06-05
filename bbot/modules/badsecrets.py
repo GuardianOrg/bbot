@@ -89,7 +89,14 @@ class badsecrets(BaseModule):
                     if r["type"] == "SecretFound":
                         data = {
                             "severity": r["description"]["severity"],
-                            "description": f"Known Secret Found. Secret Type: [{r['description']['secret']}] Secret: [{r['secret']}] Product Type: [{r['description']['product']}] Product: [{self.helpers.truncate_string(r['product'], 2000)}] Detecting Module: [{r['detecting_module']}] Details: [{r['details']}]",
+                            "description": (
+                                f"A known {r['description']['secret']} secret was exposed for {r['description']['product']}. "
+                                "If this value is accepted by the application or related infrastructure, it may allow authentication bypass, session forgery, data access, or impersonation depending on how the product uses the secret. "
+                                "Secrets should be treated like passwords: once they are visible to an attacker, it is not enough to hide them again because they may already have been copied. "
+                                "The affected value should be revoked or rotated, dependent sessions or tokens should be invalidated where possible, and logs should be reviewed for use of the exposed value. "
+                                "The code or configuration path that exposed it should also be fixed so the replacement secret is not leaked again. "
+                                f"Detected secret [{r['secret']}]; product [{self.helpers.truncate_string(r['product'], 2000)}]; details [{r['details']}]."
+                            ),
                             "url": event.data["url"],
                             "host": str(event.host),
                         }
@@ -111,7 +118,14 @@ class badsecrets(BaseModule):
                             )
                         else:
                             data = {
-                                "description": f"Cryptographic Product identified. Product Type: [{r['description']['product']}] Product: [{self.helpers.truncate_string(r['product'], 2000)}] Detecting Module: [{r['detecting_module']}]",
+                                "description": (
+                                    f"The response contains a recognizable {r['description']['product']} cryptographic artifact. "
+                                    "This is not necessarily vulnerable by itself, but it identifies security-sensitive application state that should use strong keys, current algorithms, and product-specific hardening. "
+                                    "For a non-specialist, this means the application is exposing data that appears to be protected, signed, encrypted, or otherwise security-related. "
+                                    "That data may be safe when configured correctly, but weak keys, old algorithms, predictable values, or missing integrity checks can turn it into a bypass or tampering risk. "
+                                    "Review the product-specific guidance, confirm the secret material is private, and avoid trusting client-controlled values without server-side validation. "
+                                    f"Observed product [{self.helpers.truncate_string(r['product'], 2000)}]."
+                                ),
                                 "url": event.data["url"],
                                 "host": str(event.host),
                             }

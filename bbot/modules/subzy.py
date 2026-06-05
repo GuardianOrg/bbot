@@ -9,7 +9,7 @@ class subzy(BaseModule):
     produced_events = ["VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
     meta = {
-        "description": "Check potential subdomain takeovers with subzy",
+        "description": "Check potential subdomain takeovers from stale or unclaimed DNS records",
         "created_date": "2026-02-20",
         "author": "@carlospolop",
     }
@@ -128,11 +128,17 @@ class subzy(BaseModule):
                 engine = result.get("engine") or result.get("service") or "subzy"
                 discussion = result.get("discussion", "")
                 documentation = result.get("documentation", "")
-                description = f"Subzy reported potential takeover using [{engine}]"
+                description = (
+                    f"{host} may be vulnerable to subdomain takeover because it matches the {engine} service fingerprint. "
+                    "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+                    "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+                    "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+                    "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record."
+                )
                 if discussion:
-                    description += f" discussion [{discussion}]"
+                    description += f" Discussion: [{discussion}]."
                 if documentation:
-                    description += f" documentation [{documentation}]"
+                    description += f" Documentation: [{documentation}]."
                 poc_parts = [f"Engine: {engine}"]
                 if discussion:
                     poc_parts.append(f"Discussion: {discussion}")

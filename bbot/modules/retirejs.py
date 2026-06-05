@@ -189,7 +189,14 @@ class retirejs(BaseModule):
                                     description_parts.append(f"Affected versions: [< {below_version}]")
                                 elif at_or_above:
                                     description_parts.append(f"Affected versions: [>= {at_or_above}]")
-                                description = " ".join(description_parts)
+                                description = (
+                                    f"{' '.join(description_parts)} "
+                                    "A JavaScript library served by the application is known to be affected by one or more public vulnerabilities. "
+                                    "Attackers may exploit the vulnerable library in users' browsers if the affected code path is reachable. "
+                                    "Depending on the CVE, this can lead to cross-site scripting, account actions performed in a victim browser, data theft, or client-side compromise. "
+                                    "JavaScript libraries run inside the user's browser, so the impact is often tied to what the vulnerable page can access, such as session cookies, page content, forms, tokens, or privileged application actions. "
+                                    "The component should be upgraded to a fixed version, removed if unused, or isolated so vulnerable code paths are not reachable by untrusted input."
+                                )
                                 data = {
                                     "description": description,
                                     "severity": severity,

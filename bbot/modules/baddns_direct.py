@@ -10,7 +10,7 @@ class baddns_direct(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-enum", "baddns", "cloud-enum"]
     meta = {
-        "description": "Check for unusual subdomain / service takeover edge cases that require direct detection",
+        "description": "Check potential subdomain takeovers from stale or unclaimed DNS records",
         "created_date": "2024-01-29",
         "author": "@liquidsec",
     }
@@ -57,7 +57,13 @@ class baddns_direct(BaseModule):
                     r_dict = r.to_dict()
 
                     data = {
-                        "description": f"Possible [{r_dict['signature']}] via direct BadDNS analysis. Indicator: [{r_dict['indicator']}] Trigger: [{r_dict['trigger']}] baddns Module: [{r_dict['module']}]",
+                        "description": (
+                            f"The hostname shows a possible {r_dict['signature']} takeover condition. Indicator: [{r_dict['indicator']}]. Trigger: [{r_dict['trigger']}]. "
+                            "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
+                            "The attacker does not need to compromise DNS or the main application; they may only need to claim the missing provider-side resource. "
+                            "If confirmed, they can publish content under a trusted hostname, enabling phishing, malicious redirects, fake login pages, cookie or token exposure, content spoofing, and reputational damage. "
+                            "Reclaim the external resource, complete the provider configuration, or remove the stale DNS record."
+                        ),
                         "host": str(event.host),
                     }
 

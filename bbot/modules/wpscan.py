@@ -7,7 +7,7 @@ class wpscan(BaseModule):
     produced_events = ["URL_UNVERIFIED", "FINDING", "VULNERABILITY", "TECHNOLOGY"]
     flags = ["active", "aggressive"]
     meta = {
-        "description": "Wordpress security scanner. Highly recommended to use an API key for better results.",
+        "description": "Check WordPress sites for vulnerable plugins, themes, and core versions. Highly recommended to use an API key for better results.",
         "created_date": "2024-05-29",
         "author": "@domwhewell-sage",
     }
@@ -276,7 +276,14 @@ class wpscan(BaseModule):
                 string.append(f"References: [{', '.join(urls)}]")
             if youtube_urls:
                 string.append(f"Youtube Links: [{', '.join(youtube_urls)}]")
-        return " ".join(string)
+        return (
+            f"{' '.join(string)} "
+            "A WordPress core, plugin, theme, or configuration issue was detected. "
+            "Attackers may exploit the affected component to access admin functions, run code, read data, or deface the site depending on the vulnerability. "
+            "A successful WordPress compromise can affect website availability, user data, SEO reputation, and any systems reachable from the web server. "
+            "For a non-specialist, the key point is that WordPress sites are assembled from the core platform plus many plugins and themes, and a weakness in any one of those pieces can expose the whole site. "
+            "The affected component should be updated, removed, or replaced, and the site should be checked for signs of unauthorized admin users, modified files, malicious redirects, or injected content."
+        )
 
     def get_base_url(self, event):
         base_url = event.data.get("url", "")

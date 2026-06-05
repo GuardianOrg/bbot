@@ -109,7 +109,12 @@ class deadfinder(BaseModule):
                         "host": str(source_event.host),
                         "url": str(source_event.data),
                         "dead_link": dead_link,
-                        "description": f"Dead link found while scanning {target_url}: {dead_link}",
+                        "description": (
+                            f"A dead external link was found on {target_url}: {dead_link}. "
+                            "Broken links can create trust and user-experience issues, and in some cases may point to expired domains or abandoned services that could be re-registered for phishing or content injection. "
+                            "The risk depends on what the link originally represented. A link to documentation may only be confusing, while a link to a script, download, support page, payment flow, or trusted partner can become a stronger abuse path if someone else gains control of the destination. "
+                            "The owner should remove the link, replace it with a current destination, or confirm that the abandoned destination cannot be claimed by an attacker."
+                        ),
                     },
                     "VULNERABILITY",
                     parent=source_event,

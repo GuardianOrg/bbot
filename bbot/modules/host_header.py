@@ -49,7 +49,13 @@ class host_header(BaseModule):
                     {
                         "host": str(matched_event.host),
                         "url": matched_event.data["url"],
-                        "description": f"Spoofed Host header ({matched_technique}) [{protocol}] interaction",
+                        "description": (
+                            f"Spoofed Host header using the {matched_technique} technique triggered an out-of-band {protocol} interaction. "
+                            "The application or an upstream proxy appears to trust attacker-controlled host information when building requests, links, redirects, or backend calls. "
+                            "This can enable password-reset poisoning, cache poisoning, phishing links on a trusted domain, or server-side requests to attacker-controlled infrastructure. "
+                            "The Host header is the part of an HTTP request that tells a server which hostname the client wanted. If an application trusts that value without validation, an attacker can make the application generate links, callbacks, or internal requests using an attacker-chosen domain. "
+                            "The application should use a fixed allow-list of expected hostnames, ignore override headers from untrusted clients, and configure proxies so only one trusted layer decides the canonical host."
+                        ),
                     },
                     "FINDING",
                     matched_event,
@@ -136,7 +142,12 @@ class host_header(BaseModule):
 
         split_output = output.split("\n")
         if " 4" in split_output:
-            description = "Duplicate Host Header Tolerated"
+            description = (
+                "The application tolerated duplicate Host headers. "
+                "Accepting multiple Host values can create inconsistent routing between proxies, caches, and the application, and may become exploitable when one layer trusts a different Host value than another. "
+                "For a non-specialist, this means the front door and the application may disagree about which website a request is for. Attackers can use that disagreement to poison caches, influence redirects, or bypass host-based routing and security checks. "
+                "Requests with duplicate Host headers should be rejected at the edge, and the application should only trust a single normalized hostname supplied by a trusted proxy or server configuration."
+            )
             await self.emit_event(
                 {
                     "host": str(event.host),
@@ -178,7 +189,13 @@ class host_header(BaseModule):
 
         # emit all the domain reflections we found
         for dr in domain_reflections:
-            description = f"Possible Host header injection. Injection technique: {dr}"
+            description = (
+                f"Possible Host header injection using the {dr} technique. "
+                "The response reflected or used attacker-controlled host input, which may let an attacker generate trusted-looking links, poison caches, influence redirects, or abuse password-reset flows. "
+                "This happens when an application builds absolute URLs, emails, redirects, or backend requests from the incoming Host value instead of a configured public hostname. "
+                "The finding should be validated by checking whether the injected host appears in security-sensitive places such as password reset links, Location headers, canonical links, or cached pages. "
+                "Use an allow-list of expected domains and avoid trusting host override headers from the public internet."
+            )
             await self.emit_event(
                 {
                     "host": str(event.host),

@@ -230,7 +230,13 @@ class iis_shortnames(BaseModule):
                 method, affirmative_status_code, technique = detection
                 technique_strings.append(f"{method} ({technique})")
 
-            description = f"IIS Shortname Vulnerability Detected. Potentially Vulnerable Method/Techniques: [{','.join(technique_strings)}]"
+            description = (
+                "The IIS server appears to expose 8.3 short filename behavior, which can allow attackers to enumerate hidden files and directories even when directory listing is disabled. "
+                "This information can reveal application structure, backup files, administrative paths, or deployment artifacts that would otherwise be difficult to guess. "
+                "IIS shortnames are abbreviated aliases that older Windows filesystems can create for long file and directory names. When the web server leaks whether a guessed shortname exists, an attacker can slowly reconstruct real paths and use them for targeted file discovery. "
+                "The issue should be remediated by disabling 8.3 name generation where possible, removing existing shortnames for sensitive paths, and ensuring backup or administrative files are not present in the web root. "
+                f"Detected method and technique combinations: [{','.join(technique_strings)}]."
+            )
             await self.emit_event(
                 {"severity": "LOW", "host": str(event.host), "url": normalized_url, "description": description},
                 "VULNERABILITY",
@@ -337,7 +343,12 @@ class iis_shortnames(BaseModule):
                                     {
                                         "host": str(event.host),
                                         "url": event.data,
-                                        "description": f"Possible backup file (zip) in web root: {normalized_url}{url_hint}",
+                                        "description": (
+                                            f"A possible ZIP backup file was discovered in the web root at {normalized_url}{url_hint}. "
+                                            "Backup archives exposed through the web server can contain source code, configuration files, credentials, database dumps, or other sensitive operational data. "
+                                            "Even if the archive is only a copy created during maintenance, attackers may download it and inspect the application offline for secrets, hidden endpoints, old vulnerable code, or infrastructure details. "
+                                            "The file should be removed from the public document root, access logs should be checked for prior downloads, and any credentials or keys that may be inside the archive should be rotated."
+                                        ),
                                     },
                                     "FINDING",
                                     event,

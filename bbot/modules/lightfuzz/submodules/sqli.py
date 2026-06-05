@@ -100,7 +100,13 @@ class sqli(BaseLightfuzz):
                         self.results.append(
                             {
                                 "type": "FINDING",
-                                "description": f"Possible SQL Injection. {self.metadata()} Detection Method: [SQL Error Detection] Detected String: [{sqli_error_string}]",
+                                "description": (
+                                    f"Possible SQL injection. {self.metadata()} Detection Method: [SQL Error Detection] Detected String: [{sqli_error_string}]. "
+                                    "The application returned a database error after SQL syntax was injected into the parameter. If confirmed, an attacker may be able to read or modify database data and bypass application authorization checks. "
+                                    "SQL injection occurs when user input is treated as part of a database query instead of as plain data. "
+                                    "Error messages are useful evidence because they show the database parser reacted to the injected syntax. "
+                                    "The affected query should use parameterized statements or a safe ORM, avoid string concatenation, and return generic errors that do not expose database internals."
+                                ),
                             }
                         )
                         break
@@ -120,7 +126,12 @@ class sqli(BaseLightfuzz):
                         self.results.append(
                             {
                                 "type": "FINDING",
-                                "description": f"Possible SQL Injection. {self.metadata()} Detection Method: [Single Quote/Two Single Quote, Code Change ({http_compare.baseline.status_code}->{single_quote[3].status_code}->{double_single_quote[3].status_code})]",
+                                "description": (
+                                    f"Possible SQL injection. {self.metadata()} Detection Method: [Single Quote/Two Single Quote, Code Change ({http_compare.baseline.status_code}->{single_quote[3].status_code}->{double_single_quote[3].status_code})]. "
+                                    "The application responded differently to SQL quote probes, which suggests input may be interpreted inside a database query. If confirmed, attackers may be able to extract, modify, or delete database records. "
+                                    "For a non-specialist, the single quote is a common way to test whether input can break out of a text value inside SQL. A different response after quote changes can indicate the database is seeing attacker-supplied syntax. "
+                                    "Validate this carefully, then fix the query with parameterized statements, strict input handling, and least-privilege database accounts."
+                                ),
                             }
                         )
             else:
@@ -180,7 +191,12 @@ class sqli(BaseLightfuzz):
                     self.results.append(
                         {
                             "type": "FINDING",
-                            "description": f"Possible Blind SQL Injection. {self.metadata()} Detection Method: [Delay Probe ({p})]",
+                            "description": (
+                                f"Possible blind SQL injection. {self.metadata()} Detection Method: [Delay Probe ({p})]. "
+                                "The response timing changed after a database delay payload, suggesting the parameter may influence SQL execution even when errors are not visible. If confirmed, attackers can extract data through timing or boolean inference. "
+                                "Blind SQL injection is harder to see because the page may not print database errors or data directly; instead, the attacker asks yes-or-no questions and observes delays or response differences. "
+                                "The affected code should be reviewed for dynamic SQL, fixed with parameterized queries, and tested to confirm the delay payload no longer changes server behavior."
+                            ),
                         }
                     )
 

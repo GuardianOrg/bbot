@@ -72,7 +72,12 @@ class host_reputation(BaseModule):
                 "severity": "HIGH" if malicious else "INFO",
                 "title": f"Host reputation: {host} is {verdict}",
                 "category": "host-reputation",
-                "description": f"Reputation checks marked {host} as {verdict} with risk score {risk_score}.",
+                "description": (
+                    f"Reputation sources marked {host} as {verdict} with risk score {risk_score}. "
+                    "A malicious reputation result can indicate malware hosting, abuse reports, suspicious infrastructure, or prior compromise, and should be validated before trusting traffic from or to this host. "
+                    "Reputation data is not proof that the current system is compromised, because old incidents, shared hosting, recycled IP addresses, or third-party infrastructure can influence the result. "
+                    "The host should still be reviewed carefully: confirm ownership, inspect recent DNS and hosting changes, check web and network logs for abuse, and decide whether traffic should be blocked, monitored, or escalated for incident response."
+                ),
                 "kind": "ip" if is_ip else "domain",
                 "risk_score": risk_score,
                 "malicious": malicious,

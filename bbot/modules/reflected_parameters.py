@@ -18,8 +18,10 @@ class reflected_parameters(BaseModule):
         if reflection_detected:
             param_type = event.data.get("type", "UNKNOWN")
             description = (
-                f"[{param_type}] Parameter value reflected in response body. Name: [{event.data['name']}] "
-                f"Source Module: [{str(event.module)}]"
+                f"[{param_type}] Parameter value reflected in response body. Name: [{event.data['name']}]. "
+                "The application returned user-controlled input in the HTTP response. Reflection is not automatically a vulnerability, but it is an important prerequisite for issues such as reflected cross-site scripting, HTML injection, cache poisoning, or data leakage when output encoding is missing. "
+                "The parameter should be tested in the exact response context where it appears, such as HTML text, attributes, JavaScript, JSON, or headers. "
+                "Use context-aware output encoding and avoid reflecting unnecessary request values."
             )
             if event.data.get("original_value"):
                 description += (

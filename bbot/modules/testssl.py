@@ -10,7 +10,7 @@ class testssl(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "slow", "web-thorough"]
     meta = {
-        "description": "Run testssl.sh against HTTPS URLs and emit TLS/SSL issues",
+        "description": "Check HTTPS URLs and emit TLS/SSL configuration issues",
         "created_date": "2026-05-07",
         "author": "@carlospolop + @codex",
     }
@@ -254,7 +254,14 @@ class testssl(BaseModule):
             "id": item_id,
             "title": title,
             "severity": severity,
-            "description": finding,
+            "description": (
+                f"{finding} "
+                "The HTTPS service has a TLS/SSL configuration weakness or certificate issue. "
+                "Attackers may be able to downgrade connections, exploit obsolete protocol or cipher support, intercept traffic in some conditions, or cause clients to distrust the service. "
+                "The practical impact ranges from compliance findings to loss of confidentiality or integrity for user traffic, depending on the exact TLS issue and client population. "
+                "TLS is the encryption layer behind HTTPS; when it is outdated or misconfigured, users may still see a website, but the connection may be weaker than expected or fail trust checks. "
+                "Review the specific evidence, remove obsolete protocols and ciphers, install valid certificate chains, and confirm that legacy client support is not being prioritized over protecting current users."
+            ),
             "evidence": evidence,
             "recommendation": self.RECOMMENDATIONS.get(item_id, f"Review TLS configuration for {item_id}."),
             "cwe": cwe or None,

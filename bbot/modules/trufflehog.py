@@ -11,7 +11,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
-        "description": "TruffleHog is a tool for finding credentials",
+        "description": "Find exposed credentials, tokens, passwords, and API keys in source code history",
         "created_date": "2024-03-12",
         "author": "@domwhewell-sage",
     }
@@ -167,20 +167,27 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             if data is None:
                 verified_str = "Verified" if verified else "Possible"
                 data = {
-                    "description": f"{verified_str} Secret Found. Detector Type: [{detector_name}] Decoder Type: [{decoder_name}] Details: [{source_metadata}]",
+                    "description": (
+                        f"{verified_str} secret material matched the {detector_name} secret pattern. "
+                        "A credential, token, password, or API key connected to the target was found in source code history. "
+                        "Treat it as compromised even if the current branch no longer contains it, because Git history, forks, local clones, CI logs, build artifacts, and external caches may preserve older values. "
+                        "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
+                        "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration. "
+                        f"Decoder [{decoder_name}]; details [{source_metadata}]."
+                    ),
                 }
                 if host:
                     data["host"] = host
                 if verified:
                     data["severity"] = "High"
                 if description:
-                    data["description"] += f" Description: [{description}]"
+                    data["description"] += f" Additional detail: [{description}]."
                 if raw_result:
-                    data["description"] += f" Raw result: [{raw_result}]"
+                    data["description"] += f" Raw result: [{raw_result}]."
                     data["secretValue"] = raw_result
                     data["secret_value"] = raw_result
                 if rawv2_result:
-                    data["description"] += f" RawV2 result: [{rawv2_result}]"
+                    data["description"] += f" Raw V2 result: [{rawv2_result}]."
             await self.emit_event(
                 data,
                 "FINDING" if data.get("force_finding") else ("VULNERABILITY" if verified else "FINDING"),

@@ -77,7 +77,13 @@ class url_manipulation(BaseModule):
                         if str(subject_response.status_code).startswith("2"):
                             if "body" in reasons:
                                 reported_signature = f"Modified URL: {sig[1]}"
-                                description = f"Url Manipulation: [{','.join(reasons)}] Sig: [{reported_signature}]"
+                                description = (
+                                    "The application returned a successful response after the URL was manipulated, which suggests that routing or parsing behavior may differ from the intended canonical path. "
+                                    "This can sometimes expose alternate handlers, bypass filters, or reach resources that normal requests cannot access. "
+                                    "For a non-specialist, the concern is that the web server, proxy, framework, and application may not all interpret the same URL in exactly the same way. Attackers look for those differences to slip past access rules, cache controls, redirects, or security filters. "
+                                    "This finding should be manually validated by comparing the normal request and the modified request, confirming whether protected content is actually exposed, and fixing inconsistent normalization at the edge or application router. "
+                                    f"Reasons: [{','.join(reasons)}]; signature: [{reported_signature}]."
+                                )
                                 await self.emit_event(
                                     {"description": description, "host": str(event.host), "url": event.data},
                                     "FINDING",

@@ -33,7 +33,12 @@ class ssti(BaseLightfuzz):
                 self.results.append(
                     {
                         "type": "FINDING",
-                        "description": f"POSSIBLE Server-side Template Injection. {self.metadata()} Detection Method: [Integer Multiplication] Payload: [{probe_value}]",
+                        "description": (
+                            f"Possible server-side template injection. {self.metadata()} Detection Method: [Integer Multiplication] Payload: [{probe_value}]. "
+                            "The server appears to evaluate template syntax supplied through user input. If confirmed, an attacker may be able to read application data, access server-side objects, or execute code depending on the template engine. "
+                            "Templates are normally used by developers to combine trusted page layouts with data. When user input is treated as template code, the attacker may gain access to variables, helper functions, files, or framework internals. "
+                            "The affected feature should treat user input as plain text, escape template delimiters, avoid rendering user-controlled templates, and restrict template engine capabilities where possible."
+                        ),
                     }
                 )
                 break

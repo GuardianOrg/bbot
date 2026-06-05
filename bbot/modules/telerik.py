@@ -240,7 +240,14 @@ class telerik(BaseModule):
                             elif "Padding is invalid and cannot be removed" in probe_response.text:
                                 version = "<= 2019 (Either Pre-2017 (vulnerable), or 2017-2019 w/ Encrypt-Then-Mac)"
 
-                    description = f"Telerik RAU AXD Handler detected. Verbose Errors Enabled: [{str(verbose_errors)}] Version Guess: [{version}]"
+                    description = (
+                        f"Telerik RAU AXD Handler detected. Verbose Errors Enabled: [{str(verbose_errors)}] Version Guess: [{version}]. "
+                        "The application exposes a Telerik Remote Async Upload handler, which has been associated with serious Telerik UI vulnerabilities when outdated or misconfigured. "
+                        "An attacker may use exposed Telerik handlers to test for vulnerable versions, abuse verbose errors, or attempt known upload and cryptographic attacks. "
+                        "If the handler is vulnerable, exploitation can lead to file upload abuse, information disclosure, remote code execution, or full web application compromise. "
+                        "For a non-specialist, this endpoint belongs to a third-party web component used by many ASP.NET applications. Older versions have had high-impact flaws, so simply exposing the handler gives attackers a clear target to fingerprint. "
+                        "Confirm the exact Telerik version, disable unused handlers, turn off verbose errors, and patch to a supported version."
+                    )
                     await self.emit_event(
                         {"host": str(event.host), "url": f"{base_url}{webresource}", "description": description},
                         "FINDING",
@@ -269,7 +276,14 @@ class telerik(BaseModule):
                                     command.append(self.scan.http_proxy)
 
                                 output = await self.run_process(command)
-                                description = f"[CVE-2017-11317] [{str(version)}] {webresource}"
+                                description = (
+                                    f"[CVE-2017-11317] [{str(version)}] {webresource}. "
+                                    "The Telerik UI handler appears vulnerable to a known cryptographic weakness in Telerik Remote Async Upload. "
+                                    "An attacker may craft requests that abuse the vulnerable handler to upload files or execute server-side code. "
+                                    "Successful exploitation can result in remote code execution, web shell upload, sensitive data exposure, and full compromise of the web application. "
+                                    "This should be treated as an urgent issue because the vulnerable handler runs inside the web application and can provide a direct path to execute attacker-controlled code. "
+                                    "Patch Telerik UI immediately, remove or block the handler if it is not required, rotate secrets stored on the server, and review webroot and application logs for uploaded files or exploitation attempts."
+                                )
                                 if "fileInfo" in output.stdout:
                                     self.debug(f"Confirmed Vulnerable Telerik (version: {str(version)}")
                                     await self.emit_event(
@@ -305,7 +319,14 @@ class telerik(BaseModule):
                 else:
                     if "Cannot deserialize dialog parameters" in response.text:
                         self.debug(f"Detected Telerik UI instance ({dh})")
-                        description = "Telerik DialogHandler detected"
+                        description = (
+                            "Telerik DialogHandler detected. "
+                            "The application exposes a Telerik DialogHandler endpoint. "
+                            "If the Telerik version is vulnerable or errors leak details, an attacker may use this handler to enumerate or exploit known Telerik weaknesses. "
+                            "This increases the attack surface and may lead to information disclosure or remote code execution when paired with a vulnerable Telerik version. "
+                            "The endpoint is not automatically exploitable, but it gives attackers evidence that Telerik UI is present and a place to test version-specific behavior. "
+                            "Confirm whether the handler is needed, restrict access where possible, suppress detailed errors, and verify the component is upgraded beyond known vulnerable versions."
+                        )
                         await self.emit_event(
                             {"host": str(event.host), "url": f"{base_url}{dh}", "description": description},
                             "FINDING",
@@ -325,7 +346,14 @@ class telerik(BaseModule):
                 validate_status_code = getattr(validate_result, "status_code", 0)
                 if validate_status_code not in (0, 500):
                     self.debug("Detected Telerik UI instance (Telerik.Web.UI.SpellCheckHandler.axd)")
-                    description = "Telerik SpellCheckHandler detected"
+                    description = (
+                        "Telerik SpellCheckHandler detected. "
+                        "The application exposes a Telerik SpellCheckHandler endpoint. "
+                        "An attacker may use the endpoint to fingerprint Telerik UI and test for known vulnerable configurations. "
+                        "Exposed Telerik handlers can help attackers identify exploitable versions and may lead to application compromise if the component is outdated. "
+                        "For readers without Telerik background, these handlers are server-side endpoints installed by a UI component library. They often remain reachable even when the application does not visibly use the feature. "
+                        "Unused handlers should be disabled or blocked, and required handlers should be protected by current patches, strict configuration, and minimal error disclosure."
+                    )
                     await self.emit_event(
                         {
                             "host": str(event.host),
@@ -349,7 +377,14 @@ class telerik(BaseModule):
                         {
                             "host": str(event.host),
                             "url": f"{base_url}{chartimagehandler}",
-                            "description": "Telerik ChartImage AXD Handler Detected",
+                            "description": (
+                                "Telerik ChartImage AXD Handler Detected. "
+                                "The application exposes a Telerik ChartImage handler. "
+                                "An attacker may use the handler to fingerprint Telerik UI and test for known handler-specific vulnerabilities. "
+                                "If the component is vulnerable, this can support information disclosure or further exploitation of the web application. "
+                                "The finding is important because legacy Telerik handlers have been repeatedly targeted in ASP.NET environments, and exposed handler behavior can reveal version and configuration clues. "
+                                "Confirm whether chart image generation is needed, disable the handler if unused, restrict direct access where possible, and keep the Telerik component fully patched."
+                            ),
                         },
                         "FINDING",
                         event,
@@ -365,7 +400,14 @@ class telerik(BaseModule):
                         {
                             "host": str(event.host),
                             "url": url,
-                            "description": "Telerik DialogHandler [SerializedParameters] Detected in HTTP Response",
+                            "description": (
+                                "Telerik DialogHandler [SerializedParameters] Detected in HTTP Response. "
+                                "The HTTP response contains Telerik DialogHandler serialized parameters. "
+                                "An attacker may use these parameters to identify Telerik UI usage and test for vulnerable handler behavior. "
+                                "This exposure can make targeted Telerik exploitation easier, especially on outdated installations. "
+                                "Serialized parameters are structured values consumed by server-side Telerik handlers. When they appear in responses, they can help attackers understand the component configuration and craft more accurate probes. "
+                                "This is not proof of compromise, but it should trigger a version and configuration review, removal of unnecessary handler output, and confirmation that known Telerik cryptographic and upload vulnerabilities are patched."
+                            ),
                         },
                         "FINDING",
                         event,
@@ -376,7 +418,14 @@ class telerik(BaseModule):
                         {
                             "host": str(event.host),
                             "url": url,
-                            "description": "Telerik AsyncUpload [serializedConfiguration] Detected in HTTP Response",
+                            "description": (
+                                "Telerik AsyncUpload [serializedConfiguration] Detected in HTTP Response. "
+                                "The HTTP response contains Telerik AsyncUpload serialized configuration data. "
+                                "An attacker may use this information to fingerprint the Telerik upload handler and test for known upload or cryptographic weaknesses. "
+                                "If the Telerik component is outdated or misconfigured, this can contribute to file upload abuse, remote code execution, or application compromise. "
+                                "AsyncUpload configuration can reveal how the server expects upload data to be packaged and validated. Older Telerik versions have had serious issues around upload handling and protected configuration values. "
+                                "The application should avoid exposing unnecessary serialized configuration, verify the component version, and restrict or disable upload handlers that are not required."
+                            ),
                         },
                         "FINDING",
                         event,

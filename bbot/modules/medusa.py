@@ -8,7 +8,7 @@ class medusa(BaseModule):
     flags = ["active", "aggressive", "deadly"]
     per_host_only = True
     meta = {
-        "description": "Medusa SNMP bruteforcing with v1, v2c and R/W check.",
+        "description": "Check SNMP community strings with v1, v2c, and read/write validation.",
         "created_date": "2025-05-16",
         "author": "@christianfl",
     }
@@ -150,6 +150,14 @@ class medusa(BaseModule):
     def create_vuln_event(self, severity, description, source_event):
         host = str(source_event.host)
         port = str(source_event.port)
+        description = (
+            f"{description}. "
+            "Valid SNMP community credentials were discovered for a network service. "
+            "An attacker may read device information and, if write access is available, change network device settings. "
+            "SNMP credential exposure can reveal network topology, device configuration, interface data, and in writeable cases may allow disruption or rerouting of network services. "
+            "SNMP community strings often behave like shared passwords for monitoring network equipment, printers, appliances, and servers. Weak or default strings can let unauthorized users query sensitive operational data without a normal login. "
+            "The affected service should be restricted to trusted monitoring systems, changed to strong private community values or SNMPv3 authentication, and checked for write access because writeable SNMP can become an outage or network-control risk."
+        )
 
         return self.make_event(
             {

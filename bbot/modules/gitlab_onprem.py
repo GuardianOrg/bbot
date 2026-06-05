@@ -62,7 +62,12 @@ class gitlab_onprem(GitLabBaseModule):
                 parent=event,
                 context=f"{{module}} detected {{event.type}}: GitLab at {url}",
             )
-            description = f"GitLab server at {event.host}"
+            description = (
+                f"A self-hosted GitLab server was detected at {event.host}. "
+                "Exposed GitLab instances can reveal public projects, groups, users, issue metadata, or CI/CD behavior, and should be reviewed for intended exposure and current patch level. "
+                "This is not automatically a vulnerability because many GitLab deployments are intentionally reachable, but it is a sensitive development platform that often stores source code, deployment keys, package registries, runners, and pipeline secrets. "
+                "Confirm whether public access is expected, disable anonymous visibility that is not needed, enforce strong authentication, and keep the instance patched because GitLab vulnerabilities can have high impact."
+            )
             await self.emit_event(
                 {"host": str(event.host), "description": description},
                 "FINDING",

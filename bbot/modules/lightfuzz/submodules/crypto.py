@@ -286,7 +286,13 @@ class crypto(BaseLightfuzz):
                     {
                         "type": "VULNERABILITY",
                         "severity": "HIGH",
-                        "description": f"Padding Oracle Vulnerability. Block size: [{str(block_size)}] {self.metadata()}",
+                        "description": (
+                            f"Padding oracle vulnerability. Block size: [{str(block_size)}] {self.metadata()}. "
+                            "The application appears to reveal whether manipulated encrypted data has valid padding. Attackers may be able to decrypt or forge protected values without knowing the encryption key. "
+                            "A padding oracle is a cryptographic implementation flaw where tiny differences in errors or timing reveal whether a modified ciphertext is structurally valid. "
+                            "Attackers can repeat that signal many times to recover plaintext or create new encrypted values accepted by the application. "
+                            "Use authenticated encryption, avoid exposing detailed crypto errors, and rotate affected secrets or tokens if protected values may have been forged."
+                        ),
                         "context": context,
                     }
                 )
@@ -320,7 +326,13 @@ class crypto(BaseLightfuzz):
                 self.results.append(
                     {
                         "type": "FINDING",
-                        "description": f"Possible Cryptographic Error. {self.metadata()} Strings: [{','.join(unique_matches)}] Detection Technique(s): [{','.join(matching_techniques)}]",
+                        "description": (
+                            f"Possible cryptographic error exposure. {self.metadata()} Strings: [{','.join(unique_matches)}] Detection Technique(s): [{','.join(matching_techniques)}]. "
+                            "The application returned crypto-specific errors after parameter manipulation. These errors can reveal encryption, signing, or token-handling behavior and may help attackers build padding-oracle, tampering, or token-forgery attacks. "
+                            "For a non-specialist, this means the server is exposing details about how it protects values such as tokens, cookies, signatures, or encrypted parameters. "
+                            "Detailed crypto errors give attackers feedback they can use to adjust payloads and learn which changes are accepted. "
+                            "Return generic errors, log details server-side only, and review whether the affected values use authenticated encryption or strong message authentication."
+                        ),
                         "context": context,
                     }
                 )
@@ -414,7 +426,12 @@ class crypto(BaseLightfuzz):
             self.results.append(
                 {
                     "type": "FINDING",
-                    "description": f"Probable Cryptographic Parameter. {self.metadata()} Detection Technique(s): [{', '.join(confirmed_techniques)}]",
+                    "description": (
+                        f"Probable cryptographic parameter. {self.metadata()} Detection Technique(s): [{', '.join(confirmed_techniques)}]. "
+                        "The parameter appears to influence encryption, signing, hashing, or token validation behavior. If this value is attacker-controlled, weak validation may allow tampering, replay, or bypass of application controls. "
+                        "This is a review finding rather than proof of exploitability: some applications safely expose signed or encrypted values to clients, but those values must be protected with modern algorithms, secret keys, expiry, and integrity checks. "
+                        "Confirm what the parameter represents, whether users can modify it, and whether the server rejects altered values consistently without leaking detailed errors."
+                    ),
                     "context": context,
                 }
             )
@@ -468,7 +485,13 @@ class crypto(BaseLightfuzz):
                             self.results.append(
                                 {
                                     "type": "FINDING",
-                                    "description": f"Possible {self.event.data['type']} parameter with {hash_instance.name.upper()} Hash as value. {self.metadata()}, linked to additional parameter [{additional_param_name}]",
+                                    "description": (
+                                        f"Possible {self.event.data['type']} parameter containing a {hash_instance.name.upper()} hash. {self.metadata()}, linked to additional parameter [{additional_param_name}]. "
+                                        "The hash-like value appears tied to another parameter, which may indicate a signature, checksum, or MAC. If the construction is weak, attackers may be able to tamper with signed values or abuse length-extension-style weaknesses. "
+                                        "A hash alone does not prove data is trustworthy; it must be used with a secret key in a construction designed for message authentication. "
+                                        "If the application uses a plain hash over user-controlled fields, attackers may be able to recalculate or extend it. "
+                                        "Review the implementation and replace custom signing with a standard HMAC or framework-supported token format."
+                                    ),
                                     "context": context,
                                 }
                             )

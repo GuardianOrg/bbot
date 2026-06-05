@@ -21,7 +21,7 @@ class lightfuzz(BaseModule):
     }
 
     meta = {
-        "description": "Find Web Parameters and Lightly Fuzz them using a heuristic based scanner",
+        "description": "Find web parameters and lightly fuzz them with heuristic checks",
         "author": "@liquidsec",
         "created_date": "2024-06-28",
     }
@@ -77,7 +77,12 @@ class lightfuzz(BaseModule):
                         "severity": "CRITICAL",
                         "host": str(details["event"].host),
                         "url": details["event"].data["url"],
-                        "description": f"OS Command Injection (OOB Interaction) Type: [{details['type']}] Parameter Name: [{details['name']}] Probe: [{details['probe']}]",
+                        "description": (
+                            f"OS command injection was confirmed through an out-of-band interaction. Parameter: [{details['name']}] Type: [{details['type']}] Probe: [{details['probe']}]. "
+                            "The application appears to pass user-controlled input into an operating-system command. An attacker may be able to execute commands on the server, read sensitive files, modify data, or pivot deeper into the hosting environment. "
+                            "For a non-specialist, this means input from a request may be reaching a shell or command-line tool on the server. If the attacker can add command separators or arguments, the server may run commands chosen by the attacker rather than only the intended application action. "
+                            "The affected parameter should be removed from command construction, replaced with safe APIs, strictly allow-listed, and reviewed for evidence of command execution attempts."
+                        ),
                     },
                     "VULNERABILITY",
                     details["event"],

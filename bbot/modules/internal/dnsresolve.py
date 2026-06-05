@@ -551,7 +551,13 @@ class DNSResolve(BaseInterceptModule):
                 "host": host,
                 "title": f"Google Workspace detected for {host}",
                 "category": "domain-classification",
-                "description": f"Detected Google Workspace DNS signals for {host}: {', '.join(sorted(signals))}",
+                "description": (
+                    f"Google Workspace DNS signals were detected for {host}: {', '.join(sorted(signals))}. "
+                    "This indicates the domain may use Google's hosted mail, identity, verification, or collaboration services. "
+                    "The finding is informational, but it is useful for security review because identity and email providers are high-value control points. "
+                    "Confirm that the tenant is owned by the organization, that abandoned domains are not still linked to active services, and that mail authentication, administrator access, multifactor authentication, and account recovery settings are managed intentionally. "
+                    "Unexpected Workspace records can also reveal legacy migrations or forgotten SaaS configuration that should be cleaned up."
+                ),
                 "is_google_workspace": True,
                 "signals": sorted(signals),
                 "template": "dnsresolve-google-workspace",

@@ -48,7 +48,13 @@ class dotnetnuke(BaseModule):
                 if not event:
                     return
                 url = event.data["url"]
-                description = "DotNetNuke Blind-SSRF (CVE 2017-0929)"
+                description = (
+                    "DotNetNuke Blind SSRF (CVE-2017-0929) was confirmed by an out-of-band interaction. "
+                    "The DNN image handler can be abused to make the server request attacker-controlled or internal URLs, which may expose internal services, cloud metadata, or other network-restricted resources. "
+                    "SSRF means the attacker does not connect to the internal target directly; instead, the vulnerable web server makes the request on the attacker's behalf. "
+                    "Because the request originates from inside the hosting environment, it may reach services that are blocked from the internet. "
+                    "The affected DNN component should be patched or disabled, outbound requests should be restricted, and cloud metadata or internal admin endpoints should not be reachable from the web application."
+                )
                 await self.emit_event(
                     {
                         "severity": "MEDIUM",
@@ -99,7 +105,12 @@ class dotnetnuke(BaseModule):
                 result = await self.helpers.request(probe_url, cookies=self.exploit_probe)
                 if result:
                     if "for 16-bit app support" in result.text and "[extensions]" in result.text:
-                        description = "DotNetNuke Personalization Cookie Deserialization"
+                        description = (
+                            "DotNetNuke personalization cookie deserialization was confirmed by reading server-side Windows configuration content. "
+                            "A crafted personalization cookie can make the application deserialize attacker-controlled data, which can lead to arbitrary file access or remote code execution depending on the DNN version and server configuration. "
+                            "Deserialization is dangerous because the server rebuilds application objects from data supplied by the client. Vulnerable frameworks may treat that data as instructions and perform unintended actions. "
+                            "This should be handled as a critical application compromise risk: patch DNN, rotate machine keys or secrets if exposed, review logs for crafted cookie activity, and confirm that sensitive local files cannot be read through the web tier."
+                        )
                         await self.emit_event(
                             {
                                 "severity": "CRITICAL",
@@ -119,7 +130,13 @@ class dotnetnuke(BaseModule):
                 )
                 if result:
                     if "<configuration>" in result.text:
-                        description = "DotNetNuke dnnUI_NewsArticlesSlider Module Arbitrary File Read"
+                        description = (
+                            "The DotNetNuke dnnUI_NewsArticlesSlider module allows arbitrary file reads through ImageHandler.ashx. "
+                            "An unauthenticated attacker can request sensitive local files such as web.config, which may expose database credentials, machine keys, or other secrets needed to compromise the application. "
+                            "For a non-specialist, this means a public URL may be able to read files from the server that should only be available to the application itself. "
+                            "If configuration files are exposed, attackers can often recover connection strings, encryption keys, debug settings, and internal paths. "
+                            "Patch or remove the vulnerable module, block direct access to the handler, and rotate any secrets that may have been readable."
+                        )
                         await self.emit_event(
                             {
                                 "severity": "CRITICAL",
@@ -138,7 +155,13 @@ class dotnetnuke(BaseModule):
                 )
                 if result:
                     if "<configuration>" in result.text:
-                        description = "DotNetNuke DNNArticle Module GetCSS.ashx Arbitrary File Read"
+                        description = (
+                            "The DotNetNuke DNNArticle module allows arbitrary file reads through GetCSS.ashx. "
+                            "An attacker can request sensitive local files such as web.config, potentially exposing credentials, encryption keys, and configuration details that enable deeper compromise. "
+                            "This is a file disclosure issue: the attacker is not just viewing normal web content, but asking the server to return files from the application or operating system. "
+                            "The exposed data can be used to connect to databases, forge protected values, understand deployment paths, or chain into remote code execution. "
+                            "The module should be patched or disabled immediately, and any exposed credentials or machine keys should be rotated."
+                        )
                         await self.emit_event(
                             {
                                 "severity": "CRITICAL",
@@ -159,7 +182,13 @@ class dotnetnuke(BaseModule):
                             f"{event.data['url']}/Install/InstallWizard.aspx?__viewstate=1"
                         )
                         if result_confirm.status_code == 500:
-                            description = "DotNetNuke InstallWizard SuperUser Privilege Escalation"
+                            description = (
+                                "The DotNetNuke InstallWizard endpoint is exposed and behaves like a vulnerable installer flow. "
+                                "If exploitable, an attacker may be able to abuse the installer to create or elevate a SuperUser account, leading to full administrative control of the DNN site. "
+                                "Installer endpoints are meant for initial setup or controlled maintenance, not for public access after the site is deployed. "
+                                "When left exposed, they may allow configuration changes, database initialization actions, or privilege changes that bypass normal authentication. "
+                                "The endpoint should be removed or blocked, the site should be patched, and administrators should review user accounts, configuration changes, and logs for signs of unauthorized setup activity."
+                            )
                             await self.emit_event(
                                 {
                                     "severity": "CRITICAL",

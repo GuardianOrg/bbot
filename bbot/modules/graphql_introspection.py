@@ -136,7 +136,16 @@ fragment TypeRef on __Type {
                 with open(filename, "w") as f:
                     json.dump(response_json, f)
                 await self.emit_event(
-                    {"url": url, "description": "GraphQL schema", "path": str(filename.relative_to(self.scan.home))},
+                    {
+                        "url": url,
+                        "description": (
+                            "GraphQL introspection is enabled and the API schema was retrievable. "
+                            "This exposes object types, fields, queries, mutations, and relationships that can help attackers map the API and identify sensitive operations more quickly. "
+                            "GraphQL is an API style where clients can ask for exactly the data shape they want, and the schema is the map of what the API supports. When introspection is public, an attacker does not need to guess endpoint names or parameters; they can review the available operations directly. "
+                            "This is not always a vulnerability for public APIs, but it increases reconnaissance value and can expose hidden administrative mutations, user fields, or object relationships. Production APIs should expose introspection only when intended and pair it with strong authorization on every resolver."
+                        ),
+                        "path": str(filename.relative_to(self.scan.home)),
+                    },
                     "FINDING",
                     event,
                     context=f"{{module}} found GraphQL schema at {url}",

@@ -719,7 +719,13 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             for identifier in yara_results.keys():
                 for findings in yara_results[identifier]:
                     event_data = {
-                        "description": f"{discovery_context} {yara_rule_settings.description} ({identifier})"
+                        "description": (
+                            f"{discovery_context} {yara_rule_settings.description} ({identifier}). "
+                            "The response appears to expose a verbose application, framework, database, or platform error. "
+                            "Verbose errors are not always directly exploitable, but they often reveal implementation details such as file paths, class names, SQL fragments, package versions, stack traces, or internal service names. "
+                            "Attackers can use those details to choose more accurate payloads, identify vulnerable components, and understand how the application handles unexpected input. "
+                            "Production systems should return generic user-facing errors while logging detailed diagnostics privately."
+                        )
                     }
                     await self.report(event_data, event, yara_rule_settings, discovery_context, event_type="FINDING")
 
@@ -750,7 +756,13 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             for identifier in yara_results.keys():
                 for findings in yara_results[identifier]:
                     event_data = {
-                        "description": f"{discovery_context} {yara_rule_settings.description} ({identifier})"
+                        "description": (
+                            f"{discovery_context} {yara_rule_settings.description} ({identifier}). "
+                            "The response contains data that resembles a serialized object or packed application state. "
+                            "Serialized values are common in legitimate applications, but they become security-sensitive when clients can modify them and the server later trusts or deserializes them. "
+                            "Unsafe deserialization can lead to object tampering, authentication bypass, denial of service, or remote code execution in vulnerable frameworks. "
+                            "Confirm whether the value is user-controllable, protect it with strong integrity checks, and avoid deserializing native object formats from untrusted input."
+                        )
                     }
                     await self.report(event_data, event, yara_rule_settings, discovery_context, event_type="FINDING")
 
@@ -760,6 +772,27 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             "File_Upload_Functionality": r'rule File_Upload_Functionality { meta: description = "contains file upload functionality" strings: $fileuploadfunc = /<input[^>]+type=["\']?file["\']?[^>]+>/ nocase condition: $fileuploadfunc }',
             "Web_Service_WSDL": r'rule Web_Service_WSDL { meta: emit_match = "True" description = "contains a web service WSDL URL" strings: $wsdl = /https?:\/\/[^\s]*\.(wsdl)/ nocase condition: $wsdl }',
         }
+
+        async def process(self, yara_results, event, yara_rule_settings, discovery_context):
+            for identifier, results in yara_results.items():
+                for result in results:
+                    if identifier == "fileuploadfunc":
+                        description = (
+                            f"{discovery_context} contains file upload functionality. "
+                            "A file upload feature is legitimate in many applications, but it is a high-risk area because it accepts attacker-supplied files and stores or processes them on the server. "
+                            "If validation is weak, attackers may upload executable files, oversized files, malware, HTML content, archives that unpack dangerously, or files with misleading extensions. "
+                            "The feature should enforce authentication where appropriate, validate file type and size on the server, store uploads outside executable paths, randomize filenames, scan content, and prevent uploaded files from being served with dangerous content types."
+                        )
+                    else:
+                        description = (
+                            f"{discovery_context} contains a web service WSDL URL [{result}]. "
+                            "A WSDL document describes operations, parameters, and endpoints for SOAP-style web services. "
+                            "This is not automatically vulnerable, but it gives attackers a detailed map of callable service methods that may not be linked from the normal application interface. "
+                            "If the service exposes administrative or internal operations, weak authentication, or verbose errors, the WSDL can make targeted testing much easier. "
+                            "Confirm the service is intended to be public, require authentication and authorization for sensitive operations, and remove unused service definitions."
+                        )
+                    event_data = {"description": description}
+                    await self.report(event_data, event, yara_rule_settings, discovery_context, event_type="FINDING")
 
     class NonHttpSchemeExtractor(ExcavateRule):
         description = "Detects URIs with non-HTTP schemes."
@@ -796,7 +829,15 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     def abort_if(e):
                         return e.scope_distance > 0
 
-                    finding_data = {"host": str(host), "description": f"Non-HTTP URI: {parsed_url.geturl()}"}
+                    finding_data = {
+                        "host": str(host),
+                        "description": (
+                            f"A non-HTTP URI was found in the response: {parsed_url.geturl()}. "
+                            "Non-HTTP links use schemes other than normal web browsing, such as custom application handlers, file-like protocols, messaging clients, remote desktop tools, or other locally installed software. "
+                            "This is not automatically a vulnerability, but it can expand attack surface because clicking the link may launch a local application or pass data into a protocol handler outside the browser's usual protections. "
+                            "Review whether the scheme is expected, whether user-controlled data can influence it, and whether it could be abused for phishing, credential capture, unsafe redirects, or client-side command handling."
+                        ),
+                    }
                     await self.report(finding_data, event, yara_rule_settings, discovery_context, abort_if=abort_if)
                     protocol_data = {"protocol": parsed_url.scheme, "host": str(host)}
                     if port:
