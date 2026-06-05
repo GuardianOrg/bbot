@@ -23,16 +23,18 @@ class censys_ip(censys):
         "author": "@TheTechromancer",
         "auth_required": True,
     }
-    options = {"api_key": "", "dns_names_limit": 100, "in_scope_only": True}
+    options = {"api_key": "", "dns_names_limit": 100, "in_scope_only": True, "max_open_ports_per_ip": 70}
     options_desc = {
         "api_key": "Censys.io API Key in the format of 'key:secret'",
         "dns_names_limit": "Maximum number of DNS names to extract from dns.names (default 100)",
         "in_scope_only": "Only query in-scope IPs. If False, will query up to distance 1.",
+        "max_open_ports_per_ip": "Discard this module's OPEN_TCP_PORT/OPEN_UDP_PORT results for an IP when more than this many ports are found",
     }
     scope_distance_modifier = 1
 
     async def setup(self):
         self.dns_names_limit = self.config.get("dns_names_limit", 100)
+        self.max_open_ports_per_ip = max(1, int(self.config.get("max_open_ports_per_ip", 70)))
         self.warning(
             "This module may consume a lot of API queries. Unless you specifically want to query on each individual IP, we recommend using the censys_dns module instead."
         )
@@ -74,15 +76,26 @@ class censys_ip(censys):
 
         # Track what we've already emitted to avoid duplicates
         seen = set()
+        services = result.get("services", [])
+        service_ports = {
+            (service.get("port"), str(service.get("transport_protocol", "TCP")).upper())
+            for service in services
+            if isinstance(service, dict) and service.get("port")
+        }
+        emit_service_ports = len(service_ports) <= self.max_open_ports_per_ip
+        if not emit_service_ports:
+            self.warning(
+                f"censys_ip found {len(service_ports):,} service ports on {ip}; discarding this module's port and protocol results for that IP because the limit is {self.max_open_ports_per_ip:,}"
+            )
 
         # Extract data from services
-        for service in result.get("services", []):
+        for service in services:
             port = service.get("port")
             transport = service.get("transport_protocol", "TCP").upper()
 
             # Emit OPEN_TCP_PORT or OPEN_UDP_PORT for services with a port
             # QUIC uses UDP as transport, so treat it as UDP
-            if port and (port, transport) not in seen:
+            if emit_service_ports and port and (port, transport) not in seen:
                 seen.add((port, transport))
                 if transport in ("UDP", "QUIC"):
                     event_type = "OPEN_UDP_PORT"
@@ -102,7 +115,7 @@ class censys_ip(censys):
             # If service_name is UNKNOWN but transport_protocol is meaningful, use that
             if service_name.upper() == "UNKNOWN" and transport and transport not in ("TCP", "UDP"):
                 service_name = transport
-            if service_name and service_name.upper() not in ("HTTP", "HTTPS", "UNKNOWN"):
+            if emit_service_ports and service_name and service_name.upper() not in ("HTTP", "HTTPS", "UNKNOWN"):
                 protocol_key = ("protocol", service_name.upper(), port)
                 if protocol_key not in seen:
                     seen.add(protocol_key)

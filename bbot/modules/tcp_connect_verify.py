@@ -5,7 +5,7 @@ from contextlib import suppress
 from radixtarget import RadixTarget, host_size_key
 
 from bbot.modules.base import BaseModule
-from bbot.modules.naabu import NMAP_TOP_1000
+from bbot.modules.naabu import MAX_OPEN_PORTS_PER_IP, NMAP_TOP_1000
 
 
 class tcp_connect_verify(BaseModule):
@@ -26,6 +26,7 @@ class tcp_connect_verify(BaseModule):
         "global_connect_concurrency": 400,
         "timeout_ms": 1000,
         "retries": 2,
+        "max_open_ports_per_ip": 70,
         "module_timeout": 259200,
     }
     options_desc = {
@@ -36,6 +37,7 @@ class tcp_connect_verify(BaseModule):
         "global_connect_concurrency": "Maximum concurrent TCP connects across all target hosts",
         "timeout_ms": "Per-port TCP connect timeout in milliseconds",
         "retries": "TCP connect attempts per port",
+        "max_open_ports_per_ip": "Discard this module's OPEN_TCP_PORT results for an IP when more than this many ports are found",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
     }
 
@@ -50,6 +52,7 @@ class tcp_connect_verify(BaseModule):
         self.global_connect_concurrency = max(1, int(self.config.get("global_connect_concurrency", 400)))
         self.timeout_ms = int(self.config.get("timeout_ms", 1000))
         self.retries = max(1, int(self.config.get("retries", 1)))
+        self.max_open_ports_per_ip = max(1, int(self.config.get("max_open_ports_per_ip", MAX_OPEN_PORTS_PER_IP)))
         self.open_port_cache = {}
         self.scanned = self.helpers.make_target(acl_mode=True)
 
@@ -133,7 +136,16 @@ class tcp_connect_verify(BaseModule):
             open_ports.extend(port for port in await asyncio.gather(*(verify(port) for port in chunk)) if port)
 
         normalized_open_ports = sorted(set(open_ports))
-        self.open_port_cache[hash(ip)] = tuple(normalized_open_ports)
+        ip_hash = hash(ip)
+
+        if len(normalized_open_ports) > self.max_open_ports_per_ip:
+            self.open_port_cache[ip_hash] = tuple()
+            self.warning(
+                f"tcp_connect_verify found {len(normalized_open_ports):,} open TCP ports on {ip}; discarding this module's results for that IP because the limit is {self.max_open_ports_per_ip:,}"
+            )
+            return
+
+        self.open_port_cache[ip_hash] = tuple(normalized_open_ports)
 
         if normalized_open_ports:
             self.info(f"tcp_connect_verify found {len(normalized_open_ports):,} open TCP ports on {ip}")

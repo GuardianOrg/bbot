@@ -57,12 +57,13 @@ class shodan_idb(BaseModule):
         "created_date": "2023-12-22",
         "author": "@TheTechromancer",
     }
-    options = {"retries": None, "api_key": "", "full_host": True, "max_range_pages": 3}
+    options = {"retries": None, "api_key": "", "full_host": True, "max_range_pages": 3, "max_open_ports_per_ip": 70}
     options_desc = {
         "retries": "How many times to retry API requests (e.g. after a 429 error). Overrides the global web.api_retries setting.",
         "api_key": "Optional Shodan API key. If present, shodan_idb also queries /shodan/host/{ip} for OS/provider metadata.",
         "full_host": "Use the authenticated Shodan host API when an API key is available.",
         "max_range_pages": "Maximum authenticated /shodan/host/search result pages to fetch for an IP range target.",
+        "max_open_ports_per_ip": "Discard this module's OPEN_TCP_PORT/OPEN_UDP_PORT results for an IP when more than this many ports are found",
     }
 
     # we typically don't want to abort this module
@@ -83,6 +84,7 @@ class shodan_idb(BaseModule):
         self.reported_vulnerabilities = set()
         self.full_host = bool(self.config.get("full_host", True))
         self.max_range_pages = max(1, int(self.config.get("max_range_pages", 3)))
+        self.max_open_ports_per_ip = max(1, int(self.config.get("max_open_ports_per_ip", 70)))
         self.api_key = self.get_shodan_api_keys()
         return True
 
@@ -279,13 +281,19 @@ class shodan_idb(BaseModule):
                 parent=event,
                 context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
             )
-        for port in data.get("ports", []):
-            await self.emit_event(
-                self.helpers.make_netloc(event.data, port),
-                "OPEN_TCP_PORT",
-                parent=event,
-                context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
+        ports = sorted({port for port in data.get("ports", []) if isinstance(port, int)})
+        if len(ports) > self.max_open_ports_per_ip:
+            self.warning(
+                f"shodan_idb found {len(ports):,} open TCP ports on {ip}; discarding this module's port results for that IP because the limit is {self.max_open_ports_per_ip:,}"
             )
+        else:
+            for port in ports:
+                await self.emit_event(
+                    self.helpers.make_netloc(event.data, port),
+                    "OPEN_TCP_PORT",
+                    parent=event,
+                    context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
+                )
         await self.emit_vulnerability_events(data=data, event=event, ip=ip, query_host=query_host, source="Shodan InternetDB")
 
     async def _parse_host_response(self, data: dict, event, ip, source):
@@ -332,6 +340,17 @@ class shodan_idb(BaseModule):
 
     async def emit_protocol_events(self, services, event, ip, source):
         if not isinstance(services, list):
+            return
+
+        service_ports = {
+            (service.get("port"), self.clean_string(service.get("transport")) or "tcp")
+            for service in services
+            if isinstance(service, dict) and isinstance(service.get("port"), int)
+        }
+        if len(service_ports) > self.max_open_ports_per_ip:
+            self.warning(
+                f"shodan_idb found {len(service_ports):,} service ports on {ip}; discarding this module's service results for that IP because the limit is {self.max_open_ports_per_ip:,}"
+            )
             return
 
         for service in services:

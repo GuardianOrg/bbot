@@ -1,4 +1,4 @@
-from bbot.modules.naabu import naabu
+from bbot.modules.naabu import MAX_OPEN_PORTS_PER_IP, naabu
 
 
 class naabu_fast(naabu):
@@ -29,6 +29,7 @@ class naabu_fast(naabu):
         "scan_passes": 1,
         "scan_individual_targets": True,
         "target_concurrency": 1,
+        "max_open_ports_per_ip": 70,
         "module_timeout": 259200,
     }
     options_desc = {
@@ -41,4 +42,5 @@ class naabu_fast(naabu):
         "process_timeout_multiplier": "Safety multiplier for the calculated naabu process runtime limit",
         "process_timeout_grace": "Extra seconds added to the calculated naabu process runtime limit",
         "target_concurrency": "Maximum number of individual target groups to scan concurrently",
+        "max_open_ports_per_ip": "Discard this module's OPEN_TCP_PORT results for an IP when more than this many ports are found",
     }

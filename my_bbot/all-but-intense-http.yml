@@ -151,6 +151,7 @@ config:
       scan_passes: 1
       scan_individual_targets: true
       target_concurrency: 8
+      max_open_ports_per_ip: 70
     naabu_fast:
       ports: 1-10000
       rate: 6000
@@ -167,6 +168,7 @@ config:
       scan_passes: 1
       scan_individual_targets: true
       target_concurrency: 8
+      max_open_ports_per_ip: 70
 
     udpx:
       concurrency: 64
@@ -177,11 +179,12 @@ config:
     tcp_connect_verify:
       ports: ''
       top_ports: 1000
-      connect_concurrency: 100
-      target_concurrency: 8
-      global_connect_concurrency: 400
+      connect_concurrency: 20
+      target_concurrency: 5
+      global_connect_concurrency: 80
       timeout_ms: 500
       retries: 1
+      max_open_ports_per_ip: 70
     bucket_amazon:
       permutations: true
       max_candidates: 500

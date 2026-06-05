@@ -30,6 +30,7 @@ class portscan(BaseModule):
         "adapter_ip": "",
         "adapter_mac": "",
         "router_mac": "",
+        "max_open_ports_per_ip": 70,
         "module_timeout": 259200,  # 3 days
     }
     options_desc = {
@@ -43,6 +44,7 @@ class portscan(BaseModule):
         "adapter_ip": "Send packets using this IP address. Not needed unless masscan's autodetection fails",
         "adapter_mac": "Send packets using this as the source MAC address. Not needed unless masscan's autodetection fails",
         "router_mac": "Send packets to this MAC address as the destination. Not needed unless masscan's autodetection fails",
+        "max_open_ports_per_ip": "Discard this module's OPEN_TCP_PORT results for an IP when more than this many ports are found",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
     }
     deps_common = ["masscan"]
@@ -60,6 +62,7 @@ class portscan(BaseModule):
         self.adapter_ip = self.config.get("adapter_ip", "")
         self.adapter_mac = self.config.get("adapter_mac", "")
         self.router_mac = self.config.get("router_mac", "")
+        self.max_open_ports_per_ip = max(1, int(self.config.get("max_open_ports_per_ip", 70)))
         self.ports = self.config.get("ports", "")
         if self.ports:
             try:
@@ -122,6 +125,7 @@ class portscan(BaseModule):
         target_file = self.helpers.tempfile(targets, pipe=False)
         command = self._build_masscan_command(target_file, ping=ping)
         stats_file = self.helpers.tempfile_tail(callback=self.log_masscan_status)
+        results_by_ip = {}
         try:
             with open(stats_file, "w") as stats_fh:
                 async for line in self.run_process_live(command, sudo=True, stderr=stats_fh):
@@ -140,8 +144,27 @@ class portscan(BaseModule):
                             else:
                                 host = ip
                             if host not in emitted_hosts:
-                                yield host, port, parent_event
+                                if ping:
+                                    yield host, port, parent_event
+                                else:
+                                    results_by_ip.setdefault(ip, []).append((host, port, parent_event))
                                 emitted_hosts.add(host)
+
+                if not ping:
+                    for ip in sorted(results_by_ip, key=str):
+                        entries = results_by_ip[ip]
+                        ports = sorted({port for _, port, _ in entries})
+                        ip_hash = hash(ip)
+                        if len(ports) > self.max_open_ports_per_ip:
+                            self.open_port_cache[ip_hash] = tuple()
+                            self.warning(
+                                f"portscan found {len(ports):,} open TCP ports on {ip}; discarding this module's results for that IP because the limit is {self.max_open_ports_per_ip:,}"
+                            )
+                            continue
+
+                        self.open_port_cache[ip_hash] = tuple(ports)
+                        for host, port, parent_event in entries:
+                            yield host, port, parent_event
         finally:
             for file in (stats_file, target_file):
                 file.unlink(missing_ok=True)
@@ -235,17 +258,12 @@ class portscan(BaseModule):
         if not ip:
             return
         ip = self.helpers.make_ip_type(ip)
-        ip_hash = hash(ip)
         ports = j.get("ports", [])
         if not ports:
             return
         for p in ports:
             proto = p.get("proto", "")
             port_number = p.get("port", 0)
-            try:
-                self.open_port_cache[ip_hash].add(port_number)
-            except KeyError:
-                self.open_port_cache[ip_hash] = {port_number}
             if proto == "" or port_number == "":
                 continue
             yield ip, port_number
