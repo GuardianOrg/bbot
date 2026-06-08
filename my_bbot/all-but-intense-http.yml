@@ -220,6 +220,7 @@ config:
       open_ports_from_ip_only: true
     dnsreaper:
       parallelism: 20
+      timeout: 120
       disable_probable: false
       enable_unlikely: false
       check_unresolved: false
