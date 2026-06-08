@@ -166,6 +166,7 @@ class github_leak_formatter:
         data = {
             "url": finding_url,
             "location": finding_url,
+            "tool": getattr(self, "name", self.__class__.__name__),
             "repository_url": repository_url,
             "rule": rule_name,
             "leak_type": leak_type,

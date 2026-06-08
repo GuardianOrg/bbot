@@ -155,3 +155,78 @@ def custom_lookup(query, rdtype):
 
         assert "blacklanternsecurity.com" in domain_config_hosts
         assert "fake.blacklanternsecurity.com" not in domain_config_hosts
+
+
+class TestDomainConfigDnsAuditSuppressesManagedProviderNoise(TestDomainConfigDnsAudit):
+    async def setup_after_prep(self, module_test):
+        await super().setup_after_prep(module_test)
+
+        async def fake_collect_basic_dns(domain):
+            return {
+                "A": ["1.2.3.4"],
+                "AAAA": [],
+                "NS": ["ns1.cloudflare.com", "ns2.cloudflare.com"],
+                "MX": ["1 smtp.google.com"],
+                "TXT": ["v=spf1 include:_spf.google.com ~all"],
+                "SOA": "ns1.cloudflare.com dns.cloudflare.com 1234567890 3600 600 1209600 300",
+            }
+
+        async def fake_query_dns(domain, rdtype, nameserver=None, raise_on_nxdomain=False):
+            if domain in {"ns1.cloudflare.com", "ns2.cloudflare.com"} and rdtype == "A":
+                return True, ["192.0.2.53"]
+            if domain == "smtp.google.com" and rdtype == "A":
+                return True, ["192.0.2.25"]
+            if domain == "blacklanternsecurity.com" and rdtype == "CAA":
+                return True, ["0 issue \"letsencrypt.org\""]
+            return True, []
+
+        async def fake_query_dns_with_ttl(domain, rdtype, nameserver=None):
+            if rdtype in {"A", "MX", "NS"}:
+                return True, [("example", 194)]
+            return True, []
+
+        module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns", fake_query_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns_with_ttl", fake_query_dns_with_ttl)
+        module_test.monkeypatch.setattr(module_test.module, "_sync_version_bind", lambda nameserver: ['"2026.5.1"'])
+
+    def check(self, module_test, events):
+        titles = {e.data.get("title") for e in events if e.type in ("FINDING", "VULNERABILITY")}
+
+        assert "DNS-over-HTTPS/TLS Not Supported" not in titles
+        assert "DNS Version Disclosure" not in titles
+        assert "Low DNS TTL on Critical Records" not in titles
+        assert "No Backup MX Server" not in titles
+        assert "Non-Standard SOA Serial Format" not in titles
+
+
+class TestDomainConfigDnsAuditRecognizesKeyDkimSelectors(TestDomainConfigDnsAudit):
+    async def setup_after_prep(self, module_test):
+        await super().setup_after_prep(module_test)
+
+        async def fake_collect_basic_dns(domain):
+            return {
+                "A": ["1.2.3.4"],
+                "AAAA": [],
+                "NS": ["ns1.blacklanternsecurity.com"],
+                "MX": ["10 aspmx1.migadu.com"],
+                "TXT": ["v=spf1 include:spf.migadu.com -all"],
+                "SOA": "ns1.blacklanternsecurity.com hostmaster.blacklanternsecurity.com 2026050701 3600 600 1209600 300",
+            }
+
+        async def fake_query_dns(domain, rdtype, nameserver=None, raise_on_nxdomain=False):
+            if domain == "key1._domainkey.blacklanternsecurity.com" and rdtype == "TXT":
+                return True, ["v=DKIM1; k=rsa; p=" + "A" * 220]
+            if domain == "_dmarc.blacklanternsecurity.com" and rdtype == "TXT":
+                return True, ["v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com"]
+            if domain == "blacklanternsecurity.com" and rdtype == "CAA":
+                return True, ["0 issue \"letsencrypt.org\""]
+            return True, []
+
+        module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns", fake_query_dns)
+
+    def check(self, module_test, events):
+        titles = {e.data.get("title") for e in events if e.type in ("FINDING", "VULNERABILITY")}
+
+        assert "No DKIM Records Found" not in titles

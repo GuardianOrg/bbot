@@ -66,7 +66,7 @@ def mock_gitleaks(monkeypatch, tmp_path):
 @pytest.mark.usefixtures("mock_gitleaks")
 class TestGitleaks(ModuleTestBase):
     targets = ["https://github.com/layer-3-smart"]
-    config_overrides = {"deps": {"behavior": "disable"}}
+    config_overrides = {"deps": {"behavior": "disable"}, "modules": {"gitleaks": {"disabled_rules": []}}}
 
     async def setup_after_prep(self, module_test):
         repo_event = module_test.scan.make_event(
@@ -98,3 +98,23 @@ class TestGitleaks(ModuleTestBase):
         assert "leak" not in finding.data
         assert "github_url" not in finding.data
         assert "dedupe_key" not in finding.data
+
+
+@pytest.mark.usefixtures("mock_gitleaks")
+class TestGitleaksSkipsGenericApiKey(ModuleTestBase):
+    module_name = "gitleaks"
+    targets = ["https://github.com/layer-3-smart"]
+    config_overrides = {"deps": {"behavior": "disable"}}
+
+    async def setup_after_prep(self, module_test):
+        repo_event = module_test.scan.make_event(
+            {"url": "https://github.com/layer-3-smart/test.git"},
+            "CODE_REPOSITORY",
+            tags=["git", "target"],
+            parent=module_test.scan.root_event,
+        )
+        await module_test.module.emit_event(repo_event)
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING"]
+        assert findings == []

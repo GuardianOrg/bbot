@@ -52,6 +52,9 @@ class domain_config_dns_audit(BaseModule):
             "selector1",
             "selector2",
             "default",
+            "key1",
+            "key2",
+            "key3",
             "mail",
             "dkim",
             "k1",
@@ -69,6 +72,26 @@ class domain_config_dns_audit(BaseModule):
             "cm",
             "protonmail",
         ],
+        "managed_authoritative_ns_suffixes": [
+            "cloudflare.com",
+            "awsdns-",
+            "googledomains.com",
+            "domaincontrol.com",
+            "dnsimple.com",
+            "dns-parking.com",
+        ],
+        "managed_mx_suffixes": [
+            "aspmx.l.google.com",
+            "googlemail.com",
+            "smtp.google.com",
+            "protection.outlook.com",
+            "migadu.com",
+            "protonmail.ch",
+            "protonmail.com",
+            "mailgun.org",
+            "sendgrid.net",
+            "amazonses.com",
+        ],
     }
     options_desc = {
         "quick": "Skip slower checks such as AXFR, PTR, DANE, SPF include-depth, MX STARTTLS, and open-resolver checks.",
@@ -78,6 +101,8 @@ class domain_config_dns_audit(BaseModule):
         "wildcard_probe_count": "How many random wildcard probes to send per resolver and candidate parent.",
         "wildcard_resolver_timeout": "Timeout in seconds for each wildcard DNS resolver query.",
         "dkim_selectors": "Common DKIM selectors to test through DNS TXT records.",
+        "managed_authoritative_ns_suffixes": "Authoritative DNS provider suffixes where provider-owned operational INFO checks are suppressed.",
+        "managed_mx_suffixes": "Hosted mail provider suffixes where provider-owned MX redundancy/PTR findings are suppressed.",
     }
 
     _batch_size = 150
@@ -94,6 +119,12 @@ class domain_config_dns_audit(BaseModule):
         self.wildcard_probe_count = max(1, int(self.config.get("wildcard_probe_count", 2)))
         self.wildcard_resolver_timeout = max(1, int(self.config.get("wildcard_resolver_timeout", 4)))
         self.dkim_selectors = self._coerce_string_list(self.config.get("dkim_selectors", []))
+        self.managed_authoritative_ns_suffixes = [
+            suffix.lower() for suffix in self._coerce_string_list(self.config.get("managed_authoritative_ns_suffixes", []))
+        ]
+        self.managed_mx_suffixes = [
+            suffix.lower() for suffix in self._coerce_string_list(self.config.get("managed_mx_suffixes", []))
+        ]
         self.dns_cache = {}
         self.dns_ttl_cache = {}
         self.dns_full_cache = {}
@@ -962,25 +993,6 @@ class domain_config_dns_audit(BaseModule):
             records["DoH_nameservers"] = doh_servers
         if has_dot:
             records["DoT_nameservers"] = dot_servers
-        if not has_doh and not has_dot:
-            findings.append(AuditFinding(
-                "DNS-over-HTTPS/TLS Not Supported",
-                "INFO",
-                "DNS",
-                (
-                    "The checked authoritative nameservers do not appear to support DNS-over-HTTPS or DNS-over-TLS. This is not always required for authoritative DNS, but it means clients cannot use encrypted DNS directly with these servers."
-                    ' DNS-over-HTTPS and DNS-over-TLS are encrypted ways to send DNS queries. They are'
-                    'most commonly used between clients and recursive resolvers, not necessarily between clients and authoritative'
-                    'nameservers. Because this check is against authoritative nameservers, lack of support is not automatically a'
-                    'vulnerability. It simply means these authoritative servers are not offering encrypted DNS query transport'
-                    'directly. The practical impact is usually limited unless the deployment specifically requires encrypted access'
-                    'to authoritative DNS. Treat this as an architecture review item rather than an urgent security issue, and'
-                    'confirm whether the DNS provider intends to support these protocols.'
-                ),
-                f"Tested nameservers: {', '.join(ns_records[:2])}",
-                "Consider whether encrypted DNS support is required for this DNS provider or deployment.",
-                f"kdig -d @{ns_records[0]} +tls {domain}",
-            ))
 
     def _sync_check_doh(self, host, path):
         connection = None
@@ -1714,7 +1726,7 @@ class domain_config_dns_audit(BaseModule):
                 "Verify duplicate priorities are intentional for load-balancing.",
                 f"dig MX {domain} +short",
             ))
-        if len(mx_records) == 1:
+        if len(mx_records) == 1 and not self.is_managed_mx_host(self.mx_host(mx_records[0])):
             findings.append(AuditFinding(
                 "No Backup MX Server",
                 "INFO",
@@ -1890,6 +1902,8 @@ class domain_config_dns_audit(BaseModule):
             mx_host = self.mx_host(mx)
             if not mx_host:
                 continue
+            if self.is_managed_mx_host(mx_host):
+                continue
             success, ips = await self.query_dns(mx_host, "A")
             if not success or not ips:
                 continue
@@ -1917,7 +1931,7 @@ class domain_config_dns_audit(BaseModule):
                     "Add PTR/rDNS for mail server IPs to improve deliverability.",
                     f"dig -x {ip}",
                 ))
-            elif success and ptr_records and ptr_records[0].rstrip(".").lower() != mx_host.lower():
+            elif success and ptr_records and not self.ptr_matches_mx(ptr_records[0], mx_host):
                 findings.append(AuditFinding(
                     "PTR/Forward DNS Mismatch",
                     "LOW",
@@ -1944,6 +1958,36 @@ class domain_config_dns_audit(BaseModule):
             return None
         host = parts[-1].rstrip(".").lower()
         return host if host and host != "." else None
+
+    def is_managed_mx_host(self, host):
+        host = str(host or "").rstrip(".").lower()
+        if not host:
+            return False
+        return any(host == suffix or host.endswith(f".{suffix}") for suffix in self.managed_mx_suffixes)
+
+    def is_managed_authoritative_ns(self, host):
+        host = str(host or "").rstrip(".").lower()
+        if not host:
+            return False
+        for suffix in self.managed_authoritative_ns_suffixes:
+            if suffix.endswith("-"):
+                if suffix in host:
+                    return True
+                continue
+            if host == suffix or host.endswith(f".{suffix}"):
+                return True
+        return False
+
+    def ptr_matches_mx(self, ptr_record, mx_host):
+        ptr = str(ptr_record or "").rstrip(".").lower()
+        mx = str(mx_host or "").rstrip(".").lower()
+        if not ptr or not mx:
+            return False
+        if ptr == mx:
+            return True
+        success, ptr_root = self.helpers.split_domain(ptr)
+        mx_success, mx_root = self.helpers.split_domain(mx)
+        return bool(success and mx_success and ptr_root and mx_root and ptr_root == mx_root)
 
     async def check_wildcard_dns(self, domain, records, findings):
         detected = {}
@@ -2138,16 +2182,16 @@ class domain_config_dns_audit(BaseModule):
                 very_low.append(f"{rdtype}:{min_ttl}")
             elif min_ttl < 300:
                 low.append(f"{rdtype}:{min_ttl}")
-        if very_low or low:
+        if very_low:
             findings.append(AuditFinding(
-                "Very Low DNS TTL on Critical Records" if very_low else "Low DNS TTL on Critical Records",
-                "MEDIUM" if very_low else "LOW",
+                "Very Low DNS TTL on Critical Records",
+                "MEDIUM",
                 "DNS",
                 (
                     "Critical DNS records use unusually low TTL values. This can increase resolver load, amplify provider outages, and make DNS behavior more sensitive to transient authoritative-server issues. "
                     "TTL means time to live: the amount of time other DNS resolvers are allowed to cache an answer before asking again. Low TTLs are useful during planned migrations because changes take effect faster, but they are not free. If stable records such as A, AAAA, MX, or NS expire from caches very quickly, more users depend on the authoritative DNS provider being reachable at every moment. A short provider outage, rate limit, or routing issue can therefore affect more users. Low TTLs should be intentional, temporary when possible, and raised after migrations are complete."
                 ),
-                f"TTLs: {very_low or low}",
+                f"TTLs: {very_low}",
                 "Review whether low TTLs are required; raise TTLs for stable records.",
                 f"dig {domain} A +ttlid && dig {domain} MX +ttlid && dig {domain} NS +ttlid",
             ))
@@ -2201,25 +2245,6 @@ class domain_config_dns_audit(BaseModule):
                 "Use an expire value that tolerates primary DNS outages.",
                 f"dig SOA {domain} +short",
             ))
-        serial_text = str(serial)
-        if len(serial_text) == 10 and not serial_text.startswith(("19", "20")):
-            findings.append(AuditFinding(
-                "Non-Standard SOA Serial Format",
-                "INFO",
-                "DNS",
-                (
-                    "The SOA serial does not look date-based. This is not a security issue by itself, but it can make operational tracking, rollback review, and zone-change audits harder."
-                    ' The SOA serial number is used by secondary nameservers and operators to determine'
-                    'whether the zone has changed. A non-date-based serial is not automatically wrong; many systems use simple'
-                    'counters. The risk is operational clarity. During incidents, migrations, or rollback reviews, teams often need'
-                    'to quickly understand which zone version is newer and when changes were made. A date-based format can make'
-                    'that easier for humans, while a random or unclear format can slow troubleshooting. This is informational and'
-                    "should be aligned with the DNS provider's normal workflow rather than changed blindly."
-                ),
-                f"Serial: {serial}",
-                "Consider date-based serials for easier operational tracking.",
-                f"dig SOA {domain} +short",
-            ))
 
     async def check_cname_at_apex(self, domain, records, findings):
         if not self.is_apex_domain(domain):
@@ -2268,6 +2293,8 @@ class domain_config_dns_audit(BaseModule):
 
     async def check_dns_version(self, domain, records, findings):
         for ns in records.get("NS", [])[:2]:
+            if self.is_managed_authoritative_ns(ns):
+                continue
             success, ns_ips = await self.query_dns(ns, "A")
             if not success or not ns_ips:
                 continue
