@@ -46,6 +46,56 @@ from bbot.core.helpers.web.envelopes import BaseEnvelope
 log = logging.getLogger("bbot.core.event")
 
 
+def _normalize_event_description(description: str) -> str:
+    if not isinstance(description, str):
+        return ""
+    normalized = re.sub(r"\s+", " ", description.strip())
+    normalized = re.sub(r"\b([A-Z]{2,})([a-z]{2,})\b", r"\1 \2", normalized)
+    normalized = re.sub(r"([a-z])([A-Z][a-z])", r"\1 \2", normalized)
+    normalized = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", normalized)
+
+    sentences = [piece.strip() for piece in re.split(r"(?<=[.!?])\s+", normalized) if piece.strip()]
+    if not sentences or len(normalized) <= 500:
+        return normalized
+
+    def _signature(sentence: str) -> str:
+        words = re.sub(r"[^a-z0-9 ]", "", sentence.lower()).split()
+        return " ".join(words[:10])
+
+    def _is_redundant_signature(candidate_signature: str, seen_signatures: list[str], ratio_threshold: float = 0.86) -> bool:
+        candidate_words = candidate_signature.split()
+        if not candidate_words:
+            return True
+        for signature in seen_signatures:
+            words = signature.split()
+            if not words:
+                continue
+            overlap = len(set(candidate_words).intersection(words))
+            min_len = min(len(candidate_words), len(words))
+            if overlap >= int(min_len * ratio_threshold):
+                return True
+            if candidate_signature.startswith(signature) or signature.startswith(candidate_signature):
+                return True
+        return False
+
+    deduplicated = []
+    seen_signatures = []
+    for sentence in sentences:
+        signature = _signature(sentence)
+        if not signature:
+            continue
+        if len(signature.split()) <= 4:
+            deduplicated.append(sentence)
+            continue
+        if _is_redundant_signature(signature, seen_signatures):
+            continue
+        deduplicated.append(sentence)
+        seen_signatures.append(signature)
+
+    deduped_description = " ".join(deduplicated)
+    return deduped_description or normalized
+
+
 class BaseEvent:
     """
     Represents a piece of data discovered during a BBOT scan.
@@ -1630,6 +1680,8 @@ class VULNERABILITY(ClosestHostEvent):
     def sanitize_data(self, data):
         if not data.get("description"):
             data.pop("description", None)
+        else:
+            data["description"] = _normalize_event_description(data["description"])
         self.add_tag(data["severity"].lower())
         return data
 
@@ -1661,6 +1713,8 @@ class FINDING(ClosestHostEvent):
     def sanitize_data(self, data):
         if not data.get("description"):
             data.pop("description", None)
+        else:
+            data["description"] = _normalize_event_description(data["description"])
         return data
 
     class _data_validator(BaseModel):
