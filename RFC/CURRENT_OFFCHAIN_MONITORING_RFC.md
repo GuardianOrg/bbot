@@ -612,7 +612,7 @@ The system operates on two cadences:
 | Cadence | Frequency | Purpose | Resource Profile |
 |---------|-----------|---------|-----------------|
 | **Weekly Full Scan** | Once per week (configurable day/time) | Broad attack surface discovery using bbot `all-but-intense-http` template | High — spawns bbot process, runs many modules, port scans, active HTTP requests |
-| **Real-Time Continuous** | Every 30 seconds to 1 hour (configurable per monitor) | Track changes to critical signals in near real-time | Low — lightweight API calls, DNS lookups, CT log streams |
+| **Real-Time Continuous** | Every 30 seconds to 24 hours (configurable per monitor) | Track changes to critical signals in near real-time | Low — lightweight API calls, DNS lookups, indexed CT and RDAP queries |
 
 ### 6.1 What Determines the Cadence?
 
@@ -1108,7 +1108,7 @@ export const MONITOR_MODULE_TYPES = [
   'offchain-dns-monitor',
   'offchain-ct-monitor',
   'offchain-whois-monitor',
-  'offchain-cert-expiry-monitor',
+  'offchain-certificate-monitor',
   'offchain-subdomain-monitor',
   'offchain-reputation-monitor',
   'offchain-leak-monitor',
@@ -1241,7 +1241,7 @@ Monitor input mapping:
 | `offchain-dns-monitor` | `domains`, `offchainExcludedDomains` |
 | `offchain-ct-monitor` | `domains` |
 | `offchain-whois-monitor` | `domains` |
-| `offchain-cert-expiry-monitor` | discovered `URLObject` / `NetworkServiceNode` records |
+| `offchain-certificate-monitor` | discovered HTTPS `URLObject` records |
 | `offchain-subdomain-monitor` | `domains`, `offchainExcludedDomains` |
 | `offchain-reputation-monitor` | discovered Domain/IP nodes (+ `offchainExcludedIps`) |
 | `offchain-leak-monitor` | `domains` |
@@ -1312,9 +1312,9 @@ Control Plane (hot reconfiguration without restart):
 
 #### 8.4.1 DNS Record Monitor
 
-**Frequency**: Configured per monitor source; default is every 30 seconds.
+**Frequency**: Configured per monitor source; default is every 60 seconds.
 **Input**: Persisted in-scope `DomainNode` FQDNs from the world's graph. A full-scope DNS monitor includes the world seed domain roots plus every persisted in-scope subdomain; a scoped monitor only includes persisted domains under its configured roots. `offchainExcludedDomains` and monitor-level exclusions are applied before resolution.
-**Method**: Direct DNS resolution through the system resolver and public resolver candidates. `A`, `AAAA`, and `CNAME` records are resolved across up to five provider candidates to reduce resolver-local blind spots; other record types use retry/fallback resolution. Failed lookups for a record type are not persisted as an empty result unless the resolver confirms there is no data.
+**Method**: Direct DNS resolution through the system resolver and public resolver candidates. `A`, `AAAA`, and `CNAME` records are resolved across up to five provider candidates to reduce resolver-local blind spots; other record types use retry/fallback resolution. Failed lookups for a record type are not persisted as an empty result unless the resolver confirms there is no data. The default monitored record set is `A`, `AAAA`, `CNAME`, `MX`, `NS`, `TXT`, `SOA`, and `CAA`; `SRV` is supported when explicitly configured because it is usually tied to service-specific owner names.
 
 | What is monitored | DomainNode Attribute | Alert Trigger |
 |--------------------|---------------------|---------------|
@@ -1323,8 +1323,8 @@ Control Plane (hot reconfiguration without restart):
 | CNAME records | `dnsCname` | CNAME target changed |
 | MX records | `dnsMx` | Mail server changed |
 | NS records | `dnsNs` | Nameserver changed |
-| TXT records | `dnsTxt` | TXT record changed (SPF/DMARC/DKIM) |
-| SOA records | `dnsSoa` | SOA serial changed |
+| TXT records | `dnsTxt` | Security policy TXT changed (SPF/DMARC/DKIM/BIMI/MTA-STS/TLS reporting) |
+| SOA records | `dnsSoa` | SOA authority values changed |
 | SRV records | `dnsSrv` | Service record changed |
 | CAA records | `dnsCaa` | CAA policy changed |
 
@@ -1335,6 +1335,21 @@ Control Plane (hot reconfiguration without restart):
 3. `A` and `AAAA` snapshots also update `DomainNode.ipHistory`. Each observed IP is recorded as `{ ip, first_seen, last_seen }` using the poll timestamp for new live observations.
 4. `ipHistory` is merged, never blindly overwritten. For the same IP, the merge keeps the oldest known `first_seen` and the newest known `last_seen`; an older incoming `last_seen` cannot move the stored value backwards, and a later incoming `first_seen` cannot erase an earlier first observation.
 5. bbot normal DNS events (`DNS_NAME` resolved hosts, `DNS_NAME` child A/AAAA records, and `RAW_DNS_RECORD` A/AAAA answers) use the same live-observation merge path. bbot passive DNS history (`DOMAIN_DNS_HISTORY`) normalizes provider-supplied history records and preserves their real `first_seen` / `last_seen` values when present.
+
+**Sensitive DNS findings**:
+
+DNS snapshots are normalized before comparison so case-only changes, trailing dots, quoted TXT fragments, CAA object/string formatting, resolver-specific SOA serialization, and record ordering do not create false "changed" results. When a real DNS change remains after normalization, the monitor creates `TrackedFinding` records only for security-relevant fields:
+
+* `A` and `AAAA` changes create a finding because they can redirect service traffic. Removing all addresses is high severity; other address changes are medium severity.
+* `CNAME` changes create a finding because they can move a hostname to a different provider, CDN, SaaS target, or takeover-prone dangling name. Removing the target is high severity; other target changes are medium severity.
+* `NS` changes are critical because authoritative name servers control the whole delegated DNS zone.
+* `MX` changes create a finding because they can redirect inbound email, password resets, and security notifications. Removing all MX records is high severity; other mail-routing changes are medium severity.
+* `CAA` changes are high severity because they alter which certificate authorities may issue TLS certificates for the domain.
+* `SRV` changes are medium severity when `SRV` monitoring is explicitly configured because service-discovery targets and ports can affect authentication, collaboration, and protocol-specific clients.
+* `TXT` changes create findings only when the changed values look like security or mail-authentication policy data, including SPF, DMARC, DKIM, BIMI, MTA-STS, and TLS reporting. Generic ownership-verification TXT changes are recorded as monitor changes but do not create vulnerability findings.
+* `SOA` changes create findings only when authority values such as the primary name server or responsible mailbox change. Serial-only SOA changes are intentionally ignored for findings because they are normal during routine DNS publishing.
+
+Each DNS finding description must be at least 500 characters and explain the operational and security impact in non-specialist language. Change descriptions include the normalized previous value and current value directly in the description, not only in the proof-of-concept JSON. DNS findings are written through `trackedFindingService.ensureOffchainFinding()` with category `DNS`, validity `Valid`, and location formatted as `<domain>:<recordType>`.
 
 **Graph truth and stale IP retention**:
 
@@ -1350,179 +1365,128 @@ This means fast DNS rotations do not cause immediate graph churn or repeated bbo
 
 #### 8.4.2 Certificate Transparency Monitor
 
-**Frequency**: Every 30 seconds
-**Input**: Root domains from World's `domains`
-**Method**: CRT.sh API + Certspotter API polling for new certificates
+**Frequency**: Default every **30 minutes**. The monitor accepts any positive configured `pollIntervalMs`; invalid or missing values fall back to the 30-minute default. Recommended operating cadence is:
+
+| Risk profile | Frequency | Rationale |
+|--------------|-----------|-----------|
+| Default recurring offchain monitoring | 30min | Finds new publicly logged subdomains quickly without waiting for the weekly scan. |
+| High-risk launch / incident window | 5min-15min | Faster detection when new subdomain issuance is expected or abuse is suspected. |
+| Low-risk / cost-sensitive worlds | 1h-6h | Still catches CT-only discoveries between weekly scans with less external-service pressure. |
+
+**Input**: Root domains from the World's effective offchain seed scope (`World.domains`, plus domain roots derived from URL/email seed targets), narrowed by optional monitor-level `domains` and `excludedDomains`.
+
+**Method**: Bounded polling of indexed Certificate Transparency search via `crt.sh` (`https://crt.sh/?q=%.<domain>&output=json`). Each result's Common Name and newline-separated `name_value` SAN list are normalized, wildcard prefixes are stripped, out-of-scope names are rejected, and duplicate SANs across multiple certificate entries are collapsed.
+
+**Why indexed CT polling for v1**:
+
+ Certificate Transparency itself is an append-only public log ecosystem (RFC 6962 / newer static tiled logs). High-assurance monitoring can tail every usable CT log from Chrome's daily log list, but that requires handling both RFC 6962 `get-entries` logs and modern static/tiled logs, checkpoint storage per log, parser hardening, and politeness/rate controls.
+ GuardianSentry's first CT monitor prioritizes low operational risk: it uses an indexed CT search provider for domain-scoped subdomain discovery, persists a per-monitor checkpoint, and launches at most one guarded bbot expansion batch for newly observed names.
+ A future high-assurance CT tailer can replace or supplement this provider by using Chrome's `log_list.json`, storing per-log checkpoints, and parsing SANs directly from log entries.
+
+**External references used for this design**:
+
+ RFC 6962 defines CT as public logging for TLS certificates and the classic HTTP log query API: https://datatracker.ietf.org/doc/html/rfc6962
+ Chrome publishes CT log lists daily and recommends consumers cache recent versions: https://googlechrome.github.io/CertificateTransparency/log_lists.html
+ Let's Encrypt documents that modern production logs may be static/tiled rather than RFC 6962 endpoints: https://letsencrypt.org/docs/ct-logs/
+ Google's `certificate-transparency-go` project documents libraries and scanners for direct log access: https://github.com/google/certificate-transparency-go
+ The v1 implementation uses crt.sh's JSON output pattern for bounded domain search: `https://crt.sh/?q=%.example.com&output=json`
 
 | What is monitored | Entity Affected | Alert Trigger |
 |--------------------|----------------|---------------|
-| New certificates issued | DomainNode (new subdomains in SAN) | New subdomain discovered via CT |
-| Certificate details | DomainNode.certificate | New cert issued for monitored domain |
-| SAN entries | DomainNode creation | Previously unknown FQDNs in certificate SAN |
+| New SAN/CN domain names | `DomainNode` | Previously unknown in-scope FQDN appears in CT results after the monitor baseline |
+| CT source coverage | `Monitor.recordData.checkpoint.ctKnownDomains` | Checkpoint updated each run to suppress repeat alerts |
+| New CT-only subdomain | Targeted bbot expansion scan | New `DomainNode` created by CT and not already present in the graph |
 
-**Implementation** (implements `MonitorHandler<CtCertEvent>` + `SourceManager<CtCertEvent>`):
+**Implemented behavior**:
 
-```typescript
-// src/monitoring/providers/offchainCt.ts
-
-interface CtCertEvent {
-  domain: string;
-  sanDomains: string[];
-  certSerial: string;
-  issuer: string;
-}
-
-export class OffchainCtMonitorHandler implements MonitorHandler<CtCertEvent> {
-  readonly monitorId: string;
-  readonly sourceKey: string;
-  readonly moduleType = 'offchain-ct-monitor';
-  readonly recordData: OffchainCtMonitorRecordData;
-
-  constructor(
-    public readonly sourceRecord: ModuleRecord,
-    public readonly record: Monitor,
-  ) {
-    this.monitorId = record.id;
-    this.recordData = record.recordData as OffchainCtMonitorRecordData;
-    this.sourceKey = `offchain-ct:${sourceRecord.worldId}`;
-  }
-
-  async handleEvent(event: CtCertEvent): Promise<void> {
-    const world = await World.findById(this.sourceRecord.worldId);
-    const rootDomains = world.domains;
-
-    for (const san of event.sanDomains) {
-      if (!isInScope(san, rootDomains)) continue;
-      if (await domainNodeExists(world.id, san)) continue;
-
-      // Create new DomainNode + trigger DNS resolution
-      await createDomainNodeFromCT(world.id, san, event);
-
-      // Persist alert via MonitorEventService
-      await monitorEventService.createOrGetExisting({
-        worldId: this.sourceRecord.worldId,
-        monitorId: this.record.id,
-        severity: 'medium',
-        title: `New subdomain via CT: ${san}`,
-        dedupeKey: `ct:${san}:${event.certSerial}`,
-        sourceEventId: event.certSerial,
-        metadata: {
-          domain: san,
-          certSerial: event.certSerial,
-          issuer: event.issuer,
-          sanDomains: event.sanDomains,
-        },
-        occurredAt: new Date(),
-      });
-
-      // Enqueue expansion scan for the new domain via HEAVY_OFFCHAIN_QUEUE
-      await offchainTasks.executeExpansionScan.applyAsync({
-        worldId: world.id,
-        moduleId: this.sourceRecord.id,
-        entityType: 'domain',
-        identityKey: san,
-      });
-    }
-
-    // Update checkpoint
-    await monitorService.update(this.record.id, {
-      recordData: {
-        ...this.recordData,
-        lastCheckTime: new Date().toISOString(),
-      },
-    } as any);
-  }
-}
-
-export class OffchainCtSourceManager implements SourceManager<CtCertEvent> {
-  readonly sourceKey: string;
-  private handlers: OffchainCtMonitorHandler[] = [];
-  private running = false;
-  private pollTimer: NodeJS.Timeout | undefined;
-  private readonly pollIntervalMs = 30_000; // 30 seconds
-
-  constructor(private readonly sourceRecord: ModuleRecord) {
-    this.sourceKey = `offchain-ct:${sourceRecord.worldId}`;
-  }
-
-  async syncMonitors(monitors: MonitorHandler<CtCertEvent>[], _sourceRecord: ModuleRecord) {
-    this.handlers = monitors as OffchainCtMonitorHandler[];
-  }
-
-  async start(): Promise<void> {
-    this.running = true;
-    this.schedulePoll();
-  }
-
-  async stop(): Promise<void> {
-    this.running = false;
-    if (this.pollTimer) clearTimeout(this.pollTimer);
-  }
-
-  private schedulePoll() {
-    if (!this.running) return;
-    this.pollTimer = setTimeout(async () => {
-      await this.pollOnce();
-      this.schedulePoll();
-    }, this.pollIntervalMs);
-  }
-
-  private async pollOnce() {
-    const world = await World.findById(this.sourceRecord.worldId);
-    const rootDomains = world.domains;
-    const lastCheckTime = this.handlers[0]?.recordData?.lastCheckTime
-      ? new Date(this.handlers[0].recordData.lastCheckTime)
-      : new Date(Date.now() - 60_000);
-
-    for (const domain of rootDomains) {
-      const newCerts = await queryCrtSh(domain, lastCheckTime);
-      for (const cert of newCerts) {
-        const event: CtCertEvent = {
-          domain,
-          sanDomains: cert.san_domains,
-          certSerial: cert.serial,
-          issuer: cert.issuer,
-        };
-        for (const handler of this.handlers) {
-          await handler.handleEvent(event);
-        }
-      }
-    }
-  }
-}
-```
+1. The monitor is registered as `offchain-ct-monitor` in `src/monitoring/modules/offchain.ts` and runs through the same `MonitorRuntimeHost` + `PollingSourceManager` infrastructure as the DNS monitor.
+2. Managed offchain monitoring creates this monitor automatically via `OFFCHAIN_MONITORING_PLUGIN_CONFIGS`, using the 30-minute default cadence.
+3. The first run is a **baseline run** by default: it stores `checkpoint.ctKnownDomains` but does not alert or launch expansion scans for historical CT entries. This prevents enabling the monitor on an existing world from creating a large one-time BBOT burst.
+4. Later runs compare normalized CT names against `checkpoint.ctKnownDomains` and existing `DomainNode`s. Only genuinely new in-scope names create `MonitorEvent` changes.
+5. New CT domains are persisted through `OffchainNodeService.ensureDomainNode()` with `discoveredByModules = ['ct-monitor']`.
+6. Expansion scans are queued through `offchainMonitorChangeService.enqueueExpansionScan()`, which skips while a regular offchain scan is active and applies the existing recent-expansion cooldown. This keeps CT from launching one BBOT scan per certificate.
+7. Current v1 does not persist certificate bodies or issuer-change alerts on `DomainNode`; it is scoped to subdomain discovery. Certificate expiry/issuer/SAN drift for known live endpoints remains the responsibility of TLS/service monitors and weekly bbot enrichment.
 
 --
 
-#### 8.4.3 WHOIS Expiry Monitor
+#### 8.4.3 WHOIS/RDAP Registration Monitor
 
-**Frequency**: Every 1 hour (3,600 seconds)
-**Input**: Root domains (registered domains, not subdomains)
-**Method**: WHOIS lookup via `whois` command or RDAP API
+**Frequency**: Default every **1 hour**. The monitor accepts any positive configured `pollIntervalMs`; invalid or missing values fall back to the 1-hour default. Recommended operating cadence is:
+
+| World risk profile | Cadence | Reason |
+|--------------------|---------|--------|
+| Default recurring offchain monitoring | 1h | Registration metadata changes rarely, but hourly checks reduce exposure during transfer, lock, DNSSEC, or contact-data incidents. |
+| High-risk domains / active incident response | 5min-30min | Useful when a registrar account compromise, transfer dispute, or urgent renewal problem is suspected. |
+| Low-risk / cost-sensitive worlds | 6h-24h | Sufficient for renewal and status drift checks on less critical domains. |
+
+**Input**: Exact domain inputs configured on the World: `World.domains` plus `World.offchainSeedTargets` entries whose type is `domain`. URL and email seed targets do not widen WHOIS/RDAP scope because RDAP domain lookups are registration-object lookups, not arbitrary hostname checks. World-level and monitor-level `excludedDomains` are applied before polling.
+
+**Method**: RDAP-first lookup using the IANA DNS RDAP bootstrap (`https://data.iana.org/rdap/dns.json`) to find the authoritative RDAP service for each TLD, followed by a domain query against the selected RDAP server. RDAP is preferred because it returns structured JSON with `events`, `entities`, `status`, and `secureDNS` fields. Classic port-43 WHOIS can be added later as a fallback for TLDs without reliable RDAP coverage, but the v1 monitor intentionally avoids parsing inconsistent free-text WHOIS output when structured RDAP is available.
 
 | What is monitored | DomainNode Attribute | Alert Trigger |
 |--------------------|---------------------|---------------|
-| Expiration date | `expiration_date` | Domain expires within 30/14/7/1 days |
-| Registrar | `registrar` | Registrar changed |
-| WHOIS status | `whois_status` | Status code changed (e.g. `pendingDelete`) |
-| Nameservers | `dns_ns` | Nameserver changed (cross-validated with DNS monitor) |
+| Registrar | `registrar` | Registrar changes after the monitor baseline |
+| Registration date | `registration_date` | Registration metadata changes |
+| Expiration date | `expiration_date` | Domain expires within 30 days; critical within 7 days |
+| WHOIS/RDAP update date | `updated_date` | Registration metadata changes |
+| Registrant name | `registrant_name` | Registrant contact changes after the monitor baseline |
+| Registrant email | `registrant_email` | Registrant contact changes after the monitor baseline |
+| Registrant organisation | `registrant_org` | Registrant contact changes after the monitor baseline |
+| Registrant country | `registrant_country` | Registrant contact changes after the monitor baseline |
 | DNSSEC | `dnssec` | DNSSEC enabled/disabled |
+| WHOIS/RDAP status | `whois_status` | Status code changes or risky status is present |
+
+**Finding creation rules**:
+
+Fixed-state WHOIS findings are generated by both the recurring WHOIS/RDAP monitor and BBOT `DOMAIN_WHOIS` ingestion through the same shared rule helper:
+
+* Expiration within 30 days creates a high-severity finding; expiration within 7 days creates a critical finding.
+* Missing `clientTransferProhibited` / `serverTransferProhibited` creates a high-severity finding because the domain does not visibly expose a transfer lock.
+* Missing delete/update locks creates a medium-severity finding where those protections are not visible.
+* `pendingTransfer`, `pendingUpdate`, `clientHold`, `serverHold`, or `inactive` creates a high-severity finding.
+* `pendingDelete` or `redemptionPeriod` creates a critical finding.
+
+Change-only WHOIS findings are generated only by the recurring monitor because only the monitor compares the current RDAP/WHOIS snapshot with the previous GuardianSentry snapshot:
+
+* Expiration-date changes after the initial baseline create a finding; the severity is high when the new date moved sooner and medium otherwise.
+* Registrant contact changes create a medium-severity finding after the initial baseline.
+* Registrar changes create a high-severity finding after the initial baseline.
+* DNSSEC changing from enabled to disabled creates a medium-severity finding after the initial baseline.
+
+Each WHOIS/RDAP finding description must be at least 500 characters and explain the operational and security impact in non-specialist language. Change-only finding descriptions must include the previous value and the current value directly in the description, not only in the evidence JSON, so operators can immediately see what changed. Findings are written through `trackedFindingService.ensureOffchainFinding()` with category `WHOIS`, validity `Valid`, and the domain as `location`.
+
+**No expansion scans**: This monitor never calls bbot and never enqueues `monitor-expansion` scans. It only replaces the current WHOIS/RDAP fields on the existing or newly created root `DomainNode`, records monitor change history, updates the monitor checkpoint, and creates tracked findings for risky registration states or sensitive changes.
 
 --
 
-#### 8.4.4 TLS Certificate Expiry Monitor
+#### 8.4.4 TLS Certificate Monitor
 
-**Frequency**: Every 1 hour
-**Input**: All known URL endpoints (HTTPS) and NetworkService endpoints with TLS
-**Method**: TLS handshake to retrieve live certificate
+**Implementation status**: Implemented as `offchain-certificate-monitor`.
 
-| What is monitored | Attribute | Alert Trigger |
-|--------------------|----------|---------------|
-| Certificate `not_after` | `certificate.not_after` | Cert expires within 30/14/7/1 days |
-| Certificate issuer | `certificate.issuer_cn` | Issuer changed |
-| Certificate SAN | `certificate.san_domains` | SAN entries changed |
-| Self-signed status | `certificate.is_self_signed` | Changed to self-signed |
-| Key algorithm/size | `certificate.key_algorithm`, `key_size` | Downgraded |
+**Frequency**: Every **1 hour** by default. The monitor accepts any positive configured `pollIntervalMs`; invalid or missing values fall back to the 1-hour default. Hourly checks catch unexpected certificate replacement, issuer drift, SAN changes, and renewal mistakes much sooner than the weekly scan while keeping TLS traffic bounded to known HTTPS URLs.
+
+**Input**: All existing HTTPS `URLObject` records for the world. Optional monitor `domains` restrict checks to URLs whose host equals or is below those domains, and `excludedDomains` plus `world.offchainExcludedDomains` remove hosts from scope. The monitor does not create new URL/domain/service nodes from certificate data.
+
+**Method**: Node TLS handshake with SNI for DNS names and certificate parsing through `X509Certificate`. The live peer certificate is normalized before comparison: hostnames are lowercase and trailing-dot-free, SAN entries are deduplicated and sorted, issuer/subject CNs are whitespace-normalized and lowercased, SHA-256 fingerprints are lowercased hex without separators, and expiration dates are canonical ISO timestamps. This prevents harmless capitalization, quoting, spacing, or ordering differences from being treated as certificate drift.
+
+Fixed-state TLS certificate findings are generated by both the BBOT `TLS_CERTIFICATE` ingestion path and the recurring certificate monitor using the same shared helper:
+
+* Expired certificates create a critical finding.
+* Certificates expiring within 7 days create a critical finding.
+* Certificates expiring within 30 days create a high-severity finding.
+* Certificates whose SAN/CN does not cover the served hostname create a high-severity finding.
+
+Change-only TLS certificate findings are generated only by the recurring monitor because only the monitor compares the current live certificate with the previous GuardianSentry snapshot:
+
+* SHA-256 fingerprint changes create a medium-severity finding.
+* Issuer CN changes create a medium-severity finding.
+* Subject CN changes create a medium-severity finding.
+* SAN list changes create a medium-severity finding.
+* Expiration-date changes create a finding; severity is high when the new date moved sooner and medium otherwise.
+
+Each TLS certificate finding description must be at least 500 characters and explain the operational and security impact in non-specialist language. Change-only finding descriptions must include the previous value and the current value directly in the description, not only in the evidence JSON. Findings are written through `trackedFindingService.ensureOffchainFinding()` with category `TLS Certificate`, validity `Valid`, and the URL as `location`.
+
+**No expansion scans**: This monitor never calls bbot and never enqueues `monitor-expansion` scans. It only replaces the current TLS certificate fields on existing HTTPS `URLObject` records, records monitor change history, updates the monitor checkpoint, and creates tracked findings for risky certificate states or sensitive changes.
 
 --
 
@@ -1673,10 +1637,10 @@ export class OffchainCtSourceManager implements SourceManager<CtCertEvent> {
 
 | Monitor | Frequency | Data Source | Entity Types Updated | Requires API Key |
 |---------|-----------|-------------|---------------------|-----------------|
-| DNS Records | 30s | Direct DNS | DomainNode | No |
-| CT Log | 30s | CRT.sh, Certspotter | DomainNode | No |
-| WHOIS Expiry | 1h | WHOIS/RDAP | DomainNode | No |
-| TLS Cert Expiry | 1h | TLS handshake | URLObject, NetworkServiceNode, DomainNode | No |
+| DNS Records | 60s default | Direct DNS | DomainNode | No |
+| CT Log | 30min default | crt.sh indexed CT search | DomainNode | No |
+| WHOIS/RDAP Registration | 1h default | RDAP via IANA bootstrap | DomainNode, TrackedFinding | No |
+| TLS Cert Expiry | 1h default | TLS handshake | URLObject, NetworkServiceNode, DomainNode | No |
 | Subdomain Discovery | 1h | OSINT APIs | DomainNode, IPAddressNode | No (enhanced with keys) |
 | IP & Domain Reputation | 1h | Reputation APIs | IPAddressNode, DomainNode | Optional |
 | Leak & Breach | 6h | Public LeakLookup | TrackedFinding, EmailAddress | No |
@@ -1740,6 +1704,10 @@ When a monitor discovers a **new object** (not just an attribute change), we sho
  New `DomainNode`, `URLObject`, `IPAddressNode`, or `NetworkServiceNode` created by a `MonitorHandler.handleEvent()` call inside a running monitor.
 
 For DNS monitoring specifically, only newly created IP/domain objects are expansion targets. IPs retained by the 3-hour stale-IP grace window are existing graph objects, so they do not enqueue another bbot expansion scan while DNS is rotating or temporarily inconsistent.
+
+For CT monitoring specifically, the first run is baseline-only and does not enqueue expansion scans for historical certificate names. Subsequent runs enqueue a single guarded expansion batch for newly observed, in-scope CT names that are not already persisted as `DomainNode`s.
+
+For WHOIS/RDAP monitoring specifically, expansion is always disabled. WHOIS/RDAP observations update registration fields on the domain node and create tracked findings for sensitive changes or risky lifecycle states, but they never launch bbot.
 
 **Workflow** (triggered from within `MonitorHandler.handleEvent()`, uses the `@asyncTask(HEAVY_OFFCHAIN_QUEUE)` handler from Section 7.2.2):
 
@@ -2003,7 +1971,7 @@ export const MONITOR_MODULE_TYPES = [
   'offchain-dns-monitor',
   'offchain-ct-monitor',
   'offchain-whois-monitor',
-  'offchain-cert-expiry-monitor',
+  'offchain-certificate-monitor',
   'offchain-subdomain-monitor',
   'offchain-reputation-monitor',
   'offchain-leak-monitor',
