@@ -23,7 +23,7 @@ class host_reputation(BaseModule):
     options_desc = {
         "abuseipdb_api_key": "AbuseIPDB API key for IP reputation checks",
         "virustotal_api_keys": "Comma-separated VirusTotal API keys for domain and IP reputation checks",
-        "otx_api_key": "AlienVault OTX API key for domain reputation checks",
+        "otx_api_key": "AlienVault OTX API key for domain and IP reputation checks",
         "malwareworld_base": "MalwareWorld data base URL or local path",
     }
     scope_distance_modifier = 1
@@ -57,12 +57,14 @@ class host_reputation(BaseModule):
         mw_result = await self.check_malwareworld(host)
         results["MalwareWorld"] = mw_result
 
-        if is_ip:
-            results["IP in AbuseIPDB"] = await self.check_abuseipdb(host)
-            results["IP in VirusTotal"] = await self.check_vt_ip(host)
-        else:
-            results["Hostname in VirusTotal"] = await self.check_vt_domain(host)
-            results["Hostname in OTX"] = await self.check_otx(host)
+        if not mw_result.get("malicious"):
+            if is_ip:
+                results["IP in AbuseIPDB"] = await self.check_abuseipdb(host)
+                results["IP in VirusTotal"] = await self.check_vt_ip(host)
+                results["IP in OTX"] = await self.check_otx_ip(host)
+            else:
+                results["Hostname in VirusTotal"] = await self.check_vt_domain(host)
+                results["Hostname in OTX"] = await self.check_otx(host)
 
         risk_score, malicious, sources = self.aggregate_results(results)
         verdict = "malicious" if malicious else "not malicious"
@@ -192,6 +194,56 @@ class host_reputation(BaseModule):
             "sources": sources,
             "details": {
                 "count": count,
+                "pulses": pulses,
+                "references": (pulse_info.get("references") or [])[:5],
+            },
+        }
+
+    async def check_otx_ip(self, ip):
+        if not self.otx_api_key:
+            return {"error": "otx_api_key not set", "malicious": False}
+        try:
+            version = ipaddress.ip_address(ip).version
+        except ValueError:
+            return {"error": "invalid IP address", "malicious": False}
+        indicator_type = "IPv6" if version == 6 else "IPv4"
+        response = await self.request_json(
+            f"https://otx.alienvault.com/api/v1/indicators/{indicator_type}/{self.helpers.quote(ip)}/reputation",
+            headers={"X-OTX-API-KEY": self.otx_api_key},
+        )
+        pulse_info = response.get("pulse_info", {}) if isinstance(response, dict) else {}
+        count = self._to_int(pulse_info.get("count"))
+        reputation = max(
+            self._to_int(response.get("reputation")) if isinstance(response, dict) else 0,
+            self._to_int(response.get("threat_score")) if isinstance(response, dict) else 0,
+            self._to_int(response.get("threatScore")) if isinstance(response, dict) else 0,
+        )
+        pulses = pulse_info.get("pulses") or []
+        sources = []
+        for pulse in pulses:
+            if not isinstance(pulse, dict):
+                continue
+            pulse_name = pulse.get("name") or pulse.get("id") or "unknown-pulse"
+            sources.append({
+                "source": f"OTX:{pulse_name}",
+                "type": "pulse",
+                "listed_date": pulse.get("modified") or pulse.get("created"),
+            })
+        if reputation > 0 and not sources:
+            sources.append({
+                "source": "OTX:IP reputation",
+                "type": "reputation",
+                "listed_date": None,
+            })
+        return {
+            "malicious": count > 0 or reputation > 0,
+            "risk_score": min(100, max(count * 20, reputation)),
+            "type": "threat-intel-pulse" if count > 0 else "reputation",
+            "listed_date": None,
+            "sources": sources,
+            "details": {
+                "count": count,
+                "reputation": reputation,
                 "pulses": pulses,
                 "references": (pulse_info.get("references") or [])[:5],
             },
