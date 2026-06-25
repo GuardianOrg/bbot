@@ -699,14 +699,15 @@ class domain_config_dns_audit(BaseModule):
                 ))
         except Exception:
             pass
-        await self.check_rrsig_expiration(domain, findings)
+        await self.check_rrsig_expiration(domain, records, findings)
         await self.check_nsec_records(domain, findings)
         await self.check_dnssec_validation(domain, records, findings)
 
-    async def check_rrsig_expiration(self, domain, findings):
+    async def check_rrsig_expiration(self, domain, records, findings):
         success, response = await self.query_dns_full(domain, "SOA")
         if not success or not response:
             return
+        suppress_managed_warning = self.has_managed_authoritative_ns(records)
         for rrset in response.answer:
             if rrset.rdtype != dns.rdatatype.RRSIG:
                 continue
@@ -732,7 +733,7 @@ class domain_config_dns_audit(BaseModule):
                         "Re-sign the zone immediately.",
                         f"dig {domain} SOA +dnssec | grep RRSIG",
                     ))
-                elif days_left < 14:
+                elif days_left < 14 and not suppress_managed_warning:
                     findings.append(AuditFinding(
                         "RRSIG Expiration Approaching",
                         "MEDIUM" if days_left >= 7 else "HIGH",
@@ -1981,6 +1982,9 @@ class domain_config_dns_audit(BaseModule):
             if host == suffix or host.endswith(f".{suffix}"):
                 return True
         return False
+
+    def has_managed_authoritative_ns(self, records):
+        return any(self.is_managed_authoritative_ns(ns) for ns in records.get("NS", []))
 
     def ptr_matches_mx(self, ptr_record, mx_host):
         ptr = str(ptr_record or "").rstrip(".").lower()
