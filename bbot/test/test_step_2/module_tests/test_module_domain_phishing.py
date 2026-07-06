@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from .base import ModuleTestBase
 
@@ -52,6 +53,19 @@ class TestDomainPhishing(ModuleTestBase):
 
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
 
+        module_test.monkeypatch.setattr(
+            module_test.module,
+            "_whois_lookup",
+            lambda domain: {
+                "registrar": "NameCheap, Inc.",
+                "creation_date": datetime(2026, 4, 15, 10, 0, 0),
+                "org": "Shady Buyer LLC",
+                "emails": ["abuse@evil.example"],
+                "name": "John Phisher",
+                "country": "PA",
+            },
+        )
+
     def check(self, module_test, events):
         phishing_events = [
             e
@@ -69,3 +83,11 @@ class TestDomainPhishing(ModuleTestBase):
         assert event.data["probability"] >= 4
         assert event.data["title"] == "Potential phishing look-alike domain: blacklanternsecur1ty.com"
         assert "Candidate domain: blacklanternsecur1ty.com" in event.data["evidence"]
+
+        # WHOIS ownership fingerprint is attached for downstream de-duplication.
+        assert event.data["registrar"] == "NameCheap, Inc."
+        assert event.data["registration_date"] == "2026-04-15T10:00:00"
+        assert event.data["registrant_org"] == "Shady Buyer LLC"
+        assert event.data["registrant_email"] == "abuse@evil.example"
+        assert event.data["registrant_name"] == "John Phisher"
+        assert event.data["registrant_country"] == "PA"

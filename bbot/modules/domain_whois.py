@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date, datetime
 
+from bbot.core.helpers.whois import normalize_whois_ownership, whois_first_string, whois_to_iso
 from bbot.modules.base import BaseModule
 
 
@@ -52,32 +53,24 @@ class domain_whois(BaseModule):
         return dict(data) if data else {}
 
     def normalize_result(self, host, result):
+        ownership = normalize_whois_ownership(result)
         return {
             "host": host,
-            "registrar": self.first_string(result.get("registrar")),
-            "registration_date": self.to_iso(result.get("creation_date")),
+            "registrar": ownership["registrar"],
+            "registration_date": ownership["registration_date"],
             "expiration_date": self.to_iso(result.get("expiration_date")),
             "updated_date": self.to_iso(result.get("updated_date")),
-            "registrant_name": self.first_string(result.get("name")),
-            "registrant_email": self.first_string(result.get("emails")),
-            "registrant_org": self.first_string(result.get("org")),
-            "registrant_country": self.first_string(result.get("country")),
+            "registrant_name": ownership["registrant_name"],
+            "registrant_email": ownership["registrant_email"],
+            "registrant_org": ownership["registrant_org"],
+            "registrant_country": ownership["registrant_country"],
             "dnssec": self.parse_dnssec(result.get("dnssec")),
             "whois_status": self.string_list(result.get("status")),
             "raw": {k: self.json_safe(v) for k, v in result.items() if v is not None},
         }
 
     def first_string(self, value):
-        if isinstance(value, (list, tuple, set)):
-            for item in value:
-                text = self.first_string(item)
-                if text:
-                    return text
-            return None
-        if value is None:
-            return None
-        text = str(value).strip()
-        return text if text else None
+        return whois_first_string(value)
 
     def string_list(self, value):
         if isinstance(value, (list, tuple, set)):
