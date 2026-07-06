@@ -1,5 +1,7 @@
+import asyncio
 from contextlib import suppress
 
+from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
@@ -13,10 +15,14 @@ class dehashed(subdomain_enum):
         "author": "@SpamFaux",
         "auth_required": True,
     }
-    options = {"api_key": ""}
-    options_desc = {"api_key": "DeHashed API Key"}
+    options = {"api_key": "", "history_file": ""}
+    options_desc = {
+        "api_key": "DeHashed API Key",
+        "history_file": "Optional JSON path to persist already-reported leak fingerprints so repeats are not re-emitted on later scans. Leave empty to disable.",
+    }
     target_only = True
 
+    SOURCE = "dehashed"
     base_url = "https://api.dehashed.com/v2/search"
 
     async def setup(self):
@@ -26,12 +32,19 @@ class dehashed(subdomain_enum):
             "Content-Type": "application/json",
             "Dehashed-Api-Key": self.api_key,
         }
+        self.history = LeakHistory(str(self.config.get("history_file", "")).strip())
+        self._state_lock = asyncio.Lock()
 
         # soft-fail if we don't have the necessary information to make queries
         if not self.api_key:
             return None, "No API key set"
 
         return await super().setup()
+
+    def _record_fingerprint(self, db_name, emails, users, pws, h_pws):
+        identity = next(iter(sorted(emails) or sorted(str(u) for u in users) or [""]), "")
+        secret = next(iter(sorted(str(p) for p in pws) or sorted(str(h) for h in h_pws) or [""]), "")
+        return leak_fingerprint(self.SOURCE, db_name, identity, secret)
 
     async def handle_event(self, event):
         query = self.make_query(event)
@@ -51,6 +64,12 @@ class dehashed(subdomain_enum):
                 pws = entry.get("password", [])
                 h_pws = entry.get("hashed_password", [])
                 db_name = entry.get("database_name", "")
+
+                # Skip records already reported on a previous scan (when history_file is set).
+                record_fp = self._record_fingerprint(db_name, emails, users, pws, h_pws)
+                if self.history.contains(record_fp):
+                    continue
+                self.history.add(record_fp)
 
                 tags = []
                 if db_name:
@@ -86,6 +105,11 @@ class dehashed(subdomain_enum):
                                 tags=tags,
                                 context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
                             )
+        await self._save_history()
+
+    async def _save_history(self):
+        async with self._state_lock:
+            self.history.save()
 
     async def query(self, domain):
         url = self.base_url
