@@ -1,8 +1,10 @@
+import asyncio
 import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bbot.core.helpers.whois import normalize_whois_ownership
 from bbot.modules.base import BaseModule
 
 
@@ -49,9 +51,22 @@ class domain_phishing(BaseModule):
         "max_candidates": "Maximum permutations to evaluate per root domain",
         "min_score": "Minimum score to emit as finding",
     }
-    deps_pip = ["dnstwist"]
+    deps_pip = ["dnstwist", "python-whois~=0.9.5"]
     in_scope_only = True
     per_domain_only = True
+
+    # Ownership-fingerprint keys attached to each emitted finding. These identify the
+    # registrant/owner and only change when the look-alike domain is transferred to a
+    # different owner, letting downstream consumers suppress repeat alerts for an
+    # unchanged domain while re-alerting when it is bought by someone new.
+    OWNERSHIP_FINGERPRINT_KEYS = (
+        "registrar",
+        "registration_date",
+        "registrant_org",
+        "registrant_email",
+        "registrant_name",
+        "registrant_country",
+    )
 
     HIGH_RISK_FUZZERS = {
         "bitsquatting",
@@ -188,6 +203,28 @@ class domain_phishing(BaseModule):
 
         return " | ".join(evidence_parts)
 
+    def _empty_fingerprint(self):
+        return {key: None for key in self.OWNERSHIP_FINGERPRINT_KEYS}
+
+    async def _lookup_ownership_fingerprint(self, domain):
+        try:
+            result = await asyncio.to_thread(self._whois_lookup, domain)
+        except Exception:
+            self.debug(f"domain_phishing: WHOIS lookup failed for {domain}", trace=True)
+            return self._empty_fingerprint()
+        if not isinstance(result, dict):
+            return self._empty_fingerprint()
+        return normalize_whois_ownership(result)
+
+    @staticmethod
+    def _whois_lookup(domain):
+        import whois
+
+        data = whois.whois(domain)
+        if isinstance(data, dict):
+            return data
+        return dict(data) if data else {}
+
     async def setup(self):
         self.binary = str(self.config.get("binary", "dnstwist")).strip()
         self.registered_only = bool(self.config.get("registered_only", True))
@@ -225,6 +262,9 @@ class domain_phishing(BaseModule):
 
         if self.registered_only:
             command.append("--registered")
+            # Bounded by --registered: pre-fills whois-created/registrar so the
+            # young-domain scoring signal works and registrar is available cheaply.
+            command.append("--whois")
 
         if self.enable_lsh:
             command += ["--lsh", "ssdeep"]
@@ -260,6 +300,7 @@ class domain_phishing(BaseModule):
                 continue
 
             fuzzer = str(self._pick(candidate, "fuzzer", "fuzz") or "unknown").strip()
+            fingerprint = await self._lookup_ownership_fingerprint(candidate_domain)
             tags = ["phishing", "typosquatting", f"fuzzer-{fuzzer.lower()}"]
             description = (
                 f"Look-alike domain {candidate_domain} was generated from {root_domain} using the {fuzzer} permutation technique."
@@ -289,6 +330,10 @@ class domain_phishing(BaseModule):
                 "probability": score,
                 "score": score,
             }
+            # Attach the WHOIS ownership fingerprint (registrar + registration date +
+            # registrant identity) so Sentry can distinguish a re-registered/newly-bought
+            # look-alike from one whose ownership is unchanged.
+            payload.update(fingerprint)
 
             event_type = "FINDING"
             if severity:
