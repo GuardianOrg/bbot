@@ -250,13 +250,19 @@ class domain_phishing(BaseModule):
 
     def _candidate_change_key(self, candidate):
         # Uses the created date + registrar that dnstwist --whois already fetched, so the
-        # change-check needs no extra WHOIS query and is format-stable across scans.
+        # change-check needs no extra WHOIS query and is format-stable across scans. Note
+        # dnstwist exposes no registrant data, so a registrant-only transfer is not visible
+        # here; the Sentry monitor's RDAP fingerprint is the authoritative layer for that.
         created = self._pick(candidate, "whois-created", "whois_created", "created")
         registrar = self._pick(candidate, "whois-registrar", "whois_registrar", "registrar")
         return {"created": self._canonical_day(created), "registrar": self._canonical_text(registrar)}
 
     def _is_known_unchanged(self, domain, change_key):
         if not self.history_file:
+            return False
+        # Without a registration date there is no reliable "unchanged" signal (e.g.
+        # registered_only=False yields no WHOIS), so never suppress in that case.
+        if change_key.get("created") is None:
             return False
         return self.known.get(domain) == change_key
 
