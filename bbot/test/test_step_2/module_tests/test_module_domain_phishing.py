@@ -91,3 +91,45 @@ class TestDomainPhishing(ModuleTestBase):
         assert event.data["registrant_email"] == "abuse@evil.example"
         assert event.data["registrant_name"] == "John Phisher"
         assert event.data["registrant_country"] == "PA"
+
+
+def test_domain_phishing_change_key_suppression():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.history_file = "/tmp/domain_phishing_state.json"
+    mod.known = {}
+
+    key = mod._candidate_change_key(
+        {"domain": "x.com", "whois_created": "2026-04-15T10:00:00", "whois_registrar": "MarkMonitor, Inc."}
+    )
+    assert key == {"created": "2026-04-15", "registrar": "markmonitor inc"}
+    assert mod._is_known_unchanged("x.com", key) is False
+
+    mod._remember_candidate("x.com", key)
+    assert mod._is_known_unchanged("x.com", key) is True
+
+    # RDAP-style UTC date + differently-punctuated registrar for the same owner still match.
+    key_same_owner = mod._candidate_change_key(
+        {"domain": "x.com", "whois_created": "2026-04-15T10:00:00.000Z", "whois_registrar": "MarkMonitor Inc"}
+    )
+    assert mod._is_known_unchanged("x.com", key_same_owner) is True
+
+    # A genuine registration-date change is not suppressed.
+    key_changed = mod._candidate_change_key(
+        {"domain": "x.com", "whois_created": "2027-01-01", "whois_registrar": "MarkMonitor, Inc."}
+    )
+    assert mod._is_known_unchanged("x.com", key_changed) is False
+
+
+def test_domain_phishing_suppression_disabled_without_history_file():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.history_file = ""
+    mod.known = {}
+    key = mod._candidate_change_key({"domain": "x.com", "whois_created": "2026-04-15", "whois_registrar": "R"})
+    mod._remember_candidate("x.com", key)
+    # With no history_file configured, nothing is remembered and nothing is suppressed.
+    assert mod.known == {}
+    assert mod._is_known_unchanged("x.com", key) is False

@@ -38,6 +38,7 @@ class domain_phishing(BaseModule):
         "young_domain_days": 45,
         "max_candidates": 2000,
         "min_score": 3,
+        "history_file": "",
     }
     options_desc = {
         "binary": "Path to dnstwist binary",
@@ -50,6 +51,7 @@ class domain_phishing(BaseModule):
         "young_domain_days": "Registration age in days considered suspicious",
         "max_candidates": "Maximum permutations to evaluate per root domain",
         "min_score": "Minimum score to emit as finding",
+        "history_file": "Optional JSON path to persist already-reported look-alikes + key WHOIS fields (registration date, registrar) so a known domain whose key WHOIS is unchanged is skipped on later scans (no WHOIS lookup, no finding). Leave empty to disable.",
     }
     deps_pip = ["dnstwist", "python-whois~=0.9.5"]
     in_scope_only = True
@@ -68,17 +70,10 @@ class domain_phishing(BaseModule):
         "registrant_country",
     )
 
-    HIGH_RISK_FUZZERS = {
-        "bitsquatting",
-        "homoglyph",
-        "hyphenation",
-        "insertion",
-        "omission",
-        "replacement",
-        "transposition",
-        "tld-swap",
-        "addition",
-    }
+    # Permutation techniques that produce a visually deceptive result (harder for a human
+    # to spot) are weighted higher than plain typo-class techniques.
+    DECEPTIVE_FUZZERS = {"homoglyph", "bitsquatting"}
+    VERY_YOUNG_DOMAIN_DAYS = 7
     FINDING_CATEGORY = "phishing-lookalike-domain"
 
     def _pick(self, item, *keys):
@@ -135,16 +130,20 @@ class domain_phishing(BaseModule):
         reasons = []
 
         fuzzer = str(self._pick(candidate, "fuzzer", "fuzz") or "").strip().lower()
-        if fuzzer in self.HIGH_RISK_FUZZERS:
+        if fuzzer in self.DECEPTIVE_FUZZERS:
+            score += 2
+            reasons.append(f"visually deceptive permutation ({fuzzer})")
+        else:
             score += 1
-            reasons.append(f"high-risk permutation technique ({fuzzer})")
+            reasons.append(f"look-alike permutation ({fuzzer})")
 
         dns_a = self._as_list(self._pick(candidate, "dns-a", "dns_a"))
         dns_aaaa = self._as_list(self._pick(candidate, "dns-aaaa", "dns_aaaa"))
         dns_mx = self._as_list(self._pick(candidate, "dns-mx", "dns_mx"))
         dns_ns = self._as_list(self._pick(candidate, "dns-ns", "dns_ns"))
 
-        if dns_a or dns_aaaa:
+        has_web = bool(dns_a or dns_aaaa)
+        if has_web:
             score += 1
             reasons.append("active A/AAAA records")
         if dns_mx:
@@ -153,10 +152,16 @@ class domain_phishing(BaseModule):
         if dns_ns:
             score += 1
             reasons.append("delegated NS records")
+        if has_web and dns_mx:
+            score += 1
+            reasons.append("fully operational (web + mail)")
 
         created = self._pick(candidate, "whois-created", "whois_created", "created")
         age_days = self._parse_domain_age_days(created)
-        if age_days is not None and age_days <= self.young_domain_days:
+        if age_days is not None and age_days <= self.VERY_YOUNG_DOMAIN_DAYS:
+            score += 3
+            reasons.append(f"registered within {self.VERY_YOUNG_DOMAIN_DAYS} days ({age_days} days old)")
+        elif age_days is not None and age_days <= self.young_domain_days:
             score += 2
             reasons.append(f"newly registered ({age_days} days old)")
 
@@ -225,6 +230,66 @@ class domain_phishing(BaseModule):
             return data
         return dict(data) if data else {}
 
+    @staticmethod
+    def _canonical_day(value):
+        if not value:
+            return None
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", str(value))
+        if m:
+            return m.group(1)
+        text = str(value).strip().lower()
+        return text or None
+
+    @staticmethod
+    def _canonical_text(value):
+        if not value:
+            return None
+        text = re.sub(r"[^a-z0-9\s]+", "", str(value).lower())
+        text = re.sub(r"\s+", " ", text).strip()
+        return text or None
+
+    def _candidate_change_key(self, candidate):
+        # Uses the created date + registrar that dnstwist --whois already fetched, so the
+        # change-check needs no extra WHOIS query and is format-stable across scans.
+        created = self._pick(candidate, "whois-created", "whois_created", "created")
+        registrar = self._pick(candidate, "whois-registrar", "whois_registrar", "registrar")
+        return {"created": self._canonical_day(created), "registrar": self._canonical_text(registrar)}
+
+    def _is_known_unchanged(self, domain, change_key):
+        if not self.history_file:
+            return False
+        return self.known.get(domain) == change_key
+
+    def _remember_candidate(self, domain, change_key):
+        if not self.history_file:
+            return
+        self.known[domain] = change_key
+
+    def _load_state(self):
+        self.known = {}
+        if not self.history_file:
+            return
+        try:
+            with open(self.history_file) as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                self.known = {str(k): v for k, v in data.items() if isinstance(v, dict)}
+        except FileNotFoundError:
+            pass
+        except Exception:
+            self.warning(f"domain_phishing: could not read history_file {self.history_file}", trace=True)
+
+    async def _save_state(self):
+        if not self.history_file:
+            return
+        async with self._state_lock:
+            try:
+                Path(self.history_file).parent.mkdir(parents=True, exist_ok=True)
+                with open(self.history_file, "w") as handle:
+                    json.dump(self.known, handle)
+            except Exception:
+                self.warning(f"domain_phishing: could not write history_file {self.history_file}", trace=True)
+
     async def setup(self):
         self.binary = str(self.config.get("binary", "dnstwist")).strip()
         self.registered_only = bool(self.config.get("registered_only", True))
@@ -236,6 +301,9 @@ class domain_phishing(BaseModule):
         self.young_domain_days = int(self.config.get("young_domain_days", 45))
         self.max_candidates = int(self.config.get("max_candidates", 2000))
         self.min_score = int(self.config.get("min_score", 3))
+        self.history_file = str(self.config.get("history_file", "")).strip()
+        self._state_lock = asyncio.Lock()
+        self._load_state()
 
         if "/" in self.binary:
             if not Path(self.binary).is_file():
@@ -299,6 +367,12 @@ class domain_phishing(BaseModule):
             if score < self.min_score:
                 continue
 
+            change_key = self._candidate_change_key(candidate)
+            if self._is_known_unchanged(candidate_domain, change_key):
+                # Known look-alike whose key WHOIS fields are unchanged: no new alert will
+                # be generated downstream, so skip the WHOIS enrichment + emit entirely.
+                continue
+
             fuzzer = str(self._pick(candidate, "fuzzer", "fuzz") or "unknown").strip()
             fingerprint = await self._lookup_ownership_fingerprint(candidate_domain)
             tags = ["phishing", "typosquatting", f"fuzzer-{fuzzer.lower()}"]
@@ -347,6 +421,8 @@ class domain_phishing(BaseModule):
                 tags=tags,
                 context=f'{{module}} analyzed "{root_domain}" permutations and found {{event.type}} on look-alike domain "{candidate_domain}"',
             )
+            self._remember_candidate(candidate_domain, change_key)
             emitted += 1
 
+        await self._save_state()
         self.info(f"domain_phishing: emitted {emitted} phishing candidate events for {root_domain}")
