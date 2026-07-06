@@ -1,3 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
+import dns.rdatatype
+
 from .base import ModuleTestBase
 
 
@@ -198,6 +202,41 @@ class TestDomainConfigDnsAuditSuppressesManagedProviderNoise(TestDomainConfigDns
         assert "Low DNS TTL on Critical Records" not in titles
         assert "No Backup MX Server" not in titles
         assert "Non-Standard SOA Serial Format" not in titles
+
+
+class TestDomainConfigDnsAuditSuppressesManagedProviderRrsigWarning(TestDomainConfigDnsAudit):
+    async def setup_after_prep(self, module_test):
+        await super().setup_after_prep(module_test)
+
+        async def fake_collect_basic_dns(domain):
+            return {
+                "A": ["1.2.3.4"],
+                "AAAA": [],
+                "NS": ["janet.ns.cloudflare.com", "rory.ns.cloudflare.com"],
+                "MX": [],
+                "TXT": [],
+                "SOA": "janet.ns.cloudflare.com dns.cloudflare.com 2406653015 10000 2400 604800 1800",
+            }
+
+        async def fake_query_dns_full(domain, rdtype, nameserver=None):
+            class FakeRrsig:
+                expiration = int((datetime.now(tz=timezone.utc) + timedelta(days=1)).timestamp())
+
+            class FakeRrset(list):
+                rdtype = dns.rdatatype.RRSIG
+
+            class FakeResponse:
+                answer = [FakeRrset([FakeRrsig()])]
+
+            return True, FakeResponse()
+
+        module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns_full", fake_query_dns_full)
+
+    def check(self, module_test, events):
+        titles = {e.data.get("title") for e in events if e.type in ("FINDING", "VULNERABILITY")}
+
+        assert "RRSIG Expiration Approaching" not in titles
 
 
 class TestDomainConfigDnsAuditRecognizesKeyDkimSelectors(TestDomainConfigDnsAudit):
