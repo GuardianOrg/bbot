@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import suppress
 
-from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint
+from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
@@ -48,7 +48,7 @@ class leaklookup(subdomain_enum):
     async def setup(self):
         self.public_api_key = str(self.config.get("public_api_key", "") or self.config.get("api_key", "")).strip()
         self.private_api_key = str(self.config.get("private_api_key", "")).strip()
-        self.history = LeakHistory(str(self.config.get("history_file", "")).strip())
+        self.history = LeakHistory(str(self.config.get("history_file", "")).strip(), warn=self.warning)
         self._state_lock = asyncio.Lock()
         if not self.public_api_key and not self.private_api_key:
             return None, "No API key set (public_api_key/private_api_key)"
@@ -86,7 +86,7 @@ class leaklookup(subdomain_enum):
             return
 
         # Step 2: only breaches we have not reported before are worth escalating/alerting on.
-        new_breaches = [breach for breach in detection if breach and not self.history.contains(self._breach_fp(breach))]
+        new_breaches = [breach for breach in detection if breach and not self.history.contains(self._breach_fp(query, breach))]
         if not new_breaches:
             return
 
@@ -107,12 +107,14 @@ class leaklookup(subdomain_enum):
             else:
                 # No paid data — alert on the public breach-name hit instead.
                 await self._emit_public_breach_finding(breach, event, query)
-            self.history.add(self._breach_fp(breach))
+            self.history.add(self._breach_fp(query, breach))
 
         await self._save_history()
 
-    def _breach_fp(self, breach):
-        return leak_fingerprint(self.SOURCE, breach, None, None)
+    def _breach_fp(self, query, breach):
+        # Scope the breach hit to the queried domain so a shared history file does not let
+        # the first domain in a breach suppress every other domain that shares that breach.
+        return leak_fingerprint(self.SOURCE, breach, None, None, scope=query)
 
     async def _save_history(self):
         async with self._state_lock:
@@ -149,10 +151,8 @@ class leaklookup(subdomain_enum):
         passwords = self._extract_values_by_fields(row, self.password_fields)
         hashed_passwords = self._extract_values_by_fields(row, self.hashed_password_fields)
 
-        # Dedup at the leaked-record granularity: breach + identity + strongest secret.
-        identity = next(iter(sorted(emails) or sorted(usernames) or [""]), "")
-        secret = next(iter(sorted(passwords) or sorted(hashed_passwords) or [""]), "")
-        record_fp = leak_fingerprint(self.SOURCE, breach, identity, secret)
+        # Dedup at the leaked-record granularity over all identities + secrets on the row.
+        record_fp = record_fingerprint(self.SOURCE, breach, emails, usernames, passwords, hashed_passwords)
         if self.history.contains(record_fp):
             return False
         self.history.add(record_fp)
@@ -214,6 +214,7 @@ class leaklookup(subdomain_enum):
         if not isinstance(message, dict):
             return
 
+        emitted = False
         for source_rows in message.values():
             if not isinstance(source_rows, list):
                 continue
@@ -223,6 +224,13 @@ class leaklookup(subdomain_enum):
                 plaintext = str(row.get("plaintext", "")).strip()
                 if not plaintext:
                     continue
+                # Skip a crack already emitted on a previous scan (when history_file is set)
+                # so we do not re-spend the paid key / re-emit the same PASSWORD every run.
+                crack_fp = leak_fingerprint(self.SOURCE, "hash-crack", identity, plaintext, scope=hash_value)
+                if self.history.contains(crack_fp):
+                    continue
+                self.history.add(crack_fp)
+                emitted = True
                 password_data = plaintext if not identity else f"{identity}:{plaintext}"
                 await self.emit_event(
                     password_data,
@@ -230,6 +238,8 @@ class leaklookup(subdomain_enum):
                     parent=event,
                     context=f'{{module}} cracked hash "{hash_value}" and found {{event.type}}: {{event.data}}',
                 )
+        if emitted:
+            await self._save_history()
 
     async def _search(self, key, query):
         if not key:

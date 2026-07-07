@@ -98,3 +98,43 @@ def test_leak_history_fingerprint_and_store(tmp_path):
     disabled = LeakHistory("")
     disabled.add(fp)
     assert not disabled.contains(fp)
+
+
+def test_leak_breach_fingerprint_is_domain_scoped(tmp_path):
+    from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint
+
+    # The module scopes a public breach hit to the queried domain (see leaklookup._breach_fp).
+    # Two domains in the same breach must NOT collide, or the first domain reported would
+    # silently suppress every other domain that shares that breach in one history file.
+    fp_a = leak_fingerprint("leaklookup", "LinkedIn", None, None, scope="a.com")
+    fp_b = leak_fingerprint("leaklookup", "LinkedIn", None, None, scope="b.com")
+    assert fp_a != fp_b
+
+    path = tmp_path / "leaks.json"
+    store = LeakHistory(str(path))
+    store.add(fp_a)
+    store.save()
+
+    reloaded = LeakHistory(str(path))
+    assert reloaded.contains(fp_a)  # a.com already reported → suppressed on the next scan
+    assert not reloaded.contains(fp_b)  # b.com is still reported
+
+
+def test_record_fingerprint_covers_all_values():
+    from bbot.core.helpers.leak_history import record_fingerprint, secret_hash
+
+    # Records that share only their first sorted email are still distinct (no silent loss).
+    fp1 = record_fingerprint("dehashed", "X", emails=["a@x.com", "b@x.com"], passwords=["pw"])
+    fp2 = record_fingerprint("dehashed", "X", emails=["a@x.com", "c@x.com"], passwords=["pw"])
+    assert fp1 != fp2
+
+    # Order / case / surrounding space are canonicalized away.
+    assert record_fingerprint("dehashed", "X", emails=["A@X.com", " b@x.com "], passwords=["pw"]) == record_fingerprint(
+        "dehashed", "X", emails=["b@x.com", "a@x.com"], passwords=["pw"]
+    )
+
+    # A cleartext secret fingerprints the same as its precomputed hash → it is hashed, not
+    # fingerprinted in the clear.
+    assert record_fingerprint("dehashed", "X", emails=["a@x.com"], passwords=["pw"]) == record_fingerprint(
+        "dehashed", "X", emails=["a@x.com"], hashes=[secret_hash("pw")]
+    )

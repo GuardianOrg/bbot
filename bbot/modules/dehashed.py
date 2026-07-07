@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import suppress
 
-from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint
+from bbot.core.helpers.leak_history import LeakHistory, record_fingerprint
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
@@ -32,7 +32,7 @@ class dehashed(subdomain_enum):
             "Content-Type": "application/json",
             "Dehashed-Api-Key": self.api_key,
         }
-        self.history = LeakHistory(str(self.config.get("history_file", "")).strip())
+        self.history = LeakHistory(str(self.config.get("history_file", "")).strip(), warn=self.warning)
         self._state_lock = asyncio.Lock()
 
         # soft-fail if we don't have the necessary information to make queries
@@ -40,11 +40,6 @@ class dehashed(subdomain_enum):
             return None, "No API key set"
 
         return await super().setup()
-
-    def _record_fingerprint(self, db_name, emails, users, pws, h_pws):
-        identity = next(iter(sorted(emails) or sorted(str(u) for u in users) or [""]), "")
-        secret = next(iter(sorted(str(p) for p in pws) or sorted(str(h) for h in h_pws) or [""]), "")
-        return leak_fingerprint(self.SOURCE, db_name, identity, secret)
 
     async def handle_event(self, event):
         query = self.make_query(event)
@@ -66,7 +61,7 @@ class dehashed(subdomain_enum):
                 db_name = entry.get("database_name", "")
 
                 # Skip records already reported on a previous scan (when history_file is set).
-                record_fp = self._record_fingerprint(db_name, emails, users, pws, h_pws)
+                record_fp = record_fingerprint(self.SOURCE, db_name, emails, users, pws, h_pws)
                 if self.history.contains(record_fp):
                     continue
                 self.history.add(record_fp)
