@@ -85,9 +85,16 @@ class leaklookup(subdomain_enum):
         if not detection:
             return
 
-        # Step 2: only breaches we have not reported before are worth escalating/alerting on.
-        new_breaches = [breach for breach in detection if breach and not self.history.contains(self._breach_fp(query, breach))]
-        if not new_breaches:
+        # Step 2: choose which breaches to act on. With a paid key we re-pull EVERY detected
+        # breach (dedup happens per-record below), so a breach that later gains new records
+        # for the domain is still caught — the public key only ever returns breach names, so
+        # re-pulling is the only way to see a breach grow. Without a paid key we can only see
+        # breach names, so we skip breaches already alerted to avoid re-alerting the name.
+        if self.private_api_key:
+            breaches = [breach for breach in detection if breach]
+        else:
+            breaches = [breach for breach in detection if breach and not self.history.contains(self._breach_fp(query, breach))]
+        if not breaches:
             return
 
         # Step 3: obtain the actual records. If the detection response already carried records
@@ -98,16 +105,17 @@ class leaklookup(subdomain_enum):
         if not isinstance(records_by_breach, dict):
             records_by_breach = {}
 
-        for breach in new_breaches:
+        for breach in breaches:
             rows = [row for row in records_by_breach.get(breach, []) if isinstance(row, dict)]
             if rows:
                 source_tag = f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"
                 for row in rows:
                     await self._emit_row_results(row, event, query, breach, source_tag)
-            else:
-                # No paid data — alert on the public breach-name hit instead.
+            elif not self.history.contains(self._breach_fp(query, breach)):
+                # No records (public-only, or the paid key returned nothing) — alert on the
+                # breach-name hit, deduped by breach so we do not re-emit it every scan.
                 await self._emit_public_breach_finding(breach, event, query)
-            self.history.add(self._breach_fp(query, breach))
+                self.history.add(self._breach_fp(query, breach))
 
         await self._save_history()
 
