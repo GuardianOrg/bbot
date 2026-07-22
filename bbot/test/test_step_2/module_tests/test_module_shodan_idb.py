@@ -58,6 +58,7 @@ class TestShodan_IDB(ModuleTestBase):
                 "os": "Linux",
                 "hostnames": ["edge.example.com", "cdn.example.com"],
                 "tags": ["cdn", "vpn"],
+                "vulns": ["CVE-2099-0001"],
                 "cloud": {"provider": "Amazon", "region": "us-east-1", "service": "AMAZON"},
                 "data": [
                     {
@@ -117,6 +118,7 @@ class TestShodan_IDB(ModuleTestBase):
         )
         assert 2 == len([e for e in events if e.type == "VULNERABILITY" and str(e.module) == "shodan_idb"])
         assert any(e.type == "VULNERABILITY" and e.data["title"] == "Shodan detected CVE-2021-26857" for e in events)
+        assert not any(e.type == "VULNERABILITY" and e.data["title"] == "Shodan detected CVE-2099-0001" for e in events)
         assert 2 == len([e for e in events if e.type == "TECHNOLOGY" and str(e.module) == "shodan_idb"])
         assert 1 == len(
             [

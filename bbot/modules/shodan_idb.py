@@ -394,6 +394,15 @@ class shodan_idb(BaseModule):
             )
 
     async def emit_vulnerability_events(self, data, event, ip, query_host, source):
+        tags = self.normalize_string_list(data.get("tags", []))
+        is_cdn, cdn_name = self.detect_cdn(data, tags)
+        if is_cdn:
+            provider = cdn_name or "shared CDN"
+            self.debug(
+                f"Suppressing Shodan vulnerability attribution for {ip}: the address belongs to {provider} infrastructure"
+            )
+            return
+
         for vuln in self.iter_vulnerabilities(data):
             vuln_id = vuln.get("id")
             if not vuln_id:
@@ -462,11 +471,10 @@ class shodan_idb(BaseModule):
         }.get(provider, provider)
 
     def detect_cdn(self, data, tags):
-        if "cdn" not in {tag.lower() for tag in tags}:
-            return False, None
         text = self.enrichment_text(data, tags)
         cdns = {
             "cloudflare": "cloudflare",
+            "cloudfront": "cloudfront",
             "akamai": "akamai",
             "fastly": "fastly",
             "imperva": "imperva",
@@ -478,7 +486,7 @@ class shodan_idb(BaseModule):
         for marker, cdn in cdns.items():
             if marker in text:
                 return True, cdn
-        return True, None
+        return (True, None) if "cdn" in {tag.lower() for tag in tags} else (False, None)
 
     def enrichment_text(self, data, tags):
         values = list(tags)

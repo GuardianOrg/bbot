@@ -64,6 +64,23 @@ class subzy(BaseModule):
             return False, "unresolved DNS takeover checks are disabled"
         return True
 
+    @staticmethod
+    def is_claimed_provider_response(response):
+        if response is None or response.status_code != 200:
+            return False
+        headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
+        return "x-gitbook-route-site" in headers or "x-gitbook-target" in headers
+
+    async def is_claimed_provider_host(self, host):
+        for scheme in ("https", "http"):
+            try:
+                response = await self.helpers.request(f"{scheme}://{host}")
+            except Exception:
+                continue
+            if self.is_claimed_provider_response(response):
+                return True
+        return False
+
     async def handle_batch(self, *events):
         targets = []
         parent_by_host = {}
@@ -123,6 +140,10 @@ class subzy(BaseModule):
                     continue
                 parent_event = parent_by_host.get(host)
                 if parent_event is None:
+                    continue
+
+                if await self.is_claimed_provider_host(host):
+                    self.debug(f"Suppressing takeover result for {host}: provider response confirms an active claimed site")
                     continue
 
                 engine = result.get("engine") or result.get("service") or "subzy"

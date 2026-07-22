@@ -170,7 +170,13 @@ class TestDomainConfigDnsAuditSuppressesManagedProviderNoise(TestDomainConfigDns
                 "A": ["1.2.3.4"],
                 "AAAA": [],
                 "NS": ["ns1.cloudflare.com", "ns2.cloudflare.com"],
-                "MX": ["1 smtp.google.com"],
+                "MX": [
+                    "1 aspmx.l.google.com",
+                    "5 alt1.aspmx.l.google.com",
+                    "5 alt2.aspmx.l.google.com",
+                    "10 aspmx2.googlemail.com",
+                    "10 aspmx3.googlemail.com",
+                ],
                 "TXT": ["v=spf1 include:_spf.google.com ~all"],
                 "SOA": "ns1.cloudflare.com dns.cloudflare.com 1234567890 3600 600 1209600 300",
             }
@@ -201,6 +207,7 @@ class TestDomainConfigDnsAuditSuppressesManagedProviderNoise(TestDomainConfigDns
         assert "DNS Version Disclosure" not in titles
         assert "Low DNS TTL on Critical Records" not in titles
         assert "No Backup MX Server" not in titles
+        assert "Duplicate MX Priorities" not in titles
         assert "Non-Standard SOA Serial Format" not in titles
 
 
