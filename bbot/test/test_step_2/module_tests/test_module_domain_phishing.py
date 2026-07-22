@@ -1,5 +1,7 @@
+import asyncio
 import json
 from datetime import datetime
+from types import SimpleNamespace
 
 from .base import ModuleTestBase
 
@@ -42,6 +44,14 @@ class TestDomainPhishing(ModuleTestBase):
                             "created": "2026-05-01",
                         },
                         {
+                            "domain": "black-lanternsecurity.com",
+                            "fuzzer": "hyphenation",
+                            "dns-a": ["1.2.3.5"],
+                            "dns-mx": ["mx2.example.com"],
+                            "dns-ns": ["ns2.example.com"],
+                            "created": "2026-05-01",
+                        },
+                        {
                             "domain": "blacklanternsecurity.com",
                             "fuzzer": "replacement",
                         },
@@ -52,6 +62,17 @@ class TestDomainPhishing(ModuleTestBase):
             return FakeResult()
 
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
+
+        async def fake_request(url, **_kwargs):
+            if "black-lanternsecurity.com" in url:
+                return SimpleNamespace(
+                    url=url,
+                    status_code=301,
+                    headers={"location": "https://blacklanternsecurity.com/"},
+                )
+            return SimpleNamespace(url=url, status_code=200, headers={})
+
+        module_test.monkeypatch.setattr(module_test.module.helpers, "request", fake_request)
 
         module_test.monkeypatch.setattr(
             module_test.module,
@@ -133,3 +154,42 @@ def test_domain_phishing_suppression_disabled_without_history_file():
     # With no history_file configured, nothing is remembered and nothing is suppressed.
     assert mod.known == {}
     assert mod._is_known_unchanged("x.com", key) is False
+
+
+def test_domain_phishing_suppresses_redirects_to_protected_domain():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+
+    async def request(_url, **_kwargs):
+        return SimpleNamespace(
+            url=_url,
+            status_code=301,
+            headers={"location": "https://www.guardianaudits.com/welcome"},
+        )
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    candidate = {"dns-a": ["1.2.3.4"]}
+    assert (
+        asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate)) is True
+    )
+
+
+def test_domain_phishing_does_not_trust_deceptive_redirect_suffix():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+
+    async def request(_url, **_kwargs):
+        return SimpleNamespace(
+            url=_url,
+            status_code=302,
+            headers={"location": "https://guardianaudits.com.evil.test/login"},
+        )
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    candidate = {"dns-a": ["1.2.3.4"]}
+    assert (
+        asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate))
+        is False
+    )

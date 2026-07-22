@@ -1,8 +1,10 @@
 import asyncio
+import ipaddress
 import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 from bbot.core.helpers.whois import normalize_whois_ownership
 from bbot.modules.base import BaseModule
@@ -75,6 +77,8 @@ class domain_phishing(BaseModule):
     DECEPTIVE_FUZZERS = {"homoglyph", "bitsquatting"}
     VERY_YOUNG_DOMAIN_DAYS = 7
     FINDING_CATEGORY = "phishing-lookalike-domain"
+    REDIRECT_TIMEOUT_SECONDS = 5
+    MAX_REDIRECTS = 5
 
     def _pick(self, item, *keys):
         for key in keys:
@@ -184,7 +188,11 @@ class domain_phishing(BaseModule):
         return score, severity, reasons
 
     def _build_evidence(self, candidate, fuzzer, score, reasons):
-        evidence_parts = [f"Candidate domain: {self._pick(candidate, 'domain')}", f"Fuzzer: {fuzzer}", f"Score: {score}"]
+        evidence_parts = [
+            f"Candidate domain: {self._pick(candidate, 'domain')}",
+            f"Fuzzer: {fuzzer}",
+            f"Score: {score}",
+        ]
         if reasons:
             evidence_parts.append(f"Signals: {'; '.join(reasons)}")
 
@@ -270,6 +278,56 @@ class domain_phishing(BaseModule):
         if not self.history_file:
             return
         self.known[domain] = change_key
+
+    async def _redirects_to_protected_domain(self, candidate_domain, root_domain, candidate):
+        web_addresses = self._as_list(self._pick(candidate, "dns-a", "dns_a")) + self._as_list(
+            self._pick(candidate, "dns-aaaa", "dns_aaaa")
+        )
+        if not web_addresses or not all(self._is_public_ip(address) for address in web_addresses):
+            return False
+
+        normalized_root = str(root_domain or "").strip().lower().rstrip(".")
+        normalized_candidate = str(candidate_domain or "").strip().lower().rstrip(".")
+        for scheme in ("https", "http"):
+            current_url = f"{scheme}://{candidate_domain}/"
+            for _redirect_count in range(self.MAX_REDIRECTS + 1):
+                try:
+                    response = await self.helpers.request(
+                        current_url,
+                        follow_redirects=False,
+                        timeout=self.REDIRECT_TIMEOUT_SECONDS,
+                    )
+                except Exception:
+                    response = None
+                if response is None:
+                    break
+
+                status_code = int(getattr(response, "status_code", 0) or 0)
+                location = response.headers.get("location") if 300 <= status_code < 400 else None
+                if not location:
+                    return False
+
+                next_url = urljoin(current_url, str(location))
+                parsed = urlparse(next_url)
+                if parsed.scheme not in ("http", "https"):
+                    return False
+                next_hostname = str(parsed.hostname or "").strip().lower().rstrip(".")
+                if next_hostname == normalized_root or next_hostname.endswith(f".{normalized_root}"):
+                    return True
+                if not (next_hostname == normalized_candidate or next_hostname.endswith(f".{normalized_candidate}")):
+                    return False
+                current_url = next_url
+            else:
+                return False
+
+        return False
+
+    @staticmethod
+    def _is_public_ip(address):
+        try:
+            return ipaddress.ip_address(str(address).strip()).is_global
+        except ValueError:
+            return False
 
     def _load_state(self):
         self.known = {}
@@ -379,12 +437,16 @@ class domain_phishing(BaseModule):
                 # be generated downstream, so skip the WHOIS enrichment + emit entirely.
                 continue
 
+            if await self._redirects_to_protected_domain(candidate_domain, root_domain, candidate):
+                self.debug(
+                    f"domain_phishing: suppressing {candidate_domain}; it redirects to protected domain {root_domain}"
+                )
+                continue
+
             fuzzer = str(self._pick(candidate, "fuzzer", "fuzz") or "unknown").strip()
             fingerprint = await self._lookup_ownership_fingerprint(candidate_domain)
             tags = ["phishing", "typosquatting", f"fuzzer-{fuzzer.lower()}"]
-            description = (
-                f"Look-alike domain {candidate_domain} was generated from {root_domain} using the {fuzzer} permutation technique."
-            )
+            description = f"Look-alike domain {candidate_domain} was generated from {root_domain} using the {fuzzer} permutation technique."
             if reasons:
                 description += f" Suspicious signals: {'; '.join(reasons)}."
             description = (
