@@ -1712,7 +1712,16 @@ class domain_config_dns_audit(BaseModule):
                     "Ensure the MX hostname resolves to valid public IP addresses.",
                     f"dig A {mx_host} && dig AAAA {mx_host}",
                 ))
-        if len(priorities) != len(set(priorities)) and len(priorities) > 1:
+        duplicate_priorities = {priority for priority in priorities if priorities.count(priority) > 1}
+        duplicate_hosts = [
+            self.mx_host(mx)
+            for mx in mx_records
+            if self.mx_priority(mx) in duplicate_priorities
+        ]
+        managed_provider_load_balancing = bool(duplicate_hosts) and all(
+            self.is_managed_mx_host(host) for host in duplicate_hosts
+        )
+        if duplicate_priorities and not managed_provider_load_balancing:
             findings.append(AuditFinding(
                 "Duplicate MX Priorities",
                 "INFO",
@@ -1963,6 +1972,10 @@ class domain_config_dns_audit(BaseModule):
             return None
         host = parts[-1].rstrip(".").lower()
         return host if host and host != "." else None
+
+    def mx_priority(self, mx):
+        parts = str(mx or "").split()
+        return int(parts[0]) if parts and parts[0].isdigit() else None
 
     def is_managed_mx_host(self, host):
         host = str(host or "").rstrip(".").lower()

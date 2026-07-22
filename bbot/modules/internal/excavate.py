@@ -3,6 +3,7 @@ import json
 import html
 import time
 import inspect
+import base64
 import regex as re
 from pathlib import Path
 from bbot.errors import ExcavateError, ValidationError
@@ -682,8 +683,57 @@ class excavate(BaseInternalModule, BaseInterceptModule):
     class JWTExtractor(ExcavateRule):
         description = "Extracts JSON Web Tokens."
         yara_rules = {
-            "jwt": r'rule jwt { meta: emit_match = "True" description = "contains JSON Web Token (JWT)" strings: $jwt = /\beyJ[_a-zA-Z0-9\/+]*\.[_a-zA-Z0-9\/+]*\.[_a-zA-Z0-9\/+]*/ nocase condition: $jwt }',
+            "jwt": r'rule jwt { meta: emit_match = "True" description = "contains JSON Web Token (JWT)" strings: $jwt = /\beyJ[_a-zA-Z0-9\/+-]*\.[_a-zA-Z0-9\/+-]*\.[_a-zA-Z0-9\/+-]*/ nocase condition: $jwt }',
         }
+
+        @staticmethod
+        def _decode_claims(token):
+            try:
+                encoded = token.split(".", 2)[1]
+                encoded += "=" * (-len(encoded) % 4)
+                return json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+            except (IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                return None
+
+        @staticmethod
+        def _has_gitbook_response_marker(event):
+            current = event
+            for _ in range(6):
+                data = getattr(current, "data", None)
+                if isinstance(data, dict):
+                    headers = data.get("header-dict", {})
+                    if isinstance(headers, dict):
+                        normalized_headers = {str(key).lower(): value for key, value in headers.items()}
+                        if "x-gitbook-route-site" in normalized_headers or "x-gitbook-target" in normalized_headers:
+                            return True
+                current = getattr(current, "parent", None)
+                if current is None:
+                    break
+            return False
+
+        @classmethod
+        def _is_public_gitbook_content_token(cls, token, event):
+            claims = cls._decode_claims(token)
+            return bool(
+                isinstance(claims, dict)
+                and claims.get("kind") == "site"
+                and claims.get("target") == "content"
+                and claims.get("draft") is False
+                and claims.get("site")
+                and claims.get("space")
+                and cls._has_gitbook_response_marker(event)
+            )
+
+        async def process(self, yara_results, event, yara_rule_settings, discovery_context):
+            for results in yara_results.values():
+                for result in results:
+                    if self._is_public_gitbook_content_token(result, event):
+                        self.excavate.debug("Suppressing public GitBook content-delivery JWT")
+                        continue
+                    event_data = {"description": f"{discovery_context} {yara_rule_settings.description}"}
+                    if yara_rule_settings.emit_match:
+                        event_data["description"] += f" [{result}]"
+                    await self.report(event_data, event, yara_rule_settings, discovery_context)
 
     class ErrorExtractor(ExcavateRule):
         description = "Identifies error messages from various platforms."

@@ -5,6 +5,8 @@ from .base import ModuleTestBase, tempwordlist
 from bbot.modules.internal.excavate import ExcavateRule
 
 from pathlib import Path
+import base64
+import json
 import yara
 
 
@@ -218,6 +220,35 @@ class TestExcavateInScopeJavascript(TestExcavate):
         assert found_js_url_event, "Failed to find URL event for script.js"
         assert found_badsecrets_vulnerability, "Failed to find BADSECRETs event from script.js"
         assert found_excavate_jwt_finding, "Failed to find JWT finding from script.js"
+
+
+class TestExcavateSuppressesPublicGitbookContentJwt(TestExcavate):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["excavate", "httpx"]
+
+    async def setup_before_prep(self, module_test):
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        payload = base64.urlsafe_b64encode(json.dumps({
+            "sub": "content_fixture",
+            "target": "content",
+            "kind": "site",
+            "site": "site_fixture",
+            "space": "space_fixture",
+            "draft": False,
+        }).encode()).decode().rstrip("=")
+        token = f"{header}.{payload}.fixturesignature"
+        module_test.httpserver.expect_request("/").respond_with_data(
+            f"<script>window.__GITBOOK_TOKEN__ = '{token}'</script>",
+            headers={"x-gitbook-route-site": "docs.example.com/", "x-gitbook-target": "fixture"},
+        )
+
+    def check(self, module_test, events):
+        assert not any(
+            event.type == "FINDING"
+            and "JWT" in event.data.get("description", "")
+            and str(event.module) == "excavate"
+            for event in events
+        )
 
 
 class TestExcavateRedirect(TestExcavate):
