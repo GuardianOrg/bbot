@@ -440,6 +440,10 @@ class crypto(BaseLightfuzz):
             self.verbose(f"Encountered HttpCompareError Sending Compare Probe: {e}")
             return
 
+        if arbitrary_probe[3] is None or truncate_probe[3] is None or mutate_probe[3] is None:
+            self.verbose(f"One or more compare probes returned no response for url {self.event.data['url']}, aborting")
+            return
+
         confirmed_techniques = []
         # mutate_probe[0] will be false if the response is different - mutate_probe[1] stores what aspect of the response is different (headers, body, code)
         # ensure the difference is in the body and not the headers or code
@@ -503,6 +507,8 @@ class crypto(BaseLightfuzz):
                 ):
                     # for each additional parameter, we send a probe and check if it causes the same change in the response as the original probe
                     for additional_param_name, additional_param_value in self.event.data["additional_params"].items():
+                        if additional_param_value is None:
+                            continue
                         try:
                             additional_param_probe = await self.compare_probe(
                                 http_compare,

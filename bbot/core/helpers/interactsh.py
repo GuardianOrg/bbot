@@ -196,7 +196,7 @@ class Interactsh:
 
         if self._poll_task is not None:
             self._poll_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._poll_task
 
         if "success" not in getattr(r, "text", ""):

@@ -86,6 +86,13 @@ class BBOTLogger:
         self.log_level = logging.INFO
 
     def cleanup_logging(self):
+        # Drain and stop the listener before closing handlers. Closing handlers
+        # first can leave the listener writing to stderr during interpreter
+        # shutdown and trigger a fatal buffered-writer lock error.
+        if self.listener is not None:
+            with suppress(Exception):
+                self.listener.stop()
+
         # Close the queue handler
         with suppress(Exception):
             self.queue_handler.close()
@@ -98,10 +105,6 @@ class BBOTLogger:
                         logger.removeHandler(handler)
                     with suppress(Exception):
                         handler.close()
-
-        # Stop queue listener
-        with suppress(Exception):
-            self.listener.stop()
 
     def setup_queue_handler(self, logging_queue=None, log_level=logging.DEBUG):
         if logging_queue is None:

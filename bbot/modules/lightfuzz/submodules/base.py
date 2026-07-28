@@ -27,7 +27,7 @@ class BaseLightfuzz:
         try:
             if base64.b64encode(base64.b64decode(s)).decode() == s:
                 return True
-        except (binascii.Error, UnicodeDecodeError):
+        except (binascii.Error, UnicodeDecodeError, ValueError):
             return False
         return False
 
@@ -90,6 +90,10 @@ class BaseLightfuzz:
         else:
             parameter_name = self.parameter_name
         additional_params = self.additional_params_process(additional_params, additional_params_populate_empty)
+        if additional_params:
+            additional_params = {key: ("" if value is None else value) for key, value in additional_params.items()}
+        if probe is None:
+            probe = ""
 
         # Transparently pack the probe value into the envelopes, if present
         probe = self.outgoing_probe_value(probe)

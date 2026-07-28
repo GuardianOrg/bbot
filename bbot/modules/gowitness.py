@@ -148,21 +148,31 @@ class gowitness(BaseModule):
                 return False, "event is not in-scope"
         return True
 
+    @staticmethod
+    def _url_key(parsed_url):
+        """Correlate Gowitness results despite scheme/default-port changes."""
+        hostname = parsed_url.hostname or ""
+        path = parsed_url.path or "/"
+        return f"{hostname}{path}"
+
     async def handle_batch(self, *events):
         self.prep()
         event_dict = {}
+        exact_event_dict = {}
         for e in events:
-            key = e.data
+            url = e.data
             if e.type == "SOCIAL":
-                key = e.data["url"]
-            event_dict[key] = e
-        stdin = "\n".join(list(event_dict))
+                url = e.data["url"]
+            parsed_url = self.helpers.urlparse(url)
+            event_dict.setdefault(self._url_key(parsed_url), e)
+            exact_event_dict.setdefault(url, e)
+        stdin = "\n".join(e.data["url"] if e.type == "SOCIAL" else e.data for e in events)
 
         try:
             async for line in self.run_process_live(self.command, input=stdin, idle_timeout=self.idle_timeout):
                 self.debug(line)
         except asyncio.exceptions.TimeoutError:
-            urls_str = ",".join(event_dict)
+            urls_str = stdin.replace("\n", ",")
             self.warning(f"Gowitness timed out while visiting the following URLs: {urls_str}", trace=False)
             return
 
@@ -177,7 +187,8 @@ class gowitness(BaseModule):
             # NOTE: this prevents long filenames from causing problems in BBOT, but gowitness will still fail to save it.
             filename = self.helpers.truncate_filename(filename)
             webscreenshot_data = {"path": str(filename), "url": final_url}
-            parent_event = event_dict.get(url)
+            parsed_url = self.helpers.urlparse(url)
+            parent_event = exact_event_dict.get(url) or event_dict.get(self._url_key(parsed_url))
             if parent_event is None:
                 continue
             await self.emit_event(
@@ -198,7 +209,8 @@ class gowitness(BaseModule):
             parent_url = self.screenshots_taken.get(_id)
             if not parent_url:
                 continue
-            parent_event = event_dict.get(parent_url)
+            parsed_parent_url = self.helpers.urlparse(parent_url)
+            parent_event = exact_event_dict.get(parent_url) or event_dict.get(self._url_key(parsed_parent_url))
             if parent_event is None:
                 continue
             if url and url.startswith("http"):
@@ -217,7 +229,8 @@ class gowitness(BaseModule):
             parent_url = self.screenshots_taken.get(parent_id)
             if not parent_url:
                 continue
-            parent_event = event_dict.get(parent_url)
+            parsed_parent_url = self.helpers.urlparse(parent_url)
+            parent_event = exact_event_dict.get(parent_url) or event_dict.get(self._url_key(parsed_parent_url))
             if parent_event is None:
                 continue
             technology = row["value"]

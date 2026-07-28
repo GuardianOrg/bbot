@@ -1,4 +1,7 @@
 import os
+import signal
+import ctypes
+import ctypes.util
 import logging
 from pathlib import Path
 import multiprocessing as mp
@@ -19,6 +22,25 @@ from .async_helpers import get_event_loop
 from bbot.scanner.target import BaseTarget
 
 log = logging.getLogger("bbot.core.helpers")
+
+_PR_SET_PDEATHSIG = 1
+
+
+def _pool_worker_init():
+    """Arrange for Linux process-pool workers to exit with their parent."""
+    if not hasattr(os, "uname") or os.uname().sysname != "Linux":
+        return
+    try:
+        libc_path = ctypes.util.find_library("c")
+        if not libc_path:
+            return
+        libc = ctypes.CDLL(libc_path, use_errno=True)
+        # SIGKILL cannot be intercepted by ProcessPoolExecutor's worker loop,
+        # so workers cannot survive a suddenly-dead parent as zombies.
+        libc.prctl(_PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0)
+    except (AttributeError, OSError):
+        # Worker startup must remain portable even on unusual libc builds.
+        return
 
 
 class ConfigAwareHelper:
@@ -81,7 +103,7 @@ class ConfigAwareHelper:
         # we spawn 1 fewer processes than cores
         # this helps to avoid locking up the system or competing with the main python process for cpu time
         num_processes = max(1, mp.cpu_count() - 1)
-        self.process_pool = ProcessPoolExecutor(max_workers=num_processes)
+        self.process_pool = ProcessPoolExecutor(max_workers=num_processes, initializer=_pool_worker_init)
 
         self._cloud = None
 
