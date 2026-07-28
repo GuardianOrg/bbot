@@ -56,31 +56,45 @@ class postman_download(postman):
                 )
 
     def save_workspace(self, workspace, environments, collections):
-        zip_path = None
-        # Create a folder for the workspace
         name = workspace["name"]
-        id = workspace["id"]
-        folder = self.output_dir / name
+        workspace_id = workspace["id"]
+        safe_name = self.helpers.tagify(name) or "workspace"
+        safe_id = self.helpers.tagify(workspace_id) or "workspace"
+        folder = self.output_dir / safe_name
+        if not folder.resolve().is_relative_to(self.output_dir.resolve()):
+            self.warning(f"Workspace name {name!r} resulted in path traversal, skipping")
+            return None
         self.helpers.mkdir(folder)
-        zip_path = folder / f"{id}.zip"
+        zip_path = folder / f"{safe_id}.zip"
 
         # Main Workspace
-        self.add_json_to_zip(zip_path, workspace, f"{name}.postman_workspace.json")
+        self.add_json_to_zip(zip_path, workspace, f"{safe_name}.postman_workspace.json")
 
         # Workspace Environments
         if environments:
             for environment in environments:
                 environment_id = environment["id"]
-                self.add_json_to_zip(zip_path, environment, f"{environment_id}.postman_environment.json")
+                safe_environment_id = self.helpers.tagify(environment_id) or "environment"
+                self.add_json_to_zip(
+                    zip_path,
+                    environment,
+                    f"{safe_environment_id}.postman_environment.json",
+                )
 
             # Workspace Collections
             if collections:
                 for collection in collections:
                     collection_name = collection["info"]["name"]
-                    self.add_json_to_zip(zip_path, collection, f"{collection_name}.postman_collection.json")
+                    safe_collection_name = self.helpers.tagify(collection_name) or "collection"
+                    self.add_json_to_zip(
+                        zip_path,
+                        collection,
+                        f"{safe_collection_name}.postman_collection.json",
+                    )
         return zip_path
 
     def add_json_to_zip(self, zip_path, data, filename):
+        filename = Path(filename).name
         with zipfile.ZipFile(zip_path, "a") as zipf:
             json_content = json.dumps(data, indent=4)
             zipf.writestr(filename, json_content)
