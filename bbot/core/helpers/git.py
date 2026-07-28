@@ -19,6 +19,7 @@ def sanitize_git_repo(repo_folder: Path):
     # Preserve the original for secret scanners, then replace it with a config
     # that disables executable hooks, external commands, symlinks, and fsmonitor.
     config_file = repo_folder / ".git" / "config"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
     if config_file.exists():
         config_file.rename(repo_folder / "git_config_original")
     config_file.write_text(_SAFE_GIT_CONFIG)

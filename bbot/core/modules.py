@@ -1,9 +1,12 @@
+import os
 import re
 import ast
 import sys
+import stat
 import atexit
 import pickle
 import logging
+import tempfile
 import importlib
 import omegaconf
 import traceback
@@ -717,9 +720,30 @@ class ModuleLoader:
             secrets_only_config = self.core.secrets_only_config(config_obj)
             yaml = OmegaConf.to_yaml(secrets_only_config)
             yaml = comment_notice + "\n".join(f"# {line}" for line in yaml.splitlines())
-            with open(str(files.secrets_filename), "w") as f:
-                f.write(yaml)
-            files.secrets_filename.chmod(0o600)
+            self._write_secret_text(files.secrets_filename, yaml)
+
+    @staticmethod
+    def _write_secret_text(path, text):
+        """Atomically write a secrets file with owner-only permissions."""
+        path = Path(path)
+        mode = 0o600
+        with suppress(FileNotFoundError):
+            existing_mode = stat.S_IMODE(path.stat().st_mode)
+            if not existing_mode & 0o077:
+                mode = existing_mode
+
+        fd, temp_path = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            os.fchmod(fd, mode)
+            with os.fdopen(fd, "w") as file_handle:
+                file_handle.write(text)
+            if stat.S_IMODE(os.stat(temp_path).st_mode) & 0o077:
+                raise BBOTError(f"Refusing to write secrets to {path}: could not restrict permissions to owner-only")
+            os.replace(temp_path, str(path))
+        except BaseException:
+            with suppress(FileNotFoundError):
+                os.unlink(temp_path)
+            raise
 
 
 MODULE_LOADER = ModuleLoader()

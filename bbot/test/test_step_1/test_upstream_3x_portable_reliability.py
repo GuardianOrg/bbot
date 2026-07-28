@@ -1,6 +1,7 @@
 """Regressions for portable reliability fixes reviewed from BBOT 3.x."""
 
 import asyncio
+import stat
 import subprocess
 import sys
 import time
@@ -22,6 +23,7 @@ from bbot.modules.internal.cloudcheck import CloudCheck as CloudCheckModule
 from bbot.modules.internal.excavate import excavate
 from bbot.modules.lightfuzz.submodules.base import BaseLightfuzz
 from bbot.modules.lightfuzz.submodules.crypto import crypto
+from bbot.core.modules import ModuleLoader
 from bbot.scanner.preset.path import DEFAULT_PRESET_PATH, PresetPath
 from bbot.scanner.scanner import Scanner
 from bbot.scanner.target import ScanBlacklist
@@ -220,6 +222,66 @@ def test_no_color_environment_disables_ansi(monkeypatch):
 def test_clean_dns_record_strips_dnspython_quotes():
     assert clean_dns_record('"host.example.com."') == "host.example.com"
     assert clean_dns_record("'host.example.com'") == "host.example.com"
+
+
+def test_secret_template_write_is_atomic_and_owner_only(tmp_path):
+    secrets_path = tmp_path / "secrets.yml"
+    ModuleLoader._write_secret_text(secrets_path, "token: secret\n")
+
+    assert secrets_path.read_text() == "token: secret\n"
+    assert stat.S_IMODE(secrets_path.stat().st_mode) == 0o600
+    assert list(tmp_path.glob(".secrets.yml.*.tmp")) == []
+
+    secrets_path.chmod(0o400)
+    ModuleLoader._write_secret_text(secrets_path, "token: replacement\n")
+    assert secrets_path.read_text() == "token: replacement\n"
+    assert stat.S_IMODE(secrets_path.stat().st_mode) == 0o400
+
+
+def test_preset_yaml_can_redact_secrets():
+    preset = Preset(
+        config={
+            "modules": {"github_org": {"api_key": "SUPERSECRET"}},
+            "web": {"password": "ANOTHERSECRET"},
+        }
+    ).bake()
+
+    assert "SUPERSECRET" in preset.to_yaml()
+    redacted = preset.to_yaml(redact_secrets=True)
+    assert "SUPERSECRET" not in redacted
+    assert "ANOTHERSECRET" not in redacted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redact_secrets", [True, False])
+async def test_scanner_saved_preset_secret_redaction_is_configurable(tmp_path, redact_secrets):
+    scan = Scanner(
+        "127.0.0.1",
+        name="redacted-preset",
+        modules=[],
+        output_modules=[],
+        output_dir=tmp_path,
+        config={
+            "redact_secrets": redact_secrets,
+            "modules": {"github_org": {"api_key": "SUPERSECRET"}},
+        },
+    )
+
+    async def load_output_stub():
+        scan.modules["output_stub"] = SimpleNamespace(_intercept=False, _type="output")
+
+    async def setup_output_stub():
+        return [], [], []
+
+    scan.load_modules = load_output_stub
+    scan.setup_modules = setup_output_stub
+    try:
+        await scan._prep()
+        saved_preset = (scan.home / "preset.yml").read_text()
+        assert ("SUPERSECRET" in saved_preset) is not redact_secrets
+        assert ("have been redacted" in saved_preset) is redact_secrets
+    finally:
+        scan.helpers._terminate_process_pool(scan.helpers.process_pool)
 
 
 def test_explicit_preset_paths_are_searchable_but_not_listable(tmp_path):

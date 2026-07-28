@@ -52,6 +52,13 @@ def test_postman_download_sanitizes_paths_and_zip_members(bbot_scanner, tmp_path
     assert len(names) == 3
     assert all("/" not in name and "\\" not in name and ".." not in name for name in names)
 
+    compatible_zip_path = module.save_workspace(
+        {"name": "BlackLanternSecurity BBOT [Public]", "id": "workspace"},
+        [],
+        [],
+    )
+    assert compatible_zip_path.parent.name == "BlackLanternSecurity BBOT [Public]"
+
 
 @pytest.mark.asyncio
 async def test_git_clone_uses_safe_flags_and_output_path(bbot_scanner, tmp_path, monkeypatch):

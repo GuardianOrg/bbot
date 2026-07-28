@@ -1,6 +1,6 @@
 import zipfile
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from bbot.modules.templates.postman import postman
 
 
@@ -58,7 +58,7 @@ class postman_download(postman):
     def save_workspace(self, workspace, environments, collections):
         name = workspace["name"]
         workspace_id = workspace["id"]
-        safe_name = self.helpers.tagify(name) or "workspace"
+        safe_name = self._safe_path_component(name, "workspace")
         safe_id = self.helpers.tagify(workspace_id) or "workspace"
         folder = self.output_dir / safe_name
         if not folder.resolve().is_relative_to(self.output_dir.resolve()):
@@ -92,6 +92,18 @@ class postman_download(postman):
                         f"{safe_collection_name}.postman_collection.json",
                     )
         return zip_path
+
+    def _safe_path_component(self, value, fallback):
+        value = str(value)
+        if (
+            value
+            and "\x00" not in value
+            and value not in (".", "..")
+            and Path(value).name == value
+            and PureWindowsPath(value).name == value
+        ):
+            return value
+        return self.helpers.tagify(value) or fallback
 
     def add_json_to_zip(self, zip_path, data, filename):
         filename = Path(filename).name
