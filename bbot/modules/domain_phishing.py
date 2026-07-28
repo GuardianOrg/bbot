@@ -316,6 +316,12 @@ class domain_phishing(BaseModule):
                     return True
                 if not (next_hostname == normalized_candidate or next_hostname.endswith(f".{normalized_candidate}")):
                     return False
+                try:
+                    redirect_addresses = await self.helpers.resolve(next_hostname, use_cache=False)
+                except Exception:
+                    return False
+                if not redirect_addresses or not all(self._is_public_ip(address) for address in redirect_addresses):
+                    return False
                 current_url = next_url
             else:
                 return False

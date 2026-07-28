@@ -193,3 +193,32 @@ def test_domain_phishing_does_not_trust_deceptive_redirect_suffix():
         asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate))
         is False
     )
+
+
+def test_domain_phishing_does_not_follow_redirects_to_private_addresses():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    requested_urls = []
+
+    async def request(url, **_kwargs):
+        requested_urls.append(url)
+        return SimpleNamespace(
+            url=url,
+            status_code=302,
+            headers={"location": "https://internal.guardian-audits.com/admin"},
+        )
+
+    async def resolve(hostname, **kwargs):
+        assert hostname == "internal.guardian-audits.com"
+        assert kwargs == {"use_cache": False}
+        return {"127.0.0.1"}
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request, resolve=resolve))
+    candidate = {"dns-a": ["1.2.3.4"]}
+
+    assert (
+        asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate))
+        is False
+    )
+    assert requested_urls == ["https://guardian-audits.com/"]
