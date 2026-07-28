@@ -250,7 +250,7 @@ class ConfigAwareHelper:
             self.process_pool = self._create_process_pool()
             self._terminate_process_pool(timed_out_pool)
 
-    async def run_in_executor_mp(self, callback, *args, **kwargs):
+    def run_in_executor_mp(self, callback, *args, **kwargs):
         """
         Same as run_in_executor() except with a process pool executor
         Use only in cases where callback is CPU-bound.
@@ -267,6 +267,9 @@ class ConfigAwareHelper:
         callback = partial(callback, **kwargs)
         pool = self.process_pool
         future = self.loop.run_in_executor(pool, callback, *args)
+        return self.loop.create_task(self._await_process_pool_future(future, pool, timeout))
+
+    async def _await_process_pool_future(self, future, pool, timeout):
         try:
             done, _ = await asyncio.wait((future,), timeout=timeout)
         except asyncio.CancelledError:

@@ -256,10 +256,12 @@ async def test_process_pool_timeout_replaces_and_terminates_stuck_pool():
     replacement_pool = _FakeProcessPool()
     helper = _process_pool_helper(loop, old_pool, replacement_pool)
     pending = loop.create_future()
-    helper._loop = SimpleNamespace(run_in_executor=lambda *args: pending)
+    helper._loop = SimpleNamespace(run_in_executor=lambda *args: pending, create_task=loop.create_task)
 
+    task = helper.run_in_executor_mp(_noop, _timeout=0)
+    assert isinstance(task, asyncio.Future)
     with pytest.raises(asyncio.TimeoutError, match="timed out"):
-        await helper.run_in_executor_mp(_noop, _timeout=0)
+        await task
 
     assert helper.process_pool is replacement_pool
     assert old_pool.process.terminated is True
@@ -276,7 +278,7 @@ async def test_process_pool_callback_timeout_is_not_treated_as_worker_timeout():
     helper = _process_pool_helper(loop, old_pool, replacement_pool)
     completed = loop.create_future()
     completed.set_exception(asyncio.TimeoutError("raised by callback"))
-    helper._loop = SimpleNamespace(run_in_executor=lambda *args: completed)
+    helper._loop = SimpleNamespace(run_in_executor=lambda *args: completed, create_task=loop.create_task)
 
     with pytest.raises(asyncio.TimeoutError, match="raised by callback"):
         await helper.run_in_executor_mp(_noop, _timeout=1)
@@ -292,7 +294,10 @@ async def test_concurrent_process_pool_timeouts_replace_the_pool_only_once():
     old_pool = _FakeProcessPool()
     replacement_pool = _FakeProcessPool()
     helper = _process_pool_helper(loop, old_pool, replacement_pool)
-    helper._loop = SimpleNamespace(run_in_executor=lambda *args: loop.create_future())
+    helper._loop = SimpleNamespace(
+        run_in_executor=lambda *args: loop.create_future(),
+        create_task=loop.create_task,
+    )
 
     results = await asyncio.gather(
         helper.run_in_executor_mp(_noop, _timeout=0),
