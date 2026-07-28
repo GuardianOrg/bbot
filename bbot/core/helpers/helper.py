@@ -1,8 +1,10 @@
 import os
+import asyncio
 import signal
 import ctypes
 import ctypes.util
 import logging
+from contextlib import suppress
 from pathlib import Path
 import multiprocessing as mp
 from functools import partial
@@ -103,7 +105,9 @@ class ConfigAwareHelper:
         # we spawn 1 fewer processes than cores
         # this helps to avoid locking up the system or competing with the main python process for cpu time
         num_processes = max(1, mp.cpu_count() - 1)
-        self.process_pool = ProcessPoolExecutor(max_workers=num_processes, initializer=_pool_worker_init)
+        self._process_pool_workers = num_processes
+        self.process_pool = self._create_process_pool()
+        self._pool_reset_lock = asyncio.Lock()
 
         self._cloud = None
 
@@ -220,17 +224,60 @@ class ConfigAwareHelper:
         callback = partial(callback, **kwargs)
         return self.loop.run_in_executor(None, callback, *args)
 
-    def run_in_executor_mp(self, callback, *args, **kwargs):
+    def _create_process_pool(self):
+        return ProcessPoolExecutor(max_workers=self._process_pool_workers, initializer=_pool_worker_init)
+
+    @staticmethod
+    def _terminate_process_pool(pool):
+        """Terminate process-pool workers without waiting for a stuck task."""
+        workers = list((getattr(pool, "_processes", None) or {}).values())
+        for process in workers:
+            if process.is_alive():
+                with suppress(OSError):
+                    process.terminate()
+        with suppress(Exception):
+            pool.shutdown(wait=False, cancel_futures=True)
+        for process in workers:
+            if process.is_alive():
+                with suppress(OSError):
+                    process.kill()
+
+    async def _reset_process_pool(self, timed_out_pool):
+        """Replace a timed-out pool once, even when several tasks time out together."""
+        async with self._pool_reset_lock:
+            if self.process_pool is not timed_out_pool:
+                return
+            self.process_pool = self._create_process_pool()
+            self._terminate_process_pool(timed_out_pool)
+
+    async def run_in_executor_mp(self, callback, *args, **kwargs):
         """
         Same as run_in_executor() except with a process pool executor
-        Use only in cases where callback is CPU-bound
+        Use only in cases where callback is CPU-bound.
+
+        A timeout prevents a dead child from occupying a worker forever. If a
+        task times out, the affected pool is terminated and replaced. Pass
+        ``_timeout=None`` to disable the default 300-second timeout.
 
         Examples:
             Execute callback:
             >>> result = await self.helpers.run_in_executor_mp(callback_fn, arg1, arg2)
         """
+        timeout = kwargs.pop("_timeout", 300)
         callback = partial(callback, **kwargs)
-        return self.loop.run_in_executor(self.process_pool, callback, *args)
+        pool = self.process_pool
+        future = self.loop.run_in_executor(pool, callback, *args)
+        try:
+            done, _ = await asyncio.wait((future,), timeout=timeout)
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
+        if future not in done:
+            future.cancel()
+            log.warning(f"Process pool task timed out after {timeout}s, killing stuck workers and replacing pool")
+            await self._reset_process_pool(pool)
+            raise asyncio.TimeoutError(f"Process pool task timed out after {timeout}s")
+        return await future
 
     @property
     def in_tests(self):

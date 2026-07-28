@@ -1,6 +1,7 @@
 """Regressions for portable reliability fixes reviewed from BBOT 3.x."""
 
 import asyncio
+import time
 from types import SimpleNamespace
 from urllib.parse import urlparse
 
@@ -11,7 +12,7 @@ from bbot.core.helpers.async_helpers import async_to_sync_gen
 from bbot.core.helpers.depsinstaller import sudo_askpass
 from bbot.core.helpers.dns.brute import DNSBrute
 from bbot.core.helpers.dns.engine import DNSEngine
-from bbot.core.helpers.helper import _pool_worker_init
+from bbot.core.helpers.helper import ConfigAwareHelper, _pool_worker_init
 from bbot.logger import colorize
 from bbot.modules.internal.excavate import excavate
 from bbot.modules.lightfuzz.submodules.base import BaseLightfuzz
@@ -22,6 +23,14 @@ from bbot.scanner.target import ScanBlacklist
 
 def _noop(*args, **kwargs):
     return None
+
+
+def _slow_process_pool_task(delay):
+    time.sleep(delay)
+
+
+def _process_pool_value(value):
+    return value
 
 
 def _lightfuzz_stub():
@@ -204,6 +213,114 @@ def test_no_color_environment_disables_ansi(monkeypatch):
 
 def test_process_pool_worker_initializer_is_portable():
     _pool_worker_init()
+
+
+class _FakeProcess:
+    def __init__(self):
+        self.terminated = False
+        self.killed = False
+
+    def is_alive(self):
+        return not self.killed
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+
+class _FakeProcessPool:
+    def __init__(self):
+        self.process = _FakeProcess()
+        self._processes = {1: self.process}
+        self.shutdown_calls = []
+
+    def shutdown(self, **kwargs):
+        self.shutdown_calls.append(kwargs)
+
+
+def _process_pool_helper(loop, pool, replacement):
+    helper = object.__new__(ConfigAwareHelper)
+    helper._loop = loop
+    helper.process_pool = pool
+    helper._pool_reset_lock = asyncio.Lock()
+    helper._create_process_pool = lambda: replacement
+    return helper
+
+
+@pytest.mark.asyncio
+async def test_process_pool_timeout_replaces_and_terminates_stuck_pool():
+    loop = asyncio.get_running_loop()
+    old_pool = _FakeProcessPool()
+    replacement_pool = _FakeProcessPool()
+    helper = _process_pool_helper(loop, old_pool, replacement_pool)
+    pending = loop.create_future()
+    helper._loop = SimpleNamespace(run_in_executor=lambda *args: pending)
+
+    with pytest.raises(asyncio.TimeoutError, match="timed out"):
+        await helper.run_in_executor_mp(_noop, _timeout=0)
+
+    assert helper.process_pool is replacement_pool
+    assert old_pool.process.terminated is True
+    assert old_pool.process.killed is True
+    assert old_pool.shutdown_calls == [{"wait": False, "cancel_futures": True}]
+    assert replacement_pool.shutdown_calls == []
+
+
+@pytest.mark.asyncio
+async def test_process_pool_callback_timeout_is_not_treated_as_worker_timeout():
+    loop = asyncio.get_running_loop()
+    old_pool = _FakeProcessPool()
+    replacement_pool = _FakeProcessPool()
+    helper = _process_pool_helper(loop, old_pool, replacement_pool)
+    completed = loop.create_future()
+    completed.set_exception(asyncio.TimeoutError("raised by callback"))
+    helper._loop = SimpleNamespace(run_in_executor=lambda *args: completed)
+
+    with pytest.raises(asyncio.TimeoutError, match="raised by callback"):
+        await helper.run_in_executor_mp(_noop, _timeout=1)
+
+    assert helper.process_pool is old_pool
+    assert old_pool.shutdown_calls == []
+    assert replacement_pool.shutdown_calls == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_process_pool_timeouts_replace_the_pool_only_once():
+    loop = asyncio.get_running_loop()
+    old_pool = _FakeProcessPool()
+    replacement_pool = _FakeProcessPool()
+    helper = _process_pool_helper(loop, old_pool, replacement_pool)
+    helper._loop = SimpleNamespace(run_in_executor=lambda *args: loop.create_future())
+
+    results = await asyncio.gather(
+        helper.run_in_executor_mp(_noop, _timeout=0),
+        helper.run_in_executor_mp(_noop, _timeout=0),
+        return_exceptions=True,
+    )
+
+    assert all(isinstance(result, asyncio.TimeoutError) for result in results)
+    assert helper.process_pool is replacement_pool
+    assert len(old_pool.shutdown_calls) == 1
+    assert replacement_pool.shutdown_calls == []
+
+
+@pytest.mark.asyncio
+async def test_real_process_pool_recovers_after_timeout():
+    helper = object.__new__(ConfigAwareHelper)
+    helper._process_pool_workers = 1
+    helper.process_pool = helper._create_process_pool()
+    helper._pool_reset_lock = asyncio.Lock()
+    helper._loop = asyncio.get_running_loop()
+
+    try:
+        with pytest.raises(asyncio.TimeoutError, match="timed out"):
+            await helper.run_in_executor_mp(_slow_process_pool_task, 10, _timeout=0.2)
+
+        assert await helper.run_in_executor_mp(_process_pool_value, "recovered", _timeout=10) == "recovered"
+    finally:
+        helper._terminate_process_pool(helper.process_pool)
 
 
 @pytest.mark.asyncio

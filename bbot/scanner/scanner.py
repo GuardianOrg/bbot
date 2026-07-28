@@ -842,8 +842,8 @@ class Scanner:
         # dispatcher
         tasks += self.dispatcher_tasks
         self.helpers.cancel_tasks_sync(tasks)
-        # process pool
-        self.helpers.process_pool.shutdown(cancel_futures=True)
+        # Do not let a stuck process-pool worker hang scan shutdown.
+        self.helpers._terminate_process_pool(self.helpers.process_pool)
         self.debug("Finished cancelling all scan tasks")
         return tasks
 
