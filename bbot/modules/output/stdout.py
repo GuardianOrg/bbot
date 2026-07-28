@@ -54,6 +54,8 @@ class Stdout(BaseOutputModule):
         else:
             event_str = self.human_event_str(event)
 
+        event_str = self.helpers.make_printable(event_str)
+
         # log vulnerabilities in vivid colors
         if event.type == "VULNERABILITY":
             severity = event.data.get("severity", "INFO")

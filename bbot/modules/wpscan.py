@@ -58,7 +58,8 @@ class wpscan(BaseModule):
         },
         {
             "name": "Install wpscan gem",
-            "gem": {"name": "wpscan", "state": "latest", "user_install": False},
+            # WPScan 4 requires Ruby 3.3, newer than Ubuntu 24.04's Ruby.
+            "gem": {"name": "wpscan", "version": "3.8.28", "user_install": False},
             "become": True,
         },
     ]

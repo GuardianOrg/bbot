@@ -832,7 +832,7 @@ class Preset(metaclass=BasePreset):
 
         return preset_dict
 
-    def to_yaml(self, include_target=False, full_config=False, sort_keys=False):
+    def to_yaml(self, include_target=False, full_config=False, sort_keys=False, redact_secrets=False):
         """
         Return the preset in the form of a YAML string.
 
@@ -840,6 +840,7 @@ class Preset(metaclass=BasePreset):
             include_target (bool, optional): If True, include target, whitelist, and blacklist in the dictionary
             full_config (bool, optional): If True, include the entire config, not just what's changed from the defaults.
             sort_keys (bool, optional): If True, sort YAML keys alphabetically
+            redact_secrets (bool, optional): If True, remove secrets from the output.
 
         Returns:
             str: The preset in the form of a YAML string
@@ -852,7 +853,11 @@ class Preset(metaclass=BasePreset):
             modules:
             - portscan
         """
-        preset_dict = self.to_dict(include_target=include_target, full_config=full_config)
+        preset_dict = self.to_dict(
+            include_target=include_target,
+            full_config=full_config,
+            redact_secrets=redact_secrets,
+        )
         return yaml.dump(preset_dict, sort_keys=sort_keys)
 
     def _is_valid_module(self, module, module_type, name_only=False, raise_error=True):
@@ -930,8 +935,8 @@ class Preset(metaclass=BasePreset):
         """
         Recursively find all the presets and return them as a dictionary
         """
-        # first, add local preset dir to PRESET_PATH
-        PRESET_PATH.add_path(self.preset_dir)
+        # The local preset directory is canonical and safe to enumerate.
+        PRESET_PATH.add_path(self.preset_dir, listable=True)
 
         # ensure local preset directory exists
         mkdir(self.preset_dir)
@@ -939,7 +944,7 @@ class Preset(metaclass=BasePreset):
         global DEFAULT_PRESETS
         if DEFAULT_PRESETS is None:
             presets = {}
-            for preset_path in PRESET_PATH:
+            for preset_path in PRESET_PATH.listable_paths:
                 for ext in ("yml", "yaml"):
                     # for every yaml file
                     for original_filename in preset_path.rglob(f"**/*.{ext}"):

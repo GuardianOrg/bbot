@@ -34,6 +34,8 @@ color_suffix = "\033[0m"
 
 
 def colorize(s, level="INFO"):
+    if os.environ.get("NO_COLOR", ""):
+        return s
     seq = color_mapping.get(level, 15)  # default white
     colored = f"{color_prefix}{seq}m{s}{color_suffix}"
     return colored
@@ -43,8 +45,11 @@ def log_to_stderr(msg, level="INFO", logname=True):
     """
     Print to stderr with BBOT logger colors
     """
+    from bbot.core.helpers.misc import make_printable
+
     levelname = level.upper()
     if not any(x in sys.argv for x in ("-s", "--silent")):
+        msg = make_printable(msg)
         levelshort = f"[{loglevel_mapping.get(level, 'INFO')}]"
         levelshort = f"{colorize(levelshort, level=levelname)}"
         if levelname == "CRITICAL" or levelname.startswith("HUGE"):

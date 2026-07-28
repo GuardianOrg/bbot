@@ -2227,7 +2227,7 @@ class domain_config_dns_audit(BaseModule):
         if len(parts) < 7:
             return
         try:
-            serial, refresh, _retry, expire = int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
+            _serial, refresh, _retry, expire = int(parts[2]), int(parts[3]), int(parts[4]), int(parts[5])
         except ValueError:
             return
         if refresh < 300:

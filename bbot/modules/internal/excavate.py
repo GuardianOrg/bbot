@@ -318,11 +318,13 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         "yara_max_match_data": 2000,
         "custom_yara_rules": "",
         "speculate_params": False,
+        "max_form_bytes": 262144,
     }
     options_desc = {
         "yara_max_match_data": "Sets the maximum amount of text that can extracted from a YARA regex",
         "custom_yara_rules": "Include custom Yara rules",
         "speculate_params": "Enable speculative parameter extraction from JSON and XML content",
+        "max_form_bytes": "Maximum response-body slice searched for one HTML form",
     }
     scope_distance_modifier = None
     accept_dupes = False
@@ -373,9 +375,23 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             async def extract(self):
                 pass
 
-            def __init__(self, excavate, result):
+            def __init__(self, excavate, result, response_body=None, match_offset=0):
                 self.excavate = excavate
                 self.result = result
+                self.response_body = response_body
+                self.match_offset = match_offset
+
+            def form_body_slice(self):
+                """Return the bounded response slice beginning at this YARA hit."""
+                if not self.response_body:
+                    return str(self.result)
+                max_bytes = self.excavate.max_form_bytes
+                if isinstance(self.response_body, bytes):
+                    body_bytes = self.response_body
+                else:
+                    body_bytes = str(self.response_body).encode("utf-8", errors="replace")
+                end = min(len(body_bytes), self.match_offset + max_bytes)
+                return body_bytes[self.match_offset : end].decode("utf-8", errors="replace")
 
         class GetJquery(ParameterExtractorRule):
             name = "GET jquery"
@@ -388,6 +404,8 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 if extracted_results:
                     for action, extracted_parameters in extracted_results:
                         extracted_parameters_dict = await self.convert_to_dict(extracted_parameters)
+                        if extracted_parameters_dict is None:
+                            continue
                         for parameter_name, original_value in extracted_parameters_dict.items():
                             yield (
                                 self.output_type,
@@ -493,7 +511,10 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
         class GetForm(ParameterExtractorRule):
             name = "GET Form"
-            discovery_regex = r'/<form[^>]*\bmethod=["\']?get["\']?[^>]*>.*<\/form>/s nocase'
+            # YARA only locates the opening tag. Its regex engine cannot
+            # reliably span large real-world forms; Python scans a bounded
+            # response slice from this match offset instead.
+            discovery_regex = r'/<form[^>]*\bmethod=["\']?get["\']?[^>]*>/s nocase'
             form_content_regexes = {
                 "input_tag_regex": bbot_regexes.input_tag_regex,
                 "input_tag_regex2": bbot_regexes.input_tag_regex2,
@@ -509,7 +530,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             output_type = "GETPARAM"
 
             async def extract(self):
-                forms = await self.excavate.helpers.re.findall(self.extraction_regex, str(self.result))
+                forms = await self.excavate.helpers.re.findall(self.extraction_regex, self.form_body_slice())
                 for form_action, form_content in forms:
                     if not form_action or form_action == "#":
                         form_action = None
@@ -550,7 +571,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
 
         class PostForm(GetForm):
             name = "POST Form"
-            discovery_regex = r'/<form[^>]*\bmethod=["\']?post["\']?[^>]*>.*<\/form>/s nocase'
+            discovery_regex = r'/<form[^>]*\bmethod=["\']?post["\']?[^>]*>/s nocase'
             extraction_regex = bbot_regexes.post_form_regex
             output_type = "POSTPARAM"
 
@@ -564,7 +585,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         # underscore ensure generic forms runs last, so it doesn't cause dedupe to stop full form detection
         class _GenericForm(GetForm):
             name = "Generic Form"
-            discovery_regex = r"/<form[^>]*>.*<\/form>/s nocase"
+            discovery_regex = r"/<form[^>]*>/s nocase"
 
             extraction_regex = bbot_regexes.generic_form_regex
             output_type = "GETPARAM"
@@ -583,13 +604,37 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 rf'rule parameter_extraction {{meta: description = "contains Parameter" strings: {regexes_component} condition: any of them}}'
             )
 
+        async def preprocess(self, r, event, discovery_context):
+            """Preserve each YARA match offset for bounded form extraction."""
+            description = r.meta.get("description", "")
+            tags = self.excavate.helpers.chain_lists(r.meta["tags"]) if "tags" in r.meta else []
+            emit_match = "emit_match" in r.meta
+            yara_rule_settings = YaraRuleSettings(description, tags, emit_match)
+
+            yara_results = {}
+            for match in r.strings:
+                instances = []
+                seen_offsets = set()
+                for instance in match.instances:
+                    offset = getattr(instance, "offset", 0)
+                    if offset in seen_offsets:
+                        continue
+                    seen_offsets.add(offset)
+                    instances.append((instance.matched_data.decode("utf-8", errors="ignore"), offset))
+                yara_results[match.identifier.lstrip("$")] = instances
+            await self.process(yara_results, event, yara_rule_settings, discovery_context)
+
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
+            response_body = event.data.get("body", "") if isinstance(event.data, dict) else ""
             for identifier, results in yara_results.items():
-                for result in results:
+                for result, match_offset in results:
                     if identifier not in self.parameterExtractorCallbackDict.keys():
                         raise ExcavateError("ParameterExtractor YaraRule identified reference non-existent submodule")
                     parameterExtractorSubModule = self.parameterExtractorCallbackDict[identifier](
-                        self.excavate, result
+                        self.excavate,
+                        result,
+                        response_body=response_body,
+                        match_offset=match_offset,
                     )
 
                     # Use async for to iterate over the async generator
@@ -873,6 +918,16 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     except ValueError as e:
                         self.excavate.debug(f"Failed to parse netloc: {e}")
                         continue
+                    if parsed_url.scheme in ("ws", "wss"):
+                        http_scheme = "https" if parsed_url.scheme == "wss" else "http"
+                        await self.report(
+                            parsed_url._replace(scheme=http_scheme).geturl(),
+                            event,
+                            yara_rule_settings,
+                            discovery_context,
+                            event_type="URL_UNVERIFIED",
+                        )
+                        continue
                     if parsed_url.scheme in ["http", "https"]:
                         continue
 
@@ -911,7 +966,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         tags = "spider-danger"
                         description = "contains full URL"
                     strings:
-                        $url_full = /https?:\/\/([\w\.-]+)(:\d{1,5})?([\/\w\.-]*)/
+                        $url_full = /https?:\/\/(\[[0-9a-fA-F:]+\]|[\w\.-]+)(:\d{1,5})?([\/\w\.-]*)/
                     condition:
                         $url_full
                 }
@@ -931,8 +986,12 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 """
             ),
         }
-        full_url_regex = re.compile(r"(https?)://(\w(?:[\w-]+\.?)+(?::\d{1,5})?(?:/[-\w\.\(\)]*[-\w\.]+)*/?)")
-        full_url_regex_strict = re.compile(r"^(https?):\/\/([\w.-]+)(?::\d{1,5})?(\/[\w\/\.-]*)?(\?[^\s]+)?$")
+        full_url_regex = re.compile(
+            r"(https?)://((?:\[[0-9a-fA-F:]+\]|\w(?:[\w-]+\.?)+)(?::\d{1,5})?(?:/[-\w\.\(\)]*[-\w\.]+)*/?)"
+        )
+        full_url_regex_strict = re.compile(
+            r"^(https?):\/\/(\[[0-9a-fA-F:]+\]|[\w.-]+)(?::\d{1,5})?(\/[\w\/\.-]*)?(\?[^\s]+)?$"
+        )
         tag_attribute_regex = bbot_regexes.tag_attribute_regex
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
@@ -1085,6 +1144,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         self.parameter_extraction = bool(modules_WEB_PARAMETER)
         self.speculate_params = bool(self.config.get("speculate_params", False))
         self.remove_querystring = self.scan.config.get("url_querystring_remove", True)
+        self.max_form_bytes = max(1, int(self.config.get("max_form_bytes", 262144)))
 
         for module in self.scan.modules.values():
             if not str(module).startswith("_"):
@@ -1332,6 +1392,12 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                             self.warning("location header found but missing redirect_location in HTTP_RESPONSE")
                     if header.lower() == "content-type":
                         content_type = headers["content-type"][0]
+
+            # Raw PDF bytes create false positives and waste CPU. Extracted PDF
+            # text still returns through the filedownload text pipeline.
+            if content_type and "application/pdf" in content_type.lower():
+                self.debug(f"Skipping PDF response: {event.data.get('url', 'unknown')}")
+                return
 
             await self.search(
                 body,

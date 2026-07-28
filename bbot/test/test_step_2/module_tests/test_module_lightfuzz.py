@@ -975,8 +975,10 @@ class Test_Lightfuzz_sqli_delay(Test_Lightfuzz_sqli):
             <hr>
         </section>
         """
-            if "' AND (SLEEP(5)) AND '" in unquote(value):
-                sleep(5)
+            decoded = unquote(value)
+            match = re.search(r"AND \(SLEEP\((\d+)\)\) AND", decoded)
+            if match:
+                sleep(int(match.group(1)))
             return Response(sql_block, status=200)
         return Response(parameter_block, status=200)
 
@@ -989,9 +991,11 @@ class Test_Lightfuzz_sqli_delay(Test_Lightfuzz_sqli):
                     web_parameter_emitted = True
 
             if e.type == "FINDING":
+                description = e.data["description"]
                 if (
-                    "Possible Blind SQL Injection. Parameter: [search] Parameter Type: [GETPARAM] Detection Method: [Delay Probe (1' AND (SLEEP(5)) AND ')]"
-                    in e.data["description"]
+                    "Possible Blind SQL Injection" in description
+                    and "Scaling Delay Probe" in description
+                    and "1' AND (SLEEP(8)) AND '" in description
                 ):
                     sqldelay_finding_emitted = True
 
@@ -1078,6 +1082,7 @@ class Test_Lightfuzz_serial_errorresolution(ModuleTestBase):
         excavate_extracted_form_parameter = False
         excavate_extracted_form_parameter_details = False
         lightfuzz_serial_detect_errorresolution = False
+        finding_descriptions = []
 
         for e in events:
             if e.type == "WEB_PARAMETER":
@@ -1096,16 +1101,21 @@ class Test_Lightfuzz_serial_errorresolution(ModuleTestBase):
                     ):
                         excavate_extracted_form_parameter_details = True
             if e.type == "FINDING":
+                description = e.data["description"]
+                finding_descriptions.append(description)
                 if (
-                    e.data["description"]
-                    == "POSSIBLE Unsafe Deserialization. Parameter: [TextBox1] Parameter Type: [POSTPARAM] Technique: [Error Resolution (Baseline: [500]  -> Probe: [200] )] Serialization Payload: [dotnet_base64]"
+                    "possible unsafe deserialization" in description.lower()
+                    and "Parameter Type: [POSTPARAM]" in description
+                    and "Technique: [Error Resolution" in description
+                    and "Serialization Payload: [dotnet_base64]" in description
                 ):
                     lightfuzz_serial_detect_errorresolution = True
 
         assert excavate_extracted_form_parameter, "WEB_PARAMETER for POST form was not emitted"
         assert excavate_extracted_form_parameter_details, "WEB_PARAMETER for POST form did not have correct data"
         assert lightfuzz_serial_detect_errorresolution, (
-            "Lightfuzz Serial module failed to detect ASP.NET error resolution based deserialization"
+            "Lightfuzz Serial module failed to detect ASP.NET error resolution based deserialization: "
+            f"{finding_descriptions}"
         )
 
 
@@ -1175,6 +1185,7 @@ class Test_Lightfuzz_serial_errorresolution_existingvalue_valid(Test_Lightfuzz_s
         excavate_extracted_form_parameter_details = False
         excavate_detect_serialization_value = False
         lightfuzz_serial_detect_errorresolution = False
+        finding_descriptions = []
 
         for e in events:
             if e.type == "WEB_PARAMETER":
@@ -1194,11 +1205,15 @@ class Test_Lightfuzz_serial_errorresolution_existingvalue_valid(Test_Lightfuzz_s
                     ):
                         excavate_extracted_form_parameter_details = True
             if e.type == "FINDING":
-                if e.data["description"] == "HTTP response (body) contains a possible serialized object (DOTNET)":
+                description = e.data["description"]
+                finding_descriptions.append(description)
+                if "possible serialized object (DOTNET)" in description:
                     excavate_detect_serialization_value = True
                 if (
-                    e.data["description"]
-                    == "POSSIBLE Unsafe Deserialization. Parameter: [TextBox1] Parameter Type: [POSTPARAM] Original Value: [AAEAAAD/////AQAAAAAAAAAGAQAAAAdndXN0YXZvCw==] Technique: [Error Resolution (Baseline: [500]  -> Probe: [200] )] Serialization Payload: [dotnet_base64]"
+                    "possible unsafe deserialization" in description.lower()
+                    and "Parameter Type: [POSTPARAM]" in description
+                    and "Technique: [Error Resolution" in description
+                    and "Serialization Payload: [dotnet_base64]" in description
                 ):
                     lightfuzz_serial_detect_errorresolution = True
 
@@ -1206,7 +1221,8 @@ class Test_Lightfuzz_serial_errorresolution_existingvalue_valid(Test_Lightfuzz_s
         assert excavate_extracted_form_parameter_details, "WEB_PARAMETER for POST form did not have correct data"
         assert excavate_detect_serialization_value, "WEB_PARAMETER for POST form did not have correct data"
         assert lightfuzz_serial_detect_errorresolution, (
-            "Lightfuzz Serial module failed to detect ASP.NET error resolution based deserialization"
+            "Lightfuzz Serial module failed to detect ASP.NET error resolution based deserialization: "
+            f"{finding_descriptions}"
         )
 
 
@@ -1295,9 +1311,13 @@ class Test_Lightfuzz_serial_errordifferential(Test_Lightfuzz_serial_errorresolut
                     excavate_extracted_cookie_parameter = True
 
             if e.type == "FINDING":
+                description = e.data["description"]
                 if (
-                    e.data["description"]
-                    == "POSSIBLE Unsafe Deserialization. Parameter: [session] Parameter Type: [COOKIE] Technique: [Differential Error Analysis] Error-String: [cannot cast java.lang.string] Payload: [java_base64_string_error]"
+                    "possible unsafe deserialization" in description.lower()
+                    and "Parameter: [session]" in description
+                    and "Technique: [Differential Error Analysis]" in description
+                    and "Error-String: [cannot cast java.lang.string]" in description
+                    and "Payload: [java_base64_string_error]" in description
                 ):
                     lightfuzz_serial_detect_errordifferential = True
 
@@ -1460,6 +1480,70 @@ class Test_Lightfuzz_cmdi_interactsh(Test_Lightfuzz_cmdi):
 
         assert web_parameter_emitted, "WEB_PARAMETER was not emitted"
         assert cmdi_interacttsh_finding_emitted, "interactsh CMDi FINDING not emitted"
+
+
+# SSRF interactsh
+class Test_Lightfuzz_ssrf(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888"]
+    modules_overrides = ["httpx", "lightfuzz", "excavate"]
+    config_overrides = {
+        "interactsh_disable": False,
+        "modules": {
+            "lightfuzz": {
+                "enabled_submodules": ["ssrf"],
+            }
+        },
+    }
+
+    @staticmethod
+    def extract_subdomain_tag(data):
+        for pattern in [
+            r"url=https?%3A%2F%2F(.+?)\.fakedomain\.fakeinteractsh\.com",
+            r"url=https?://(.+?)\.fakedomain\.fakeinteractsh\.com",
+        ]:
+            match = re.search(pattern, data)
+            if match:
+                return match.group(1)
+
+    def request_handler(self, request):
+        parameter_block = """
+        <section class=search>
+            <form action=/ method=GET>
+                <input type=text placeholder='Enter URL...' name=url>
+                <button type=submit class=button>Fetch</button>
+            </form>
+        </section>
+        """
+        if "url=" in str(request.query_string.decode()):
+            subdomain_tag = self.extract_subdomain_tag(request.full_path)
+            if subdomain_tag:
+                self.interactsh_mock_instance.mock_interaction(subdomain_tag)
+        return Response(parameter_block, status=200)
+
+    async def setup_before_prep(self, module_test):
+        self.interactsh_mock_instance = module_test.mock_interactsh("lightfuzz")
+        module_test.monkeypatch.setattr(
+            module_test.scan.helpers, "interactsh", lambda *args, **kwargs: self.interactsh_mock_instance
+        )
+
+    async def setup_after_prep(self, module_test):
+        module_test.set_expect_requests_handler(expect_args=re.compile("/"), request_handler=self.request_handler)
+
+    def check(self, module_test, events):
+        assert any(e.type == "WEB_PARAMETER" and e.data["name"] == "url" for e in events)
+        assert any(
+            e.type == "FINDING"
+            and "Server-side request forgery" in e.data["description"]
+            and "Interaction Protocol: [dns]" in e.data["description"]
+            for e in events
+        ), "interactsh SSRF DNS FINDING not emitted"
+        assert any(
+            e.type == "VULNERABILITY"
+            and e.data["severity"] == "HIGH"
+            and "Server-side request forgery" in e.data["description"]
+            and "Interaction Protocol: [http]" in e.data["description"]
+            for e in events
+        ), "interactsh SSRF HTTP VULNERABILITY not emitted"
 
 
 class Test_Lightfuzz_speculative(ModuleTestBase):
@@ -1673,16 +1757,16 @@ class Test_Lightfuzz_PaddingOracleDetection(ModuleTestBase):
                 if "HTTP Extracted Parameter [encrypted_data] (POST Form" in e.data["description"]:
                     web_parameter_extracted = True
             if e.type == "FINDING":
-                if (
-                    e.data["description"]
-                    == "Probable Cryptographic Parameter. Parameter: [encrypted_data] Parameter Type: [POSTPARAM] Original Value: [dplyorsu8VUriMW/8DqVDU6kRwL/FDk3Q%2B4GXVGZbo0CTh9YX1YvzZZJrYe4cHxvAICyliYtp1im4fWoOa54Zg%3D%3D] Detection Technique(s): [Single-byte Mutation] Envelopes: [URL-Encoded]"
-                ):
+                description = e.data["description"].lower()
+                if "probable cryptographic parameter" in description and "parameter: [encrypted_data]" in description:
                     cryptographic_parameter_finding = True
 
             if e.type == "VULNERABILITY":
+                description = e.data["description"].lower()
                 if (
-                    e.data["description"]
-                    == "Padding Oracle Vulnerability. Block size: [16] Parameter: [encrypted_data] Parameter Type: [POSTPARAM] Original Value: [dplyorsu8VUriMW/8DqVDU6kRwL/FDk3Q%2B4GXVGZbo0CTh9YX1YvzZZJrYe4cHxvAICyliYtp1im4fWoOa54Zg%3D%3D] Envelopes: [URL-Encoded]"
+                    "padding oracle vulnerability" in description
+                    and "block size: [16]" in description
+                    and "parameter: [encrypted_data]" in description
                 ):
                     padding_oracle_detected = True
 

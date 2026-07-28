@@ -6,6 +6,8 @@ home: ~/.bbot
 keep_scans: 20
 # Interval for displaying status messages
 status_frequency: 15
+# Redact API keys, tokens, passwords, and other secrets from each scan's saved preset.yml
+redact_secrets: true
 # Include the raw data of files (i.e. PDFs, web screenshots) as base64 in the event
 file_blobs: false
 # Include the raw data of directories (i.e. git repos) as tar.gz base64 in the event
@@ -252,15 +254,20 @@ parameter_blacklist:
   - __SCROLLPOSITIONY
   - __SCROLLPOSITIONX
   - ASP.NET_SessionId
+  - .AspNetCore.Session
   - PHPSESSID
+  - XSRF-TOKEN
   - __cf_bm
   - f5_cspm
 
 parameter_blacklist_prefixes:
   - TS01
   - BIGipServer
+  - f5avr
   - incap_
   - visid_incap_
+  - nlbi_
+  - OAMRequestContext_
   - AWSALB
   - utm_
   - ApplicationGatewayAffinity

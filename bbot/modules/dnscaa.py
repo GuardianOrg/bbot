@@ -100,7 +100,8 @@ class dnscaa(BaseModule):
 
                 if caa_match and caa_match.group("flags") and caa_match.group("property") and caa_match.group("text"):
                     # it's legit.
-                    if caa_match.group("property").lower() == "iodef":
+                    property_name = caa_match.group("property").lower()
+                    if property_name == "iodef":
                         if self._emails:
                             for match in email_regex.finditer(caa_match.group("text")):
                                 start, end = match.span()
@@ -116,7 +117,18 @@ class dnscaa(BaseModule):
 
                                     await self.emit_event(url, "URL_UNVERIFIED", tags=tags, parent=event)
 
-                    elif caa_match.group("property").lower().startswith("issue"):
+                    elif property_name == "contactemail":
+                        if self._emails:
+                            for match in email_regex.finditer(caa_match.group("text")):
+                                start, end = match.span()
+                                await self.emit_event(
+                                    caa_match.group("text")[start:end],
+                                    "EMAIL_ADDRESS",
+                                    tags=tags,
+                                    parent=event,
+                                )
+
+                    elif property_name.startswith("issue"):
                         if self._dns_names:
                             for match in dns_name_extraction_regex.finditer(caa_match.group("text")):
                                 start, end = match.span()

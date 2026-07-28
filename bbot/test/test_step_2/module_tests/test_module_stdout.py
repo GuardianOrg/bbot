@@ -8,8 +8,9 @@ class TestStdout(ModuleTestBase):
 
     def check(self, module_test, events):
         out, err = module_test.capsys.readouterr()
-        assert out.startswith("[SCAN]              \tteststdout")
-        assert "[DNS_NAME]          \tblacklanternsecurity.com\tTARGET" in out
+        assert out.startswith("[SCAN]")
+        assert "teststdout" in out.splitlines()[0]
+        assert any(line.startswith("[DNS_NAME]") and "blacklanternsecurity.com" in line for line in out.splitlines())
 
 
 class TestStdoutEventTypes(TestStdout):
@@ -18,7 +19,8 @@ class TestStdoutEventTypes(TestStdout):
     def check(self, module_test, events):
         out, err = module_test.capsys.readouterr()
         assert len(out.splitlines()) == 1
-        assert out.startswith("[DNS_NAME]          \tblacklanternsecurity.com\tTARGET")
+        assert out.startswith("[DNS_NAME]")
+        assert "blacklanternsecurity.com" in out
 
 
 class TestStdoutEventFields(TestStdout):

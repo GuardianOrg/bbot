@@ -133,6 +133,23 @@ def async_to_sync_gen(async_gen):
             yield loop.run_until_complete(async_gen.__anext__())
     except StopAsyncIteration:
         pass
+    finally:
+        # Close the wrapped generator while its loop is still usable so scan
+        # cleanup/finally blocks do not get deferred until interpreter exit.
+        with suppress(BaseException):
+            loop.run_until_complete(async_gen.aclose())
+
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            with suppress(BaseException):
+                loop.run_until_complete(
+                    asyncio.wait_for(
+                        asyncio.gather(*pending, return_exceptions=True),
+                        timeout=5,
+                    )
+                )
 
 
 def async_cachedmethod(cache, key=keys.hashkey):

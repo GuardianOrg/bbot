@@ -79,7 +79,7 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
                     normalized,
                     finding_type,
                     event,
-                    context=f"{{module}} scanned {{event.type}} for secrets and found {{event.type}}: {{event.data}}",
+                    context="{module} scanned {event.type} for secrets and found {event.type}: {event.data}",
                 )
                 if finding_event is None:
                     continue

@@ -279,8 +279,12 @@ class Scanner:
         self.helpers.mkdir(self.home)
         if not self._prepped:
             # save scan preset
+            redact_secrets = self.config.get("redact_secrets", True)
             with open(self.home / "preset.yml", "w") as f:
-                f.write(self.preset.to_yaml())
+                if redact_secrets:
+                    f.write("# Secrets (API keys, tokens, passwords, etc.) have been redacted.\n")
+                    f.write('# To include secrets, set "redact_secrets: false" in your preset or BBOT config.\n\n')
+                f.write(self.preset.to_yaml(redact_secrets=redact_secrets))
 
             # log scan overview
             start_msg = f"Scan seeded with {len(self.seeds):,} targets"
@@ -807,13 +811,13 @@ class Scanner:
         """
         self.debug("Draining queues")
         for module in self.modules.values():
-            with contextlib.suppress(asyncio.queues.QueueEmpty):
-                while 1:
-                    if module.incoming_event_queue not in (None, False):
+            if module.incoming_event_queue not in (None, False):
+                with contextlib.suppress(asyncio.queues.QueueEmpty):
+                    while 1:
                         module.incoming_event_queue.get_nowait()
-            with contextlib.suppress(asyncio.queues.QueueEmpty):
-                while 1:
-                    if module.outgoing_event_queue not in (None, False):
+            if module.outgoing_event_queue not in (None, False):
+                with contextlib.suppress(asyncio.queues.QueueEmpty):
+                    while 1:
                         module.outgoing_event_queue.get_nowait()
         self.debug("Finished draining queues")
 
@@ -842,8 +846,8 @@ class Scanner:
         # dispatcher
         tasks += self.dispatcher_tasks
         self.helpers.cancel_tasks_sync(tasks)
-        # process pool
-        self.helpers.process_pool.shutdown(cancel_futures=True)
+        # Do not let a stuck process-pool worker hang scan shutdown.
+        self.helpers._terminate_process_pool(self.helpers.process_pool)
         self.debug("Finished cancelling all scan tasks")
         return tasks
 

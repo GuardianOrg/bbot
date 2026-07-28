@@ -6,6 +6,28 @@ import string
 from bbot.modules.ffuf import ffuf
 
 
+class MinimalWordPredictor:
+    def __init__(self):
+        self.word_frequencies = {}
+
+    def predict(self, prefix, top_n):
+        prefix = prefix.lower()
+        matches = [(word, freq) for word, freq in self.word_frequencies.items() if word.startswith(prefix)]
+        if not matches:
+            return []
+        matches.sort(key=lambda x: x[1], reverse=True)
+        matches = matches[:top_n]
+        max_freq = matches[0][1]
+        return [(word, freq / max_freq) for word, freq in matches]
+
+
+class _ShortnameModelUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == "MinimalWordPredictor":
+            return MinimalWordPredictor
+        raise pickle.UnpicklingError(f"Forbidden class: {module}.{name}")
+
+
 class ffuf_shortnames(ffuf):
     watched_events = ["URL_HINT"]
     produced_events = ["URL_UNVERIFIED"]
@@ -103,29 +125,6 @@ class ffuf_shortnames(ffuf):
         self.find_subwords = self.config.get("find_subwords")
         self.rate = self.config.get("rate", 0)
 
-        class MinimalWordPredictor:
-            def __init__(self):
-                self.word_frequencies = {}
-
-            def predict(self, prefix, top_n):
-                prefix = prefix.lower()
-                matches = [(word, freq) for word, freq in self.word_frequencies.items() if word.startswith(prefix)]
-
-                if not matches:
-                    return []
-
-                matches.sort(key=lambda x: x[1], reverse=True)
-                matches = matches[:top_n]
-
-                max_freq = matches[0][1]
-                return [(word, freq / max_freq) for word, freq in matches]
-
-        class CustomUnpickler(pickle.Unpickler):
-            def find_class(self, module, name):
-                if name == "MinimalWordPredictor":
-                    return MinimalWordPredictor
-                return super().find_class(module, name)
-
         self.info("Loading ffuf_shortnames prediction models, could take a while if not cached")
         endpoint_model = await self.helpers.wordlist(
             "https://raw.githubusercontent.com/blacklanternsecurity/wordpredictor/refs/heads/main/trained_models/endpoints.bin"
@@ -136,12 +135,12 @@ class ffuf_shortnames(ffuf):
 
         self.debug(f"Loading endpoint model from: {endpoint_model}")
         with open(endpoint_model, "rb") as f:
-            unpickler = CustomUnpickler(f)
+            unpickler = _ShortnameModelUnpickler(f)
             self.endpoint_predictor = unpickler.load()
 
         self.debug(f"Loading directory model from: {directory_model}")
         with open(directory_model, "rb") as f:
-            unpickler = CustomUnpickler(f)
+            unpickler = _ShortnameModelUnpickler(f)
             self.directory_predictor = unpickler.load()
 
         self.subword_list = []

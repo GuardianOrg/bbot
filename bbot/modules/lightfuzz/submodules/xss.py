@@ -92,7 +92,7 @@ class xss(BaseLightfuzz):
                 {
                     "type": "FINDING",
                     "description": (
-                        f"Possible reflected cross-site scripting. Parameter: [{self.event.data['name']}] Context: [{context}] Parameter Type: [{self.event.data['type']}]. "
+                        f"Possible reflected cross-site scripting. Parameter: [{self.event.data['name']}] Context: [{context}] Parameter Type: [{self.event.data['type']}]{self.conversion_note()}. "
                         "The application reflected attacker-controlled input in an executable browser context. If confirmed, an attacker may be able to run JavaScript in a victim's browser, steal session data, or perform actions as the victim. "
                         "Reflected XSS usually requires the victim to open a crafted link or submit a crafted request, but the code then runs inside the trusted site origin. "
                         "Impact depends on the page privileges and cookie protections. "

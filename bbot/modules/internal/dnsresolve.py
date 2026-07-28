@@ -301,7 +301,6 @@ class DNSResolve(BaseInterceptModule):
         cached_data = cached_resolution.get("data")
         if cached_data and "target" not in event.tags:
             event.data = cached_data
-        cached_type = cached_resolution.get("type")
         if cached_resolution.get("unresolved") and self.emit_unresolved:
             event.type = "DNS_NAME_UNRESOLVED"
         cached_scope_distance = cached_resolution.get("scope_distance")

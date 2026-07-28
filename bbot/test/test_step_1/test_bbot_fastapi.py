@@ -22,8 +22,17 @@ def test_bbot_multiprocess(bbot_httpserver):
     queue = multiprocessing.Queue()
     events_process = multiprocessing.Process(target=run_bbot_multiprocess, args=(queue,))
     events_process.start()
-    events_process.join(timeout=300)
-    events = queue.get(timeout=10)
+    # Drain the pipe before joining. Joining first can deadlock when the
+    # serialized event list fills the multiprocessing pipe: the child waits
+    # for its queue feeder thread while the parent waits for the child.
+    try:
+        events = queue.get(timeout=300)
+    finally:
+        events_process.join(timeout=10)
+        if events_process.is_alive():
+            events_process.terminate()
+            events_process.join(timeout=10)
+    assert events_process.exitcode == 0
     assert len(events) >= 3
     scan_events = [e for e in events if e["type"] == "SCAN"]
     assert len(scan_events) == 2

@@ -45,7 +45,9 @@ class github_workflows(github):
             if setup_result is True:
                 return True
 
-            reason = setup_result[1] if isinstance(setup_result, tuple) and len(setup_result) > 1 else str(setup_result)
+            reason = (
+                setup_result[1] if isinstance(setup_result, tuple) and len(setup_result) > 1 else str(setup_result)
+            )
             reason_text = str(reason or "").strip().lower()
             if "no response from server" not in reason_text:
                 return setup_result
@@ -68,7 +70,7 @@ class github_workflows(github):
     async def filter_event(self, event):
         if "git" not in event.tags:
             return False, "event is not a git repository"
-        elif "github.com" not in event.data.get("url", ""):
+        elif str(event.host) != "github.com":
             return False, "event is not a github repository"
         return True
 
@@ -171,8 +173,19 @@ class github_workflows(github):
             runs.append(item)
         return runs
 
+    def _check_output_path(self, folder):
+        if self.output_dir.is_symlink():
+            self.warning(f"Refusing to write through symlink: {self.output_dir}")
+            return False
+        if not folder.resolve().is_relative_to(self.output_dir.resolve()):
+            self.warning(f"Refusing to write outside output directory: {folder}")
+            return False
+        return True
+
     async def download_run_logs(self, owner, repo, run_id):
         folder = self.output_dir / owner / repo
+        if not self._check_output_path(folder):
+            return []
         self.helpers.mkdir(folder)
         filename = f"run_{run_id}.zip"
         file_destination = folder / filename
@@ -234,8 +247,13 @@ class github_workflows(github):
 
     async def download_run_artifacts(self, owner, repo, artifact_id, artifact_name):
         folder = self.output_dir / owner / repo
+        if not self._check_output_path(folder):
+            return None
         self.helpers.mkdir(folder)
-        file_destination = folder / artifact_name
+        safe_name = Path(artifact_name).name
+        if safe_name in ("", ".", ".."):
+            safe_name = f"artifact_{artifact_id}"
+        file_destination = folder / safe_name
         try:
             await self.api_download(
                 f"{self.base_url}/repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip",

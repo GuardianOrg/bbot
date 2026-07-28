@@ -1,9 +1,12 @@
+import os
 import re
 import ast
 import sys
+import stat
 import atexit
 import pickle
 import logging
+import tempfile
 import importlib
 import omegaconf
 import traceback
@@ -30,6 +33,12 @@ from .helpers.misc import (
 
 
 log = logging.getLogger("bbot.module_loader")
+
+
+class _SafeUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        raise pickle.UnpicklingError(f"Forbidden class: {module}.{name}")
+
 
 bbot_code_dir = Path(__file__).parent.parent
 
@@ -218,7 +227,7 @@ class ModuleLoader:
             if self.preload_cache_file.is_file():
                 with suppress(Exception):
                     with open(self.preload_cache_file, "rb") as f:
-                        self._preload_cache = pickle.load(f)
+                        self._preload_cache = _SafeUnpickler(f).load()
         return self._preload_cache
 
     @preload_cache.setter
@@ -331,7 +340,8 @@ class ModuleLoader:
         config = {}
         options_desc = {}
         disable_auto_module_deps = False
-        python_code = open(module_file).read()
+        with open(module_file) as module_handle:
+            python_code = module_handle.read()
         # take a hash of the code so we can keep track of when it changes
         module_hash = sha1(python_code).hexdigest()
         parsed_code = ast.parse(python_code)
@@ -710,9 +720,30 @@ class ModuleLoader:
             secrets_only_config = self.core.secrets_only_config(config_obj)
             yaml = OmegaConf.to_yaml(secrets_only_config)
             yaml = comment_notice + "\n".join(f"# {line}" for line in yaml.splitlines())
-            with open(str(files.secrets_filename), "w") as f:
-                f.write(yaml)
-            files.secrets_filename.chmod(0o600)
+            self._write_secret_text(files.secrets_filename, yaml)
+
+    @staticmethod
+    def _write_secret_text(path, text):
+        """Atomically write a secrets file with owner-only permissions."""
+        path = Path(path)
+        mode = 0o600
+        with suppress(FileNotFoundError):
+            existing_mode = stat.S_IMODE(path.stat().st_mode)
+            if not existing_mode & 0o077:
+                mode = existing_mode
+
+        fd, temp_path = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            os.fchmod(fd, mode)
+            with os.fdopen(fd, "w") as file_handle:
+                file_handle.write(text)
+            if stat.S_IMODE(os.stat(temp_path).st_mode) & 0o077:
+                raise BBOTError(f"Refusing to write secrets to {path}: could not restrict permissions to owner-only")
+            os.replace(temp_path, str(path))
+        except BaseException:
+            with suppress(FileNotFoundError):
+                os.unlink(temp_path)
+            raise
 
 
 MODULE_LOADER = ModuleLoader()

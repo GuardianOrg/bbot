@@ -11,13 +11,19 @@ class lightfuzz(BaseModule):
 
     options = {
         "force_common_headers": False,
-        "enabled_submodules": ["sqli", "cmdi", "xss", "path", "ssti", "crypto", "serial", "esi"],
+        "enabled_submodules": ["sqli", "cmdi", "xss", "path", "ssti", "crypto", "serial", "esi", "ssrf"],
         "disable_post": False,
+        "try_post_as_get": False,
+        "try_get_as_post": False,
+        "avoid_wafs": True,
     }
     options_desc = {
         "force_common_headers": "Force emit commonly exploitable parameters that may be difficult to detect",
         "enabled_submodules": "A list of submodules to enable. Empty list enabled all modules.",
         "disable_post": "Disable processing of POST parameters, avoiding form submissions.",
+        "try_post_as_get": "For each POSTPARAM, also fuzz it as a GETPARAM.",
+        "try_get_as_post": "For each GETPARAM, also fuzz it as a POSTPARAM.",
+        "avoid_wafs": "Avoid confirmed WAFs, which are likely to block lightfuzz requests.",
     }
 
     meta = {
@@ -36,8 +42,11 @@ class lightfuzz(BaseModule):
         self.interactsh_instance = None
         self.interactsh_domain = None
         self.disable_post = self.config.get("disable_post", False)
+        self.try_post_as_get = self.config.get("try_post_as_get", False)
+        self.try_get_as_post = self.config.get("try_get_as_post", False)
         self.enabled_submodules = self.config.get("enabled_submodules")
         self.interactsh_disable = self.scan.config.get("interactsh_disable", False)
+        self.avoid_wafs = self.config.get("avoid_wafs", True)
         self.submodules = {}
 
         if not self.enabled_submodules:
@@ -69,22 +78,22 @@ class lightfuzz(BaseModule):
         if full_id:
             if "." in full_id:
                 details = self.interactsh_subdomain_tags.get(full_id.split(".")[0])
-                if not details["event"]:
+                if not details or not details.get("event"):
                     return
-                # currently, this is only used by the cmdi submodule. Later, when other modules use it, we will need to store description data in the interactsh_subdomain_tags dictionary
+                protocol = str(r.get("protocol") or "dns").lower()
+                event_type = details.get("event_type", "VULNERABILITY")
+                if protocol == "dns":
+                    event_type = details.get("dns_event_type", event_type)
+                event_data = {
+                    "host": str(details["event"].host),
+                    "url": details["event"].data["url"],
+                    "description": f"{details['description']} Interaction Protocol: [{protocol}].",
+                }
+                if event_type == "VULNERABILITY":
+                    event_data["severity"] = details.get("severity", "HIGH")
                 await self.emit_event(
-                    {
-                        "severity": "CRITICAL",
-                        "host": str(details["event"].host),
-                        "url": details["event"].data["url"],
-                        "description": (
-                            f"OS command injection was confirmed through an out-of-band interaction. Parameter: [{details['name']}] Type: [{details['type']}] Probe: [{details['probe']}]. "
-                            "The application appears to pass user-controlled input into an operating-system command. An attacker may be able to execute commands on the server, read sensitive files, modify data, or pivot deeper into the hosting environment. "
-                            "For a non-specialist, this means input from a request may be reaching a shell or command-line tool on the server. If the attacker can add command separators or arguments, the server may run commands chosen by the attacker rather than only the intended application action. "
-                            "The affected parameter should be removed from command construction, replaced with safe APIs, strictly allow-listed, and reviewed for evidence of command execution attempts."
-                        ),
-                    },
-                    "VULNERABILITY",
+                    event_data,
+                    event_type,
                     details["event"],
                 )
             else:
@@ -147,9 +156,30 @@ class lightfuzz(BaseModule):
             connectivity_test = await self.helpers.request(event.data["url"], timeout=10)
 
             if connectivity_test:
-                for submodule_name, submodule in self.submodules.items():
-                    self.debug(f"Starting {submodule_name} fuzz()")
-                    await self.run_submodule(submodule, event)
+                original_type = event.data["type"]
+                try:
+                    if not (self.disable_post and original_type == "POSTPARAM"):
+                        for submodule_name, submodule in self.submodules.items():
+                            self.debug(f"Starting {submodule_name} fuzz()")
+                            await self.run_submodule(submodule, event)
+
+                    if self.try_post_as_get and original_type == "POSTPARAM":
+                        event.data["type"] = "GETPARAM"
+                        event.data["converted_from_post"] = True
+                        for submodule_name, submodule in self.submodules.items():
+                            self.debug(f"Starting {submodule_name} fuzz() (try_post_as_get)")
+                            await self.run_submodule(submodule, event)
+
+                    if self.try_get_as_post and original_type == "GETPARAM":
+                        event.data["type"] = "POSTPARAM"
+                        event.data["converted_from_get"] = True
+                        for submodule_name, submodule in self.submodules.items():
+                            self.debug(f"Starting {submodule_name} fuzz() (try_get_as_post)")
+                            await self.run_submodule(submodule, event)
+                finally:
+                    event.data["type"] = original_type
+                    event.data.pop("converted_from_post", None)
+                    event.data.pop("converted_from_get", None)
             else:
                 self.debug(f"WEB_PARAMETER URL {event.data['url']} failed connectivity test, aborting")
 
@@ -172,10 +202,16 @@ class lightfuzz(BaseModule):
             except InteractshError as e:
                 self.debug(f"Error in interact.sh: {e}")
 
-    # If we've disabled fuzzing POST parameters, back out of POSTPARAM WEB_PARAMETER events as quickly as possible
     async def filter_event(self, event):
+        if self.avoid_wafs and "waf" in event.tags:
+            parsed_url = getattr(event, "parsed_url", None)
+            url = parsed_url.geturl() if parsed_url else "unknown"
+            self.debug(f"Skipping {event.type} because it is likely to be blocked by a WAF. URL: {url}")
+            return False
+
         if event.type == "WEB_PARAMETER" and self.disable_post and event.data["type"] == "POSTPARAM":
-            return False, "POST parameter disabled in lightfuzz module"
+            if not self.try_post_as_get:
+                return False, "POST parameter disabled in lightfuzz module"
         return True
 
     @classmethod

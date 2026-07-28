@@ -166,6 +166,28 @@ class BaseEnvelope(metaclass=EnvelopeChildTracker):
                 data = data[segment]
         return data
 
+    def pack_value(self, value, key=None):
+        """Pack a value through the envelope chain without mutating its state."""
+        if key is None:
+            key = self.selected_subparam
+
+        inner = self.unpacked_data(recursive=False)
+        if hasattr(inner, "pack_value"):
+            data = inner.pack_value(value, key)
+        elif self.singleton:
+            data = value
+        else:
+            import copy
+
+            if key is None:
+                raise ValueError("No subparam selected for non-singleton envelope")
+            data = copy.deepcopy(inner)
+            target = data
+            for segment in key[:-1]:
+                target = target[segment]
+            target[key[-1]] = value
+        return self._pack(data)
+
     def set_subparam(self, key=None, value=None, recursive=True):
         envelope = self
         if recursive:
