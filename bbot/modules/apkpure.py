@@ -47,6 +47,9 @@ class apkpure(BaseModule):
 
     async def download_apk(self, app_id):
         path = None
+        if not self._is_safe_app_id(app_id):
+            self.warning(f'Unsafe or invalid mobile app id "{app_id}"; skipping download')
+            return path
         url = f"https://d.apkpure.com/b/XAPK/{app_id}?version=latest"
         self.helpers.mkdir(self.output_dir / app_id)
         response = await self.helpers.request(url, allow_redirects=True, headers=self._download_headers())
@@ -56,9 +59,12 @@ class apkpure(BaseModule):
                 match = re.search(r'filename="?([^"]+)"?', attachment)
                 if match:
                     filename = match.group(1)
-                    extension = filename.split(".")[-1]
+                    extension = Path(filename).suffix.lower()
+                    if extension not in (".apk", ".xapk", ".apks"):
+                        self.warning(f'APKPure returned an unsupported filename for "{app_id}": "{filename}"')
+                        return path
                     content = response.content
-                    file_destination = self.output_dir / app_id / f"{app_id}.{extension}"
+                    file_destination = self.output_dir / app_id / f"{app_id}{extension}"
                     with open(file_destination, "wb") as f:
                         f.write(content)
                     self.info(f'Downloaded "{app_id}" from "{url}", saved to {file_destination}')
@@ -66,15 +72,21 @@ class apkpure(BaseModule):
             else:
                 self.warning(
                     f'APKPure did not return a downloadable attachment for "{app_id}" '
-                    f'(HTTP {getattr(response, "status_code", "unknown")}, content-type: {response.headers.get("Content-Type", "unknown")})'
+                    f"(HTTP {getattr(response, 'status_code', 'unknown')}, content-type: {response.headers.get('Content-Type', 'unknown')})"
                 )
         return path
+
+    @staticmethod
+    def _is_safe_app_id(app_id):
+        return bool(re.fullmatch(r"[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+", str(app_id or "")))
 
     def _is_android_app_event(self, event):
         data = event.data if isinstance(event.data, dict) else {}
         app_id = str(data.get("id") or "").strip()
         app_url = str(data.get("url") or "").lower()
-        return "play.google.com/store/apps/details" in app_url or bool(re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", app_id))
+        return "play.google.com/store/apps/details" in app_url or bool(
+            re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", app_id)
+        )
 
     def _download_headers(self):
         return {

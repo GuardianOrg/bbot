@@ -90,8 +90,13 @@ class nuclei(BaseModule):
 
     async def setup(self):
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
+        self.nuclei_home = self.helpers.tools_dir / "nuclei-state" / "home"
+        self.nuclei_config_dir = self.nuclei_home / ".config" / "nuclei"
         self.mobile_apk_dir = self.scan.temp_dir / "nuclei_mobile_apps"
         self.mobile_scan_input_dir = self.scan.temp_dir / "nuclei_mobile_scan_inputs"
+        self.helpers.mkdir(self.nuclei_home)
+        self.helpers.mkdir(self.nuclei_config_dir)
+        (self.nuclei_config_dir / ".nuclei-ignore").touch(exist_ok=True)
         self.helpers.mkdir(self.mobile_apk_dir)
         self.helpers.mkdir(self.mobile_scan_input_dir)
         update_results = None
@@ -101,11 +106,16 @@ class nuclei(BaseModule):
             update_timeout = max(30, int(self.config.get("module_timeout", 21600)) // 60)
             try:
                 update_results = await asyncio.wait_for(
-                    self.run_process(["nuclei", "-update-template-dir", self.nuclei_templates_dir, "-update-templates"]),
+                    self.run_process(
+                        ["nuclei", "-update-template-dir", self.nuclei_templates_dir, "-update-templates"],
+                        env=self._nuclei_env(),
+                    ),
                     timeout=update_timeout,
                 )
             except asyncio.TimeoutError:
-                self.warning(f"Nuclei template update timed out after {update_timeout}s; continuing with existing templates")
+                self.warning(
+                    f"Nuclei template update timed out after {update_timeout}s; continuing with existing templates"
+                )
         elif self.nuclei_templates_dir.exists():
             self.info("Using existing Nuclei templates")
         else:
@@ -213,6 +223,34 @@ class nuclei(BaseModule):
 
         return True
 
+    def _nuclei_env(self):
+        """Build a minimal environment so host credentials cannot alter Nuclei."""
+        keep = {
+            "PATH",
+            "LD_LIBRARY_PATH",
+            "LANG",
+            "LC_ALL",
+            "TZ",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
+        }
+        env = {key: value for key, value in os.environ.items() if key in keep}
+        nuclei_home = str(self.nuclei_home)
+        env.update(
+            {
+                "HOME": nuclei_home,
+                "USERPROFILE": nuclei_home,
+                "APPDATA": nuclei_home,
+                "LOCALAPPDATA": nuclei_home,
+                "NUCLEI_CONFIG_DIR": str(self.nuclei_config_dir),
+            }
+        )
+        return env
+
     def _get_template_sources(self, raw_template_sources=""):
         if isinstance(raw_template_sources, (list, tuple)):
             return [str(source).strip() for source in raw_template_sources if str(source).strip()]
@@ -308,12 +346,15 @@ class nuclei(BaseModule):
         data = event.data if isinstance(event.data, dict) else {}
         app_id = str(data.get("id") or "").strip()
         app_url = str(data.get("url") or "").lower()
-        return "play.google.com/store/apps/details" in app_url or bool(re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", app_id))
+        return "play.google.com/store/apps/details" in app_url or bool(
+            re.match(r"^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+$", app_id)
+        )
 
     async def _download_mobile_app(self, event):
         data = event.data if isinstance(event.data, dict) else {}
         app_id = str(data.get("id") or "").strip()
-        if not app_id:
+        if not self._is_safe_app_id(app_id):
+            self.warning(f'Unsafe or invalid mobile app id "{app_id}"; skipping download')
             return None
 
         cached_path = self._cached_mobile_app_path(app_id)
@@ -336,12 +377,19 @@ class nuclei(BaseModule):
             return None
 
         filename = match.group(1)
-        extension = filename.split(".")[-1]
-        path = destination / f"{app_id}.{extension}"
+        extension = Path(filename).suffix.lower()
+        if extension not in (".apk", ".xapk", ".apks"):
+            self.warning(f'Mobile app download for "{app_id}" returned an unsupported filename: "{filename}"')
+            return None
+        path = destination / f"{app_id}{extension}"
         with open(path, "wb") as f:
             f.write(response.content)
         self.info(f'Downloaded mobile app "{app_id}" from "{url}", saved to {path}')
         return path
+
+    @staticmethod
+    def _is_safe_app_id(app_id):
+        return bool(re.fullmatch(r"[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_-]+)+", str(app_id or "")))
 
     def _cached_mobile_app_path(self, app_id):
         if not self.mobile_apk_cache_dir:
@@ -350,7 +398,11 @@ class nuclei(BaseModule):
             self.mobile_apk_cache_dir / "apk_files" / app_id / f"{app_id}.apk",
             self.mobile_apk_cache_dir / "apk_files" / app_id / f"{app_id}.xapk",
         ]
-        candidates.extend((self.mobile_apk_cache_dir / "apk_files" / app_id).glob("*") if (self.mobile_apk_cache_dir / "apk_files" / app_id).is_dir() else [])
+        candidates.extend(
+            (self.mobile_apk_cache_dir / "apk_files" / app_id).glob("*")
+            if (self.mobile_apk_cache_dir / "apk_files" / app_id).is_dir()
+            else []
+        )
         for candidate in candidates:
             if candidate.is_file():
                 return candidate
@@ -465,7 +517,9 @@ class nuclei(BaseModule):
             )
 
             if not parent_event:
-                self.warning(f"Failed to correlate nuclei result for host=[{host}] url=[{url}] template=[{template}] name=[{name}]")
+                self.warning(
+                    f"Failed to correlate nuclei result for host=[{host}] url=[{url}] template=[{template}] name=[{name}]"
+                )
                 continue
 
             if url == "" and not matched_at:
@@ -498,9 +552,7 @@ class nuclei(BaseModule):
             if self.is_takeover_result(result):
                 category = "subdomain-takeover"
                 description = self.takeover_description(result, matched_at or url)
-                recommendation = (
-                    "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over."
-                )
+                recommendation = "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over."
 
             payload = {
                 "title": name,
@@ -620,10 +672,22 @@ class nuclei(BaseModule):
         if self.exclude_templates:
             command.extend(["-et", self.exclude_templates])
 
-        if include_mobile_templates and self.mobile_template_source_dirs and not self.templates and not self.template_source_dirs:
+        if (
+            include_mobile_templates
+            and self.mobile_template_source_dirs
+            and not self.templates
+            and not self.template_source_dirs
+        ):
             command.extend(["-t", ",".join(str(path) for path in self.mobile_template_source_dirs)])
-        elif include_mobile_templates and not self.mobile_template_source_dirs and not self.templates and not self.template_source_dirs:
-            self.warning("Mobile artifact input was detected, but no mobile nuclei template paths are configured; skipping nuclei execution for APK targets")
+        elif (
+            include_mobile_templates
+            and not self.mobile_template_source_dirs
+            and not self.templates
+            and not self.template_source_dirs
+        ):
+            self.warning(
+                "Mobile artifact input was detected, but no mobile nuclei template paths are configured; skipping nuclei execution for APK targets"
+            )
             return
         elif self.templates:
             template_paths = [t.strip() for t in self.templates.split(",") if t.strip()]
@@ -658,7 +722,9 @@ class nuclei(BaseModule):
             if self.template_source_dirs:
                 self.warning("Budget mode is using both built-in and external template sources.")
             if self.mobile_template_source_dirs:
-                self.debug("Budget mode includes configured mobile template sources as part of template precomputation.")
+                self.debug(
+                    "Budget mode includes configured mobile template sources as part of template precomputation."
+                )
 
         if self.proxy:
             command.append("-proxy")
@@ -667,7 +733,12 @@ class nuclei(BaseModule):
         stats_file = self.helpers.tempfile_tail(callback=self.log_nuclei_status)
         try:
             with open(stats_file, "w") as stats_fh:
-                async for line in self.run_process_live(command, input=nuclei_input, stderr=stats_fh):
+                async for line in self.run_process_live(
+                    command,
+                    input=nuclei_input,
+                    stderr=stats_fh,
+                    env=self._nuclei_env(),
+                ):
                     try:
                         j = json.loads(line)
                     except json.decoder.JSONDecodeError:

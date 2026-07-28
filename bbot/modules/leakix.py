@@ -6,7 +6,6 @@ class leakix(subdomain_enum_apikey):
     produced_events = ["DNS_NAME"]
     flags = ["subdomain-enum", "passive", "safe"]
     options = {"api_key": ""}
-    # NOTE: API key is not required (but having one will get you more results)
     options_desc = {"api_key": "LeakIX API Key"}
     meta = {
         "description": "Query leakix.net for subdomains",
@@ -37,8 +36,10 @@ class leakix(subdomain_enum_apikey):
     async def parse_results(self, r, query=None):
         results = set()
         json = r.json()
-        if json:
+        if isinstance(json, list):
             for entry in json:
+                if not isinstance(entry, dict):
+                    continue
                 subdomain = entry.get("subdomain", "")
                 if subdomain:
                     results.add(subdomain)

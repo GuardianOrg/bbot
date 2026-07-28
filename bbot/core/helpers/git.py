@@ -1,12 +1,27 @@
 from pathlib import Path
 
 
+_SAFE_GIT_CONFIG = """\
+[core]
+\trepositoryformatversion = 0
+\tfilemode = true
+\tbare = false
+\tlogallrefupdates = true
+\tfsmonitor = false
+\tsymlinks = false
+\tsshCommand = echo
+[transfer]
+\tfsckObjects = true
+"""
+
+
 def sanitize_git_repo(repo_folder: Path):
-    # sanitizing the git config is infeasible since there are too many different ways to do evil things
-    # instead, we move it out of .git and into the repo folder, so we don't miss any secrets etc. inside
+    # Preserve the original for secret scanners, then replace it with a config
+    # that disables executable hooks, external commands, symlinks, and fsmonitor.
     config_file = repo_folder / ".git" / "config"
     if config_file.exists():
         config_file.rename(repo_folder / "git_config_original")
+    config_file.write_text(_SAFE_GIT_CONFIG)
     # move the index file
     index_file = repo_folder / ".git" / "index"
     if index_file.exists():
