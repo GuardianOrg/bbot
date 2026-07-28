@@ -1,7 +1,7 @@
 import asyncio
 from datetime import date, datetime
 
-from bbot.core.helpers.whois import normalize_whois_ownership, whois_first_string, whois_to_iso
+from bbot.core.helpers.whois import normalize_whois_ownership, whois_first_string
 from bbot.modules.base import BaseModule
 
 

@@ -1,4 +1,4 @@
-from bbot.modules.naabu import MAX_OPEN_PORTS_PER_IP, naabu
+from bbot.modules.naabu import naabu
 
 
 class naabu_fast(naabu):
