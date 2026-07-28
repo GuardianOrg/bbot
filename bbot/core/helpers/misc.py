@@ -2525,27 +2525,15 @@ def weighted_shuffle(items, weights):
         ['banana', 'apple', 'cherry']
 
     Note:
-        The sum of all weights does not have to be 1. They will be normalized internally.
+        Weights must be positive. Their sum does not have to be 1.
     """
-    # Create a list of tuples where each tuple is (item, weight)
-    pool = list(zip(items, weights))
-
-    shuffled_items = []
-
-    # While there are still items to be chosen...
-    while pool:
-        # Normalize weights
-        total = sum(weight for item, weight in pool)
-        weights = [weight / total for item, weight in pool]
-
-        # Choose an index based on weight
-        chosen_index = random.choices(range(len(pool)), weights=weights, k=1)[0]
-
-        # Add the chosen item to the shuffled list
-        chosen_item, chosen_weight = pool.pop(chosen_index)
-        shuffled_items.append(chosen_item)
-
-    return shuffled_items
+    # Efraimidis-Spirakis weighted random permutation: one biased random
+    # key per item followed by a sort. This preserves weighted ordering
+    # while reducing the hot scan-queue path from O(n²) to O(n log n).
+    rand = random.random
+    keyed = [(rand() ** (1.0 / weight), item) for item, weight in zip(items, weights)]
+    keyed.sort(key=lambda entry: entry[0], reverse=True)
+    return [item for _, item in keyed]
 
 
 def parse_port_string(port_string):
@@ -2645,7 +2633,7 @@ def clean_dns_record(record):
     """
     if not isinstance(record, str):
         record = str(record.to_text())
-    return str(record).rstrip(".").lower()
+    return str(record).strip("'\"").rstrip(".").lower()
 
 
 def truncate_filename(file_path, max_length=255):

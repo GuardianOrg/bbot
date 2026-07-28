@@ -1,6 +1,8 @@
 """Regressions for portable reliability fixes reviewed from BBOT 3.x."""
 
 import asyncio
+import subprocess
+import sys
 import time
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -13,10 +15,14 @@ from bbot.core.helpers.depsinstaller import sudo_askpass
 from bbot.core.helpers.dns.brute import DNSBrute
 from bbot.core.helpers.dns.engine import DNSEngine
 from bbot.core.helpers.helper import ConfigAwareHelper, _pool_worker_init
+from bbot.core.helpers.misc import clean_dns_record
 from bbot.logger import colorize
+from bbot.modules.gowitness import gowitness
+from bbot.modules.internal.cloudcheck import CloudCheck as CloudCheckModule
 from bbot.modules.internal.excavate import excavate
 from bbot.modules.lightfuzz.submodules.base import BaseLightfuzz
 from bbot.modules.lightfuzz.submodules.crypto import crypto
+from bbot.scanner.preset.path import DEFAULT_PRESET_PATH, PresetPath
 from bbot.scanner.scanner import Scanner
 from bbot.scanner.target import ScanBlacklist
 
@@ -211,6 +217,69 @@ def test_no_color_environment_disables_ansi(monkeypatch):
     assert colorize("plain") == "plain"
 
 
+def test_clean_dns_record_strips_dnspython_quotes():
+    assert clean_dns_record('"host.example.com."') == "host.example.com"
+    assert clean_dns_record("'host.example.com'") == "host.example.com"
+
+
+def test_explicit_preset_paths_are_searchable_but_not_listable(tmp_path):
+    preset_file = tmp_path / "scan.yml"
+    preset_file.write_text("description: test\n")
+    decoy = tmp_path / "fast"
+    decoy.write_text("not a preset\n")
+
+    preset_path = PresetPath()
+    assert preset_path.find(str(preset_file)) == preset_file.resolve()
+    assert tmp_path.resolve() in preset_path.paths
+    assert tmp_path.resolve() not in preset_path.listable_paths
+    assert DEFAULT_PRESET_PATH in preset_path.paths
+    assert preset_path.find("fast").suffix in (".yml", ".yaml")
+
+
+def test_scanner_construction_does_not_require_an_event_loop():
+    code = """
+import asyncio
+asyncio.set_event_loop(None)
+from bbot.scanner.scanner import Scanner
+scan = Scanner("127.0.0.1", modules=[])
+scan.helpers._terminate_process_pool(scan.helpers.process_pool)
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.asyncio
+async def test_cloudcheck_signature_failure_does_not_abort(monkeypatch):
+    from cloudcheck import CloudCheckError
+
+    async def failed_lookup(*args, **kwargs):
+        raise CloudCheckError("offline")
+
+    warnings = []
+    module = object.__new__(CloudCheckModule)
+    module.scan = SimpleNamespace(
+        config={"modules": {"cloudcheck": {}}},
+        helpers=SimpleNamespace(cloudcheck=SimpleNamespace(lookup=failed_lookup)),
+    )
+    monkeypatch.setattr(module, "warning", lambda message, **kwargs: warnings.append(message))
+
+    assert await module.setup() is True
+    assert warnings and "continuing with cloud detection degraded" in warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_gowitness_report_uses_v3_server_command(monkeypatch, tmp_path):
+    messages = []
+    module = object.__new__(gowitness)
+    module.screenshots_taken = {"https://example.com/"}
+    module.base_path = tmp_path
+    monkeypatch.setattr(module, "success", lambda message, **kwargs: messages.append(message))
+
+    await module.report()
+
+    assert any("./gowitness report server" in message for message in messages)
+
+
 def test_process_pool_worker_initializer_is_portable():
     _pool_worker_init()
 
@@ -244,7 +313,6 @@ def _process_pool_helper(loop, pool, replacement):
     helper = object.__new__(ConfigAwareHelper)
     helper._loop = loop
     helper.process_pool = pool
-    helper._pool_reset_lock = asyncio.Lock()
     helper._create_process_pool = lambda: replacement
     return helper
 
@@ -316,7 +384,6 @@ async def test_real_process_pool_recovers_after_timeout():
     helper = object.__new__(ConfigAwareHelper)
     helper._process_pool_workers = 1
     helper.process_pool = helper._create_process_pool()
-    helper._pool_reset_lock = asyncio.Lock()
     helper._loop = asyncio.get_running_loop()
 
     try:

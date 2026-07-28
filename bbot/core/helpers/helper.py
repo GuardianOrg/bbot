@@ -107,7 +107,6 @@ class ConfigAwareHelper:
         num_processes = max(1, mp.cpu_count() - 1)
         self._process_pool_workers = num_processes
         self.process_pool = self._create_process_pool()
-        self._pool_reset_lock = asyncio.Lock()
 
         self._cloud = None
 
@@ -244,11 +243,15 @@ class ConfigAwareHelper:
 
     async def _reset_process_pool(self, timed_out_pool):
         """Replace a timed-out pool once, even when several tasks time out together."""
-        async with self._pool_reset_lock:
-            if self.process_pool is not timed_out_pool:
-                return
-            self.process_pool = self._create_process_pool()
-            self._terminate_process_pool(timed_out_pool)
+        # There is deliberately no asyncio.Lock here. This critical section
+        # contains no await, so tasks on the event loop cannot interleave
+        # between the identity check and replacement. Avoiding a lock also
+        # keeps Scanner/ConfigAwareHelper construction safe outside a running
+        # event loop on Python 3.9.
+        if self.process_pool is not timed_out_pool:
+            return
+        self.process_pool = self._create_process_pool()
+        self._terminate_process_pool(timed_out_pool)
 
     def run_in_executor_mp(self, callback, *args, **kwargs):
         """

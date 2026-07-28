@@ -22,8 +22,15 @@ class CloudCheck(BaseInterceptModule):
         self._cloud_hostname_regexes = None
         self._cloud_hostname_regexes_lock = asyncio.Lock()
         self.scope_input_only = bool(self.config.get("scope_input_only", False))
-        # perform a test lookup during setup to force signature update
-        await self.helpers.cloudcheck.lookup("8.8.8.8")
+        # Perform a test lookup during setup to force a signature update.
+        # Signature-fetch failures should degrade cloud tagging, not abort
+        # an otherwise valid scan.
+        from cloudcheck import CloudCheckError
+
+        try:
+            await self.helpers.cloudcheck.lookup("8.8.8.8")
+        except CloudCheckError as e:
+            self.warning(f"Failed to load cloud provider signatures ({e}); continuing with cloud detection degraded")
         return True
 
     async def filter_event(self, event):
@@ -81,9 +88,7 @@ class CloudCheck(BaseInterceptModule):
                         with suppress(IndexError):
                             bucket_name = match.groups()[0]
                     if not bucket_name:
-                        self.error(
-                            f"Bucket regex {regex_name} ({regex}) did not expose a bucket name capture group"
-                        )
+                        self.error(f"Bucket regex {regex_name} ({regex}) did not expose a bucket name capture group")
                         continue
                     bucket_url = f"https://{host}"
                     provider_slug = self._provider_slug(provider_attr)

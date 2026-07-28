@@ -7,6 +7,7 @@ from bbot.modules.internal.excavate import ExcavateRule
 from pathlib import Path
 import base64
 import json
+import time
 import yara
 
 
@@ -1553,3 +1554,67 @@ class TestExcavateURL_InvalidPort(TestExcavate):
     def check(self, module_test, events):
         # Verify we got the hostname
         assert any(e.data == "asdffoo.test.notreal" for e in events)
+
+
+class TestExcavateLargeForm(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["httpx", "excavate", "hunt"]
+
+    @staticmethod
+    def form_html(option_count):
+        options = "".join(f'<option value="OPT_{i:05d}">label {i:05d}</option>' for i in range(option_count))
+        return (
+            "<html><body>"
+            '<form action="/submit" method="post">'
+            '<input type="hidden" name="csrf" value="abc123">'
+            '<input type="text" name="search_term" value="">'
+            f'<select name="provider_id">{options}</select>'
+            "</form>"
+            "</body></html>"
+        )
+
+    async def setup_after_prep(self, module_test):
+        body = self.form_html(2500)
+        assert 100_000 < len(body) < 262_144
+        module_test.set_expect_requests(respond_args={"response_data": body, "headers": {"Content-Type": "text/html"}})
+        module_test.large_form_started = time.monotonic()
+
+    def check(self, module_test, events):
+        assert time.monotonic() - module_test.large_form_started < 30
+        names = {event.data.get("name") for event in events if event.type == "WEB_PARAMETER"}
+        assert {"csrf", "search_term", "provider_id"} <= names
+
+
+class TestExcavateLargeFormBound(TestExcavateLargeForm):
+    config_overrides = {"modules": {"excavate": {"max_form_bytes": 32768}}}
+
+    async def setup_after_prep(self, module_test):
+        body = self.form_html(2500)
+        assert len(body) > 100_000
+        module_test.set_expect_requests(respond_args={"response_data": body, "headers": {"Content-Type": "text/html"}})
+        module_test.large_form_started = time.monotonic()
+
+    def check(self, module_test, events):
+        assert time.monotonic() - module_test.large_form_started < 30
+        names = {event.data.get("name") for event in events if event.type == "WEB_PARAMETER"}
+        assert not {"csrf", "search_term", "provider_id"} & names
+
+
+class TestExcavateFormAttributeOrder(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["httpx", "excavate", "hunt"]
+
+    async def setup_after_prep(self, module_test):
+        body = """
+        <form action="/submit1" method="post">
+            <input type="text" name="action_first" value="v1">
+        </form>
+        <form method="post" action="/submit2">
+            <input type="text" name="method_first" value="v2">
+        </form>
+        """
+        module_test.set_expect_requests(respond_args={"response_data": body, "headers": {"Content-Type": "text/html"}})
+
+    def check(self, module_test, events):
+        names = {event.data.get("name") for event in events if event.type == "WEB_PARAMETER"}
+        assert {"action_first", "method_first"} <= names

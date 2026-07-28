@@ -213,9 +213,15 @@ async def _main():
             if sys.stdin.isatty():
                 # warn if any targets belong directly to a cloud provider
                 if not scan.preset.strict_scope:
+                    from cloudcheck import CloudCheckError
+
                     for event in scan.target.seeds.event_seeds:
                         if event.type == "DNS_NAME":
-                            cloudcheck_result = await scan.helpers.cloudcheck.lookup(event.host)
+                            try:
+                                cloudcheck_result = await scan.helpers.cloudcheck.lookup(event.host)
+                            except CloudCheckError as e:
+                                scan.warning(f"Unable to check whether {event.host} is a cloud domain: {e}")
+                                cloudcheck_result = None
                             if cloudcheck_result:
                                 scan.hugewarning(
                                     f'YOUR TARGET CONTAINS A CLOUD DOMAIN: "{event.host}". You\'re in for a wild ride!'
