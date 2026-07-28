@@ -1333,6 +1333,12 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     if header.lower() == "content-type":
                         content_type = headers["content-type"][0]
 
+            # Raw PDF bytes create false positives and waste CPU. Extracted PDF
+            # text still returns through the filedownload text pipeline.
+            if content_type and "application/pdf" in content_type.lower():
+                self.debug(f"Skipping PDF response: {event.data.get('url', 'unknown')}")
+                return
+
             await self.search(
                 body,
                 event,

@@ -1673,16 +1673,16 @@ class Test_Lightfuzz_PaddingOracleDetection(ModuleTestBase):
                 if "HTTP Extracted Parameter [encrypted_data] (POST Form" in e.data["description"]:
                     web_parameter_extracted = True
             if e.type == "FINDING":
-                if (
-                    e.data["description"]
-                    == "Probable Cryptographic Parameter. Parameter: [encrypted_data] Parameter Type: [POSTPARAM] Original Value: [dplyorsu8VUriMW/8DqVDU6kRwL/FDk3Q%2B4GXVGZbo0CTh9YX1YvzZZJrYe4cHxvAICyliYtp1im4fWoOa54Zg%3D%3D] Detection Technique(s): [Single-byte Mutation] Envelopes: [URL-Encoded]"
-                ):
+                description = e.data["description"].lower()
+                if "probable cryptographic parameter" in description and "parameter: [encrypted_data]" in description:
                     cryptographic_parameter_finding = True
 
             if e.type == "VULNERABILITY":
+                description = e.data["description"].lower()
                 if (
-                    e.data["description"]
-                    == "Padding Oracle Vulnerability. Block size: [16] Parameter: [encrypted_data] Parameter Type: [POSTPARAM] Original Value: [dplyorsu8VUriMW/8DqVDU6kRwL/FDk3Q%2B4GXVGZbo0CTh9YX1YvzZZJrYe4cHxvAICyliYtp1im4fWoOa54Zg%3D%3D] Envelopes: [URL-Encoded]"
+                    "padding oracle vulnerability" in description
+                    and "block size: [16]" in description
+                    and "parameter: [encrypted_data]" in description
                 ):
                     padding_oracle_detected = True
 

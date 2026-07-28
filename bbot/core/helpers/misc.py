@@ -1333,7 +1333,11 @@ def which(*executables, path=None):
     for e in executables:
         location = shutil.which(e, path=path)
         if location:
-            return location
+            # Resolve directory symlinks but preserve the binary name. Native
+            # 7zip locates codecs relative to argv[0] and fails through paths
+            # such as Fedora's /usr/sbin -> /usr/bin symlink.
+            resolved_dir = os.path.realpath(os.path.dirname(location))
+            return os.path.join(resolved_dir, os.path.basename(location))
 
 
 def search_dict_by_key(key, d):

@@ -232,37 +232,49 @@ class crypto(BaseLightfuzz):
         else:
             baseline_byte = b"\x00"  # set the baseline byte to 0x00
             starting_pos = 1  # set the starting position to 1
-        # first obtain
+
+        baseline_probe_value = self.format_agnostic_encode(
+            ivblock + paddingblock[:-1] + baseline_byte + datablock, encoding
+        )
         baseline = self.compare_baseline(
             self.event.data["type"],
-            self.format_agnostic_encode(ivblock + paddingblock[:-1] + baseline_byte + datablock, encoding),
+            baseline_probe_value,
             cookies,
         )
         differ_count = 0
         # for each possible byte value, send a probe and check if the response is different
         for i in range(starting_pos, starting_pos + 254):
             byte = bytes([i])
+            probe_value = self.format_agnostic_encode(ivblock + paddingblock[:-1] + byte + datablock, encoding)
             oracle_probe = await self.compare_probe(
                 baseline,
                 self.event.data["type"],
-                self.format_agnostic_encode(ivblock + paddingblock[:-1] + byte + datablock, encoding),
+                probe_value,
                 cookies,
             )
             # oracle_probe[0] will be false if the response is different - oracle_probe[1] stores what aspect of the response is different (headers, body, code)
             if oracle_probe[0] is False and "body" in oracle_probe[1]:
+                stripped_baseline = baseline.baseline.text
+                stripped_probe = oracle_probe[3].text
+                for encoded_baseline, encoded_probe in (
+                    (baseline_probe_value, probe_value),
+                    (baseline_probe_value.replace("+", " "), probe_value.replace("+", " ")),
+                    (quote(baseline_probe_value), quote(probe_value)),
+                ):
+                    stripped_baseline = stripped_baseline.replace(encoded_baseline, "")
+                    stripped_probe = stripped_probe.replace(encoded_probe, "")
+                if stripped_baseline == stripped_probe:
+                    continue
+                if len(stripped_baseline) == len(stripped_probe):
+                    char_diffs = sum(1 for a, b in zip(stripped_baseline, stripped_probe) if a != b)
+                    if char_diffs <= 5:
+                        continue
                 differ_count += 1
-
-                if i == 2:
-                    if possible_first_byte is True:
-                        # Thats two results which appear "different". Since this is the first run, it's entirely possible \x00 was the correct padding.
-                        # We will break from this loop and redo it with the last byte as the baseline instead of the first
-                        return None
-                    else:
-                        # Now that we have tried the run twice, we know it can't be because the first byte was the correct padding, and we know it is not vulnerable
-                        return False
-        # A padding oracle vulnerability will produce exactly one different response, and no more, so this is likely a real padding oracle
-        if differ_count == 1:
+        self.debug(f"padding_oracle_execute: finished loop. differ_count={differ_count}")
+        if 1 <= differ_count <= block_size:
             return True
+        if possible_first_byte and differ_count > block_size:
+            return None
         return False
 
     async def padding_oracle(self, probe_value, cookies):

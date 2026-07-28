@@ -9,6 +9,7 @@ import pytest
 
 from ..bbot_fixtures import *  # noqa: F401, F403
 from bbot.core.modules import _SafeUnpickler
+from bbot.modules.ffuf_shortnames import _ShortnameModelUnpickler
 from bbot.modules.git_clone import git_clone
 from bbot.modules.postman_download import postman_download
 
@@ -25,6 +26,12 @@ def test_preload_cache_unpickler_rejects_class_loading():
 
     expected = {"module": {"watched_events": ["URL"], "enabled": True}}
     assert _SafeUnpickler(io.BytesIO(pickle.dumps(expected))).load() == expected
+
+
+def test_shortname_model_unpickler_rejects_unexpected_classes():
+    payload = pickle.dumps(_UnsafePayload())
+    with pytest.raises(pickle.UnpicklingError):
+        _ShortnameModelUnpickler(io.BytesIO(payload)).load()
 
 
 def test_postman_download_sanitizes_paths_and_zip_members(bbot_scanner, tmp_path):

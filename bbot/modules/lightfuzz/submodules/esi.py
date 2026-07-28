@@ -23,7 +23,7 @@ class esi(BaseLightfuzz):
                 {
                     "type": "FINDING",
                     "description": (
-                        f"Edge Side Include processing was detected for parameter [{self.event.data['name']}] of type [{self.event.data['type']}]. "
+                        f"Edge Side Include processing was detected for parameter [{self.event.data['name']}] of type [{self.event.data['type']}]{self.conversion_note()}. "
                         "If attacker-controlled ESI markup is processed by an edge cache or reverse proxy, an attacker may be able to inject content, include internal resources, or manipulate cached responses served to other users. "
                         "ESI is a feature that lets proxies assemble pages from smaller fragments before returning them to the browser. It is safe only when the markup is fully controlled by trusted templates. "
                         "When user input is interpreted as ESI, the proxy may perform server-side includes or alter shared cached content. "

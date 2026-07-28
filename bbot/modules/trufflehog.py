@@ -17,7 +17,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
     }
 
     options = {
-        "version": "3.90.8",
+        "version": "3.95.5",
         "config": "",
         "only_verified": True,
         "concurrency": 8,
@@ -35,7 +35,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
         {
             "name": "Download trufflehog",
             "shell": {
-                "cmd": "set -e\nif [ -x \"#{BBOT_TOOLS}/trufflehog\" ]; then exit 0; fi\ntmpdir=\"$(mktemp -d)\"\ntrap 'rm -rf \"$tmpdir\"' EXIT\ncurl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o \"$tmpdir/trufflehog.tar.gz\" \"https://github.com/trufflesecurity/trufflehog/releases/download/v#{BBOT_MODULES_TRUFFLEHOG_VERSION}/trufflehog_#{BBOT_MODULES_TRUFFLEHOG_VERSION}_#{BBOT_OS_PLATFORM}_#{BBOT_CPU_ARCH_GOLANG}.tar.gz\"\ntar -xzf \"$tmpdir/trufflehog.tar.gz\" -C \"$tmpdir\" trufflehog\ninstall -m 0755 \"$tmpdir/trufflehog\" \"#{BBOT_TOOLS}/trufflehog\""
+                "cmd": 'set -e\nif [ -x "#{BBOT_TOOLS}/trufflehog" ]; then exit 0; fi\ntmpdir="$(mktemp -d)"\ntrap \'rm -rf "$tmpdir"\' EXIT\ncurl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$tmpdir/trufflehog.tar.gz" "https://github.com/trufflesecurity/trufflehog/releases/download/v#{BBOT_MODULES_TRUFFLEHOG_VERSION}/trufflehog_#{BBOT_MODULES_TRUFFLEHOG_VERSION}_#{BBOT_OS_PLATFORM}_#{BBOT_CPU_ARCH_GOLANG}.tar.gz"\ntar -xzf "$tmpdir/trufflehog.tar.gz" -C "$tmpdir" trufflehog\ninstall -m 0755 "$tmpdir/trufflehog" "#{BBOT_TOOLS}/trufflehog"'
             },
         }
     ]
@@ -237,7 +237,10 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
 
         result = await self.run_process(
             ["bash", "-lc", " ".join(shlex.quote(str(part)) for part in command)],
-            env={"HOME": str(self.scan.home), "PATH": f"{self.helpers.tools_dir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+            env={
+                "HOME": str(self.scan.home),
+                "PATH": f"{self.helpers.tools_dir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            },
             _log_stderr=False,
         )
         self.debug(
