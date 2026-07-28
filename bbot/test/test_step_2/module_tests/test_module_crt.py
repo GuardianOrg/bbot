@@ -16,8 +16,10 @@ class TestCRT(ModuleTestBase):
 
 
 class TestCRTBadGateway(ModuleTestBase):
+    modules_overrides = ["crt"]
+
     async def setup_after_prep(self, module_test):
-        module_test.module.abort_if = lambda e: False
+        module_test.scan.modules["crt"].abort_if = lambda e: False
         module_test.httpx_mock.add_response(
             url="https://crt.sh?q=%25.blacklanternsecurity.com&output=json",
             text="<html><body><h1>502 Bad Gateway</h1></body></html>",

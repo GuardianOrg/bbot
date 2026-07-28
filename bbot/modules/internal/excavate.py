@@ -873,6 +873,16 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     except ValueError as e:
                         self.excavate.debug(f"Failed to parse netloc: {e}")
                         continue
+                    if parsed_url.scheme in ("ws", "wss"):
+                        http_scheme = "https" if parsed_url.scheme == "wss" else "http"
+                        await self.report(
+                            parsed_url._replace(scheme=http_scheme).geturl(),
+                            event,
+                            yara_rule_settings,
+                            discovery_context,
+                            event_type="URL_UNVERIFIED",
+                        )
+                        continue
                     if parsed_url.scheme in ["http", "https"]:
                         continue
 
@@ -911,7 +921,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                         tags = "spider-danger"
                         description = "contains full URL"
                     strings:
-                        $url_full = /https?:\/\/([\w\.-]+)(:\d{1,5})?([\/\w\.-]*)/
+                        $url_full = /https?:\/\/(\[[0-9a-fA-F:]+\]|[\w\.-]+)(:\d{1,5})?([\/\w\.-]*)/
                     condition:
                         $url_full
                 }
@@ -931,8 +941,12 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 """
             ),
         }
-        full_url_regex = re.compile(r"(https?)://(\w(?:[\w-]+\.?)+(?::\d{1,5})?(?:/[-\w\.\(\)]*[-\w\.]+)*/?)")
-        full_url_regex_strict = re.compile(r"^(https?):\/\/([\w.-]+)(?::\d{1,5})?(\/[\w\/\.-]*)?(\?[^\s]+)?$")
+        full_url_regex = re.compile(
+            r"(https?)://((?:\[[0-9a-fA-F:]+\]|\w(?:[\w-]+\.?)+)(?::\d{1,5})?(?:/[-\w\.\(\)]*[-\w\.]+)*/?)"
+        )
+        full_url_regex_strict = re.compile(
+            r"^(https?):\/\/(\[[0-9a-fA-F:]+\]|[\w.-]+)(?::\d{1,5})?(\/[\w\/\.-]*)?(\?[^\s]+)?$"
+        )
         tag_attribute_regex = bbot_regexes.tag_attribute_regex
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):

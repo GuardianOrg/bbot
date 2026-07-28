@@ -13,6 +13,7 @@ class crt(subdomain_enum):
 
     base_url = "https://crt.sh"
     certspotter_url = "https://api.certspotter.com/v1"
+
     async def setup(self):
         self.cert_ids = set()
         return await super().setup()
@@ -29,6 +30,10 @@ class crt(subdomain_enum):
             f"?domain={self.helpers.quote(query)}&include_subdomains=true&expand=dns_names"
         )
         return await self.api_request(certspotter, timeout=self.http_timeout + 30)
+
+    def _api_response_is_success(self, response):
+        # crt.sh uses 404 for transient overloads, not only empty results.
+        return getattr(response, "is_success", False)
 
     async def parse_results(self, r, query):
         results = set()

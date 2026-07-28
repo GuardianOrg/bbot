@@ -228,14 +228,22 @@ class TestExcavateSuppressesPublicGitbookContentJwt(TestExcavate):
 
     async def setup_before_prep(self, module_test):
         header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
-        payload = base64.urlsafe_b64encode(json.dumps({
-            "sub": "content_fixture",
-            "target": "content",
-            "kind": "site",
-            "site": "site_fixture",
-            "space": "space_fixture",
-            "draft": False,
-        }).encode()).decode().rstrip("=")
+        payload = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "sub": "content_fixture",
+                        "target": "content",
+                        "kind": "site",
+                        "site": "site_fixture",
+                        "space": "space_fixture",
+                        "draft": False,
+                    }
+                ).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
         token = f"{header}.{payload}.fixturesignature"
         module_test.httpserver.expect_request("/").respond_with_data(
             f"<script>window.__GITBOOK_TOKEN__ = '{token}'</script>",
@@ -244,9 +252,7 @@ class TestExcavateSuppressesPublicGitbookContentJwt(TestExcavate):
 
     def check(self, module_test, events):
         assert not any(
-            event.type == "FINDING"
-            and "JWT" in event.data.get("description", "")
-            and str(event.module) == "excavate"
+            event.type == "FINDING" and "JWT" in event.data.get("description", "") and str(event.module) == "excavate"
             for event in events
         )
 
@@ -453,6 +459,31 @@ class TestExcavateURL_IP(TestExcavate):
     def check(self, module_test, events):
         assert any(e.data == "127.0.0.2" for e in events)
         assert any(e.data == "https://127.0.0.2/some/path" for e in events)
+
+
+class TestExcavateURL_IPv6(TestExcavate):
+    targets = ["http://127.0.0.1:8888/", "2001:db8::1"]
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpserver.expect_request("/").respond_with_data(
+            "SomeSMooshedDATAhttps://[2001:db8::1]:8443/some/path"
+        )
+
+    def check(self, module_test, events):
+        assert any(e.data == "https://[2001:db8::1]:8443/some/path" for e in events)
+
+
+class TestExcavateWebsocketURL(TestExcavate):
+    targets = ["http://127.0.0.1:8888/", "test.notreal"]
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpserver.expect_request("/").respond_with_data(
+            "Connect to ws://test.notreal/socket or wss://test.notreal/secure"
+        )
+
+    def check(self, module_test, events):
+        assert any(e.type == "URL_UNVERIFIED" and e.data == "http://test.notreal/" for e in events)
+        assert any(e.type == "URL_UNVERIFIED" and e.data == "https://test.notreal/" for e in events)
 
 
 class TestExcavateSerializationNegative(TestExcavate):

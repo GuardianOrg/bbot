@@ -1,8 +1,6 @@
 from .base import BaseLightfuzz
 from bbot.errors import HttpCompareError
 
-import statistics
-
 
 class sqli(BaseLightfuzz):
     """
@@ -23,7 +21,13 @@ class sqli(BaseLightfuzz):
 
     friendly_name = "SQL Injection"
 
-    expected_delay = 5
+    delay_low = 3
+    delay_high = 8
+    delay_margin = 1.5
+    delay_scale_margin = 1.75
+    delay_stage1_reps = 3
+    delay_stage2_reps = 3
+
     # These are common error strings that strongly indicate SQL injection
     sqli_error_strings = [
         "Unterminated string literal",
@@ -38,36 +42,16 @@ class sqli(BaseLightfuzz):
         "string not properly terminated",
     ]
 
-    def evaluate_delay(self, mean_baseline, measured_delay):
-        """
-        Evaluates if a measured delay falls within an expected range, indicating potential SQL injection.
-
-        Parameters:
-        - mean_baseline (float): The average baseline delay measured from non-injected requests.
-        - measured_delay (float): The delay measured from a potentially injected request.
-
-        Returns:
-        - bool: True if the measured delay is within the expected range or exactly twice the expected delay, otherwise False.
-
-        The function checks if the measured delay is within a margin of the expected delay or twice the expected delay,
-        accounting for cases where the injected statement might be executed twice.
-        """
-        margin = 1.5
-        if (
-            mean_baseline + self.expected_delay - margin
-            <= measured_delay
-            <= mean_baseline + self.expected_delay + margin
-        ):
-            return True
-        # check for exactly twice the delay, in case the statement gets placed in the query twice (a common occurrence)
-        elif (
-            mean_baseline + (self.expected_delay * 2) - margin
-            <= measured_delay
-            <= mean_baseline + (self.expected_delay * 2) + margin
-        ):
-            return True
-        else:
-            return False
+    DELAY_PROBE_TEMPLATES = [
+        "'||pg_sleep({d})--",
+        "' OR (SELECT TRUE FROM pg_sleep({d})) LIMIT 1-- -",
+        "1' AND (SLEEP({d})) AND '",
+        "' OR SLEEP({d}) IS NOT NULL LIMIT 1-- -",
+        " OR SLEEP({d}) IS NOT NULL LIMIT 1-- -",
+        "' AND (SELECT 1 FROM DUAL WHERE DBMS_LOCK.SLEEP({d})=0) AND '1'='1",
+        "'; WAITFOR DELAY '00:00:{d:02d}'--",
+        "; WAITFOR DELAY '00:00:{d:02d}'--",
+    ]
 
     async def fuzz(self):
         cookies = self.event.data.get("assigned_cookies", {})
@@ -139,14 +123,6 @@ class sqli(BaseLightfuzz):
         except HttpCompareError as e:
             self.verbose(f"Encountered HttpCompareError Sending Compare Probe: {e}")
 
-        # These are common SQL injection payloads for inducing an intentional delay across several different SQL database types
-        standard_probe_strings = [
-            f"'||pg_sleep({str(self.expected_delay)})--",  # postgres
-            f"1' AND (SLEEP({str(self.expected_delay)})) AND '",  # mysql
-            f"' AND (SELECT FROM DBMS_LOCK.SLEEP({str(self.expected_delay)})) AND '1'='1"  # oracle (not tested)
-            f"; WAITFOR DELAY '00:00:{str(self.expected_delay)}'--",  # mssql (not tested)
-        ]
-
         baseline_1 = await self.standard_probe(
             self.event.data["type"], cookies, probe_value, additional_params_populate_empty=True
         )
@@ -154,50 +130,110 @@ class sqli(BaseLightfuzz):
             self.event.data["type"], cookies, probe_value, additional_params_populate_empty=True
         )
 
-        # get a baseline from two different probes. We will average them to establish a mean baseline
         if baseline_1 and baseline_2:
             baseline_1_delay = baseline_1.elapsed.total_seconds()
             baseline_2_delay = baseline_2.elapsed.total_seconds()
-            mean_baseline = statistics.mean([baseline_1_delay, baseline_2_delay])
+            base_floor = min(baseline_1_delay, baseline_2_delay)
 
-            for p in standard_probe_strings:
-                confirmations = 0
-                for i in range(0, 3):
-                    # send the probe 3 times, and check if the delay is within the detection threshold
+            junk_value = f"{probe_value}{self.lightfuzz.helpers.rand_string(20, numeric_only=True)}"
+            junk_response = await self.standard_probe(
+                self.event.data["type"], cookies, junk_value, additional_params_populate_empty=True
+            )
+            if junk_response:
+                junk_delta = junk_response.elapsed.total_seconds() - base_floor
+                if any(abs(junk_delta - k * self.delay_low) <= self.delay_margin for k in (1, 2)):
+                    self.debug("Junk control probe matched delay window, aborting time-based tests")
+                    return
+
+            for template in self.DELAY_PROBE_TEMPLATES:
+                low_times = []
+                stage1_failed = False
+                payload_low = template.format(d=self.delay_low)
+                for _ in range(self.delay_stage1_reps):
                     r = await self.standard_probe(
                         self.event.data["type"],
                         cookies,
-                        f"{probe_value}{p}",
+                        f"{probe_value}{payload_low}",
                         additional_params_populate_empty=True,
                         timeout=20,
                     )
                     if not r:
-                        self.debug("delay measure request failed")
+                        self.debug("Stage 1 delay probe request failed")
+                        stage1_failed = True
+                        break
+                    if r.status_code == 403:
+                        self.debug("Stage 1 probe returned 403, skipping template")
+                        stage1_failed = True
+                        break
+                    low_times.append(r.elapsed.total_seconds())
+
+                if stage1_failed or not low_times:
+                    continue
+
+                f_low = min(low_times)
+                d_low = f_low - base_floor
+                k = None
+                for candidate_k in (1, 2):
+                    if abs(d_low - candidate_k * self.delay_low) <= self.delay_margin:
+                        k = candidate_k
                         break
 
-                    d = r.elapsed.total_seconds()
-                    self.debug(f"measured delay: {str(d)}")
-                    if self.evaluate_delay(
-                        mean_baseline, d
-                    ):  # decide if the delay is within the detection threshold and constitutes a successful sleep execution
-                        confirmations += 1
-                        self.debug(
-                            f"{self.event.data['url']}:{self.event.data['name']}:{self.event.data['type']} Increasing confirmations, now: {str(confirmations)} "
-                        )
-                    else:
-                        break
+                if k is None:
+                    self.debug(f"Stage 1 rejected: d_low={d_low:.2f}s does not match delay_low={self.delay_low}s")
+                    continue
 
-                if confirmations == 3:
+                self.verbose(
+                    f"Stage 1 passed {self.event.data['url']}: d_low={d_low:.2f}s, k={k}, proceeding to Stage 2"
+                )
+
+                high_times = []
+                stage2_failed = False
+                payload_high = template.format(d=self.delay_high)
+                for _ in range(self.delay_stage2_reps):
+                    r = await self.standard_probe(
+                        self.event.data["type"],
+                        cookies,
+                        f"{probe_value}{payload_high}",
+                        additional_params_populate_empty=True,
+                        timeout=30,
+                    )
+                    if not r:
+                        self.debug("Stage 2 delay probe request failed")
+                        stage2_failed = True
+                        break
+                    if r.status_code == 403:
+                        self.debug("Stage 2 probe returned 403, skipping template")
+                        stage2_failed = True
+                        break
+                    high_times.append(r.elapsed.total_seconds())
+
+                if stage2_failed or not high_times:
+                    continue
+
+                f_high = min(high_times)
+                d_high = f_high - base_floor
+                absolute_ok = abs(d_high - k * self.delay_high) <= self.delay_margin
+                scaling_ok = abs((f_high - f_low) - k * (self.delay_high - self.delay_low)) <= self.delay_scale_margin
+
+                if absolute_ok and scaling_ok:
                     self.results.append(
                         {
                             "type": "FINDING",
                             "description": (
-                                f"Possible blind SQL injection. {self.metadata()} Detection Method: [Delay Probe ({p})]. "
+                                f"Possible Blind SQL Injection. {self.metadata()} "
+                                f"Detection Method: [Scaling Delay Probe "
+                                f"(k={k}, {self.delay_low}s->{d_low:.1f}s, {self.delay_high}s->{d_high:.1f}s)] "
+                                f"Payload: [{payload_high}]. "
                                 "The response timing changed after a database delay payload, suggesting the parameter may influence SQL execution even when errors are not visible. If confirmed, attackers can extract data through timing or boolean inference. "
                                 "Blind SQL injection is harder to see because the page may not print database errors or data directly; instead, the attacker asks yes-or-no questions and observes delays or response differences. "
                                 "The affected code should be reviewed for dynamic SQL, fixed with parameterized queries, and tested to confirm the delay payload no longer changes server behavior."
                             ),
                         }
+                    )
+                else:
+                    self.verbose(
+                        f"Stage 2 rejected {self.event.data['url']}: d_high={d_high:.2f}s, "
+                        f"absolute_ok={absolute_ok}, scaling_ok={scaling_ok}"
                     )
 
         else:

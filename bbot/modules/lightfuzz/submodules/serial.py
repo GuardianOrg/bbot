@@ -78,6 +78,16 @@ class serial(BaseLightfuzz):
             return True
         return False
 
+    @staticmethod
+    def payload_language(payload_name):
+        return payload_name.split("_")[0]
+
+    async def confirm_baseline(self, control_payload, cookies):
+        confirmation = await self.standard_probe(self.event.data["type"], cookies, control_payload)
+        if confirmation is None:
+            return None
+        return getattr(confirmation, "status_code", None)
+
     async def fuzz(self):
         cookies = self.event.data.get("assigned_cookies", {})
         control_payload_hex = self.CONTROL_PAYLOAD_HEX
@@ -112,10 +122,10 @@ class serial(BaseLightfuzz):
             return
 
         # Proceed with payload probes
-        for payload_set, payload_baseline in [
-            (base64_serialization_payloads, http_compare_base64),
-            (hex_serialization_payloads, http_compare_hex),
-            (php_raw_serialization_payloads, http_compare_php_raw),
+        for payload_set, payload_baseline, control_payload in [
+            (base64_serialization_payloads, http_compare_base64, control_payload_base64),
+            (hex_serialization_payloads, http_compare_hex, control_payload_hex),
+            (php_raw_serialization_payloads, http_compare_php_raw, control_payload_php_raw),
         ]:
             for type, payload in payload_set.items():
                 try:
@@ -153,6 +163,16 @@ class serial(BaseLightfuzz):
                         error in response.text for error in general_errors
                     )  # ensure the 200 is not actually an error
                 ):
+                    baseline_status = payload_baseline.baseline.status_code
+                    if baseline_status in (403, 429):
+                        self.debug(
+                            f"Baseline status {baseline_status} is unstable for Error Resolution; skipping {type}"
+                        )
+                        continue
+                    confirmation_status = await self.confirm_baseline(control_payload, cookies)
+                    if confirmation_status == 200:
+                        self.debug(f"Baseline confirmation returned 200 for {type}; suppressing transient result")
+                        continue
 
                     def get_title(text):
                         soup = self.lightfuzz.helpers.beautifulsoup(text, "html.parser")
@@ -172,6 +192,8 @@ class serial(BaseLightfuzz):
                                 "Serialized data is a packaged representation of an object or application state. It is dangerous when clients can modify it and the server trusts it during reconstruction. "
                                 "Use signed and encrypted state where client storage is unavoidable, avoid deserializing untrusted formats, and replace native object deserialization with simple data formats and explicit validation."
                             ),
+                            "_technique": "error_resolution",
+                            "_language": self.payload_language(type),
                         }
                     )
                 # if the first case doesn't match, we check for a telltale error string like "java.io.optionaldataexception" in the response.
@@ -198,3 +220,14 @@ class serial(BaseLightfuzz):
                                 }
                             )
                             break
+
+        error_resolution_results = [
+            result for result in self.results if result.get("_technique") == "error_resolution"
+        ]
+        if len({result["_language"] for result in error_resolution_results}) > 1:
+            self.debug("Discarding cross-language Error Resolution results as false positives")
+            self.results = [result for result in self.results if result.get("_technique") != "error_resolution"]
+
+        for result in self.results:
+            result.pop("_technique", None)
+            result.pop("_language", None)

@@ -252,15 +252,20 @@ parameter_blacklist:
   - __SCROLLPOSITIONY
   - __SCROLLPOSITIONX
   - ASP.NET_SessionId
+  - .AspNetCore.Session
   - PHPSESSID
+  - XSRF-TOKEN
   - __cf_bm
   - f5_cspm
 
 parameter_blacklist_prefixes:
   - TS01
   - BIGipServer
+  - f5avr
   - incap_
   - visid_incap_
+  - nlbi_
+  - OAMRequestContext_
   - AWSALB
   - utm_
   - ApplicationGatewayAffinity

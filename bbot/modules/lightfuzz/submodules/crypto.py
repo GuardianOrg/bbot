@@ -84,6 +84,16 @@ class crypto(BaseLightfuzz):
         return _compiled_rules_cache
 
     @staticmethod
+    def is_plausible_base64_crypto(value):
+        """Reject narrow-alphabet strings that merely round-trip as base64."""
+        unique_chars = set(value) - set("=")
+        if len(value) >= 16 and unique_chars:
+            codepoints = [ord(char) for char in unique_chars]
+            if max(codepoints) - min(codepoints) <= 20:
+                return False
+        return True
+
+    @staticmethod
     def format_agnostic_decode(input_string, urldecode=False):
         """
         Decodes a string from either hex or base64 (without knowing which first), and optionally URL-decoding it first.
@@ -101,7 +111,7 @@ class crypto(BaseLightfuzz):
         if BaseLightfuzz.is_hex(input_string):
             data = bytes.fromhex(input_string)
             encoding = "hex"
-        elif BaseLightfuzz.is_base64(input_string):
+        elif BaseLightfuzz.is_base64(input_string) and crypto.is_plausible_base64_crypto(input_string):
             data = base64.b64decode(input_string)
             encoding = "base64"
         else:
@@ -293,6 +303,20 @@ class crypto(BaseLightfuzz):
                 )
 
             if padding_oracle_result is True:
+                self.debug(f"Confirming padding oracle detection for block_size={block_size}")
+                confirmation_result = await self.padding_oracle_execute(data, encoding, block_size, cookies)
+                if confirmation_result is None:
+                    confirmation_result = await self.padding_oracle_execute(
+                        data,
+                        encoding,
+                        block_size,
+                        cookies,
+                        possible_first_byte=False,
+                    )
+                if confirmation_result is not True:
+                    self.debug("Padding oracle confirmation failed; suppressing likely jitter false positive")
+                    continue
+
                 context = f"Lightfuzz Cryptographic Probe Submodule detected a probable padding oracle vulnerability after manipulating parameter: [{self.event.data['name']}]"
                 self.results.append(
                     {

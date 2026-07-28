@@ -40,7 +40,6 @@ class pgp(subdomain_enum):
         urls = [url.replace("<query>", self.helpers.quote(query)) for url in urls]
         async for url, response in self.helpers.request_batch(urls):
             keyserver = self.helpers.urlparse(url).netloc
-            response = await self.helpers.request(url)
             if response is not None:
                 for email in await self.helpers.re.extract_emails(response.text):
                     email = email.lower()

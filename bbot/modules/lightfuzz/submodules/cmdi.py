@@ -93,9 +93,15 @@ class cmdi(BaseLightfuzz):
                 subdomain_tag = self.lightfuzz.helpers.rand_string(4, digits=False)
                 self.lightfuzz.interactsh_subdomain_tags[subdomain_tag] = {
                     "event": self.event,
-                    "type": self.event.data["type"],
-                    "name": self.event.data["name"],
-                    "probe": p,
+                    "event_type": "VULNERABILITY",
+                    "severity": "CRITICAL",
+                    "description": (
+                        f"OS Command Injection (OOB Interaction) Type: [{self.event.data['type']}] Parameter Name: [{self.event.data['name']}] Probe: [{p}]. "
+                        "OS command injection was confirmed through an out-of-band interaction. "
+                        "The application appears to pass user-controlled input into an operating-system command. An attacker may be able to execute commands on the server, read sensitive files, modify data, or pivot deeper into the hosting environment. "
+                        "For a non-specialist, this means input from a request may be reaching a shell or command-line tool on the server. If the attacker can add command separators or arguments, the server may run commands chosen by the attacker rather than only the intended application action. "
+                        "The affected parameter should be removed from command construction, replaced with safe APIs, strictly allow-listed, and reviewed for evidence of command execution attempts."
+                    ),
                 }
                 # payload is an nslookup command that includes the interactsh domain prepended the previously generated subdomain tag
                 interactsh_probe = f"{p} nslookup {subdomain_tag}.{self.lightfuzz.interactsh_domain} {p}"

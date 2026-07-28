@@ -2873,3 +2873,15 @@ def is_printable(s):
     # Exclude control characters that break display/printing
     s = set(s)
     return all(ord(c) >= 32 or c in "\t\n\r" for c in s)
+
+
+_control_char_re = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def make_printable(s):
+    """
+    Escape terminal control characters while preserving tabs and line breaks.
+    """
+    if not isinstance(s, str):
+        s = smart_decode(s)
+    return _control_char_re.sub(lambda match: f"\\x{ord(match.group()):02x}", s)

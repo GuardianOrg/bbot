@@ -11,7 +11,7 @@ class lightfuzz(BaseModule):
 
     options = {
         "force_common_headers": False,
-        "enabled_submodules": ["sqli", "cmdi", "xss", "path", "ssti", "crypto", "serial", "esi"],
+        "enabled_submodules": ["sqli", "cmdi", "xss", "path", "ssti", "crypto", "serial", "esi", "ssrf"],
         "disable_post": False,
         "try_post_as_get": False,
         "try_get_as_post": False,
@@ -78,22 +78,22 @@ class lightfuzz(BaseModule):
         if full_id:
             if "." in full_id:
                 details = self.interactsh_subdomain_tags.get(full_id.split(".")[0])
-                if not details["event"]:
+                if not details or not details.get("event"):
                     return
-                # currently, this is only used by the cmdi submodule. Later, when other modules use it, we will need to store description data in the interactsh_subdomain_tags dictionary
+                protocol = str(r.get("protocol") or "dns").lower()
+                event_type = details.get("event_type", "VULNERABILITY")
+                if protocol == "dns":
+                    event_type = details.get("dns_event_type", event_type)
+                event_data = {
+                    "host": str(details["event"].host),
+                    "url": details["event"].data["url"],
+                    "description": f"{details['description']} Interaction Protocol: [{protocol}].",
+                }
+                if event_type == "VULNERABILITY":
+                    event_data["severity"] = details.get("severity", "HIGH")
                 await self.emit_event(
-                    {
-                        "severity": "CRITICAL",
-                        "host": str(details["event"].host),
-                        "url": details["event"].data["url"],
-                        "description": (
-                            f"OS command injection was confirmed through an out-of-band interaction. Parameter: [{details['name']}] Type: [{details['type']}] Probe: [{details['probe']}]. "
-                            "The application appears to pass user-controlled input into an operating-system command. An attacker may be able to execute commands on the server, read sensitive files, modify data, or pivot deeper into the hosting environment. "
-                            "For a non-specialist, this means input from a request may be reaching a shell or command-line tool on the server. If the attacker can add command separators or arguments, the server may run commands chosen by the attacker rather than only the intended application action. "
-                            "The affected parameter should be removed from command construction, replaced with safe APIs, strictly allow-listed, and reviewed for evidence of command execution attempts."
-                        ),
-                    },
-                    "VULNERABILITY",
+                    event_data,
+                    event_type,
                     details["event"],
                 )
             else:

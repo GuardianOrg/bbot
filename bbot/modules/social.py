@@ -26,6 +26,7 @@ class social(BaseModule):
         "docker": (r"hub.docker.com/[ru]/([a-zA-Z0-9_-]+)", False),
         "huggingface": (r"huggingface.co/([a-zA-Z0-9_-]+)", False),
         "postman": (r"www.postman.com/([a-zA-Z0-9_-]+)", False),
+        "linktree": (r"linktr\.ee/([a-zA-Z0-9._]{3,30})", False),
     }
 
     scope_distance_modifier = 1

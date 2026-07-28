@@ -98,9 +98,30 @@ class TestIIS_Shortnames(ModuleTestBase):
                 vulnerabilityEmitted = True
             if e.type == "URL_HINT" and e.data == "http://127.0.0.1:8888/BLSHAX~1":
                 url_hintEmitted = True
-            if e.type == "FINDING" and "Possible backup file (zip) in web root" in e.data["description"]:
+            if e.type == "FINDING" and "possible zip backup file" in e.data["description"].lower():
                 zip_findingEmitted = True
 
         assert vulnerabilityEmitted
         assert url_hintEmitted
         assert zip_findingEmitted
+
+
+class TestIIS_Shortnames_GatewayError(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888"]
+    modules_overrides = ["httpx", "iis_shortnames"]
+
+    async def setup_after_prep(self, module_test):
+        module_test.httpserver.no_handler_status_code = 404
+        module_test.set_expect_requests(
+            expect_args={"method": "GET", "uri": "/"},
+            respond_args={"response_data": "alive", "status": 200},
+        )
+        module_test.set_expect_requests(
+            expect_args={"method": "GET", "uri": "/*~1*/a.aspx"},
+            respond_args={"response_data": "Bad Gateway", "status": 502},
+        )
+
+    def check(self, module_test, events):
+        assert not any(e.type == "VULNERABILITY" and "IIS" in e.data.get("description", "") for e in events), (
+            "IIS shortname vulnerability should not be emitted for gateway errors"
+        )

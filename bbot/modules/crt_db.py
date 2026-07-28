@@ -85,7 +85,16 @@ class crt_db(subdomain_enum):
         start = time.time()
         try:
             results = await asyncio.wait_for(self.db_conn.fetch(sql, query), timeout=20)
-        except (asyncpg.InterfaceError, asyncpg.ConnectionDoesNotExistError, asyncio.TimeoutError, TimeoutError, OSError):
+        except asyncpg.OutOfMemoryError as e:
+            self.set_error_state(f"crt.sh Postgres reported out-of-memory: {e}")
+            return []
+        except (
+            asyncpg.InterfaceError,
+            asyncpg.ConnectionDoesNotExistError,
+            asyncio.TimeoutError,
+            TimeoutError,
+            OSError,
+        ):
             self.verbose("crt.sh DB connection dropped, reconnecting")
             try:
                 await self._reconnect()
