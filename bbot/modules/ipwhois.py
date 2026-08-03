@@ -65,6 +65,7 @@ class ipwhois(BaseModule):
             **geo_data,
             "ip": self.clean_string(geo_data.get("ip")) or str(event.data),
             "country": self.clean_string(geo_data.get("country")),
+            "countryCode": self.clean_string(geo_data.get("country_code")),
             "region": self.clean_string(geo_data.get("region")),
             "city": self.clean_string(geo_data.get("city")),
             "latitude": geo_data.get("latitude") if isinstance(geo_data.get("latitude"), (int, float)) else None,
