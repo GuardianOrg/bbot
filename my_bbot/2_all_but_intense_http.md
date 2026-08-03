@@ -55,7 +55,6 @@ modules:
   - hunterio
   - ipwhois
   - ipneighbor
-  - ipstack
   - jadx
   - kingfisher
   - leakix
@@ -63,7 +62,6 @@ modules:
   - leaklookup_hash
   - medusa
   - naabu
-  - newsletters
   - noseyparker
   - nuclei
   - nuclei_takeover
@@ -118,8 +116,6 @@ config:
       api_key: ${env:BBOT_GITLAB_TOKEN}
     hunterio:
       api_key: ${env:HUNTERIO_API_KEY}
-    ipstack:
-      api_key: ${env:IPSTACK_API_KEY}
     leaklookup:
       api_key: ${env:LEAKLOOKUP_API_KEY}
     leaklookup_hash:
@@ -146,7 +142,6 @@ config:
 | `BBOT_GITHUB_TOKEN` | `git_clone`, `github_org`, `github_workflows`, `github_codesearch` | Access GitHub repositories, owners, workflows, and authenticated cloning/search where permitted. |
 | `BBOT_GITLAB_TOKEN` | `gitlab_com` | Access GitLab.com project/org data during social/repo discovery. |
 | `HUNTERIO_API_KEY` | `hunterio` | Query Hunter.io for emails and related domains. |
-| `IPSTACK_API_KEY` | `ipstack` | Enrich IPs with Ipstack geolocation data. |
 | `LEAKLOOKUP_API_KEY` | `leaklookup`, `leaklookup_hash` | Query LeakLookup for leaked credentials and hash lookups. |
 | `OTX_API_KEY` | `otx` | Query AlienVault OTX for subdomain and OSINT data. |
 | `POSTMAN_API_KEY` | `postman` | Access Postman workspaces/collections for discovery. |
@@ -162,7 +157,6 @@ export DEHASHED_API_KEY=""
 export BBOT_GITHUB_TOKEN=""
 export BBOT_GITLAB_TOKEN=""
 export HUNTERIO_API_KEY=""
-export IPSTACK_API_KEY=""
 export LEAKLOOKUP_API_KEY=""
 export OTX_API_KEY=""
 export POSTMAN_API_KEY=""

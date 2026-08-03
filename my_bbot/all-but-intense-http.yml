@@ -42,7 +42,6 @@ modules:
   - hunterio
   - ip_privacy
   - ipwhois
-  - ipstack
   - jadx
   - kingfisher
   - leakix
@@ -51,7 +50,6 @@ modules:
   - medusa
   - naabu
   - naabu_fast
-  - newsletters
   - noseyparker
   - nuclei
   - nuclei_takeover
@@ -294,8 +292,6 @@ config:
         - https://raw.githubusercontent.com/TN3W/ProtonVPN-IPs/main/protonvpn_ips.txt
         - https://raw.githubusercontent.com/TN3W/Windscribe-IPs/main/windscribe_ips.txt
       cache_for: 86400
-    ipstack:
-      api_key: ${env:IPSTACK_API_KEY,""}
     leakix:
       api_key: ${env:LEAKIX_API_KEY,""}
     leaklookup:
