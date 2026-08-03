@@ -1,7 +1,7 @@
-from bbot.modules.base import BaseModule
+from bbot.modules.templates.ip_geo import ip_geo_template
 
 
-class ipquery(BaseModule):
+class ipquery(ip_geo_template):
     """
     ipquery.io geolocation + privacy risk API (free, no API key required).
     """
@@ -80,19 +80,3 @@ class ipquery(BaseModule):
             event,
             context=f'{{module}} queried ipquery.io API for "{event.data}" and found {{event.type}}: {description}',
         )
-
-    def clean_string(self, value):
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return None
-
-    def clean_asn(self, value):
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str):
-            value = value.strip().upper()
-            if value.startswith("AS"):
-                value = value[2:]
-            if value.isdigit():
-                return int(value)
-        return None

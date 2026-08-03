@@ -1,7 +1,7 @@
-from bbot.modules.base import BaseModule
+from bbot.modules.templates.ip_geo import ip_geo_template
 
 
-class ipwhois(BaseModule):
+class ipwhois(ip_geo_template):
     """
     ipwho.is geolocation API (free, no API key required for basic use).
     """
@@ -89,19 +89,3 @@ class ipwhois(BaseModule):
             event,
             context=f'{{module}} queried ipwho.is API for "{event.data}" and found {{event.type}}: {description}',
         )
-
-    def clean_string(self, value):
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return None
-
-    def clean_asn(self, value):
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str):
-            value = value.strip().upper()
-            if value.startswith("AS"):
-                value = value[2:]
-            if value.isdigit():
-                return int(value)
-        return None
