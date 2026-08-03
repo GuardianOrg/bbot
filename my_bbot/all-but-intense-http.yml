@@ -300,7 +300,8 @@ config:
       api_key: ${env:LEAKLOOKUP_API_KEY,""}
     otx:
       api_key: ${env:OTX_API_KEY,${env:OTX_KEY,""}}
-      query_ips: false
+      query_ips: true
+      query_cloud_ips: false
     securitytrails:
       api_key: ${env:SECURITYTRAILS_API_KEY,""}
     shodan_idb:

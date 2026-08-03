@@ -11,10 +11,11 @@ class otx(subdomain_enum_apikey):
         "author": "@TheTechromancer",
         "auth_required": True,
     }
-    options = {"api_key": "", "query_ips": True}
+    options = {"api_key": "", "query_ips": True, "query_cloud_ips": True}
     options_desc = {
         "api_key": "OTX API key",
         "query_ips": "Query passive DNS for IP address events",
+        "query_cloud_ips": "Query passive DNS for non-target cloud and CDN IP addresses",
     }
 
     base_url = "https://otx.alienvault.com"
@@ -23,11 +24,17 @@ class otx(subdomain_enum_apikey):
         await super().setup()
         self.queries_done = set()
         self.query_ips = self.config.get("query_ips", True)
+        self.query_cloud_ips = self.config.get("query_cloud_ips", True)
         return True
 
     async def filter_event(self, event):
-        if event.type == "IP_ADDRESS" and not self.query_ips:
-            return False, "IP lookups are disabled by configuration"
+        if event.type == "IP_ADDRESS":
+            if not self.query_ips:
+                return False, "IP lookups are disabled by configuration"
+            explicit_target = event.scope_distance == 0 and "target" in event.tags
+            provider_managed = any(tag.startswith(("cloud-", "cdn-")) for tag in event.tags)
+            if not self.query_cloud_ips and provider_managed and not explicit_target:
+                return False, "Non-target cloud and CDN IP lookups are disabled by configuration"
         return await super().filter_event(event)
 
     def _incoming_dedup_hash(self, event):

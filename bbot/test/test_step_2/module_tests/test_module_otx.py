@@ -103,3 +103,34 @@ class TestOTXIPLookupsDisabled(ModuleTestBase):
 
     def check(self, module_test, events):
         assert not any(str(event.module) == "otx" for event in events), "OTX queried an IP despite query_ips=false"
+
+
+class TestOTXCloudIPFiltering(TestOTXIPPassiveDNS):
+    config_overrides = {
+        "modules": {"otx": {"api_key": "test", "query_ips": True, "query_cloud_ips": False}}
+    }
+
+    async def setup_after_prep(self, module_test):
+        await super().setup_after_prep(module_test)
+
+        direct_target = module_test.scan.make_event(
+            "1.2.3.4", "IP_ADDRESS", parent=module_test.scan.root_event, tags=["target", "cloud-azure"]
+        )
+        direct_target.scope_distance = 0
+        allowed, _reason = await module_test.module.filter_event(direct_target)
+        assert allowed is True, "OTX must retain passive DNS checks for explicitly targeted IPs"
+
+        discovered_ip = module_test.scan.make_event(
+            "1.2.3.5", "IP_ADDRESS", parent=module_test.scan.root_event
+        )
+        discovered_ip.scope_distance = 1
+        allowed, _reason = await module_test.module.filter_event(discovered_ip)
+        assert allowed is True, "OTX must retain passive DNS checks for non-provider discovered IPs"
+
+        cloud_ip = module_test.scan.make_event(
+            "1.2.3.6", "IP_ADDRESS", parent=module_test.scan.root_event, tags=["cloud-azure"]
+        )
+        cloud_ip.scope_distance = 1
+        allowed, reason = await module_test.module.filter_event(cloud_ip)
+        assert allowed is False, "OTX should skip non-target cloud IP expansion when disabled"
+        assert reason == "Non-target cloud and CDN IP lookups are disabled by configuration"
