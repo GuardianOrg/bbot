@@ -86,3 +86,20 @@ class TestOTXIPPassiveDNS(ModuleTestBase):
             and e.data["records"][0]["ip"] == "1.2.3.4"
             for e in events
         ), "Failed to emit passive DNS history from OTX IP lookup"
+
+
+class TestOTXIPLookupsDisabled(ModuleTestBase):
+    module_name = "otx"
+    targets = ["1.2.3.4"]
+    config_overrides = {"modules": {"otx": {"api_key": "test", "query_ips": False}}}
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+
+    def check(self, module_test, events):
+        assert not any(str(event.module) == "otx" for event in events), "OTX queried an IP despite query_ips=false"

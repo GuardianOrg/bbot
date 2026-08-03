@@ -11,15 +11,24 @@ class otx(subdomain_enum_apikey):
         "author": "@TheTechromancer",
         "auth_required": True,
     }
-    options = {"api_key": ""}
-    options_desc = {"api_key": "OTX API key"}
+    options = {"api_key": "", "query_ips": True}
+    options_desc = {
+        "api_key": "OTX API key",
+        "query_ips": "Query passive DNS for IP address events",
+    }
 
     base_url = "https://otx.alienvault.com"
 
     async def setup(self):
         await super().setup()
         self.queries_done = set()
+        self.query_ips = self.config.get("query_ips", True)
         return True
+
+    async def filter_event(self, event):
+        if event.type == "IP_ADDRESS" and not self.query_ips:
+            return False, "IP lookups are disabled by configuration"
+        return await super().filter_event(event)
 
     def _incoming_dedup_hash(self, event):
         return hash(str(event.data).strip().lower())
