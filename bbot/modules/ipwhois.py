@@ -18,18 +18,13 @@ class ipwhois(ip_geo_template):
     options_desc = {
         "lang": "Optional language for localized location names (ISO 639-1).",
     }
-    scope_distance_modifier = 1
-    _priority = 2
-    suppress_dupes = False
 
     base_url = "https://ipwho.is"
+    api_name = "ipwho.is"
 
     async def setup(self):
         self.lang = str(self.config.get("lang", "")).strip()
         return True
-
-    async def ping(self):
-        await super().ping(f"{self.base_url}/8.8.8.8")
 
     def build_url(self, data):
         url = f"{self.base_url}/{data}"
@@ -77,15 +72,4 @@ class ipwhois(ip_geo_template):
         }
         normalized_geo_data = {k: v for k, v in normalized_geo_data.items() if v not in (None, "", [])}
 
-        country = normalized_geo_data.get("country", "unknown country")
-        region = normalized_geo_data.get("region", "unknown region")
-        city = normalized_geo_data.get("city", "unknown city")
-        lat = normalized_geo_data.get("latitude", "")
-        long = normalized_geo_data.get("longitude", "")
-        description = f"{city}, {region}, {country} ({lat}, {long})"
-        await self.emit_event(
-            normalized_geo_data,
-            "GEOLOCATION",
-            event,
-            context=f'{{module}} queried ipwho.is API for "{event.data}" and found {{event.type}}: {description}',
-        )
+        await self.emit_geolocation(event, normalized_geo_data)

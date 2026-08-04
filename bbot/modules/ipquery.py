@@ -14,14 +14,9 @@ class ipquery(ip_geo_template):
         "created_date": "2026-08-04",
         "author": "@carlospolop",
     }
-    scope_distance_modifier = 1
-    _priority = 2
-    suppress_dupes = False
 
     base_url = "https://api.ipquery.io"
-
-    async def ping(self):
-        await super().ping(f"{self.base_url}/8.8.8.8")
+    api_name = "ipquery.io"
 
     async def handle_event(self, event):
         try:
@@ -61,22 +56,15 @@ class ipquery(ip_geo_template):
         }
         normalized_geo_data = {k: v for k, v in normalized_geo_data.items() if v is not None}
 
+        # vpn/proxy/tor are risk classifications: a false here means "ipquery does not flag it",
+        # not "confirmed clean", so only positives are reported. is_mobile/is_datacenter are
+        # network attributes and are reported in both polarities so a reassigned address corrects.
         for field, risk_key in (("isVpn", "is_vpn"), ("isProxy", "is_proxy"), ("isTor", "is_tor")):
             if risk.get(risk_key) is True:
                 normalized_geo_data[field] = True
 
+        # only "ip" survived, so the response carried nothing worth emitting
         if len(normalized_geo_data) <= 1:
             return
 
-        country = normalized_geo_data.get("country", "unknown country")
-        region = normalized_geo_data.get("region", "unknown region")
-        city = normalized_geo_data.get("city", "unknown city")
-        lat = normalized_geo_data.get("latitude", "")
-        long = normalized_geo_data.get("longitude", "")
-        description = f"{city}, {region}, {country} ({lat}, {long})"
-        await self.emit_event(
-            normalized_geo_data,
-            "GEOLOCATION",
-            event,
-            context=f'{{module}} queried ipquery.io API for "{event.data}" and found {{event.type}}: {description}',
-        )
+        await self.emit_geolocation(event, normalized_geo_data)
