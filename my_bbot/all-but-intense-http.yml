@@ -41,6 +41,7 @@ modules:
   - host_reputation
   - hunterio
   - ip_privacy
+  - ipquery
   - ipwhois
   - jadx
   - kingfisher

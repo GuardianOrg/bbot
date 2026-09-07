@@ -1,7 +1,7 @@
-from bbot.modules.base import BaseModule
+from bbot.modules.templates.ip_geo import ip_geo_template
 
 
-class ipwhois(BaseModule):
+class ipwhois(ip_geo_template):
     """
     ipwho.is geolocation API (free, no API key required for basic use).
     """
@@ -18,18 +18,13 @@ class ipwhois(BaseModule):
     options_desc = {
         "lang": "Optional language for localized location names (ISO 639-1).",
     }
-    scope_distance_modifier = 1
-    _priority = 2
-    suppress_dupes = False
 
     base_url = "https://ipwho.is"
+    api_name = "ipwho.is"
 
     async def setup(self):
         self.lang = str(self.config.get("lang", "")).strip()
         return True
-
-    async def ping(self):
-        await super().ping(f"{self.base_url}/8.8.8.8")
 
     def build_url(self, data):
         url = f"{self.base_url}/{data}"
@@ -65,6 +60,7 @@ class ipwhois(BaseModule):
             **geo_data,
             "ip": self.clean_string(geo_data.get("ip")) or str(event.data),
             "country": self.clean_string(geo_data.get("country")),
+            "countryCode": self.clean_string(geo_data.get("country_code")),
             "region": self.clean_string(geo_data.get("region")),
             "city": self.clean_string(geo_data.get("city")),
             "latitude": geo_data.get("latitude") if isinstance(geo_data.get("latitude"), (int, float)) else None,
@@ -76,31 +72,4 @@ class ipwhois(BaseModule):
         }
         normalized_geo_data = {k: v for k, v in normalized_geo_data.items() if v not in (None, "", [])}
 
-        country = normalized_geo_data.get("country", "unknown country")
-        region = normalized_geo_data.get("region", "unknown region")
-        city = normalized_geo_data.get("city", "unknown city")
-        lat = normalized_geo_data.get("latitude", "")
-        long = normalized_geo_data.get("longitude", "")
-        description = f"{city}, {region}, {country} ({lat}, {long})"
-        await self.emit_event(
-            normalized_geo_data,
-            "GEOLOCATION",
-            event,
-            context=f'{{module}} queried ipwho.is API for "{event.data}" and found {{event.type}}: {description}',
-        )
-
-    def clean_string(self, value):
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return None
-
-    def clean_asn(self, value):
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str):
-            value = value.strip().upper()
-            if value.startswith("AS"):
-                value = value[2:]
-            if value.isdigit():
-                return int(value)
-        return None
+        await self.emit_geolocation(event, normalized_geo_data)
