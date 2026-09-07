@@ -368,12 +368,16 @@ class shodan_idb(BaseModule):
                 context=f'{{module}} queried {source} for "{ip}" and found {{event.type}}: {{event.data}}',
             )
 
+            protocol = self.service_protocol(service)
+            if not protocol:
+                continue
+
             protocol_data = {
                 "host": str(event.host or event.data or ip),
                 "ip": ip,
                 "port": port,
                 "transport": transport.lower(),
-                "protocol": self.service_protocol(service),
+                "protocol": protocol,
                 "banner": self.clean_string(service.get("data")),
                 "product": self.clean_string(service.get("product")),
                 "version": self.clean_string(service.get("version")),
@@ -383,9 +387,6 @@ class shodan_idb(BaseModule):
                 "cpes": self.service_cpes(service),
             }
             protocol_data = {k: v for k, v in protocol_data.items() if v not in (None, "", [])}
-            if len(protocol_data) <= 3:
-                continue
-
             await self.emit_event(
                 protocol_data,
                 "PROTOCOL",
