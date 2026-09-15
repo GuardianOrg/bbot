@@ -8,3 +8,5 @@
 - IPv6 is unsupported by current MalwareWorld feeds. Normal lookups no longer call legacy reputation APIs; their helper methods/configuration remain for compatibility.
 - `tests/fixtures/malwareworld-contract.json` is mirrored in Sentry's `tests/offchain/fixtures/`. Keep both fixtures and implementations aligned when changing the contract.
 - No testssl default activation, exploitation checks, credential validation or cloud-exposure discovery is included. Do not expose raw secret/email evidence in public summaries.
+
+Review hardening: domain normalization uses nontransitional IDNA, matching Sentry. Missing HTTP shards (including 404), invalid CIDRs and malformed matching records are errors, not clean verdicts. Empty data must be served explicitly; missing-shard semantics require an upstream completeness contract. Immutable range shards are validated and indexed once, with at most 64 retained indexes. Numeric Apple store IDs and IPv6 inputs are explicitly unsupported coverage, not clean assessments.

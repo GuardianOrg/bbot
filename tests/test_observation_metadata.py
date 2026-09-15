@@ -25,6 +25,43 @@ formatter_module = load_module("leak_formatter", "bbot/modules/templates/github_
 
 
 class MetadataTests(unittest.IsolatedAsyncioTestCase):
+    async def test_idna_and_malformed_feed(self):
+        self.assertEqual(mw.normalize_indicator("domain", "faß.de"), "xn--fa-hia.de")
+        fixtures = json.loads((ROOT / "tests/fixtures/malwareworld-contract.json").read_text())
+
+        async def load(file):
+            if file == "manifest.json":
+                return fixtures["files"][file]
+            return {"invalid-cidr": {"type": ["Malware"]}} if file.startswith("ranges_") else {}
+
+        with self.assertRaises(ValueError):
+            await mw.lookup("ip", "192.0.2.1", load)
+
+        async def invalid_entry(file):
+            return fixtures["files"][file] if file == "manifest.json" else {"evil.test": None}
+
+        with self.assertRaises(ValueError):
+            await mw.lookup("domain", "evil.test", invalid_entry)
+
+    def test_range_index_reuse_and_refresh(self):
+        shard = {"192.0.2.0/24": {"type": ["Malware"]}}
+        self.assertEqual(len(mw.matching_ranges(shard, "192.0.2.1")), 1)
+        index = mw.RANGE_INDEXES[id(shard)][1]
+        self.assertEqual(len(mw.matching_ranges(shard, "192.0.3.1")), 0)
+        self.assertIs(index, mw.RANGE_INDEXES[id(shard)][1])
+        refreshed = {"192.0.2.0/24": {"type": ["Whitelist"]}}
+        self.assertEqual(mw.matching_ranges(refreshed, "192.0.2.1")[0][1]["type"], ["Whitelist"])
+
+    async def test_missing_shard_is_not_a_clean_result(self):
+        cls = load_module("host_reputation_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        module.malwareworld_base = "https://fixture.invalid/data/"
+        module.scan = SimpleNamespace(
+            helpers=SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(status_code=404)))
+        )
+        with self.assertRaises(RuntimeError):
+            await module.mw_fetch_json("domains_a.json")
+
     async def test_git_dates_survive_secret_deduplication(self):
         formatter = formatter_module.github_leak_formatter()
         formatter.get_repository_url = AsyncMock(return_value="https://github.com/example/repo")

@@ -67,6 +67,17 @@ class host_reputation(BaseModule):
             return False, "reputation requires an in-scope observation"
         if event.type == "IP_ADDRESS" and ipaddress.ip_address(str(event.data)).version != 4:
             return False, "MalwareWorld IP feeds cover IPv4 only"
+        if event.type == "IP_RANGE" and ":" in str(event.data):
+            return False, "MalwareWorld has no IPv6 range coverage"
+        if (
+            event.type == "URL"
+            and event.host
+            and self._is_ip(str(event.host))
+            and ipaddress.ip_address(str(event.host)).version != 4
+        ):
+            return False, "MalwareWorld IP feeds cover IPv4 only"
+        if event.type == "MOBILE_APP" and isinstance(event.data, dict) and str(event.data.get("id", "")).isdigit():
+            return False, "iOS numeric store ID is not an app package indicator"
         return True
 
     async def handle_event(self, event):
@@ -78,10 +89,8 @@ class host_reputation(BaseModule):
             return
 
         is_ip = self._is_ip(host)
-        results = {}
 
         mw_result = await self.check_malwareworld(host)
-        results["MalwareWorld"] = mw_result
 
         risk_score, malicious, sources = mw_result["risk_score"], mw_result["malicious"], mw_result["sources"]
         verdict = "malicious" if malicious else "not malicious"
@@ -352,40 +361,6 @@ class host_reputation(BaseModule):
             "malwareworld": report,
         }
 
-    def aggregate_results(self, results):
-        risk_score = 0
-        sources = []
-        for source, result in results.items():
-            if not isinstance(result, dict):
-                continue
-            risk_score = max(risk_score, self._to_int(result.get("risk_score")))
-            if result.get("malicious") is True:
-                result_sources = result.get("sources")
-                if isinstance(result_sources, list) and result_sources:
-                    for result_source in result_sources:
-                        if not isinstance(result_source, dict):
-                            continue
-                        source_name = result_source.get("source")
-                        if not source_name:
-                            continue
-                        sources.append(
-                            {
-                                "source": str(source_name),
-                                "type": str(result_source.get("type") or result.get("type") or "malicious"),
-                                "listed_date": result_source.get("listed_date") or result.get("listed_date"),
-                                **({"url": str(result_source.get("url"))} if result_source.get("url") else {}),
-                            }
-                        )
-                else:
-                    sources.append(
-                        {
-                            "source": source,
-                            "type": str(result.get("type") or "malicious"),
-                            "listed_date": result.get("listed_date"),
-                        }
-                    )
-        return risk_score, bool(sources), sources
-
     async def request_json(self, url, params=None, headers=None):
         try:
             response = await self.helpers.request(url=url, params=params, headers=headers or {}, timeout=10)
@@ -429,58 +404,12 @@ class host_reputation(BaseModule):
             return data
         url = urljoin(self.malwareworld_base, asset)
         response = await self.helpers.request(url=url, headers={"User-Agent": "bbot-host-reputation"}, timeout=10)
-        if response is not None and response.status_code == 404 and asset != "manifest.json":
-            return {}
         if response is None or response.status_code < 200 or response.status_code >= 300:
             raise RuntimeError(f"MalwareWorld {asset}: HTTP {getattr(response, 'status_code', 'unavailable')}")
         data = response.json()
         if not isinstance(data, dict):
             raise ValueError(f"MalwareWorld {asset}: invalid JSON object")
         return data
-
-    def mw_ips_asset_for_host(self, host, manifest):
-        try:
-            octet = int(str(host).split(".")[0])
-        except Exception:
-            return None
-        if octet < 0 or octet > 255:
-            return None
-        meta = (manifest or {}).get("ips", {})
-        if meta.get("scheme") == "ipv4FirstOctet" and isinstance(meta.get("pattern"), str):
-            return meta["pattern"].replace("{octet3}", f"{octet:03d}")
-        group_size = int(meta.get("groupSize", 16)) if meta else 16
-        start = (octet // group_size) * group_size
-        end = min(255, start + group_size - 1)
-        if isinstance(meta.get("pattern"), str):
-            return meta["pattern"].replace("{from3}", f"{start:03d}").replace("{to3}", f"{end:03d}")
-        return f"ips_{start:03d}-{end:03d}.json"
-
-    def mw_domain_shard(self, domain):
-        if not domain:
-            return "_"
-        char = domain[0]
-        if "a" <= char <= "z" or "0" <= char <= "9" or char == "-":
-            return char
-        return "_"
-
-    def _malwareworld_source_urls(self, data):
-        urls = []
-        for key in ("urls", "references"):
-            value = data.get(key)
-            if isinstance(value, str):
-                candidates = [value]
-            elif isinstance(value, list):
-                candidates = value
-            else:
-                candidates = []
-            for candidate in candidates:
-                if not isinstance(candidate, str):
-                    continue
-                candidate = candidate.strip()
-                if not candidate or candidate in urls:
-                    continue
-                urls.append(candidate)
-        return urls
 
     def _normalize_base(self, base):
         return base if str(base).endswith("/") else f"{base}/"
