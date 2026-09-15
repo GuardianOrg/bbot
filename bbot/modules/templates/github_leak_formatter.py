@@ -1,9 +1,21 @@
 from pathlib import Path
 from hashlib import sha256
 from urllib.parse import urlparse
+import re
+from bbot.core.helpers.observation_dates import indexed_date
 
 
 class github_leak_formatter:
+    async def get_exposure_commit_date(self, scan_path, commit):
+        # Never interpret an arbitrary scanner string as a git option/revision expression.
+        if not re.fullmatch(r"[a-fA-F0-9]{7,40}", str(commit or "")):
+            return None
+        result = await self.run_process(
+            ["git", "-C", str(scan_path), "show", "-s", "--format=%cI", commit, "--"],
+            _log_stderr=False,
+        )
+        return indexed_date({"date": str(getattr(result, "stdout", "") or "").strip()})
+
     async def get_repository_url(self, event, scan_path):
         if isinstance(getattr(event, "data", None), dict):
             repository_url = str(event.data.get("url", "")).strip()
@@ -115,6 +127,8 @@ class github_leak_formatter:
 
         repository_url = self.normalize_repository_url(repository_url)
         commit = str(commit or "").strip()
+        # A fallback HEAD is a link target, not evidence dating a historical leak.
+        commit_date = await self.get_exposure_commit_date(scan_path, commit) if commit else None
         if not commit:
             commit = await self.get_repository_commit(scan_path)
 
@@ -130,6 +144,8 @@ class github_leak_formatter:
         secret_fingerprint = f"sha256:{leak_fingerprint}" if leak_fingerprint else ""
         if leak_fingerprint:
             dedupe_key = f"github-leak-secret:sha256:{leak_fingerprint}"
+            if commit_date:
+                dedupe_key += f":{commit_date}"
         else:
             dedupe_key = "github-leak:" + ":".join([repository_url, leak_type, relative_path, str(line or "")])
         location_parts = []
@@ -197,6 +213,8 @@ class github_leak_formatter:
             data["line"] = str(line)
         if commit:
             data["commit"] = commit
+        if commit_date:
+            data["secret_latest_commit_at"] = commit_date
         if extra_fields:
             data.update({k: v for k, v in extra_fields.items() if v not in ("", None, [], {})})
         return data

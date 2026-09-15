@@ -2,6 +2,7 @@ import asyncio
 from contextlib import suppress
 
 from bbot.core.helpers.leak_history import LeakHistory, record_fingerprint
+from bbot.core.helpers.observation_dates import indexed_date_tags
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
@@ -62,13 +63,16 @@ class dehashed(subdomain_enum):
 
                 # Skip records already reported on a previous scan (when history_file is set).
                 record_fp = record_fingerprint(self.SOURCE, db_name, emails, users, pws, h_pws)
+                date_tags = indexed_date_tags(entry)
+                if date_tags:
+                    record_fp += ":" + ":".join(date_tags)
                 if self.history.contains(record_fp):
                     continue
                 self.history.add(record_fp)
 
-                tags = []
+                tags = list(date_tags)
                 if db_name:
-                    tags = [f"db-{db_name}"]
+                    tags.append(f"db-{db_name}")
                 for email in emails:
                     email_event = self.make_event(email, "EMAIL_ADDRESS", parent=event, tags=tags)
                     if email_event is not None:
