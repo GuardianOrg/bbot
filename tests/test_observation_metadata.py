@@ -25,6 +25,22 @@ formatter_module = load_module("leak_formatter", "bbot/modules/templates/github_
 
 
 class MetadataTests(unittest.IsolatedAsyncioTestCase):
+    async def test_app_bundle_takes_precedence_over_numeric_store_id(self):
+        cls = load_module("host_reputation_app_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        event = SimpleNamespace(
+            type="MOBILE_APP", scope_distance=0, host=None, data={"id": "123456", "bundleId": "com.example.app"}
+        )
+        self.assertTrue(await module.filter_event(event))
+        module.check_malwareworld = AsyncMock(
+            return_value={"malicious": False, "malwareworld": {}, "risk_score": 0, "sources": []}
+        )
+        module.emit_event = AsyncMock()
+        await module.handle_indicator_event(event)
+        module.check_malwareworld.assert_awaited_once_with("com.example.app", "app")
+        event.data = {"id": "123456"}
+        self.assertFalse((await module.filter_event(event))[0])
+
     async def test_idna_and_malformed_feed(self):
         self.assertEqual(mw.normalize_indicator("domain", "faß.de"), "xn--fa-hia.de")
         fixtures = json.loads((ROOT / "tests/fixtures/malwareworld-contract.json").read_text())

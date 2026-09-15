@@ -76,7 +76,11 @@ class host_reputation(BaseModule):
             and ipaddress.ip_address(str(event.host)).version != 4
         ):
             return False, "MalwareWorld IP feeds cover IPv4 only"
-        if event.type == "MOBILE_APP" and isinstance(event.data, dict) and str(event.data.get("id", "")).isdigit():
+        if (
+            event.type == "MOBILE_APP"
+            and isinstance(event.data, dict)
+            and str(self.app_indicator(event.data)).isdigit()
+        ):
             return False, "iOS numeric store ID is not an app package indicator"
         return True
 
@@ -122,7 +126,6 @@ class host_reputation(BaseModule):
         data = event.data if isinstance(event.data, dict) else {}
         candidates = []
         fields = {
-            "MOBILE_APP": ("app", ("bundle_id", "bundleId", "id")),
             "TLS_CERTIFICATE": (
                 "certificate",
                 (
@@ -139,6 +142,8 @@ class host_reputation(BaseModule):
         }
         if event.type == "IP_RANGE":
             candidates.append(("range", str(event.data)))
+        if event.type == "MOBILE_APP" and self.app_indicator(data):
+            candidates.append(("app", self.app_indicator(data)))
         if event.type in fields:
             kind, names = fields[event.type]
             candidates.extend((kind, data[name]) for name in names if isinstance(data.get(name), str))
@@ -171,6 +176,10 @@ class host_reputation(BaseModule):
                 "FINDING",
                 parent=event,
             )
+
+    @staticmethod
+    def app_indicator(data):
+        return data.get("bundle_id") or data.get("bundleId") or data.get("id") or ""
 
     async def check_abuseipdb(self, ip):
         if not self.abuseipdb_api_key:
