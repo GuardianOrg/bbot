@@ -2,6 +2,7 @@ import asyncio
 from contextlib import suppress
 
 from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint
+from bbot.core.helpers.observation_dates import indexed_date_tags
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
@@ -93,7 +94,9 @@ class leaklookup(subdomain_enum):
         if self.private_api_key:
             breaches = [breach for breach in detection if breach]
         else:
-            breaches = [breach for breach in detection if breach and not self.history.contains(self._breach_fp(query, breach))]
+            breaches = [
+                breach for breach in detection if breach and not self.history.contains(self._breach_fp(query, breach))
+            ]
         if not breaches:
             return
 
@@ -154,6 +157,7 @@ class leaklookup(subdomain_enum):
         return True
 
     async def _emit_row_results(self, row, parent_event, query, breach, source_tag):
+        date_tags = indexed_date_tags(row)
         emails = await self._extract_emails_from_row(row)
         usernames = self._extract_values_by_fields(row, self.username_fields)
         passwords = self._extract_values_by_fields(row, self.password_fields)
@@ -161,12 +165,14 @@ class leaklookup(subdomain_enum):
 
         # Dedup at the leaked-record granularity over all identities + secrets on the row.
         record_fp = record_fingerprint(self.SOURCE, breach, emails, usernames, passwords, hashed_passwords)
+        if date_tags:
+            record_fp += ":" + ":".join(date_tags)
         if self.history.contains(record_fp):
             return False
         self.history.add(record_fp)
 
         for email in emails:
-            email_event = self.make_event(email, "EMAIL_ADDRESS", parent=parent_event, tags=[source_tag])
+            email_event = self.make_event(email, "EMAIL_ADDRESS", parent=parent_event, tags=[source_tag, *date_tags])
             if email_event is None:
                 continue
             await self.emit_event(
@@ -178,7 +184,7 @@ class leaklookup(subdomain_enum):
                     f"{email}:{username}",
                     "USERNAME",
                     parent=email_event,
-                    tags=[source_tag],
+                    tags=[source_tag, *date_tags],
                     context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
                 )
             for password in passwords:
@@ -186,7 +192,7 @@ class leaklookup(subdomain_enum):
                     f"{email}:{password}",
                     "PASSWORD",
                     parent=email_event,
-                    tags=[source_tag],
+                    tags=[source_tag, *date_tags],
                     context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
                 )
             for hashed_password in hashed_passwords:
@@ -194,7 +200,7 @@ class leaklookup(subdomain_enum):
                     f"{email}:{hashed_password}",
                     "HASHED_PASSWORD",
                     parent=email_event,
-                    tags=[source_tag],
+                    tags=[source_tag, *date_tags],
                     context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
                 )
         return True

@@ -118,6 +118,7 @@ class httpx(BaseModule):
             "-silent",
             "-json",
             "-include-response",
+            "-tech-detect",
             "-threads",
             self.threads,
             "-timeout",

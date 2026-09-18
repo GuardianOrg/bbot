@@ -1,16 +1,35 @@
 import ipaddress
 import random
+import re
+import json
+import asyncio
+import time
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 from urllib.parse import urljoin
 
 from bbot.modules.base import BaseModule
+from bbot.core.helpers.malwareworld import lookup as malwareworld_lookup
 
 
 class host_reputation(BaseModule):
-    watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED", "IP_ADDRESS"]
+    watched_events = [
+        "DNS_NAME",
+        "DNS_NAME_UNRESOLVED",
+        "IP_ADDRESS",
+        "IP_RANGE",
+        "URL",
+        "MOBILE_APP",
+        "TLS_CERTIFICATE",
+        "FILESYSTEM",
+        "SOCIAL",
+        "FINDING",
+        "VULNERABILITY",
+    ]
     produced_events = ["FINDING"]
     flags = ["passive", "safe", "ip-enum"]
     meta = {
-        "description": "Check domains and IP addresses against AbuseIPDB, VirusTotal, OTX, and MalwareWorld",
+        "description": "Check observed indicators against MalwareWorld threat intelligence",
         "created_date": "2026-04-27",
         "author": "@carlospolop",
     }
@@ -36,37 +55,48 @@ class host_reputation(BaseModule):
         else:
             self.virustotal_api_keys = [str(k).strip() for k in (raw_vt_keys or []) if str(k).strip()]
         self.otx_api_key = self.config.get("otx_api_key", "")
-        self.malwareworld_base = self._normalize_base(self.config.get("malwareworld_base", "https://malwareworld.com/data/"))
+        self.malwareworld_base = self._normalize_base(
+            self.config.get("malwareworld_base", "https://malwareworld.com/data/")
+        )
         return True
 
     async def filter_event(self, event):
+        if isinstance(event.data, dict) and event.data.get("category") in ("host-reputation", "indicator-reputation"):
+            return False, "do not process reputation output recursively"
         if event.scope_distance != 0:
-            return False, "host_reputation only checks explicit seed targets"
-        if "target" not in self._event_tags(event):
-            return False, "host_reputation only checks explicit seed targets"
+            return False, "reputation requires an in-scope observation"
+        if event.type == "IP_ADDRESS" and ipaddress.ip_address(str(event.data)).version != 4:
+            return False, "MalwareWorld IP feeds cover IPv4 only"
+        if event.type == "IP_RANGE" and ":" in str(event.data):
+            return False, "MalwareWorld has no IPv6 range coverage"
+        if (
+            event.type == "URL"
+            and event.host
+            and self._is_ip(str(event.host))
+            and ipaddress.ip_address(str(event.host)).version != 4
+        ):
+            return False, "MalwareWorld IP feeds cover IPv4 only"
+        if (
+            event.type == "MOBILE_APP"
+            and isinstance(event.data, dict)
+            and str(self.app_indicator(event.data)).isdigit()
+        ):
+            return False, "iOS numeric store ID is not an app package indicator"
         return True
 
     async def handle_event(self, event):
+        if event.type not in ("DNS_NAME", "DNS_NAME_UNRESOLVED", "IP_ADDRESS", "URL"):
+            await self.handle_indicator_event(event)
+            return
         host = str(event.host or event.data).lower().rstrip(".")
         if not host:
             return
 
         is_ip = self._is_ip(host)
-        results = {}
 
         mw_result = await self.check_malwareworld(host)
-        results["MalwareWorld"] = mw_result
 
-        if not mw_result.get("malicious"):
-            if is_ip:
-                results["IP in AbuseIPDB"] = await self.check_abuseipdb(host)
-                results["IP in VirusTotal"] = await self.check_vt_ip(host)
-                results["IP in OTX"] = await self.check_otx_ip(host)
-            else:
-                results["Hostname in VirusTotal"] = await self.check_vt_domain(host)
-                results["Hostname in OTX"] = await self.check_otx(host)
-
-        risk_score, malicious, sources = self.aggregate_results(results)
+        risk_score, malicious, sources = mw_result["risk_score"], mw_result["malicious"], mw_result["sources"]
         verdict = "malicious" if malicious else "not malicious"
         await self.emit_event(
             {
@@ -84,12 +114,72 @@ class host_reputation(BaseModule):
                 "risk_score": risk_score,
                 "malicious": malicious,
                 "sources": sources,
+                "malwareworld": mw_result["malwareworld"],
                 "dedupe_key": f"host-reputation:{host}",
             },
             "FINDING",
             event,
             context=f"{{module}} checked reputation sources for {host} and emitted {{event.type}}: {{event.data}}",
         )
+
+    async def handle_indicator_event(self, event):
+        data = event.data if isinstance(event.data, dict) else {}
+        candidates = []
+        fields = {
+            "TLS_CERTIFICATE": (
+                "certificate",
+                (
+                    "certFingerprintSha256",
+                    "cert_fingerprint_sha256",
+                    "fingerprint_sha256",
+                    "fingerprintSha256",
+                    "sha256",
+                    "fingerprint",
+                ),
+            ),
+            "FILESYSTEM": ("hash", ("sha256", "sha1")),
+            "SOCIAL": ("phone", ("phone",)),
+        }
+        if event.type == "IP_RANGE":
+            candidates.append(("range", str(event.data)))
+        if event.type == "MOBILE_APP" and self.app_indicator(data):
+            candidates.append(("app", self.app_indicator(data)))
+        if event.type in fields:
+            kind, names = fields[event.type]
+            candidates.extend((kind, data[name]) for name in names if isinstance(data.get(name), str))
+        if event.type in ("FINDING", "VULNERABILITY"):
+            candidates.extend(
+                ("vulnerability", cve.upper())
+                for cve in re.findall(
+                    r"\bCVE-\d{4}-\d{4,}\b",
+                    " ".join(str(data.get(k, "")) for k in ("cve", "title", "description")),
+                    re.I,
+                )
+            )
+        for kind, value in sorted(set(candidates)):
+            result = await self.check_malwareworld(value, kind)
+            await self.emit_event(
+                {
+                    "host": str(event.host or ""),
+                    "kind": kind,
+                    "indicator": value,
+                    "category": "indicator-reputation",
+                    "severity": "HIGH" if result["malicious"] else "INFO",
+                    "title": f"MalwareWorld {kind} observation: {value}",
+                    "location": f"{kind}:{value}",
+                    "description": "Passive threat-intelligence match; review attribution and source categories before assigning company risk.",
+                    "poc": json.dumps(result["malwareworld"], sort_keys=True),
+                    "malicious": result["malicious"],
+                    "risk_score": result["risk_score"],
+                    "sources": result["sources"],
+                },
+                "FINDING",
+                parent=event,
+            )
+
+    @staticmethod
+    def app_indicator(data):
+        return data.get("bundle_id") or data.get("bundleId") or data.get("id") or ""
 
     async def check_abuseipdb(self, ip):
         if not self.abuseipdb_api_key:
@@ -147,11 +237,13 @@ class host_reputation(BaseModule):
                 if category not in ("malicious", "suspicious"):
                     continue
                 result = engine_result.get("result") or category
-                sources.append({
-                    "source": f"VirusTotal:{engine_name}",
-                    "type": str(result),
-                    "listed_date": None,
-                })
+                sources.append(
+                    {
+                        "source": f"VirusTotal:{engine_name}",
+                        "type": str(result),
+                        "listed_date": None,
+                    }
+                )
             return {
                 "malicious": malicious_count > 1 or suspicious_count > 2,
                 "risk_score": risk_score,
@@ -181,11 +273,13 @@ class host_reputation(BaseModule):
             if not isinstance(pulse, dict):
                 continue
             pulse_name = pulse.get("name") or pulse.get("id") or "unknown-pulse"
-            sources.append({
-                "source": f"OTX:{pulse_name}",
-                "type": "pulse",
-                "listed_date": pulse.get("modified") or pulse.get("created"),
-            })
+            sources.append(
+                {
+                    "source": f"OTX:{pulse_name}",
+                    "type": "pulse",
+                    "listed_date": pulse.get("modified") or pulse.get("created"),
+                }
+            )
         return {
             "malicious": count > 0,
             "risk_score": min(100, count * 20),
@@ -224,17 +318,21 @@ class host_reputation(BaseModule):
             if not isinstance(pulse, dict):
                 continue
             pulse_name = pulse.get("name") or pulse.get("id") or "unknown-pulse"
-            sources.append({
-                "source": f"OTX:{pulse_name}",
-                "type": "pulse",
-                "listed_date": pulse.get("modified") or pulse.get("created"),
-            })
+            sources.append(
+                {
+                    "source": f"OTX:{pulse_name}",
+                    "type": "pulse",
+                    "listed_date": pulse.get("modified") or pulse.get("created"),
+                }
+            )
         if reputation > 0 and not sources:
-            sources.append({
-                "source": "OTX:IP reputation",
-                "type": "reputation",
-                "listed_date": None,
-            })
+            sources.append(
+                {
+                    "source": "OTX:IP reputation",
+                    "type": "reputation",
+                    "listed_date": None,
+                }
+            )
         return {
             "malicious": count > 0 or reputation > 0,
             "risk_score": min(100, max(count * 20, reputation)),
@@ -249,79 +347,28 @@ class host_reputation(BaseModule):
             },
         }
 
-    async def check_malwareworld(self, host):
-        try:
-            data = await self.mw_lookup(host)
-        except Exception as exc:
-            return {"error": str(exc), "malicious": False}
-        if not data:
-            return {"found": False, "malicious": False, "risk_score": 0}
-
-        types = data.get("type") or []
-        is_whitelisted = "Whitelist" in types
-        is_malicious = bool(types) and not is_whitelisted
-        sources = []
-        malicious_types = [str(entry) for entry in types if entry != "Whitelist"]
-        for entry in malicious_types:
-            sources.append({
-                "source": f"MalwareWorld:{entry}",
-                "type": entry,
+    async def check_malwareworld(self, host, kind=None):
+        kind = kind or ("ip" if self._is_ip(host) else "domain")
+        report = await malwareworld_lookup(kind, host, self.mw_load_json)
+        sources = [
+            {
+                "source": "MalwareWorld",
+                "type": category,
                 "listed_date": None,
-            })
-
-        source_urls = self._malwareworld_source_urls(data)
-        for source_url in source_urls:
-            for entry in malicious_types or ["malwareworld"]:
-                sources.append({
-                    "source": f"MalwareWorld:{source_url}",
-                    "type": entry,
-                    "listed_date": None,
-                    "url": source_url,
-                })
+                "indicator": match["indicator"],
+                "match": match["match"],
+                "references": match["references"],
+            }
+            for match in report["matches"]
+            for category in match["categories"]
+        ]
         return {
-            "found": True,
-            "malicious": is_malicious,
-            "risk_score": 100 if is_malicious else 0,
-            "type": ",".join(types) if types else "malwareworld",
-            "listed_date": None,
+            "found": bool(report["matches"]),
+            "malicious": report["malicious"],
+            "risk_score": report["riskScore"],
             "sources": sources,
-            "details": {
-                "type": types,
-                "urls": data.get("urls"),
-                "references": data.get("references"),
-                "title": data.get("title"),
-            },
+            "malwareworld": report,
         }
-
-    def aggregate_results(self, results):
-        risk_score = 0
-        sources = []
-        for source, result in results.items():
-            if not isinstance(result, dict):
-                continue
-            risk_score = max(risk_score, self._to_int(result.get("risk_score")))
-            if result.get("malicious") is True:
-                result_sources = result.get("sources")
-                if isinstance(result_sources, list) and result_sources:
-                    for result_source in result_sources:
-                        if not isinstance(result_source, dict):
-                            continue
-                        source_name = result_source.get("source")
-                        if not source_name:
-                            continue
-                        sources.append({
-                            "source": str(source_name),
-                            "type": str(result_source.get("type") or result.get("type") or "malicious"),
-                            "listed_date": result_source.get("listed_date") or result.get("listed_date"),
-                            **({"url": str(result_source.get("url"))} if result_source.get("url") else {}),
-                        })
-                else:
-                    sources.append({
-                        "source": source,
-                        "type": str(result.get("type") or "malicious"),
-                        "listed_date": result.get("listed_date"),
-                    })
-        return risk_score, bool(sources), sources
 
     async def request_json(self, url, params=None, headers=None):
         try:
@@ -336,83 +383,42 @@ class host_reputation(BaseModule):
         except Exception as exc:
             return {"error": str(exc)}
 
-    async def mw_lookup(self, host):
-        manifest = await self.mw_load_json("manifest.json")
-        normalized = host.lower().rstrip(".")
-        if self._is_ip(normalized):
-            asset = self.mw_ips_asset_for_host(normalized, manifest)
-            return await self.mw_lookup_asset(normalized, asset)
-
-        domain = normalized
-        for _ in range(8):
-            asset = f"domains_{self.mw_domain_shard(domain)}.json"
-            obj = await self.mw_load_json(asset)
-            if isinstance(obj, dict) and domain in obj:
-                return obj[domain]
-            parts = domain.split(".")
-            if len(parts) <= 2:
-                break
-            domain = ".".join(parts[1:])
-        return None
-
-    async def mw_lookup_asset(self, key, asset):
-        if not asset:
-            return None
-        obj = await self.mw_load_json(asset)
-        return obj.get(key) if isinstance(obj, dict) else None
-
     async def mw_load_json(self, asset):
+        cache = getattr(self, "_mw_json_cache", None)
+        if cache is None:
+            self._mw_json_cache = cache = {}
+        cached = cache.get(asset)
+        if cached and cached[0] > time.monotonic():
+            return await cached[1]
+        if len(cache) >= 64:
+            cache.pop(next(iter(cache)))
+        task = asyncio.create_task(self.mw_fetch_json(asset))
+        cache[asset] = (time.monotonic() + 900, task)
+        try:
+            return await task
+        except BaseException:
+            cache.pop(asset, None)
+            raise
+
+    async def mw_fetch_json(self, asset):
+        if not self.malwareworld_base.startswith(("https://", "http://")):
+            base = (
+                unquote(urlparse(self.malwareworld_base).path)
+                if self.malwareworld_base.startswith("file://")
+                else self.malwareworld_base
+            )
+            data = json.loads(await asyncio.to_thread((Path(base) / asset).read_text))
+            if not isinstance(data, dict):
+                raise ValueError(f"MalwareWorld {asset}: invalid JSON object")
+            return data
         url = urljoin(self.malwareworld_base, asset)
         response = await self.helpers.request(url=url, headers={"User-Agent": "bbot-host-reputation"}, timeout=10)
-        if response is None or response.status_code == 404:
-            return {}
-        if response.status_code < 200 or response.status_code >= 300:
-            return {}
-        return response.json()
-
-    def mw_ips_asset_for_host(self, host, manifest):
-        try:
-            octet = int(str(host).split(".")[0])
-        except Exception:
-            return None
-        if octet < 0 or octet > 255:
-            return None
-        meta = (manifest or {}).get("ips", {})
-        if meta.get("scheme") == "ipv4FirstOctet" and isinstance(meta.get("pattern"), str):
-            return meta["pattern"].replace("{octet3}", f"{octet:03d}")
-        group_size = int(meta.get("groupSize", 16)) if meta else 16
-        start = (octet // group_size) * group_size
-        end = min(255, start + group_size - 1)
-        if isinstance(meta.get("pattern"), str):
-            return meta["pattern"].replace("{from3}", f"{start:03d}").replace("{to3}", f"{end:03d}")
-        return f"ips_{start:03d}-{end:03d}.json"
-
-    def mw_domain_shard(self, domain):
-        if not domain:
-            return "_"
-        char = domain[0]
-        if "a" <= char <= "z" or "0" <= char <= "9" or char == "-":
-            return char
-        return "_"
-
-    def _malwareworld_source_urls(self, data):
-        urls = []
-        for key in ("urls", "references"):
-            value = data.get(key)
-            if isinstance(value, str):
-                candidates = [value]
-            elif isinstance(value, list):
-                candidates = value
-            else:
-                candidates = []
-            for candidate in candidates:
-                if not isinstance(candidate, str):
-                    continue
-                candidate = candidate.strip()
-                if not candidate or candidate in urls:
-                    continue
-                urls.append(candidate)
-        return urls
+        if response is None or response.status_code < 200 or response.status_code >= 300:
+            raise RuntimeError(f"MalwareWorld {asset}: HTTP {getattr(response, 'status_code', 'unavailable')}")
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError(f"MalwareWorld {asset}: invalid JSON object")
+        return data
 
     def _normalize_base(self, base):
         return base if str(base).endswith("/") else f"{base}/"

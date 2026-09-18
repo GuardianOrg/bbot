@@ -20,12 +20,18 @@ def mock_gitleaks(monkeypatch, tmp_path):
             return FakeGitResult()
 
         if cmd[:2] == ["git", "-C"] and cmd[3:] == ["rev-parse", "HEAD"]:
+
             class FakeGitRevParseResult:
                 returncode = 0
                 stdout = "abcdef1234567890abcdef1234567890abcdef12\n"
                 stderr = ""
 
             return FakeGitRevParseResult()
+
+        if cmd[:2] == ["git", "-C"] and cmd[3:6] == ["show", "-s", "--format=%cI"]:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=0, stdout="2024-06-01T00:00:00Z\n", stderr="")
 
         scan_path = Path(cmd[2])
         report_path = Path(cmd[cmd.index("--report-path") + 1])
@@ -93,8 +99,13 @@ class TestGitleaks(ModuleTestBase):
             "https://github.com/layer-3-smart/test/commit/abcdef1234567890abcdef1234567890abcdef12"
         )
         assert finding.data["file_url"] == finding.data["url"]
-        assert "Leaked value: ghp_fullSecretValue1234567890." in finding.data["description"]
-        assert "one confirmed exposure is sufficient to treat the credential as compromised" in finding.data["description"]
+        # Descriptions are normalized for display; structured evidence stays exact.
+        assert finding.data["secretValue"] == "ghp_fullSecretValue1234567890"
+        assert finding.data["secret_latest_commit_at"] == "2024-06-01T00:00:00Z"
+        assert (
+            "one confirmed exposure is sufficient to treat the credential as compromised"
+            in finding.data["description"]
+        )
         assert "leak" not in finding.data
         assert "github_url" not in finding.data
         assert "dedupe_key" not in finding.data
