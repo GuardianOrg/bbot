@@ -135,6 +135,10 @@ class DepsInstaller:
         self.command_status = self.data_dir / "command_status"
         self.parent_helper.mkdir(self.command_status)
         self.setup_status = self.read_setup_status()
+        # Only what this run decided. write_setup_status() replays these onto a fresh read of
+        # the cache, so a run sharing a BBOT home with others contributes its results instead
+        # of overwriting the file with the snapshot it happened to read at startup.
+        self.setup_status_writes = {}
 
         # make sure we're using a minimal git config
         self.minimal_git_config = self.data_dir / "minimal_git.config"
@@ -196,7 +200,7 @@ class DepsInstaller:
                         if preloaded.get("sudo", False) is True:
                             self.ensure_root(f'Module "{m}" needs root privileges to install its dependencies.')
                         success = await self.install_module(m)
-                        self.setup_status[module_hash] = success
+                        self.record_setup_status(module_hash, success)
                         if success or self.deps_behavior == "ignore_failed":
                             log.debug(f'Setup succeeded for module "{m}"')
                             succeeded.append(m)
@@ -253,7 +257,7 @@ class DepsInstaller:
                     continue
                 ansible_tasks = self.preset.module_loader._shared_deps[dep_common]
                 result = self.tasks(module, ansible_tasks)
-                self.setup_status[dep_common] = result
+                self.record_setup_status(dep_common, result)
                 success &= result
 
         # ansible tasks
@@ -375,39 +379,61 @@ class DepsInstaller:
         if self._sudo_password is not None:
             _ansible_args["ansible_become_password"] = self._sudo_password
         playbook_hash = self.parent_helper.sha1(str(playbook)).hexdigest()
-        data_dir = self.data_dir / (module if module else f"playbook_{playbook_hash}")
-        shutil.rmtree(data_dir, ignore_errors=True)
+        data_dir = self.ansible_data_dir(module=module, playbook_hash=playbook_hash)
         self.parent_helper.mkdir(data_dir)
         # ansible-runner expects an artifacts parent directory under private_data_dir.
         # When this subtree is missing, some runs crash creating artifacts/<uuid>/status
         # before they ever execute the playbook.
         self.parent_helper.mkdir(data_dir / "artifacts")
 
-        res = run(
-            playbook=playbook,
-            private_data_dir=str(data_dir),
-            host_pattern="localhost",
-            inventory={
-                "all": {"hosts": {"localhost": _ansible_args}},
-            },
-            module=module,
-            module_args=module_args,
-            quiet=True,
-            verbosity=0,
-            cancel_callback=lambda: None,
-        )
+        try:
+            res = run(
+                playbook=playbook,
+                private_data_dir=str(data_dir),
+                host_pattern="localhost",
+                inventory={
+                    "all": {"hosts": {"localhost": _ansible_args}},
+                },
+                module=module,
+                module_args=module_args,
+                quiet=True,
+                verbosity=0,
+                cancel_callback=lambda: None,
+            )
 
-        log.debug(f"Ansible status: {res.status}")
-        log.debug(f"Ansible return code: {res.rc}")
-        success = res.status == "successful"
-        err = ""
-        for e in res.events:
-            if self.ansible_debug and not success:
-                log.debug(json.dumps(e, indent=2))
-            if e["event"] == "runner_on_failed":
-                err = e["event_data"]["res"]["msg"]
-                break
+            log.debug(f"Ansible status: {res.status}")
+            log.debug(f"Ansible return code: {res.rc}")
+            success = res.status == "successful"
+            err = ""
+            # res.events reads the job_events files back off disk, so this has to happen
+            # before the directory goes away
+            for e in res.events:
+                if self.ansible_debug and not success:
+                    log.debug(json.dumps(e, indent=2))
+                if e["event"] == "runner_on_failed":
+                    err = e["event_data"]["res"]["msg"]
+                    break
+        finally:
+            # private_data_dir is scratch. Clearing it on the way out, rather than at the
+            # start of the next run, is what keeps concurrent installers from deleting each
+            # other's artifacts.
+            shutil.rmtree(data_dir, ignore_errors=True)
+
         return success, err
+
+    def ansible_data_dir(self, module=None, playbook_hash=""):
+        """
+        A private_data_dir that no other installer can be using.
+
+        The name used to be derived from the module name or the playbook hash alone, which
+        is the same string in every process running the same install. Deployments that run
+        several scans against one shared BBOT home then raced: each run began by deleting
+        that shared directory, so a sibling's in-flight ansible-runner lost
+        artifacts/<uuid>/ underneath it and died in os.open(".../status", O_CREAT) with
+        FileNotFoundError.
+        """
+        base = module if module else f"playbook_{playbook_hash}"
+        return self.data_dir / f"{base}_{os.getpid()}_{token_bytes(8).hex()}"
 
     def read_setup_status(self):
         setup_status = {}
@@ -417,9 +443,25 @@ class DepsInstaller:
                     setup_status = json.load(f)
         return setup_status
 
+    def record_setup_status(self, key, value):
+        self.setup_status[key] = value
+        self.setup_status_writes[key] = value
+
     def write_setup_status(self):
-        with open(self.setup_status_cache, "w") as f:
-            json.dump(self.setup_status, f)
+        merged = {**self.read_setup_status(), **self.setup_status_writes}
+        # Write through a temp file so a concurrent reader gets either the old cache or the
+        # new one, never a half-written one.
+        tmp_path = self.setup_status_cache.with_name(f"{self.setup_status_cache.name}.{os.getpid()}.tmp")
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump(merged, f)
+            os.replace(tmp_path, self.setup_status_cache)
+        except Exception as e:
+            log.debug(f"Failed to write setup status cache: {e}")
+            with suppress(Exception):
+                tmp_path.unlink()
+            return
+        self.setup_status = merged
 
     def ensure_root(self, message=""):
         self._install_sudo_askpass()
@@ -481,7 +523,7 @@ class DepsInstaller:
             try:
                 command = ["ansible-galaxy", "collection", "install", "community.general"]
                 await self.parent_helper.run(command, check=True)
-                self.setup_status["ansible:community.general"] = True
+                self.record_setup_status("ansible:community.general", True)
                 log.info("Successfully installed Ansible Community General Collection")
             except CalledProcessError as err:
                 log.warning(
