@@ -42,6 +42,31 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
         event.data = {"id": "123456"}
         self.assertFalse((await module.filter_event(event))[0])
 
+    async def test_service_label_names_are_filtered_instead_of_crashing_the_lookup(self):
+        cls = load_module("host_reputation_service_label_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        for name in ("_dmarc.example.com", "_smtp._tls.example.com", "_wildcard.example.com"):
+            event = SimpleNamespace(type="DNS_NAME", scope_distance=0, host=name, data=name)
+            self.assertEqual(
+                await module.filter_event(event), (False, "name is not a valid MalwareWorld domain indicator")
+            )
+        event = SimpleNamespace(type="DNS_NAME", scope_distance=0, host="mail.example.com", data="mail.example.com")
+        self.assertTrue(await module.filter_event(event))
+
+    async def test_malicious_hostless_indicator_keeps_its_finding(self):
+        cls = load_module("host_reputation_hostless_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        event = SimpleNamespace(type="MOBILE_APP", scope_distance=0, host=None, data={"bundleId": "io.example.flask"})
+        module.check_malwareworld = AsyncMock(
+            return_value={"malicious": True, "malwareworld": {}, "risk_score": 80, "sources": []}
+        )
+        module.emit_event = AsyncMock()
+        await module.handle_indicator_event(event)
+        finding = module.emit_event.await_args.args[0]
+        # An empty host fails FINDING validation; without one the event inherits its parent's host.
+        self.assertNotIn("host", finding)
+        self.assertEqual(finding["location"], "app:io.example.flask")
+
     async def test_indicator_findings_only_emit_for_malicious_matches(self):
         cls = load_module("host_reputation_indicator_test", "bbot/modules/host_reputation.py").host_reputation
         module = object.__new__(cls)

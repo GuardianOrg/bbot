@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 
 from bbot.modules.base import BaseModule
 from bbot.core.helpers.malwareworld import lookup as malwareworld_lookup
+from bbot.core.helpers.malwareworld import normalize_indicator
 
 
 class host_reputation(BaseModule):
@@ -69,6 +70,13 @@ class host_reputation(BaseModule):
             return False, "MalwareWorld IP feeds cover IPv4 only"
         if event.type == "IP_RANGE" and ":" in str(event.data):
             return False, "MalwareWorld has no IPv6 range coverage"
+        if event.type in ("DNS_NAME", "DNS_NAME_UNRESOLVED") and not self._is_ip(self._event_host(event)):
+            try:
+                normalize_indicator("domain", self._event_host(event))
+            except ValueError:
+                # Service labels such as _dmarc or _smtp._tls cannot be MalwareWorld domain indicators;
+                # the registrable names above them are looked up as their own DNS_NAME events.
+                return False, "name is not a valid MalwareWorld domain indicator"
         if (
             event.type == "URL"
             and event.host
@@ -88,7 +96,7 @@ class host_reputation(BaseModule):
         if event.type not in ("DNS_NAME", "DNS_NAME_UNRESOLVED", "IP_ADDRESS", "URL"):
             await self.handle_indicator_event(event)
             return
-        host = str(event.host or event.data).lower().rstrip(".")
+        host = self._event_host(event)
         if not host:
             return
 
@@ -164,24 +172,28 @@ class host_reputation(BaseModule):
             # ingested. Only an explicit positive verdict becomes a reputation finding.
             if not result["malicious"]:
                 continue
-            await self.emit_event(
-                {
-                    "host": str(event.host or ""),
-                    "kind": kind,
-                    "indicator": value,
-                    "category": "indicator-reputation",
-                    "severity": "HIGH",
-                    "title": f"MalwareWorld {kind} observation: {value}",
-                    "location": f"{kind}:{value}",
-                    "description": "Passive threat-intelligence match; review attribution and source categories before assigning company risk.",
-                    "poc": json.dumps(result["malwareworld"], sort_keys=True),
-                    "malicious": result["malicious"],
-                    "risk_score": result["risk_score"],
-                    "sources": result["sources"],
-                },
-                "FINDING",
-                parent=event,
-            )
+            finding = {
+                "kind": kind,
+                "indicator": value,
+                "category": "indicator-reputation",
+                "severity": "HIGH",
+                "title": f"MalwareWorld {kind} observation: {value}",
+                "location": f"{kind}:{value}",
+                "description": "Passive threat-intelligence match; review attribution and source categories before assigning company risk.",
+                "poc": json.dumps(result["malwareworld"], sort_keys=True),
+                "malicious": result["malicious"],
+                "risk_score": result["risk_score"],
+                "sources": result["sources"],
+            }
+            if event.host:
+                finding["host"] = str(event.host)
+            # Hostless indicators (app packages, file hashes) inherit the closest parent host;
+            # an explicit empty host fails FINDING validation and would drop the match.
+            await self.emit_event(finding, "FINDING", parent=event)
+
+    @staticmethod
+    def _event_host(event):
+        return str(event.host or event.data).lower().rstrip(".")
 
     @staticmethod
     def app_indicator(data):
