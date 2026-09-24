@@ -47,6 +47,10 @@ dns:
   search_distance: 1
   # Emit DNS child events for record targets outside scan scope (MX/NS/CNAME/etc.)
   emit_out_of_scope_children: true
+  # Also blacklist a host whose A/AAAA/CNAME records point at a blacklisted host.
+  # When false, only the blacklisted hosts themselves are dropped, so a name that points at an
+  # excluded asset (for example a dangling CNAME) is still scanned.
+  blacklist_by_dns_records: true
   # Emit unresolved DNS_NAME_UNRESOLVED events. When false, unresolved lookups are still cached but not distributed.
   emit_unresolved: true
   # Stop resolving new subdomains from a module after this many unique unresolved subdomains (0 == disabled)

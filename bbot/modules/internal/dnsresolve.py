@@ -67,6 +67,7 @@ class DNSResolve(BaseInterceptModule):
             self.non_minimal_rdtypes = tuple([t for t in all_rdtypes if t not in self.minimal_rdtypes])
         self.dns_search_distance = max(0, int(self.dns_config.get("search_distance", 1)))
         self.emit_out_of_scope_children = self.dns_config.get("emit_out_of_scope_children", True)
+        self.blacklist_by_dns_records = self.dns_config.get("blacklist_by_dns_records", True)
         self._emit_raw_records = None
         self.bimi_selectors = [
             selector.strip()
@@ -794,7 +795,7 @@ class DNSResolve(BaseInterceptModule):
                                 whitelisted = True
                                 event.add_tag(f"dns-whitelisted-{rdtype}")
                 # but a CNAME to a blacklisted host means you're blacklisted
-                if not blacklisted:
+                if self.blacklist_by_dns_records and not blacklisted:
                     with suppress(ValidationError):
                         if self.scan.blacklisted(host):
                             blacklisted = True
