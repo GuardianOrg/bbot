@@ -54,7 +54,20 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
         )
         module.check_malwareworld = AsyncMock(
             side_effect=[
-                {"malicious": False, "malwareworld": {"matches": []}, "risk_score": 0, "sources": []},
+                {
+                    "malicious": False,
+                    "malwareworld": {
+                        "matches": [
+                            {
+                                "kind": "certificate",
+                                "indicator": fingerprint,
+                                "categories": ["CertificateTransparency"],
+                            }
+                        ]
+                    },
+                    "risk_score": 0,
+                    "sources": [{"source": "MalwareWorld:CertificateTransparency"}],
+                },
                 {
                     "malicious": True,
                     "malwareworld": {"matches": [{"type": ["MaliciousCertificate"]}]},

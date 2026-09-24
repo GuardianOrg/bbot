@@ -158,11 +158,10 @@ class host_reputation(BaseModule):
             )
         for kind, value in sorted(set(candidates)):
             result = await self.check_malwareworld(value, kind)
-            # Contextual catalogue entries (for example a certificate merely observed in a
-            # feed, or a CVE listed as known-exploited) are useful lookup metadata but are not
-            # evidence that the scanned asset is malicious. Emitting them as INFO findings
-            # creates durable false positives in Shield. Only the MalwareWorld threat-category
-            # verdict is actionable; true verdicts remain HIGH findings.
+            # MalwareWorld's explicit verdict is derived only from threat categories. Other
+            # catalogue matches are context, not evidence that the scanned asset is malicious;
+            # the original VULNERABILITY/FINDING event remains independently emitted and
+            # ingested. Only an explicit positive verdict becomes a reputation finding.
             if not result["malicious"]:
                 continue
             await self.emit_event(
