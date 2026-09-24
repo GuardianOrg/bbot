@@ -4,6 +4,13 @@ from urllib.parse import urlparse
 import re
 from bbot.core.helpers.observation_dates import indexed_date
 
+# Parent hops searched for the URL an artifact (downloaded file, app package, image) came from.
+ARTIFACT_SOURCE_MAX_DEPTH = 5
+SECRET_ROTATION_GUIDANCE = (
+    "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
+    "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration."
+)
+
 
 class github_leak_formatter:
     async def get_exposure_commit_date(self, scan_path, commit):
@@ -123,7 +130,19 @@ class github_leak_formatter:
     ):
         repository_url = await self.get_repository_url(event, scan_path)
         if not repository_url:
-            return None
+            # Not a Git checkout (a downloaded file, app package, container image...): the secret is
+            # just as exposed, so report it where the artifact was obtained instead of dropping it.
+            return self.format_artifact_leak(
+                event,
+                scan_path,
+                leak,
+                detector=detector,
+                file_path=file_path,
+                line=line,
+                verified=verified,
+                severity=severity,
+                extra_fields=extra_fields,
+            )
 
         repository_url = self.normalize_repository_url(repository_url)
         commit = str(commit or "").strip()
@@ -140,20 +159,14 @@ class github_leak_formatter:
         leak_value = str(leak or "").strip()
         rule_name = str(detector or "").strip()
         leak_type = rule_name or "secret"
-        leak_fingerprint = sha256(leak_value.encode("utf-8", errors="ignore")).hexdigest() if leak_value else ""
-        secret_fingerprint = f"sha256:{leak_fingerprint}" if leak_fingerprint else ""
-        if leak_fingerprint:
-            dedupe_key = f"github-leak-secret:sha256:{leak_fingerprint}"
+        secret_fingerprint = self.secret_fingerprint(leak_value)
+        if secret_fingerprint:
+            dedupe_key = f"github-leak-secret:{secret_fingerprint}"
             if commit_date:
                 dedupe_key += f":{commit_date}"
         else:
             dedupe_key = "github-leak:" + ":".join([repository_url, leak_type, relative_path, str(line or "")])
-        location_parts = []
-        if relative_path:
-            location_parts.append(relative_path)
-        if line not in (None, "", "?"):
-            location_parts.append(f"line {line}")
-        source_location = ":".join(location_parts)
+        source_location = self.source_location(relative_path, line)
         source_suffix = f" in {source_location}" if source_location else ""
         leak_description = f"A Git leak of type {leak_type}{source_suffix} was identified."
         if leak_value:
@@ -166,8 +179,7 @@ class github_leak_formatter:
             f"{leak_description} "
             "A credential, token, password, or API key connected to the target was found in source code history. "
             "Treat it as compromised even if the current branch no longer contains it, because Git history, forks, local clones, CI logs, build artifacts, and external caches may preserve older values. "
-            "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
-            "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration."
+            f"{SECRET_ROTATION_GUIDANCE}"
         )
         poc_parts = [
             f"Repository: {repository_url}",
@@ -201,20 +213,121 @@ class github_leak_formatter:
         if blob_url:
             data["file_url"] = blob_url
             data["blob_url"] = blob_url
+        if commit:
+            data["commit"] = commit
+        if commit_date:
+            data["secret_latest_commit_at"] = commit_date
+        return self.add_secret_fields(data, leak_value, secret_fingerprint, relative_path, line, extra_fields)
+
+    def format_artifact_leak(
+        self,
+        event,
+        scan_path,
+        leak,
+        *,
+        detector="",
+        file_path="",
+        line=None,
+        verified=False,
+        severity="",
+        extra_fields=None,
+    ):
+        source_url = self.get_artifact_source_url(event)
+        if Path(scan_path).is_file():
+            # A scanned file reports its own path, or "<file>!<member>" inside an archive.
+            reported = str(file_path or scan_path)
+            suffix = reported[len(str(scan_path)) :] if reported.startswith(str(scan_path)) else ""
+            artifact_path = Path(str(scan_path)).name + suffix
+        else:
+            artifact_path = self.relative_file_path(scan_path, file_path)
+
+        leak_value = str(leak or "").strip()
+        rule_name = str(detector or "").strip()
+        leak_type = rule_name or "secret"
+        secret_fingerprint = self.secret_fingerprint(leak_value)
+        source_location = self.source_location(artifact_path, line)
+        origin = f"downloaded from {source_url}" if source_url else "retrieved from the target"
+
+        description = f"A leak of type {leak_type}"
+        if source_location:
+            description += f" in {source_location}"
+        description += f" was identified in an artifact {origin}."
+        if leak_value:
+            description += f" Leaked value: {leak_value}."
+        description += (
+            " A credential, token, password, or API key connected to the target is publicly retrievable, so anyone who "
+            "can fetch the artifact can read it. Treat it as compromised even if the artifact is later removed, because "
+            f"caches, mirrors, and prior downloads may preserve it. {SECRET_ROTATION_GUIDANCE}"
+        )
+        poc_parts = [f"Artifact source: {source_url}"] if source_url else []
+        if source_location:
+            poc_parts.append(f"Source location: {source_location}")
+        poc_parts += [f"Leak type: {leak_type}", f"Secret value: {leak_value}"]
+
+        data = {
+            "tool": getattr(self, "name", self.__class__.__name__),
+            "rule": rule_name,
+            "leak_type": leak_type,
+            "leakType": leak_type,
+            "secretType": leak_type,
+            "title": f"Leak of {leak_type} detected in a public artifact",
+            "category": "secret",
+            "description": description,
+            "poc": "\n".join(poc_parts),
+            "severity": severity or ("High" if verified else "Medium"),
+            "force_finding": True,
+        }
+        if source_url:
+            data["url"] = source_url
+            data["location"] = source_url
+        if secret_fingerprint:
+            # Same key as Git leaks: one secret exposed in several places is one credential to rotate.
+            data["dedupe_key"] = f"github-leak-secret:{secret_fingerprint}"
+        return self.add_secret_fields(data, leak_value, secret_fingerprint, artifact_path, line, extra_fields)
+
+    def get_artifact_source_url(self, event):
+        current = event
+        for _ in range(ARTIFACT_SOURCE_MAX_DEPTH):
+            if current is None or getattr(current, "type", "") == "SCAN":
+                break
+            data = getattr(current, "data", None)
+            if isinstance(data, dict):
+                url = str(data.get("url", "") or "").strip()
+            elif str(getattr(current, "type", "")).startswith("URL"):
+                url = str(data or "").strip()
+            else:
+                url = ""
+            if url.startswith(("http://", "https://")):
+                return url
+            parent = getattr(current, "parent", None)
+            current = parent if parent is not current else None
+        return ""
+
+    @staticmethod
+    def secret_fingerprint(leak_value):
+        if not leak_value:
+            return ""
+        return "sha256:" + sha256(leak_value.encode("utf-8", errors="ignore")).hexdigest()
+
+    @staticmethod
+    def source_location(path, line):
+        parts = [path] if path else []
+        if line not in (None, "", "?"):
+            parts.append(f"line {line}")
+        return ":".join(parts)
+
+    @staticmethod
+    def add_secret_fields(data, leak_value, secret_fingerprint, path, line, extra_fields):
         if leak_value:
             data["secretValue"] = leak_value
             data["secret_value"] = leak_value
         if secret_fingerprint:
             data["secretFingerprint"] = secret_fingerprint
             data["secret_fingerprint"] = secret_fingerprint
-        if relative_path:
-            data["path"] = relative_path
+        if path:
+            data["path"] = path
         if line not in (None, "", "?"):
             data["line"] = str(line)
-        if commit:
-            data["commit"] = commit
-        if commit_date:
-            data["secret_latest_commit_at"] = commit_date
         if extra_fields:
             data.update({k: v for k, v in extra_fields.items() if v not in ("", None, [], {})})
         return data
