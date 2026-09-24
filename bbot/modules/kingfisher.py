@@ -1,5 +1,4 @@
 import json
-from contextlib import suppress
 
 from bbot.modules.templates.code_secret_scanner import code_secret_scanner
 
@@ -18,12 +17,16 @@ class kingfisher(code_secret_scanner):
         "version": "1.84.0",
         "output_folder": "",
         "clone_repositories": True,
+        "jobs": 1,
     }
     options_desc = {
         "version": "Kingfisher version",
         "output_folder": "Folder to clone repositories to. If not specified, repositories are deleted after scanning.",
         "clone_repositories": "Clone CODE_REPOSITORY events before scanning.",
+        "jobs": "Parallel scanning jobs per Kingfisher invocation (keep low; many scans can share a host).",
     }
+    # Kingfisher exits 0 when nothing was found and 200 when it reports findings; anything else is a failure.
+    success_exit_codes = (0, 200)
     deps_ansible = [
         {
             "name": "Set kingfisher architecture",
@@ -40,49 +43,68 @@ class kingfisher(code_secret_scanner):
         },
     ]
 
+    async def setup(self):
+        self.jobs = max(1, int(self.config.get("jobs", 1) or 1))
+        return await super().setup()
+
     async def iter_findings(self, scan_path, event):
-        command_variants = [
-            ["kingfisher", "scan", str(scan_path), "--format", "json", "--quiet"],
-            ["kingfisher", "scan", str(scan_path), "--format", "json"],
+        command = [
+            "kingfisher",
+            "scan",
+            str(scan_path),
+            "--format",
+            "json",
+            "--quiet",
+            "--no-update-check",
+            "--jobs",
+            str(self.jobs),
         ]
-        for command in command_variants:
-            result = await self.run_process(command, _log_stderr=False)
-            raw = getattr(result, "stdout", "") or ""
-            if not raw:
+        result = await self.run_process(command, _log_stderr=False)
+        returncode = getattr(result, "returncode", None)
+        if returncode not in self.success_exit_codes:
+            stderr = str(getattr(result, "stderr", "") or "").strip()
+            self.error(f"Kingfisher failed on {scan_path} (rc={returncode}): {stderr[-500:]}")
+            return
+        raw = str(getattr(result, "stdout", "") or "").strip()
+        if not raw:
+            # --quiet prints nothing for a clean scan.
+            return
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            self.error(f"Kingfisher returned unparseable JSON for {scan_path} (rc={returncode}): {e}")
+            return
+        findings = parsed.get("findings", []) if isinstance(parsed, dict) else parsed
+        if not isinstance(findings, list):
+            self.error(f"Kingfisher returned an unexpected JSON shape for {scan_path}: {type(findings).__name__}")
+            return
+        for record in findings:
+            if not isinstance(record, dict):
                 continue
-            with suppress(Exception):
-                parsed = json.loads(raw)
-                findings = parsed.get("findings", []) if isinstance(parsed, dict) else parsed
-                if not isinstance(findings, list):
-                    continue
-                for record in findings:
-                    if not isinstance(record, dict):
-                        continue
-                    rule = record.get("rule") if isinstance(record.get("rule"), dict) else {}
-                    finding = record.get("finding") if isinstance(record.get("finding"), dict) else {}
-                    detector = rule.get("name") or rule.get("id") or "unknown"
-                    snippet = finding.get("snippet") or ""
-                    validation = finding.get("validation") if isinstance(finding.get("validation"), dict) else {}
-                    validation_status = str(validation.get("status", "unknown")).lower()
-                    verified = validation_status in ("active", "valid")
-                    git_metadata = finding.get("git_metadata") if isinstance(finding.get("git_metadata"), dict) else {}
-                    commit = git_metadata.get("commit") or ""
-                    if isinstance(commit, dict):
-                        commit = commit.get("id") or ""
-                    yield await self.format_github_leak(
-                        event,
-                        scan_path,
-                        snippet,
-                        detector=detector,
-                        file_path=finding.get("path") or "",
-                        line=finding.get("line") or "",
-                        commit=commit,
-                        verified=verified,
-                        severity="High" if verified else "Medium",
-                        finding_details=record,
-                        extra_fields={
-                            "fingerprint": finding.get("fingerprint") or "",
-                            "validation_status": validation_status,
-                        },
-                    )
-                return
+            rule = record.get("rule") if isinstance(record.get("rule"), dict) else {}
+            finding = record.get("finding") if isinstance(record.get("finding"), dict) else {}
+            detector = rule.get("name") or rule.get("id") or "unknown"
+            snippet = finding.get("snippet") or ""
+            validation = finding.get("validation") if isinstance(finding.get("validation"), dict) else {}
+            validation_status = str(validation.get("status", "unknown")).lower()
+            verified = validation_status in ("active", "valid")
+            git_metadata = finding.get("git_metadata") if isinstance(finding.get("git_metadata"), dict) else {}
+            commit = git_metadata.get("commit") or ""
+            if isinstance(commit, dict):
+                commit = commit.get("id") or ""
+            yield await self.format_github_leak(
+                event,
+                scan_path,
+                snippet,
+                detector=detector,
+                file_path=finding.get("path") or "",
+                line=finding.get("line") or "",
+                commit=commit,
+                verified=verified,
+                severity="High" if verified else "Medium",
+                finding_details=record,
+                extra_fields={
+                    "fingerprint": finding.get("fingerprint") or "",
+                    "validation_status": validation_status,
+                },
+            )

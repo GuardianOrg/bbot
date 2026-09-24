@@ -5,8 +5,13 @@ import pytest
 from .base import ModuleTestBase
 
 
+kingfisher_calls = []
+
+
 @pytest.fixture
 def mock_kingfisher(monkeypatch):
+    kingfisher_calls.clear()
+
     async def fake_run_process(self, cmd, *args, **kwargs):
         if cmd[:2] == ["git", "clone"]:
             class FakeGitCloneResult:
@@ -24,9 +29,21 @@ def mock_kingfisher(monkeypatch):
 
             return FakeGitRevParseResult()
 
+        if cmd[0] != "kingfisher":
+            class FakeGitResult:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return FakeGitResult()
+
+        assert cmd[1] == "scan"
+        assert cmd[3:] == ["--format", "json", "--quiet", "--no-update-check", "--jobs", "1"]
+        kingfisher_calls.append(cmd)
         scan_path = cmd[2]
         class FakeResult:
-            returncode = 0
+            # Kingfisher exits 200 when it reports findings.
+            returncode = 200
             stdout = json.dumps(
                 {
                     "findings": [
@@ -76,6 +93,7 @@ class TestKingfisher(ModuleTestBase):
         findings = [e for e in events if e.type == "FINDING"]
 
         assert len(findings) == 1
+        assert len(kingfisher_calls) == 1
         finding = findings[0]
         assert finding.data["url"] == (
             "https://github.com/layer-3-smart/test/blob/"
