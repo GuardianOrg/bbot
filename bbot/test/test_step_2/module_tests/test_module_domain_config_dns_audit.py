@@ -308,10 +308,17 @@ class TestDomainConfigDnsAuditRrsigLifecycle(TestDomainConfigDnsAudit):
         assert "RRSIG Expiration Approaching" not in titles
 
 
+class TestDomainConfigDnsAuditRrsigKnotRefresh(TestDomainConfigDnsAuditRrsigLifecycle):
+    # Knot 3.x defaults: 14-day lifetime, re-signed with 0.1 * 14 days + propagation delay + max TTL
+    # (about 1.5 days) left, so a healthy quiet zone reaches this point every cycle.
+    inception_days_ago = 12.4
+    expiration_days_ahead = 1.6
+
+
 class TestDomainConfigDnsAuditRrsigStalledSigner(TestDomainConfigDnsAuditRrsigLifecycle):
-    # A 30-day window with 5 days left: the signer missed its refresh points.
-    inception_days_ago = 25
-    expiration_days_ahead = 5
+    # A 30-day window with 2 days left: the signer missed every refresh point.
+    inception_days_ago = 28
+    expiration_days_ahead = 2
 
     def check(self, module_test, events):
         findings = [

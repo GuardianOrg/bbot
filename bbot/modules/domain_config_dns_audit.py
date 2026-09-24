@@ -20,10 +20,13 @@ import dns.zone
 from bbot.modules.base import BaseModule
 from bbot.core.event.base import _normalize_event_description
 
-# Signers re-sign well before expiry: PowerDNS keeps 7-14 of 21 days, BIND refreshes at a quarter
-# of the window, Knot at half. Only a signature this deep into its own window means re-signing
-# has stopped.
-RRSIG_STALLED_REMAINING_FRACTION = 0.2
+# Healthy signers re-sign before this fraction of the inception-to-expiration window is left:
+# PowerDNS keeps at least a third of 21 days, BIND a quarter (legacy) or 5 of 14 days
+# (dnssec-policy), OpenDNSSEC 3 of 14 days, and Knot 3.x re-signs at
+# 0.1 * rrsig-lifetime + propagation-delay + zone max TTL, strictly above a tenth. A signature
+# this deep into its window means re-signing has stopped; it is still reported before expiry,
+# and expired signatures stay CRITICAL.
+RRSIG_STALLED_REMAINING_FRACTION = 0.1
 
 
 @dataclass
