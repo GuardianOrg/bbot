@@ -20,6 +20,11 @@ import dns.zone
 from bbot.modules.base import BaseModule
 from bbot.core.event.base import _normalize_event_description
 
+# Signers re-sign well before expiry: PowerDNS keeps 7-14 of 21 days, BIND refreshes at a quarter
+# of the window, Knot at half. Only a signature this deep into its own window means re-signing
+# has stopped.
+RRSIG_STALLED_REMAINING_FRACTION = 0.2
+
 
 @dataclass
 class AuditFinding:
@@ -733,7 +738,7 @@ class domain_config_dns_audit(BaseModule):
                         "Re-sign the zone immediately.",
                         f"dig {domain} SOA +dnssec | grep RRSIG",
                     ))
-                elif days_left < 14 and not suppress_managed_warning:
+                elif days_left < 14 and not suppress_managed_warning and self.rrsig_resigning_stalled(rrsig):
                     findings.append(AuditFinding(
                         "RRSIG Expiration Approaching",
                         "MEDIUM" if days_left >= 7 else "HIGH",
@@ -753,6 +758,14 @@ class domain_config_dns_audit(BaseModule):
                         f"dig {domain} SOA +dnssec | grep RRSIG",
                     ))
                 return
+
+    @staticmethod
+    def rrsig_resigning_stalled(rrsig):
+        validity = rrsig.expiration - rrsig.inception
+        if validity <= 0:
+            return True
+        remaining = rrsig.expiration - datetime.now(tz=timezone.utc).timestamp()
+        return remaining < validity * RRSIG_STALLED_REMAINING_FRACTION
 
     async def check_nsec_records(self, domain, findings):
         success, nsec_records = await self.query_dns(domain, "NSEC")
