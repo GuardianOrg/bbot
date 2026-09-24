@@ -38,8 +38,42 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
         module.emit_event = AsyncMock()
         await module.handle_indicator_event(event)
         module.check_malwareworld.assert_awaited_once_with("com.example.app", "app")
+        module.emit_event.assert_not_awaited()
         event.data = {"id": "123456"}
         self.assertFalse((await module.filter_event(event))[0])
+
+    async def test_indicator_findings_only_emit_for_malicious_matches(self):
+        cls = load_module("host_reputation_indicator_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        fingerprint = "a" * 64
+        event = SimpleNamespace(
+            type="TLS_CERTIFICATE",
+            scope_distance=0,
+            host="api.example.com",
+            data={"certFingerprintSha256": fingerprint},
+        )
+        module.check_malwareworld = AsyncMock(
+            side_effect=[
+                {"malicious": False, "malwareworld": {"matches": []}, "risk_score": 0, "sources": []},
+                {
+                    "malicious": True,
+                    "malwareworld": {"matches": [{"type": ["MaliciousCertificate"]}]},
+                    "risk_score": 80,
+                    "sources": [{"source": "MalwareWorld:MaliciousCertificate"}],
+                },
+            ]
+        )
+        module.emit_event = AsyncMock()
+
+        await module.handle_indicator_event(event)
+        module.emit_event.assert_not_awaited()
+
+        await module.handle_indicator_event(event)
+        module.emit_event.assert_awaited_once()
+        finding = module.emit_event.await_args.args[0]
+        self.assertTrue(finding["malicious"])
+        self.assertEqual(finding["severity"], "HIGH")
+        self.assertEqual(finding["location"], f"certificate:{fingerprint}")
 
     async def test_idna_and_malformed_feed(self):
         self.assertEqual(mw.normalize_indicator("domain", "faß.de"), "xn--fa-hia.de")
