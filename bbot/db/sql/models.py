@@ -26,7 +26,7 @@ def naive_utc_datetime(value):
     return d.replace(tzinfo=None)
 
 
-# SQLModel 0.0.31+ maps regular datetime annotations to UTCDateTime, which
+# SQLModel 0.0.45+ maps regular datetime annotations to UTCDateTime, which
 # rejects the deliberately timezone-naive values used by SQLite. Keeping
 # NaiveDatetime in the annotation makes SQLModel select DateTime(timezone=False)
 # while the pre-validator preserves the existing accept-aware/store-naive API.
