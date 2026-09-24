@@ -3,28 +3,34 @@
 
 import json
 import logging
-from pydantic import ConfigDict
+from pydantic import BeforeValidator, ConfigDict, NaiveDatetime, TypeAdapter
 from typing import List, Optional
 from datetime import datetime, timezone
 from typing_extensions import Annotated
-from pydantic.functional_validators import AfterValidator
 from sqlmodel import inspect, Column, Field, SQLModel, JSON, String, DateTime as SQLADateTime
 
 
 log = logging.getLogger("bbot_server.models")
+datetime_adapter = TypeAdapter(datetime)
 
 
-def naive_datetime_validator(d: datetime):
+def naive_utc_datetime(value):
     """
     Converts all dates into UTC, then drops timezone information.
 
     This is needed to prevent inconsistencies in sqlite, because it is timezone-naive.
     """
-    # drop timezone info
+    d = datetime_adapter.validate_python(value)
+    if d.utcoffset() is not None:
+        d = d.astimezone(timezone.utc)
     return d.replace(tzinfo=None)
 
 
-NaiveUTC = Annotated[datetime, AfterValidator(naive_datetime_validator)]
+# SQLModel 0.0.31+ maps regular datetime annotations to UTCDateTime, which
+# rejects the deliberately timezone-naive values used by SQLite. Keeping
+# NaiveDatetime in the annotation makes SQLModel select DateTime(timezone=False)
+# while the pre-validator preserves the existing accept-aware/store-naive API.
+NaiveUTC = Annotated[NaiveDatetime, BeforeValidator(naive_utc_datetime)]
 
 
 class CustomJSONEncoder(json.JSONEncoder):
