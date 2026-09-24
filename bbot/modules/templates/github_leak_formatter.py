@@ -37,6 +37,9 @@ class github_leak_formatter:
         cache_key = str(scan_path)
         if cache_key in cache:
             return cache[cache_key]
+        if not Path(scan_path).is_dir():
+            # A single downloaded file is never a Git checkout; skip the git subprocess.
+            return ""
 
         result = await self.run_process(
             ["git", "-C", str(scan_path), "config", "--get", "remote.origin.url"],

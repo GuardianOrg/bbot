@@ -6,11 +6,14 @@ from .base import ModuleTestBase
 
 
 kingfisher_calls = []
+# What the fake Kingfisher run returns; a test may change it in setup_after_prep.
+kingfisher_outcome = {}
 
 
 @pytest.fixture
 def mock_kingfisher(monkeypatch):
     kingfisher_calls.clear()
+    kingfisher_outcome.update(returncode=200, status="Not Attempted")
 
     async def fake_run_process(self, cmd, *args, **kwargs):
         if cmd[:2] == ["git", "clone"]:
@@ -38,12 +41,12 @@ def mock_kingfisher(monkeypatch):
             return FakeGitResult()
 
         assert cmd[1] == "scan"
-        assert cmd[3:] == ["--format", "json", "--quiet", "--no-update-check", "--jobs", "1"]
+        assert cmd[3:] == ["--format", "json", "--quiet", "--no-update-check", "--no-dedup", "--jobs", "1"]
         kingfisher_calls.append(cmd)
         scan_path = cmd[2]
         class FakeResult:
-            # Kingfisher exits 200 when it reports findings.
-            returncode = 200
+            # Kingfisher exits 200 when it reports findings, 205 when one was validated as live.
+            returncode = kingfisher_outcome["returncode"]
             stdout = json.dumps(
                 {
                     "findings": [
@@ -54,7 +57,7 @@ def mock_kingfisher(monkeypatch):
                                 "fingerprint": "abcd",
                                 "line": 12,
                                 "path": f"{scan_path}/app/.env",
-                                "validation": {"status": "unknown", "response": ""},
+                                "validation": {"status": kingfisher_outcome["status"], "response": ""},
                                 "git_metadata": {"commit": "abcdef1234567890abcdef1234567890abcdef12"},
                             },
                         }
@@ -113,12 +116,30 @@ class TestKingfisher(ModuleTestBase):
         assert "dedupe_key" not in finding.data
 
 
+class TestKingfisherValidatedSecret(TestKingfisher):
+    module_name = "kingfisher"
+
+    async def setup_after_prep(self, module_test):
+        kingfisher_outcome.update(returncode=205, status="Active Credential")
+        await super().setup_after_prep(module_test)
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING"]
+
+        assert len(findings) == 1
+        assert findings[0].data["severity"] == "High"
+        assert findings[0].data["validation_status"] == "active credential"
+
+
 batch_calls = []
+# A multi-file Kingfisher run fails as a whole (rc 1) when any one of its paths cannot be read.
+batch_outcome = {}
 
 
 @pytest.fixture
 def mock_kingfisher_batch(monkeypatch):
     batch_calls.clear()
+    batch_outcome.update(fail_multi_file=False)
 
     async def fake_run_process(self, cmd, *args, **kwargs):
         if cmd[0] != "kingfisher":
@@ -132,6 +153,13 @@ def mock_kingfisher_batch(monkeypatch):
 
         paths = cmd[2 : cmd.index("--format")]
         batch_calls.append(paths)
+        if batch_outcome["fail_multi_file"] and len(paths) > 1:
+            class FailedResult:
+                returncode = 1
+                stdout = ""
+                stderr = "Error: No such file or directory"
+
+            return FailedResult()
         findings = []
         for path in paths:
             # Archives are reported per member as "<archive>!<member>".
@@ -202,3 +230,26 @@ class TestKingfisherDownloadedFiles(ModuleTestBase):
         archive = findings["http://127.0.0.1:8888/bundle.zip"]
         assert archive.data["path"] == "bundle.zip!config/prod.env"
         assert "bundle.zip!config/prod.env:line 3" in archive.data["description"]
+
+
+@pytest.mark.usefixtures("mock_kingfisher_batch")
+class TestKingfisherFailedBatchRescansFiles(TestKingfisherDownloadedFiles):
+    async def setup_after_prep(self, module_test):
+        batch_outcome.update(fail_multi_file=True)
+        await super().setup_after_prep(module_test)
+
+    def check(self, module_test, events):
+        findings = {e.data["url"] for e in events if e.type == "FINDING"}
+
+        assert findings == {f"http://127.0.0.1:8888{url_path}" for url_path in self.downloads.values()}
+        assert sorted(len(call) for call in batch_calls) == [1, 1, 1, 3]
+
+
+def test_batch_source_key_handles_bang_in_file_names():
+    from bbot.modules.templates.code_secret_scanner import code_secret_scanner
+
+    lookup = {"/tmp/scan/a!b.zip": "/tmp/scan/a!b.zip", "/tmp/scan/app.js": "/tmp/scan/app.js"}
+
+    assert code_secret_scanner.batch_source_key("/tmp/scan/a!b.zip!config/prod.env", lookup) == "/tmp/scan/a!b.zip"
+    assert code_secret_scanner.batch_source_key("/tmp/scan/app.js", lookup) == "/tmp/scan/app.js"
+    assert code_secret_scanner.batch_source_key("/tmp/scan/other.js", lookup) is None

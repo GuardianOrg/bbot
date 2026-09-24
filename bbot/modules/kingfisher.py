@@ -26,7 +26,8 @@ class kingfisher(code_secret_scanner):
         "jobs": "Parallel scanning jobs per Kingfisher invocation (keep low; many scans can share a host).",
     }
     # Kingfisher exits 0 when nothing was found and 200 when it reports findings; anything else is a failure.
-    success_exit_codes = (0, 200)
+    # docs/USAGE.md: 0 no findings, 200 findings, 205 validated (live) findings.
+    success_exit_codes = (0, 200, 205)
     # Queued downloaded files are scanned together to pay Kingfisher's startup once per batch.
     _batch_size = 100
     deps_ansible = [
@@ -50,15 +51,17 @@ class kingfisher(code_secret_scanner):
         return await super().setup()
 
     async def iter_findings(self, scan_path, event):
-        for record in await self.run_kingfisher([scan_path]):
+        for record in await self.run_kingfisher([scan_path]) or []:
             yield await self.format_record(event, scan_path, record)
 
     async def scan_file_batch(self, paths):
         records = await self.run_kingfisher(paths)
+        if records is None:
+            return None
         return [(record.get("finding", {}).get("path", ""), record) for record in records]
 
     async def run_kingfisher(self, paths):
-        """Run one Kingfisher scan over `paths` and return its finding records.
+        """Run one Kingfisher scan over `paths` and return its finding records, or None if it failed.
 
         Kingfisher spends seconds compiling its rules on every start, regardless of input size, so
         downloaded files are scanned in batches (see `_batch_size`) rather than one process each.
@@ -72,6 +75,8 @@ class kingfisher(code_secret_scanner):
             "json",
             "--quiet",
             "--no-update-check",
+            # Report every file a secret appears in, as separate per-file scans would.
+            "--no-dedup",
             "--jobs",
             str(self.jobs),
         ]
@@ -80,7 +85,7 @@ class kingfisher(code_secret_scanner):
         if returncode not in self.success_exit_codes:
             stderr = str(getattr(result, "stderr", "") or "").strip()
             self.error(f"Kingfisher failed on {target} (rc={returncode}): {stderr[-500:]}")
-            return []
+            return None
         raw = str(getattr(result, "stdout", "") or "").strip()
         if not raw:
             # --quiet prints nothing for a clean scan.
@@ -89,11 +94,11 @@ class kingfisher(code_secret_scanner):
             parsed = json.loads(raw)
         except json.JSONDecodeError as e:
             self.error(f"Kingfisher returned unparseable JSON for {target} (rc={returncode}): {e}")
-            return []
+            return None
         findings = parsed.get("findings", []) if isinstance(parsed, dict) else parsed
         if not isinstance(findings, list):
             self.error(f"Kingfisher returned an unexpected JSON shape for {target}: {type(findings).__name__}")
-            return []
+            return None
         return [
             record for record in findings if isinstance(record, dict) and isinstance(record.get("finding", {}), dict)
         ]
@@ -105,7 +110,8 @@ class kingfisher(code_secret_scanner):
         snippet = finding.get("snippet") or ""
         validation = finding.get("validation") if isinstance(finding.get("validation"), dict) else {}
         validation_status = str(validation.get("status", "unknown")).lower()
-        verified = validation_status in ("active", "valid")
+        # Kingfisher reports "Active Credential", "Inactive Credential" or "Not Attempted".
+        verified = validation_status.startswith("active")
         git_metadata = finding.get("git_metadata") if isinstance(finding.get("git_metadata"), dict) else {}
         commit = git_metadata.get("commit") or ""
         if isinstance(commit, dict):

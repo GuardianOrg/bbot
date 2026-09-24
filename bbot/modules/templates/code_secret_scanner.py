@@ -23,7 +23,7 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
 
     scope_distance_modifier = 2
     # Events in the running batch that get their own scan (repositories, folders); see event_handler_timeout.
-    _batch_standalone_scans = 0
+    _batch_scans = 0
 
     async def setup(self):
         self.setup_repository_scope()
@@ -69,27 +69,28 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
 
     async def handle_batch(self, *events):
         """Only reached when a subclass sets `_batch_size` > 1; it must then implement
-        `scan_file_batch(paths)` (a list of `(reported_path, record)`) and `format_record(event, scan_path, record)`.
+        `scan_file_batch(paths)` (a list of `(reported_path, record)`, or None if the scan failed) and
+        `format_record(event, scan_path, record)`.
 
         Plain files are scanned together so the scanner's fixed startup cost is paid once per batch;
         repositories and folders keep their own scan because their findings map to a checkout.
         """
         standalone = [event for event in events if not self.is_batchable_file(event)]
-        self._batch_standalone_scans = len(standalone)
+        self._batch_scans = len(events)
         try:
             for event in standalone:
                 await self.handle_event(event)
             await self.handle_file_batch([event for event in events if self.is_batchable_file(event)])
         finally:
-            self._batch_standalone_scans = 0
+            self._batch_scans = 0
 
     @property
     def event_handler_timeout(self):
-        # A batch keeps the budget its events had one by one: each standalone scan gets a full event
-        # timeout, and all batched files share one more.
+        # A batch keeps the budget its events had one by one, which also covers the per-file rescan
+        # fallback when the batched scan fails.
         if self.batch_size <= 1 or self.config.get("module_timeout", None) is not None:
             return super().event_handler_timeout
-        return self._default_handle_event_timeout * (self._batch_standalone_scans + 1)
+        return max(super().event_handler_timeout, self._default_handle_event_timeout * self._batch_scans)
 
     async def handle_file_batch(self, events):
         files = {}
@@ -104,9 +105,14 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
         for key, (_, scan_path) in files.items():
             lookup[key] = key
             lookup[str(scan_path.resolve())] = key
+        batch_results = await self.scan_file_batch([scan_path for _, scan_path in files.values()])
+        if batch_results is None:
+            # One unreadable file fails the whole invocation; scan each file alone so the rest still count.
+            return await self.rescan_individually(files, "the batched scan failed")
+
         records = {key: [] for key in files}
         unattributed = []
-        for reported_path, record in await self.scan_file_batch([scan_path for _, scan_path in files.values()]):
+        for reported_path, record in batch_results:
             key = self.batch_source_key(str(reported_path or ""), lookup)
             if key is None:
                 unattributed.append(reported_path)
@@ -115,21 +121,23 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
 
         if unattributed:
             # Never guess which file a secret came from: rescan each file on its own instead.
-            self.error(
-                f"{self.name} reported findings for unknown batch paths {unattributed[:5]}; rescanning files individually"
-            )
-            for event, _ in files.values():
-                await self.handle_event(event)
-            return
+            return await self.rescan_individually(files, f"findings for unknown batch paths {unattributed[:5]}")
 
         for key, (event, scan_path) in files.items():
             if records[key]:
                 await self.emit_findings(event, scan_path, self.format_records(event, scan_path, records[key]))
 
+    async def rescan_individually(self, files, reason):
+        self.error(f"{self.name}: {reason}; rescanning {len(files)} files individually")
+        for event, _ in files.values():
+            await self.handle_event(event)
+
     @staticmethod
     def batch_source_key(reported_path, lookup):
-        # Scanners report archive members as "<archive>!<member>"; the archive is the source file.
-        for candidate in (reported_path, reported_path.split("!", 1)[0]):
+        # Scanners report archive members as "<archive>!<member>"; the archive is the source file. File
+        # names may contain "!" too, so try every "!" boundary, longest prefix first.
+        parts = reported_path.split("!")
+        for candidate in ("!".join(parts[:end]) for end in range(len(parts), 0, -1)):
             if not candidate:
                 continue
             key = lookup.get(candidate) or lookup.get(str(Path(candidate).resolve()))
