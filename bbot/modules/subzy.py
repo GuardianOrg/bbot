@@ -42,6 +42,10 @@ class subzy(BaseModule):
         },
     ]
     _batch_size = 500
+    # subzy downloads its fingerprints here; reading the same file keeps our CNAME check in
+    # lockstep with the fingerprint that produced the match.
+    fingerprints_path = Path.home() / "subzy" / "fingerprints.json"
+    max_cname_hops = 10
     in_scope_only = True
     domain_seed_scope_only = True
 
@@ -52,6 +56,7 @@ class subzy(BaseModule):
         self.https = bool(self.config.get("https", False))
         self.verify_ssl = bool(self.config.get("verify_ssl", False))
         self.check_unresolved = bool(self.config.get("check_unresolved", False))
+        self.service_cnames = None
         if "/" in self.binary:
             if not Path(self.binary).is_file():
                 return None, f"subzy binary not found at path: {self.binary}"
@@ -80,6 +85,48 @@ class subzy(BaseModule):
             if self.is_claimed_provider_response(response):
                 return True
         return False
+
+    @staticmethod
+    def load_service_cnames(fingerprints_path):
+        """Maps each subzy engine name to the CNAME suffixes its fingerprint declares."""
+        try:
+            fingerprints = json.loads(Path(fingerprints_path).read_text())
+        except (OSError, ValueError):
+            return {}
+        return {
+            str(entry.get("service", "")): [str(cname).lower().rstrip(".") for cname in entry.get("cname") or []]
+            for entry in fingerprints
+            if isinstance(entry, dict)
+        }
+
+    @staticmethod
+    def routes_to_other_provider(cname_chain, service_cnames):
+        """
+        subzy matches response bodies only and never checks the CNAMEs a fingerprint declares, so
+        generic text (e.g. Next.js's "404: This page could not be found." for Gemfury) matches
+        unrelated providers. A match is contradicted only when the fingerprint declares CNAMEs and
+        the host is CNAMEd somewhere none of them cover: its traffic then goes to that other
+        provider, where the fingerprinted resource cannot be claimed. Hosts without a CNAME (apex
+        A records to the provider) and fingerprints without CNAMEs stay reported.
+        """
+        if not service_cnames or not cname_chain:
+            return False
+        return not any(
+            target == cname or target.endswith(f".{cname}") for target in cname_chain for cname in service_cnames
+        )
+
+    async def resolve_cname_chain(self, host):
+        chain = []
+        current = host
+        for _ in range(self.max_cname_hops):
+            targets = sorted(await self.helpers.dns.resolve(current, type="CNAME"))
+            if not targets:
+                break
+            current = str(targets[0]).lower().rstrip(".")
+            if current in chain:
+                break
+            chain.append(current)
+        return chain
 
     async def handle_batch(self, *events):
         targets = []
@@ -147,6 +194,16 @@ class subzy(BaseModule):
                     continue
 
                 engine = result.get("engine") or result.get("service") or "subzy"
+                if self.service_cnames is None:
+                    self.service_cnames = self.load_service_cnames(self.fingerprints_path)
+                cname_chain = await self.resolve_cname_chain(host)
+                if self.routes_to_other_provider(cname_chain, self.service_cnames.get(engine)):
+                    self.debug(
+                        f"Suppressing {engine} takeover result for {host}: CNAME chain {cname_chain} "
+                        f"does not reach {self.service_cnames.get(engine)}"
+                    )
+                    continue
+
                 discussion = result.get("discussion", "")
                 documentation = result.get("documentation", "")
                 description = (
