@@ -825,6 +825,34 @@ async def test_manager_blacklist(bbot_scanner, bbot_httpserver, caplog):
 
 
 @pytest.mark.asyncio
+async def test_manager_blacklist_own_host_only(bbot_scanner, bbot_httpserver):
+    bbot_httpserver.expect_request(uri="/").respond_with_data(response_data="<a href='http://www-prod.test.notreal:8888'/><a href='http://www-dev.test.notreal:8888'/>")
+
+    scan = bbot_scanner(
+        "http://127.0.0.1:8888",
+        modules=["httpx"],
+        config={
+            "excavate": True,
+            "dns": {"minimal": False, "search_distance": 1, "blacklist_by_dns_records": False},
+            "scope": {"report_distance": 0},
+        },
+        whitelist=["127.0.0.0/29", "test.notreal"],
+        blacklist=["127.0.0.64/29"],
+    )
+    await scan.helpers.dns._mock_dns({
+        "www-prod.test.notreal": {"A": ["127.0.0.66"]},
+        "www-dev.test.notreal": {"A": ["127.0.0.22"]},
+    })
+
+    events = [e async for e in scan.async_start()]
+
+    # the in-scope name that points at a blacklisted IP is still scanned...
+    assert any(e for e in events if e.type == "URL_UNVERIFIED" and e.data == "http://www-prod.test.notreal:8888/")
+    # ...but the blacklisted IP itself never becomes an event
+    assert not any(e for e in events if e.type == "IP_ADDRESS" and e.data == "127.0.0.66")
+
+
+@pytest.mark.asyncio
 async def test_manager_scope_tagging(bbot_scanner):
     scan = bbot_scanner("test.notreal")
     e1 = scan.make_event("www.test.notreal", parent=scan.root_event, tags=["affiliate"])
