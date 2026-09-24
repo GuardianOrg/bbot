@@ -1,13 +1,20 @@
 import puremagic
 
 
+UNIDENTIFIED_MAGIC_INFO = ("", "", "", 0)
+
 def get_magic_info(file):
-    magic_detections = puremagic.magic_file(file)
+    """Returns (extension, mime_type, description, confidence) of the best detection, or UNIDENTIFIED_MAGIC_INFO."""
+    try:
+        magic_detections = puremagic.magic_file(file)
+    except ValueError:
+        # puremagic raises "Input was empty" for zero-byte files instead of returning no detections.
+        return UNIDENTIFIED_MAGIC_INFO
     if magic_detections:
         magic_detections.sort(key=lambda x: x.confidence, reverse=True)
         detection = magic_detections[0]
         return detection.extension, detection.mime_type, detection.name, detection.confidence
-    return "", "", "", 0
+    return UNIDENTIFIED_MAGIC_INFO
 
 
 def get_compression(mime_type):
