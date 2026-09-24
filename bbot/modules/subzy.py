@@ -4,6 +4,14 @@ from pathlib import Path
 from bbot.modules.base import BaseModule
 
 
+# A Vercel rewrite can proxy an external upstream, passing its body and status through, so a live
+# Vercel deployment only disproves takeovers that the deployment itself rules out:
+# - Vercel: the hostname is assigned to a deployment (unassigned ones answer 404 DEPLOYMENT_NOT_FOUND);
+# - Gemfury: its fingerprint is Next.js's not-found text, which every Next.js page embeds, while the
+#   unclaimed Gemfury page is that same Next.js 404 and is never served with a 200.
+VERCEL_DISPROVED_ENGINES = frozenset({"vercel", "gemfury"})
+
+
 class subzy(BaseModule):
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED"]
     produced_events = ["VULNERABILITY"]
@@ -65,28 +73,28 @@ class subzy(BaseModule):
         return True
 
     @staticmethod
-    def is_claimed_provider_response(response):
+    def is_claimed_provider_response(response, engine):
         """
-        subzy matches response bodies only, so generic text (e.g. Next.js's default 404, which is
-        also the Gemfury fingerprint) matches live sites. A 200 carrying a hosting provider's
-        claimed-site headers proves the host is served by an active site that someone owns:
-        - GitBook: X-GitBook-Route-Site / X-GitBook-Target;
-        - Vercel: x-vercel-id without x-vercel-error (unclaimed hosts get 404 DEPLOYMENT_NOT_FOUND).
+        subzy matches response bodies only, so generic text matches live sites. A 200 carrying a
+        hosting provider's claimed-site headers proves the host is served by a site someone owns:
+        - GitBook (X-GitBook-Route-Site / X-GitBook-Target), which serves only its own sites;
+        - Vercel (x-vercel-id without x-vercel-error), for the engines in VERCEL_DISPROVED_ENGINES.
         """
         if response is None or response.status_code != 200:
             return False
         headers = {str(key).lower() for key in response.headers.keys()}
-        gitbook_site = "x-gitbook-route-site" in headers or "x-gitbook-target" in headers
+        if "x-gitbook-route-site" in headers or "x-gitbook-target" in headers:
+            return True
         vercel_deployment = "x-vercel-id" in headers and "x-vercel-error" not in headers
-        return gitbook_site or vercel_deployment
+        return vercel_deployment and str(engine).lower() in VERCEL_DISPROVED_ENGINES
 
-    async def is_claimed_provider_host(self, host):
+    async def is_claimed_provider_host(self, host, engine):
         for scheme in ("https", "http"):
             try:
                 response = await self.helpers.request(f"{scheme}://{host}")
             except Exception:
                 continue
-            if self.is_claimed_provider_response(response):
+            if self.is_claimed_provider_response(response, engine):
                 return True
         return False
 
@@ -151,11 +159,11 @@ class subzy(BaseModule):
                 if parent_event is None:
                     continue
 
-                if await self.is_claimed_provider_host(host):
-                    self.debug(f"Suppressing takeover result for {host}: provider response confirms an active claimed site")
+                engine = result.get("engine") or result.get("service") or "subzy"
+                if await self.is_claimed_provider_host(host, engine):
+                    self.debug(f"Suppressing {engine} takeover result for {host}: the response proves a claimed site")
                     continue
 
-                engine = result.get("engine") or result.get("service") or "subzy"
                 discussion = result.get("discussion", "")
                 documentation = result.get("documentation", "")
                 description = (
