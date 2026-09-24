@@ -16,7 +16,8 @@ class SQLite(SQLTemplate):
     options_desc = {
         "database": "The path to the sqlite database file",
     }
-    deps_pip = ["sqlmodel", "aiosqlite"]
+    # NaiveDatetime column mapping (bbot/db/sql/models.py) requires SQLModel 0.0.45+.
+    deps_pip = ["sqlmodel>=0.0.45", "aiosqlite"]
 
     async def setup(self):
         db_file = self.config.get("database", "")

@@ -1,3 +1,6 @@
+import shutil
+import tempfile
+from pathlib import Path
 from hashlib import sha256
 
 from .base import ModuleTestBase
@@ -203,3 +206,20 @@ class TestHTTPX_custom_cookies(ModuleTestBase):
     def check(self, module_test, events):
         # Ensure we received the expected response when the cookie was present
         assert [e for e in events if e.type == "URL" and "status-200" in e.tags]
+
+
+class TestHTTPXConcurrentScanTempDirs(TestHTTPXBase):
+    # A LevelDB dir from another scan's live httpx run in the shared system temp dir.
+    foreign_tempdir = Path(tempfile.gettempdir()) / "httpx987654321"
+
+    async def setup_before_prep(self, module_test):
+        (self.foreign_tempdir / "LOCK").parent.mkdir(parents=True, exist_ok=True)
+        (self.foreign_tempdir / "LOCK").touch()
+
+    def check(self, module_test, events):
+        try:
+            assert any(e.type == "HTTP_RESPONSE" for e in events)
+            assert (self.foreign_tempdir / "LOCK").exists(), "httpx cleanup deleted another scan's temp dir"
+            assert module_test.module.httpx_env["TMPDIR"] == str(module_test.scan.temp_dir / "httpx-tmp")
+        finally:
+            shutil.rmtree(self.foreign_tempdir, ignore_errors=True)

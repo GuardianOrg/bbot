@@ -20,6 +20,14 @@ import dns.zone
 from bbot.modules.base import BaseModule
 from bbot.core.event.base import _normalize_event_description
 
+# Healthy signers re-sign before this fraction of the inception-to-expiration window is left:
+# PowerDNS keeps at least a third of 21 days, BIND a quarter (legacy) or 5 of 14 days
+# (dnssec-policy), OpenDNSSEC 3 of 14 days, and Knot 3.x re-signs at
+# 0.1 * rrsig-lifetime + propagation-delay + zone max TTL, strictly above a tenth. A signature
+# this deep into its window means re-signing has stopped; it is still reported before expiry,
+# and expired signatures stay CRITICAL.
+RRSIG_STALLED_REMAINING_FRACTION = 0.1
+
 
 @dataclass
 class AuditFinding:
@@ -733,7 +741,7 @@ class domain_config_dns_audit(BaseModule):
                         "Re-sign the zone immediately.",
                         f"dig {domain} SOA +dnssec | grep RRSIG",
                     ))
-                elif days_left < 14 and not suppress_managed_warning:
+                elif days_left < 14 and not suppress_managed_warning and self.rrsig_resigning_stalled(rrsig):
                     findings.append(AuditFinding(
                         "RRSIG Expiration Approaching",
                         "MEDIUM" if days_left >= 7 else "HIGH",
@@ -753,6 +761,14 @@ class domain_config_dns_audit(BaseModule):
                         f"dig {domain} SOA +dnssec | grep RRSIG",
                     ))
                 return
+
+    @staticmethod
+    def rrsig_resigning_stalled(rrsig):
+        validity = rrsig.expiration - rrsig.inception
+        if validity <= 0:
+            return True
+        remaining = rrsig.expiration - datetime.now(tz=timezone.utc).timestamp()
+        return remaining < validity * RRSIG_STALLED_REMAINING_FRACTION
 
     async def check_nsec_records(self, domain, findings):
         success, nsec_records = await self.query_dns(domain, "NSEC")

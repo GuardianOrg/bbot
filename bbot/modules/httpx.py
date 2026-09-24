@@ -1,9 +1,8 @@
 import re
 import orjson
 from hashlib import sha256
-import tempfile
+import os
 import subprocess
-from pathlib import Path
 from http.cookies import SimpleCookie
 from urllib.parse import unquote
 
@@ -61,6 +60,11 @@ class httpx(BaseModule):
         self.store_responses = self.config.get("store_responses", False)
         self.probe_all_ips = self.config.get("probe_all_ips", False)
         self.httpx_tempdir_regex = re.compile(r"^httpx\d+$")
+        # httpx keeps LevelDB state in TMPDIR; concurrent scans share the host's /tmp, so each scan
+        # gets a private TMPDIR and only ever cleans its own leftovers.
+        self.httpx_tempdir_root = self.scan.temp_dir / "httpx-tmp"
+        self.helpers.mkdir(self.httpx_tempdir_root)
+        self.httpx_env = {**os.environ, "TMPDIR": str(self.httpx_tempdir_root)}
         return True
 
     async def filter_event(self, event):
@@ -160,7 +164,9 @@ class httpx(BaseModule):
         proxy = self.scan.http_proxy
         if proxy:
             command += ["-http-proxy", proxy]
-        async for line in self.run_process_live(command, text=False, input=list(stdin), stderr=subprocess.DEVNULL):
+        async for line in self.run_process_live(
+            command, text=False, input=list(stdin), stderr=subprocess.DEVNULL, env=self.httpx_env
+        ):
             try:
                 j = await self.helpers.run_in_executor(orjson.loads, line)
             except orjson.JSONDecodeError:
@@ -232,7 +238,7 @@ class httpx(BaseModule):
                     context=f"HTTP_RESPONSE was {content_length} with {content_type} content type",
                 )
 
-        for tempdir in Path(tempfile.gettempdir()).iterdir():
+        for tempdir in self.httpx_tempdir_root.iterdir():
             if tempdir.is_dir() and self.httpx_tempdir_regex.match(tempdir.name):
                 self.helpers.rm_rf(tempdir)
 

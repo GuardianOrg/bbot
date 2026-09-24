@@ -1906,24 +1906,27 @@ class FILESYSTEM(DictPathEvent):
         super().__init__(*args, **kwargs)
         if self._data_path.is_file():
             # detect type of file content using magic
-            from bbot.core.helpers.libmagic import get_magic_info, get_compression
+            from bbot.core.helpers.libmagic import UNIDENTIFIED_MAGIC_INFO, get_magic_info, get_compression
 
             try:
-                extension, mime_type, description, confidence = get_magic_info(self.data["path"])
-                self.data["magic_extension"] = extension
-                self.data["magic_mime_type"] = mime_type
-                self.data["magic_description"] = description
-                self.data["magic_confidence"] = confidence
-                # detection compression
-                compression = get_compression(mime_type)
-                if compression:
-                    self.add_tag("compressed")
-                    self.add_tag(f"{compression}-archive")
-                    self.data["compression"] = compression
-                # refresh hash
-                self.data = self.data
+                magic_info = get_magic_info(self.data["path"])
             except Exception as e:
                 log.debug(f"Error detecting file type: {type(e).__name__}: {e}")
+                magic_info = UNIDENTIFIED_MAGIC_INFO
+            # every file event carries the magic fields, so consumers can rely on them
+            extension, mime_type, description, confidence = magic_info
+            self.data["magic_extension"] = extension
+            self.data["magic_mime_type"] = mime_type
+            self.data["magic_description"] = description
+            self.data["magic_confidence"] = confidence
+            # detection compression
+            compression = get_compression(mime_type)
+            if compression:
+                self.add_tag("compressed")
+                self.add_tag(f"{compression}-archive")
+                self.data["compression"] = compression
+            # refresh hash
+            self.data = self.data
 
 
 class RAW_DNS_RECORD(DictHostEvent, DnsEvent):

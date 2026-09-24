@@ -197,36 +197,41 @@ class sslcert(BaseModule):
             with suppress(KeyError):
                 dns_names.remove(common_name)
             dns_names = [common_name] + list(dns_names)
-            cert_data = self.get_cert_metadata(cert, dns_names)
+            cert_data = self.get_cert_metadata(cert)
         return dns_names, list(emails), cert_data, (host, port)
 
-    def get_cert_metadata(self, cert, dns_names):
+    @classmethod
+    def get_cert_metadata(cls, cert):
         subject = cert.get_subject()
         issuer = cert.get_issuer()
-        not_after = self.parse_asn1_time(cert.get_notAfter())
+        not_after = cls.parse_asn1_time(cert.get_notAfter())
         fingerprint = cert.digest("sha256").decode().replace(":", "").lower()
-        subject_components = self.name_components(subject)
-        issuer_components = self.name_components(issuer)
+        subject_components = cls.name_components(subject)
+        issuer_components = cls.name_components(issuer)
+        # The names the certificate actually covers, wildcards included, so consumers can check
+        # hostname coverage. Discovery uses get_cert_sans, which reduces wildcards to their parent.
+        san_domains = sorted({name for name in cls.get_cert_san_entries(cert) if name})
         return {
             "certificate": {
                 "subject": subject_components,
                 "issuer": issuer_components,
                 "serialNumber": str(cert.get_serial_number()),
                 "version": cert.get_version(),
-                "notBefore": self.parse_asn1_time(cert.get_notBefore()),
+                "notBefore": cls.parse_asn1_time(cert.get_notBefore()),
                 "notAfter": not_after,
                 "fingerprintSha256": fingerprint,
-                "sanDomains": sorted({name for name in dns_names if name}),
+                "sanDomains": san_domains,
             },
             "certSubjectCn": subject_components.get("CN"),
             "certIssuerCn": issuer_components.get("CN"),
             "certFingerprintSha256": fingerprint,
-            "certSanDomains": sorted({name for name in dns_names if name}),
+            "certSanDomains": san_domains,
             "certNotAfter": not_after,
             "certIsExpired": cert.has_expired(),
         }
 
-    def name_components(self, name):
+    @staticmethod
+    def name_components(name):
         components = {}
         for key, value in name.get_components():
             key = key.decode(errors="ignore")
@@ -235,7 +240,8 @@ class sslcert(BaseModule):
                 components[key] = value
         return components
 
-    def parse_asn1_time(self, value):
+    @staticmethod
+    def parse_asn1_time(value):
         if isinstance(value, bytes):
             value = value.decode(errors="ignore")
         if not value:
@@ -247,7 +253,7 @@ class sslcert(BaseModule):
         return parsed.replace(tzinfo=datetime.timezone.utc).isoformat()
 
     @staticmethod
-    def get_cert_sans(cert):
+    def get_cert_san_entries(cert):
         sans = []
         raw_sans = None
         ext_count = cert.get_extension_count()
@@ -262,6 +268,9 @@ class sslcert(BaseModule):
                 # IPv6 addresses
                 if hostname.startswith("[") and hostname.endswith("]"):
                     hostname = hostname.strip("[]")
-                hostname = hostname.lstrip("*.")
                 sans.append(hostname)
         return sans
+
+    @classmethod
+    def get_cert_sans(cls, cert):
+        return [name.lstrip("*.") for name in cls.get_cert_san_entries(cert)]

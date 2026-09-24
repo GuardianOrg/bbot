@@ -29,3 +29,40 @@ class TestSSLCert(ModuleTestBase):
         assert any(e.data.get("certFingerprintSha256") for e in cert_events), "Failed to emit certificate SHA256"
         assert any(e.data.get("certSubjectCn") == "test.notreal" for e in cert_events), "Failed to emit certificate subject CN"
         assert any("www.bbottest.notreal" in e.data.get("certSanDomains", []) for e in cert_events), "Failed to emit SANs"
+
+
+def test_sslcert_metadata_keeps_wildcard_sans():
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+    from OpenSSL import crypto
+
+    from bbot.modules.sslcert import sslcert
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "api.example.com")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(1)
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=30))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("*.api.example.com"), x509.DNSName("api.example.com")]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert = crypto.X509.from_cryptography(certificate)
+
+    metadata = sslcert.get_cert_metadata(cert)
+
+    assert metadata["certSanDomains"] == ["*.api.example.com", "api.example.com"]
+    assert metadata["certificate"]["sanDomains"] == ["*.api.example.com", "api.example.com"]
+    assert sslcert.get_cert_sans(cert) == ["api.example.com", "api.example.com"]

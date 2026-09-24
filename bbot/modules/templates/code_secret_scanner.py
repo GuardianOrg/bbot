@@ -22,6 +22,8 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
     }
 
     scope_distance_modifier = 2
+    # Events in the running batch that get their own scan (repositories, folders); see event_handler_timeout.
+    _batch_scans = 0
 
     async def setup(self):
         self.setup_repository_scope()
@@ -55,46 +57,134 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
         return False, "event type is not supported"
 
     async def handle_event(self, event):
+        scan_path, cleanup = await self.prepare_scan_path(event)
+        if scan_path is None:
+            return
+
+        try:
+            await self.emit_findings(event, scan_path, self.iter_findings(scan_path, event))
+        finally:
+            if cleanup and scan_path.exists():
+                self.helpers.rm_rf(scan_path, ignore_errors=True)
+
+    async def handle_batch(self, *events):
+        """Only reached when a subclass sets `_batch_size` > 1; it must then implement
+        `scan_file_batch(paths)` (a list of `(reported_path, record)`, or None if the scan failed) and
+        `format_record(event, scan_path, record)`.
+
+        Plain files are scanned together so the scanner's fixed startup cost is paid once per batch;
+        repositories and folders keep their own scan because their findings map to a checkout.
+        """
+        standalone = [event for event in events if not self.is_batchable_file(event)]
+        self._batch_scans = len(events)
+        try:
+            for event in standalone:
+                await self.handle_event(event)
+            await self.handle_file_batch([event for event in events if self.is_batchable_file(event)])
+        finally:
+            self._batch_scans = 0
+
+    @property
+    def event_handler_timeout(self):
+        # A batch keeps the budget its events had one by one, which also covers the per-file rescan
+        # fallback when the batched scan fails.
+        if self.batch_size <= 1 or self.config.get("module_timeout", None) is not None:
+            return super().event_handler_timeout
+        return max(super().event_handler_timeout, self._default_handle_event_timeout * self._batch_scans)
+
+    async def handle_file_batch(self, events):
+        files = {}
+        for event in events:
+            scan_path, _ = await self.prepare_scan_path(event)
+            if scan_path is not None:
+                files[str(scan_path)] = (event, scan_path)
+        if not files:
+            return
+
+        lookup = {}
+        for key, (_, scan_path) in files.items():
+            lookup[key] = key
+            lookup[str(scan_path.resolve())] = key
+        batch_results = await self.scan_file_batch([scan_path for _, scan_path in files.values()])
+        if batch_results is None:
+            # One unreadable file fails the whole invocation; scan each file alone so the rest still count.
+            return await self.rescan_individually(files, "the batched scan failed")
+
+        records = {key: [] for key in files}
+        unattributed = []
+        for reported_path, record in batch_results:
+            key = self.batch_source_key(str(reported_path or ""), lookup)
+            if key is None:
+                unattributed.append(reported_path)
+            else:
+                records[key].append(record)
+
+        if unattributed:
+            # Never guess which file a secret came from: rescan each file on its own instead.
+            return await self.rescan_individually(files, f"findings for unknown batch paths {unattributed[:5]}")
+
+        for key, (event, scan_path) in files.items():
+            if records[key]:
+                await self.emit_findings(event, scan_path, self.format_records(event, scan_path, records[key]))
+
+    async def rescan_individually(self, files, reason):
+        self.error(f"{self.name}: {reason}; rescanning {len(files)} files individually")
+        for event, _ in files.values():
+            await self.handle_event(event)
+
+    @staticmethod
+    def batch_source_key(reported_path, lookup):
+        # Scanners report archive members as "<archive>!<member>"; the archive is the source file. File
+        # names may contain "!" too, so try every "!" boundary, longest prefix first.
+        parts = reported_path.split("!")
+        for candidate in ("!".join(parts[:end]) for end in range(len(parts), 0, -1)):
+            if not candidate:
+                continue
+            key = lookup.get(candidate) or lookup.get(str(Path(candidate).resolve()))
+            if key is not None:
+                return key
+        return None
+
+    async def format_records(self, event, scan_path, records):
+        for record in records:
+            yield await self.format_record(event, scan_path, record)
+
+    def is_batchable_file(self, event):
+        return event.type == "FILESYSTEM" and "file" in event.tags and "git" not in event.tags
+
+    async def emit_findings(self, event, scan_path, findings):
         description = ""
         if isinstance(event.data, dict):
             description = event.data.get("description", "")
 
         host = event.host if event.type == "CODE_REPOSITORY" else str(getattr(event.parent, "host", "") or "")
 
-        scan_path, cleanup = await self.prepare_scan_path(event)
-        if scan_path is None:
-            return
+        async for finding in findings:
+            normalized = self.normalize_finding(finding, scan_path, description, host)
+            if not normalized:
+                continue
 
-        try:
-            async for finding in self.iter_findings(scan_path, event):
-                normalized = self.normalize_finding(finding, scan_path, description, host)
-                if not normalized:
-                    continue
-
-                verified = normalized.pop("verified", False)
-                force_finding = normalized.pop("force_finding", False)
-                dedupe_key = normalized.pop("dedupe_key", "")
-                finding_type = "FINDING" if force_finding else ("VULNERABILITY" if verified else "FINDING")
-                finding_event = self.make_event(
-                    normalized,
-                    finding_type,
-                    event,
-                    context="{module} scanned {event.type} for secrets and found {event.type}: {event.data}",
-                )
-                if finding_event is None:
-                    continue
-                if dedupe_key:
-                    finding_event._dedupe_key = dedupe_key
-                if isinstance(finding_event.data, dict) and "tool" in finding_event.data:
-                    stripped_data = dict(finding_event.data)
-                    stripped_data.pop("host", None)
-                    if "url" in normalized:
-                        stripped_data["url"] = normalized["url"]
-                    finding_event.data = stripped_data
-                await self.emit_event(finding_event)
-        finally:
-            if cleanup and scan_path.exists():
-                self.helpers.rm_rf(scan_path, ignore_errors=True)
+            verified = normalized.pop("verified", False)
+            force_finding = normalized.pop("force_finding", False)
+            dedupe_key = normalized.pop("dedupe_key", "")
+            finding_type = "FINDING" if force_finding else ("VULNERABILITY" if verified else "FINDING")
+            finding_event = self.make_event(
+                normalized,
+                finding_type,
+                event,
+                context="{module} scanned {event.type} for secrets and found {event.type}: {event.data}",
+            )
+            if finding_event is None:
+                continue
+            if dedupe_key:
+                finding_event._dedupe_key = dedupe_key
+            if isinstance(finding_event.data, dict) and "tool" in finding_event.data:
+                stripped_data = dict(finding_event.data)
+                stripped_data.pop("host", None)
+                if "url" in normalized:
+                    stripped_data["url"] = normalized["url"]
+                finding_event.data = stripped_data
+            await self.emit_event(finding_event)
 
     async def prepare_scan_path(self, event):
         if event.type == "FILESYSTEM":

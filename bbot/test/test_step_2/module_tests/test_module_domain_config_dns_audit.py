@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+import dns.flags
 import dns.rdatatype
 
 from .base import ModuleTestBase
@@ -211,6 +212,18 @@ class TestDomainConfigDnsAuditSuppressesManagedProviderNoise(TestDomainConfigDns
         assert "Non-Standard SOA Serial Format" not in titles
 
 
+def publish_dnskey(module_test):
+    """DNSSEC checks, including RRSIG expiry, only run for zones that publish DNSKEY records."""
+    unsigned_query_dns = module_test.module.query_dns
+
+    async def fake_query_dns(domain, rdtype, nameserver=None, raise_on_nxdomain=False):
+        if rdtype == "DNSKEY":
+            return True, ["257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ=="]
+        return await unsigned_query_dns(domain, rdtype, nameserver=nameserver, raise_on_nxdomain=raise_on_nxdomain)
+
+    module_test.monkeypatch.setattr(module_test.module, "query_dns", fake_query_dns)
+
+
 class TestDomainConfigDnsAuditSuppressesManagedProviderRrsigWarning(TestDomainConfigDnsAudit):
     async def setup_after_prep(self, module_test):
         await super().setup_after_prep(module_test)
@@ -239,11 +252,82 @@ class TestDomainConfigDnsAuditSuppressesManagedProviderRrsigWarning(TestDomainCo
 
         module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
         module_test.monkeypatch.setattr(module_test.module, "query_dns_full", fake_query_dns_full)
+        publish_dnskey(module_test)
 
     def check(self, module_test, events):
         titles = {e.data.get("title") for e in events if e.type in ("FINDING", "VULNERABILITY")}
 
         assert "RRSIG Expiration Approaching" not in titles
+
+
+class TestDomainConfigDnsAuditRrsigLifecycle(TestDomainConfigDnsAudit):
+    # PowerDNS signs for 21 days and rotates weekly, so a healthy zone always has 7-14 days left.
+    inception_days_ago = 14.5
+    expiration_days_ahead = 6.5
+
+    async def setup_after_prep(self, module_test):
+        await super().setup_after_prep(module_test)
+        now = datetime.now(tz=timezone.utc)
+        inception = int((now - timedelta(days=self.inception_days_ago)).timestamp())
+        expiration = int((now + timedelta(days=self.expiration_days_ahead)).timestamp())
+
+        async def fake_collect_basic_dns(domain):
+            return {
+                "A": ["1.2.3.4"],
+                "AAAA": [],
+                "NS": ["dns1.registrar-servers.com", "dns2.registrar-servers.com"],
+                "MX": [],
+                "TXT": [],
+                "SOA": "dns1.registrar-servers.com hostmaster.registrar-servers.com 1759000000 43200 3600 604800 3601",
+            }
+
+        async def fake_query_dns_full(domain, rdtype, nameserver=None):
+            class FakeRrsig:
+                pass
+
+            rrsig = FakeRrsig()
+            rrsig.inception = inception
+            rrsig.expiration = expiration
+
+            class FakeRrset(list):
+                rdtype = dns.rdatatype.RRSIG
+
+            class FakeResponse:
+                answer = [FakeRrset([rrsig])]
+                flags = dns.flags.AD
+
+            return True, FakeResponse()
+
+        module_test.monkeypatch.setattr(module_test.module, "collect_basic_dns", fake_collect_basic_dns)
+        module_test.monkeypatch.setattr(module_test.module, "query_dns_full", fake_query_dns_full)
+        publish_dnskey(module_test)
+
+    def check(self, module_test, events):
+        titles = {e.data.get("title") for e in events if e.type in ("FINDING", "VULNERABILITY")}
+
+        assert "RRSIG Expiration Approaching" not in titles
+
+
+class TestDomainConfigDnsAuditRrsigKnotRefresh(TestDomainConfigDnsAuditRrsigLifecycle):
+    # Knot 3.x defaults: 14-day lifetime, re-signed with 0.1 * 14 days + propagation delay + max TTL
+    # (about 1.5 days) left, so a healthy quiet zone reaches this point every cycle.
+    inception_days_ago = 12.4
+    expiration_days_ahead = 1.6
+
+
+class TestDomainConfigDnsAuditRrsigStalledSigner(TestDomainConfigDnsAuditRrsigLifecycle):
+    # A 30-day window with 2 days left: the signer missed every refresh point.
+    inception_days_ago = 28
+    expiration_days_ahead = 2
+
+    def check(self, module_test, events):
+        findings = [
+            e for e in events
+            if e.type in ("FINDING", "VULNERABILITY") and e.data.get("title") == "RRSIG Expiration Approaching"
+        ]
+
+        assert len(findings) == 1
+        assert findings[0].data.get("severity") == "HIGH"
 
 
 class TestDomainConfigDnsAuditRecognizesKeyDkimSelectors(TestDomainConfigDnsAudit):

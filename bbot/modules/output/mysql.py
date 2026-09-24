@@ -22,7 +22,8 @@ class MySQL(SQLTemplate):
         "port": "The port to connect to MySQL",
         "database": "The database name to connect to",
     }
-    deps_pip = ["sqlmodel", "aiomysql"]
+    # NaiveDatetime column mapping (bbot/db/sql/models.py) requires SQLModel 0.0.45+.
+    deps_pip = ["sqlmodel>=0.0.45", "aiomysql"]
     protocol = "mysql+aiomysql"
 
     async def create_database(self):
