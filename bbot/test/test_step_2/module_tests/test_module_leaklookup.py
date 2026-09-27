@@ -208,6 +208,31 @@ class TestLeaklookupEscalationFromMetadataRows(ModuleTestBase):
         assert [e.data for e in passwords] == ["alice@blacklanternsecurity.com:hunter2"]
 
 
+class TestLeaklookupPaidOnlyBreach(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub", "private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": {"LinkedIn": []}},
+        )
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={
+                "error": "false",
+                "message": {"LinkedIn": [], "Example": [{"email_address": "alice@blacklanternsecurity.com", "password": "hunter2"}]},
+            },
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        passwords = [e for e in events if e.type == "PASSWORD"]
+        assert [e.data for e in passwords] == ["alice@blacklanternsecurity.com:hunter2"]
+
+
 def test_leak_history_fingerprint_and_store(tmp_path):
     from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, secret_hash
 

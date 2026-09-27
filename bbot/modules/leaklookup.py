@@ -107,6 +107,10 @@ class leaklookup(subdomain_enum):
         if self.private_api_key and self.private_api_key != self.detection_key:
             paid_records = await self._search(self.private_api_key, query)
             for breach, rows in paid_records.items():
+                if not breach:
+                    continue
+                if breach not in breaches:
+                    breaches.append(breach)
                 if isinstance(rows, list) and rows:
                     records_by_breach[breach] = rows
 
