@@ -133,6 +133,12 @@ class subzy(BaseModule):
                 return True
         if response.status_code != 200:
             return False
+        # A live Next.js page can embed the default 404 text in its script data even when
+        # served by a provider other than Vercel. Gemfury's unclaimed response is an error,
+        # so an HTTP 200 containing that generic fingerprint is not a Gemfury takeover.
+        body = str(getattr(response, "text", "") or "").lower()
+        if str(engine).lower() == "gemfury" and "404: this page could not be found." in body:
+            return True
         headers = {str(key).lower() for key in response.headers.keys()}
         if "x-gitbook-route-site" in headers or "x-gitbook-target" in headers:
             return True

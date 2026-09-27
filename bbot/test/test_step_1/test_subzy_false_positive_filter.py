@@ -21,6 +21,19 @@ def test_subzy_does_not_suppress_unclaimed_or_unrecognized_pages():
     assert subzy.is_claimed_provider_response(None, "Gemfury") is False
 
 
+def test_subzy_ignores_gemfury_fingerprint_embedded_in_active_non_vercel_site():
+    # developers.fomopay.com serves its own Next.js documentation with this
+    # generic text in the HTML, even though the page itself returns HTTP 200.
+    live_site = response(200, {"Server": "fomogroup", "Via": "1.1 google"}, "404: This page could not be found.")
+    unclaimed = response(404, {"Server": "Gemfury"}, "404: This page could not be found.")
+    redirect_to_error = response(302, {"Location": "https://gemfury.com/404"})
+
+    assert subzy.is_claimed_provider_response(live_site, "Gemfury") is True
+    assert subzy.is_claimed_provider_response(unclaimed, "Gemfury") is False
+    assert subzy.is_claimed_provider_response(redirect_to_error, "Gemfury") is False
+    assert subzy.is_claimed_provider_response(live_site, "Vercel") is False
+
+
 def test_subzy_drops_generic_matches_on_an_active_vercel_deployment():
     # demo.layerzero.network: a live Next.js site on Vercel whose pages embed the Gemfury fingerprint text.
     assert subzy.is_claimed_provider_response(response(200, VERCEL_DEPLOYMENT), "Gemfury") is True
