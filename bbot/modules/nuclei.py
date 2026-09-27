@@ -13,6 +13,7 @@ from bbot.modules.base import BaseModule
 
 
 class nuclei(BaseModule):
+    fatal_on_error = True
     watched_events = ["URL", "MOBILE_APP", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY", "TECHNOLOGY"]
     flags = ["active", "aggressive", "deadly"]
@@ -740,6 +741,7 @@ class nuclei(BaseModule):
                     input=nuclei_input,
                     stderr=stats_fh,
                     env=self._nuclei_env(),
+                    check=True,
                 ):
                     try:
                         j = json.loads(line)
