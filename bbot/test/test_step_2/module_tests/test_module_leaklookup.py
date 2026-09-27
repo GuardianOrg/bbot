@@ -41,9 +41,10 @@ class TestLeaklookupPublic(ModuleTestBase):
         await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
 
     def check(self, module_test, events):
-        findings = [e for e in events if e.type == "FINDING" and e.data.get("category") == "credential-exposure"]
+        findings = [e for e in events if e.type == "FINDING" and e.data.get("category") == "breach-dataset-match"]
         # Public key has no records, so we alert on the breach-name hit — one FINDING per breach.
         assert 2 == len(findings)
+        assert all(e.data.get("severity") == "INFO" for e in findings)
         assert any("LinkedIn" in e.data.get("title", "") for e in findings)
         assert any("Adobe" in e.data.get("title", "") for e in findings)
         # No leaked credential events without the paid key.

@@ -135,16 +135,18 @@ class leaklookup(subdomain_enum):
         await self.emit_event(
             {
                 "host": query,
+                "severity": "INFO",
                 "title": f"Leak-Lookup breach match for {query}: {breach}",
-                "category": "credential-exposure",
+                "category": "breach-dataset-match",
                 "description": (
                     f'The public Leak-Lookup API reports that "{query}" appears in the breach dataset "{breach}". '
-                    "Accounts, passwords, or hashes associated with the domain may be exposed in this dataset. "
-                    "A paid Leak-Lookup key (or Dehashed) is required to retrieve the individual leaked records. "
-                    "Review exposed accounts, prioritize privileged users and accounts without MFA, and enforce password resets where reuse is possible."
+                    "No individual account or secret was returned by the public lookup, so this does not establish "
+                    "a leaked credential. Retrieve the individual records with a paid key or alternate telemetry "
+                    "before assessing account impact."
                 ),
                 "recommendation": (
-                    "Retrieve the individual records with a paid key or alternate telemetry, then rotate any affected credentials."
+                    "Retrieve individual records and verify whether any active accounts or secrets are affected "
+                    "before taking credential-specific action."
                 ),
                 "evidence": f"Breach source: {breach}",
                 "leaklookup_breach": breach,
