@@ -112,6 +112,7 @@ class HTTPEngine(EngineServer):
     async def download(self, url, **kwargs):
         warn = kwargs.pop("warn", True)
         raise_error = kwargs.pop("raise_error", False)
+        include_response_url = kwargs.pop("include_response_url", False)
         filename = kwargs.pop("filename")
         try:
             result = await self.stream_request(url, **kwargs)
@@ -122,6 +123,8 @@ class HTTPEngine(EngineServer):
             response.raise_for_status()
             with open(filename, "wb") as f:
                 f.write(content)
+            if include_response_url:
+                return filename, str(response.url)
             return filename
         except httpx.HTTPError as e:
             log_fn = log.verbose
