@@ -198,7 +198,16 @@ async def test_python_output_matches_json(bbot_scanner):
     assert len([e for e in events if e["type"] == "DNS_NAME"]) == 1
     assert len([e for e in events if e["type"] == "ORG_STUB"]) == 1
     assert len([e for e in events if e["type"] == "IP_ADDRESS"]) == 1
-    assert events == json_events
+    assert json_events[0] == {
+        "type": "SCAN_INPUT",
+        "data": {
+            "seeds": ["blacklanternsecurity.com"],
+            "whitelist": ["blacklanternsecurity.com"],
+            "blacklist": [],
+            "strict_scope": False,
+        },
+    }
+    assert events == json_events[1:]
 
 
 @pytest.mark.asyncio

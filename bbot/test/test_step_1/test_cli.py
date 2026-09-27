@@ -1,3 +1,4 @@
+import json
 import yaml
 
 from ..bbot_fixtures import *
@@ -24,8 +25,6 @@ def test_naabu_fast_options_have_descriptions():
 
 @pytest.mark.asyncio
 async def test_cli_scope(monkeypatch, capsys):
-    import json
-
     monkeypatch.setattr(sys, "exit", lambda *args, **kwargs: True)
     monkeypatch.setattr(os, "_exit", lambda *args, **kwargs: True)
 
@@ -53,10 +52,10 @@ async def test_cli_scope(monkeypatch, capsys):
     )
     ip_events = [l for l in lines if l["type"] == "IP_ADDRESS" and l["data"] == "1.1.1.1"]
     assert ip_events
-    assert all(l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in ip_events)
+    assert all(l["scope_distance"] == 0 and "in-scope" in l["tags"] for l in ip_events)
     ip_events = [l for l in lines if l["type"] == "IP_ADDRESS" and l["data"] == "1.0.0.1"]
     assert ip_events
-    assert all(l["scope_distance"] == 1 and "distance-1" in l["tags"] for l in ip_events)
+    assert all(l["scope_distance"] == 0 and "in-scope" in l["tags"] for l in ip_events)
 
     # with whitelist
     monkeypatch.setattr(
@@ -131,8 +130,15 @@ async def test_cli_scan(monkeypatch):
 
     with open(scan_home / "output.csv") as f:
         lines = f.readlines()
-        assert lines[0] == "Event type,Event data,IP Address,Source Module,Scope Distance,Event Tags,Discovery Path\n"
-        assert len(lines) > 1, "output.csv is not long enough"
+        assert lines[0].startswith("# Scan Input: ")
+        assert json.loads(lines[0].removeprefix("# Scan Input: ")) == {
+            "seeds": ["127.0.0.1", "www.example.com"],
+            "whitelist": ["127.0.0.1/32", "www.example.com"],
+            "blacklist": [],
+            "strict_scope": False,
+        }
+        assert lines[1] == "Event type,Host,Host Tags,Event data,IP Address,Source Module,Scope Distance,Event Tags,Discovery Path\n"
+        assert len(lines) > 2, "output.csv is not long enough"
 
     ip_success = False
     dns_success = False
@@ -140,9 +146,9 @@ async def test_cli_scan(monkeypatch):
     with open(output_filename) as f:
         lines = f.read().splitlines()
         for line in lines:
-            if "[IP_ADDRESS]        \t127.0.0.1\tTARGET" in line:
+            if line.startswith("[IP_ADDRESS]") and "\t127.0.0.1\tTARGET" in line:
                 ip_success = True
-            if "[DNS_NAME]          \twww.example.com\tTARGET" in line:
+            if line.startswith("[DNS_NAME]") and "\twww.example.com\tTARGET" in line:
                 dns_success = True
     assert ip_success and dns_success, "IP_ADDRESS and/or DNS_NAME are not present in output.txt"
 
@@ -387,7 +393,7 @@ async def test_cli_args(monkeypatch, caplog, capsys, clean_default_config):
     result = await cli._main()
     out, err = capsys.readouterr()
     assert result is True
-    assert "[ORG_STUB]          	evilcorp	TARGET" in out
+    assert any(line.startswith("[ORG_STUB]") and "\t-\tevilcorp\tTARGET" in line for line in out.splitlines())
 
     # activate modules by flag
     caplog.clear()
