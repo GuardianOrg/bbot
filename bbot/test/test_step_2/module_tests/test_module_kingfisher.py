@@ -74,6 +74,11 @@ def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
     for value, detector in (
         ("Authorization: Bearer YOUR_ACCESS_TOKEN", "HTTP Bearer Token"),
         ('SECRET="XXXXXXXXXXXXXX', "Generic Secret"),
+        (
+            r"-----BEGIN EC PRIVATE KEY-----\nYOUR PRIVATE KEY\n-----END EC PRIVATE KEY-----\n"
+            '"\n\nclient = RESTClient(api_key=api_key, api_secret=api_secret)',
+            "private-key",
+        ),
     ):
         assert formatter.format_artifact_leak(event, artifact, value, detector=detector) is None
         assert formatter.format_artifact_leak(event, artifact, value, detector=detector, verified=True)[
@@ -82,6 +87,10 @@ def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
 
     assert formatter.format_artifact_leak(
         event, artifact, "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", detector="HTTP Bearer Token"
+    )["category"] == "secret"
+    assert formatter.format_artifact_leak(
+        event, artifact, "-----BEGIN EC PRIVATE KEY-----\nMIIExampleKeyMaterial\n-----END EC PRIVATE KEY-----",
+        detector="private-key",
     )["category"] == "secret"
 
 

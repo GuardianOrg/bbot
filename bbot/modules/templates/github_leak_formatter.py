@@ -354,6 +354,17 @@ class github_leak_formatter:
             return bool(re.fullmatch(r"Authorization:\s*Bearer\s+YOUR_[A-Z0-9_]+", value, re.IGNORECASE))
         if detector == "generic secret":
             return bool(re.fullmatch(r"SECRET\s*=\s*[\"']?X{8,}", value, re.IGNORECASE))
+        if detector == "private-key":
+            # Documentation can show an escaped PEM skeleton followed by sample code.
+            # Require the literal placeholder as the complete PEM body.
+            normalized = value.replace(r"\n", "\n")
+            return bool(re.match(
+                r"^-----BEGIN (?P<kind>(?:EC |RSA )?)PRIVATE KEY-----\n"
+                r"YOUR PRIVATE KEY\n"
+                r"-----END (?P=kind)PRIVATE KEY-----",
+                normalized,
+                re.IGNORECASE,
+            ))
         return False
 
     @staticmethod
