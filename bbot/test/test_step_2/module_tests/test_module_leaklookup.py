@@ -71,6 +71,27 @@ class TestLeaklookupAccountOnly(ModuleTestBase):
         assert not any(e.type in ("PASSWORD", "HASHED_PASSWORD") for e in events)
 
 
+class TestLeaklookupUsernamePassword(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": {"Example": [{"username": "alice", "password": "hunter2"}]}},
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING" and e.data.get("category") == "credential-exposure"]
+        assert len(findings) == 1
+        assert findings[0].data["account"] == "alice"
+        assert findings[0].data["secret_hash"] == hashlib.sha256(b"hunter2").hexdigest()
+        assert findings[0].data["severity"] == "HIGH"
+        assert "hunter2" not in str(findings[0].data)
+
+
 class TestLeaklookupEscalation(ModuleTestBase):
     module_name = "leaklookup"
     config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub", "private_api_key": "priv"}}}

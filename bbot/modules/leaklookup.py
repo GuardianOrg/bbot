@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import suppress
 
-from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint
+from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint, secret_hash
 from bbot.core.helpers.observation_dates import indexed_date_tags
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
@@ -197,6 +197,33 @@ class leaklookup(subdomain_enum):
                     tags=[source_tag, *date_tags],
                     context=f'{{module}} found {{event.type}} for "{account}" in "{breach}" without a secret',
                 )
+
+        if not emails and (passwords or hashed_passwords):
+            # Password events need an email-address parent. Preserve rows that only have a
+            # username (or no identity) as findings, with the secret hashed before emission.
+            secret_hashes = {secret_hash(value) for value in passwords | hashed_passwords}
+            for account in sorted(usernames) or [None]:
+                for hashed in sorted(secret_hashes):
+                    await self.emit_event(
+                        {
+                            "host": query,
+                            "account": account,
+                            "secret_hash": hashed,
+                            "severity": "HIGH",
+                            "title": f"Leaked credential in {breach} for {account or query}",
+                            "category": "credential-exposure",
+                            "description": (
+                                f"Leak-Lookup returned a password or password hash in {breach} "
+                                f"for {account or query}. Only its non-reversible hash is retained in this finding."
+                            ),
+                            "recommendation": "Identify the affected account, rotate its credential, and check for password reuse.",
+                            "leaklookup_breach": breach,
+                        },
+                        "FINDING",
+                        parent=parent_event,
+                        tags=[source_tag, *date_tags],
+                        context=f'{{module}} found {{event.type}} for "{account or query}" in "{breach}"',
+                    )
 
         for email in emails:
             email_event = self.make_event(email, "EMAIL_ADDRESS", parent=parent_event, tags=[source_tag, *date_tags])
