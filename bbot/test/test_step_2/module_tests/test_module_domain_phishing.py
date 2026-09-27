@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from .base import ModuleTestBase
 
 
@@ -237,6 +239,7 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
 
     async def emit_event(payload, event_type, **_kwargs):
         emitted.append((payload["host"], event_type, payload.get("severity")))
+        return payload
 
     mod._resolve_monitor_extra_candidate = resolve_extra
     mod.emit_event = emit_event
@@ -277,6 +280,41 @@ def test_domain_phishing_resolves_only_missing_monitor_permutations(monkeypatch)
     assert rows[0]["dns-ns"] == ["ns.example.com"]
     assert rows[0]["whois-created"] == "2026-09-01"
     assert not any(domain == "coinba5e.com" for domain, _record_type in looked_up)
+
+
+def test_domain_phishing_does_not_remember_an_event_that_failed_to_emit(tmp_path):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.binary = "/bin/echo"
+    mod.registered_only = False
+    mod.enable_lsh = False
+    mod.threads = 1
+    mod.fuzzers = []
+    mod.nameservers = []
+    mod.max_candidates = 2000
+    mod.min_score = 3
+    mod.young_domain_days = 45
+    mod.lsh_threshold = 70
+    mod.history_file = str(tmp_path / "phishing-history.json")
+    mod.known = {}
+    mod._state_lock = asyncio.Lock()
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
+        split_domain=lambda _domain: ("", "coinbase.com"), is_domain=lambda _domain: True,
+    ))
+    row = {"domain": "coinbases.com", "fuzzer": "addition", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
+    mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps([row])))
+    mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
+    mod._redirects_to_protected_domain = lambda *_args: asyncio.sleep(0, result=False)
+    mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
+    mod.emit_event = lambda *_args, **_kwargs: asyncio.sleep(0, result=None)
+    mod.info = lambda *_args: None
+
+    with pytest.raises(RuntimeError, match="could not emit"):
+        asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
+
+    assert mod.known == {}
+    assert not Path(mod.history_file).exists()
 
 
 def test_domain_phishing_suppression_disabled_without_history_file():

@@ -561,13 +561,15 @@ class domain_phishing(BaseModule):
             if severity in ("HIGH", "MEDIUM"):
                 event_type = "VULNERABILITY"
 
-            await self.emit_event(
+            emitted_event = await self.emit_event(
                 payload,
                 event_type,
                 parent=event,
                 tags=tags,
                 context=f'{{module}} analyzed "{root_domain}" permutations and found {{event.type}} on look-alike domain "{candidate_domain}"',
             )
+            if emitted_event is None:
+                raise RuntimeError(f"domain_phishing could not emit finding for {candidate_domain}")
             self._remember_candidate(candidate_domain, change_key)
             emitted += 1
 
