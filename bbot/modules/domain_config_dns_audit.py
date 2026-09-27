@@ -349,6 +349,11 @@ class domain_config_dns_audit(BaseModule):
         resolver = self.get_resolver(nameserver)
         try:
             answers = resolver.resolve(domain, rdtype)
+            if str(rdtype).upper() == "TXT":
+                # One TXT RR can contain several character-strings. dnspython's
+                # presentation form quotes and separates them, but consumers need
+                # the wire value with those strings concatenated in order.
+                return True, [b"".join(rdata.strings).decode("utf-8", errors="replace") for rdata in answers]
             return True, [str(rdata).strip() for rdata in answers]
         except dns.resolver.NXDOMAIN:
             return (False, ["NXDOMAIN"]) if raise_on_nxdomain else (True, [])
