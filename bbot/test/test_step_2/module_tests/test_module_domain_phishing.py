@@ -186,6 +186,7 @@ def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
         set(Path(command[command.index("--tld") + 1]).read_text().splitlines())
     )
     assert "vowel-swap" in command[command.index("--fuzzers") + 1].split(",")
+    assert "repetition" in command[command.index("--fuzzers") + 1].split(",")
 
 
 def test_domain_phishing_suppression_disabled_without_history_file():

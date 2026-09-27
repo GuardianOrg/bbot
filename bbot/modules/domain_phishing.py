@@ -29,6 +29,7 @@ class domain_phishing(BaseModule):
             "hyphenation",
             "insertion",
             "omission",
+            "repetition",
             "replacement",
             "transposition",
             "vowel-swap",
