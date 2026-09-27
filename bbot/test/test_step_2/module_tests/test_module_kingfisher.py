@@ -37,6 +37,31 @@ def test_public_recaptcha_site_key_is_not_reported_as_a_secret(tmp_path):
     )["category"] == "secret"
 
 
+def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    artifact = tmp_path / "api-docs.md"
+    artifact.write_text("Authorization: Bearer YOUR_ACCESS_TOKEN\nSECRET=\"XXXXXXXXXXXXXX\"\n")
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/api-docs.md", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    for value, detector in (
+        ("Authorization: Bearer YOUR_ACCESS_TOKEN", "HTTP Bearer Token"),
+        ('SECRET="XXXXXXXXXXXXXX', "Generic Secret"),
+    ):
+        assert formatter.format_artifact_leak(event, artifact, value, detector=detector) is None
+        assert formatter.format_artifact_leak(event, artifact, value, detector=detector, verified=True)[
+            "severity"
+        ] == "High"
+
+    assert formatter.format_artifact_leak(
+        event, artifact, "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", detector="HTTP Bearer Token"
+    )["category"] == "secret"
+
+
 @pytest.fixture
 def mock_kingfisher(monkeypatch):
     kingfisher_calls.clear()

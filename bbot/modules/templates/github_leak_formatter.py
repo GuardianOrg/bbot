@@ -235,7 +235,7 @@ class github_leak_formatter:
         severity="",
         extra_fields=None,
     ):
-        if self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified):
+        if self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified) or self.is_documentation_placeholder(leak, detector, verified):
             return None
         source_url = self.get_artifact_source_url(event)
         if Path(scan_path).is_file():
@@ -311,6 +311,18 @@ class github_leak_formatter:
             return False
         site_key_label = r"(?:data-sitekey|recaptcha[_-]?site[_-]?key|site[_-]?key)"
         return bool(re.search(rf"{site_key_label}\s*[=:]\s*[\"']?{re.escape(key)}(?=[\"'\s<]|$)", source_line, re.IGNORECASE))
+
+    @staticmethod
+    def is_documentation_placeholder(leak, detector, verified):
+        if verified:
+            return False
+        value = str(leak or "").strip().strip("\"'")
+        detector = str(detector or "").strip().lower()
+        if detector == "http bearer token":
+            return bool(re.fullmatch(r"Authorization:\s*Bearer\s+YOUR_[A-Z0-9_]+", value, re.IGNORECASE))
+        if detector == "generic secret":
+            return bool(re.fullmatch(r"SECRET\s*=\s*[\"']?X{8,}", value, re.IGNORECASE))
+        return False
 
     def get_artifact_source_url(self, event):
         current = event
