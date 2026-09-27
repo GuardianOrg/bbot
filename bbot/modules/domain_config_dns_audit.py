@@ -1220,14 +1220,20 @@ class domain_config_dns_audit(BaseModule):
             return
         records["DMARC"] = dmarc
         lowered = dmarc.lower()
-        policy = re.search(r"p\s*=\s*(none|quarantine|reject)", lowered)
-        if policy and policy.group(1) in {"none", "quarantine"}:
+        tags = {}
+        for tag in lowered.split(";"):
+            if "=" in tag:
+                name, value = tag.split("=", 1)
+                tags[name.strip()] = value.strip()
+        policy = tags.get("p")
+        subdomain_policy = tags.get("sp", policy)
+        if policy in {"none", "quarantine"}:
             findings.append(AuditFinding(
-                f"DMARC Policy Set to {policy.group(1).capitalize()}",
-                "MEDIUM" if policy.group(1) == "none" else "LOW",
+                f"DMARC Policy Set to {policy.capitalize()}",
+                "MEDIUM" if policy == "none" else "LOW",
                 "Email",
                 (
-                    f"The DMARC policy is set to p={policy.group(1)}. DMARC is the domain-owner rule for how receivers treat mail that fails SPF or DKIM alignment, and this setting stops short of full rejection."
+                    f"The DMARC policy is set to p={policy}. DMARC is the domain-owner rule for how receivers treat mail that fails SPF or DKIM alignment, and this setting stops short of full rejection."
                     ' A monitoring-only or partial policy can be useful while legitimate senders are'
                     ' being fixed, but it does not fully stop spoofed mail from reaching recipients. Attackers can take advantage of'
                     ' weak enforcement because the domain still appears in the visible From address. The policy should move'
@@ -1238,8 +1244,21 @@ class domain_config_dns_audit(BaseModule):
                 "Move to p=reject once legitimate sending paths are aligned.",
                 f"dig _dmarc.{domain} TXT +short",
             ))
+        policy_strength = {"none": 0, "quarantine": 1, "reject": 2}
+        if policy in policy_strength and subdomain_policy in policy_strength and policy_strength[subdomain_policy] < policy_strength[policy]:
+            findings.append(AuditFinding(
+                "DMARC Subdomain Policy Weaker Than Parent",
+                "MEDIUM" if subdomain_policy == "none" else "LOW",
+                "Email",
+                (
+                    f"The DMARC record sets p={policy} but sp={subdomain_policy}. Mail failing DMARC checks for subdomains therefore receives weaker treatment than mail for the parent domain."
+                    " An attacker may choose a subdomain to take advantage of the weaker policy when spoofing the organization."
+                ),
+                f"DMARC: {dmarc}",
+                "Align sp with p after validating legitimate subdomain mail, or document the intentional exception.",
+                f"dig _dmarc.{domain} TXT +short",
+            ))
         for tag, title, recommendation in (
-            ("sp=", "DMARC Missing Subdomain Policy", "Add sp=reject or another explicit subdomain policy."),
             ("rua=", "DMARC Missing Aggregate Reports", "Add rua=mailto:... to receive aggregate reports."),
             ("adkim=s", "DMARC DKIM Alignment Not Strict", "Use adkim=s after validating legitimate senders."),
             ("aspf=s", "DMARC SPF Alignment Not Strict", "Use aspf=s after validating legitimate senders."),
@@ -1248,10 +1267,6 @@ class domain_config_dns_audit(BaseModule):
             if tag not in lowered:
                 severity = "INFO" if tag == "fo=" else "LOW"
                 descriptions = {
-                    "DMARC Missing Subdomain Policy": (
-                        "The DMARC record does not define a subdomain policy. Subdomains may inherit a weaker policy than intended, leaving forgotten or unused subdomains easier to spoof. "
-                        "DMARC is the email control that tells receivers how to handle messages that claim to come from the domain but fail authentication checks. A subdomain policy, written as sp=, makes that instruction explicit for names below the main domain. Without it, old campaign domains, test systems, regional subdomains, or abandoned hosts may not receive the same protection as the parent domain. This can let attackers choose a less protected subdomain for phishing while still looking related to the organization."
-                    ),
                     "DMARC Missing Aggregate Reports": (
                         "The DMARC record has no aggregate report destination. The domain owner will not receive regular visibility into spoofing attempts, authentication failures, or misconfigured legitimate senders. "
                         "Aggregate reports are summaries sent by participating mail providers that show who is sending mail using the domain and whether those messages pass SPF, DKIM, and DMARC alignment. Without these reports, teams have much less evidence when deciding whether it is safe to strengthen policy to quarantine or reject. Missing reports can also hide a broken mail provider setup until legitimate messages start failing or spoofed messages reach users."
