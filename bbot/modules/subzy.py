@@ -73,14 +73,29 @@ class subzy(BaseModule):
         return True
 
     @staticmethod
-    def is_claimed_provider_response(response, engine):
+    def is_claimed_provider_response(response, engine, raw_dns_records=None):
         """
         subzy matches response bodies only, so generic text matches live sites. A 200 carrying a
         hosting provider's claimed-site headers proves the host is served by a site someone owns:
         - GitBook (X-GitBook-Route-Site / X-GitBook-Target), which serves only its own sites;
         - Vercel (x-vercel-id without x-vercel-error), for the engines in VERCEL_DISPROVED_ENGINES.
         """
-        if response is None or response.status_code != 200:
+        if response is None:
+            return False
+        # Subzy's Cargo fingerprint also matches the stock nginx ingress 404. A host that
+        # resolves directly to its ingress IP, with no Cargo CNAME, is not routed to Cargo.
+        # Require both signals before suppressing; an unknown DNS state retains the alert.
+        dns_records = raw_dns_records or {}
+        if str(engine).lower() == "cargo collective" and response.status_code == 404:
+            body = str(getattr(response, "text", "") or "").lower()
+            if (
+                (dns_records.get("A") or dns_records.get("AAAA"))
+                and not dns_records.get("CNAME")
+                and "<title>404 not found</title>" in body
+                and "<center>nginx</center>" in body
+            ):
+                return True
+        if response.status_code != 200:
             return False
         headers = {str(key).lower() for key in response.headers.keys()}
         if "x-gitbook-route-site" in headers or "x-gitbook-target" in headers:
@@ -88,13 +103,13 @@ class subzy(BaseModule):
         vercel_deployment = "x-vercel-id" in headers and "x-vercel-error" not in headers
         return vercel_deployment and str(engine).lower() in VERCEL_DISPROVED_ENGINES
 
-    async def is_claimed_provider_host(self, host, engine):
+    async def is_claimed_provider_host(self, host, engine, raw_dns_records=None):
         for scheme in ("https", "http"):
             try:
                 response = await self.helpers.request(f"{scheme}://{host}")
             except Exception:
                 continue
-            if self.is_claimed_provider_response(response, engine):
+            if self.is_claimed_provider_response(response, engine, raw_dns_records):
                 return True
         return False
 
@@ -160,7 +175,7 @@ class subzy(BaseModule):
                     continue
 
                 engine = result.get("engine") or result.get("service") or "subzy"
-                if await self.is_claimed_provider_host(host, engine):
+                if await self.is_claimed_provider_host(host, engine, getattr(parent_event, "raw_dns_records", None)):
                     self.debug(f"Suppressing {engine} takeover result for {host}: the response proves a claimed site")
                     continue
 

@@ -5,8 +5,8 @@ from bbot.modules.subzy import subzy
 VERCEL_DEPLOYMENT = {"Server": "Vercel", "X-Vercel-Id": "cdg1::abc"}
 
 
-def response(status_code, headers):
-    return SimpleNamespace(status_code=status_code, headers=headers)
+def response(status_code, headers, text=""):
+    return SimpleNamespace(status_code=status_code, headers=headers, text=text)
 
 
 def test_subzy_recognizes_claimed_gitbook_site_response():
@@ -39,3 +39,17 @@ def test_subzy_keeps_unclaimed_vercel_hosts():
 
     assert subzy.is_claimed_provider_response(unclaimed, "Vercel") is False
     assert subzy.is_claimed_provider_response(errored, "Vercel") is False
+
+
+def test_subzy_ignores_cargo_match_on_unrelated_nginx_ingress():
+    # A generic nginx 404 matched Subzy's Cargo Collective fingerprint on 17
+    # Cumberland hosts, although these hosts resolve directly to an ingress IP.
+    nginx_404 = response(
+        404,
+        {"Server": "nginx"},
+        "<html><head><title>404 Not Found</title></head>"
+        "<body><center><h1>404 Not Found</h1></center><hr><center>nginx</center></body></html>",
+    )
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"A": {"3.23.242.41"}}) is True
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"CNAME": {"site.cargo.site"}}) is False
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {}) is False
