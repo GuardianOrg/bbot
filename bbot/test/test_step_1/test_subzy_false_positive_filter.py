@@ -64,3 +64,22 @@ def test_subzy_ignores_cargo_match_on_other_provider_or_generic_openresty():
     assert subzy.is_claimed_provider_response(readme_site, "Cargo Collective", {"CNAME": {"site.readmessl.com."}}) is True
     assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"A": {"104.18.79.118"}}) is True
     assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"CNAME": {"site.cargo.site."}}) is False
+
+
+def test_subzy_ignores_uptimerobot_match_on_cloudflare_default_404():
+    # Fifteen Coinbase hosts with direct Cloudflare A records served the same
+    # generic 404, which contains Subzy's broad "page not found" fingerprint.
+    cloudflare_404 = response(404, {"Server": "cloudflare"}, "404 page not found\n")
+
+    assert subzy.is_claimed_provider_response(
+        cloudflare_404, "Uptimerobot", {"A": {"104.18.35.15", "172.64.152.241"}}
+    ) is True
+    assert subzy.is_claimed_provider_response(
+        cloudflare_404, "Uptimerobot", {"CNAME": {"stats.uptimerobot.com"}}
+    ) is False
+    assert subzy.is_claimed_provider_response(cloudflare_404, "Uptimerobot", {}) is False
+    assert subzy.is_claimed_provider_response(
+        response(404, {"Server": "cloudflare"}, "page not found"),
+        "Uptimerobot",
+        {"A": {"104.18.35.15"}},
+    ) is False

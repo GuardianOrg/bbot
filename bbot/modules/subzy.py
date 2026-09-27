@@ -104,6 +104,18 @@ class subzy(BaseModule):
                     and any(f"<center>{server}</center>" in body for server in ("nginx", "openresty"))
                 ):
                     return True
+        # Subzy's Uptimerobot fingerprint is the generic "page not found".
+        # Cloudflare's own default 404 includes that phrase on directly
+        # addressed hosts, but is not an Uptimerobot unclaimed-site response.
+        if str(engine).lower() == "uptimerobot" and response.status_code == 404:
+            server = str(next((value for key, value in response.headers.items() if str(key).lower() == "server"), ""))
+            if (
+                server.lower() == "cloudflare"
+                and str(getattr(response, "text", "") or "").strip().lower() == "404 page not found"
+                and (dns_records.get("A") or dns_records.get("AAAA"))
+                and not dns_records.get("CNAME")
+            ):
+                return True
         if response.status_code != 200:
             return False
         headers = {str(key).lower() for key in response.headers.keys()}
