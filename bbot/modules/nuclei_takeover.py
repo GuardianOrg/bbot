@@ -62,7 +62,7 @@ class nuclei_takeover(BaseModule):
     async def setup(self):
         self.nuclei_bin = str((self.helpers.tools_dir / "nuclei").resolve())
         if not os.path.isfile(self.nuclei_bin):
-            return None, 'nuclei binary "nuclei" was not found in PATH'
+            return False, 'nuclei binary "nuclei" was not found in PATH'
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
         should_update_templates = (
             os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or not self.nuclei_templates_dir.exists()

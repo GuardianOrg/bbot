@@ -6,7 +6,9 @@ import pytest
 
 from bbot.modules.dnsreaper import dnsreaper
 from bbot.modules.domain_config_dns_audit import domain_config_dns_audit
+from bbot.modules.nuclei_takeover import nuclei_takeover
 from bbot.modules.subzy import subzy
+from bbot.modules.subfinder import subfinder
 
 from .base import ModuleTestBase
 
@@ -79,6 +81,8 @@ class TestSubzyMalformedOutput(TestSubzyFailedProcess):
     [
         (dnsreaper, {"binary": "/nonexistent/dnsreaper"}),
         (subzy, {"binary": "/nonexistent/subzy"}),
+        (subfinder, {"binary": "/nonexistent/subfinder"}),
+        (nuclei_takeover, {}),
         (domain_config_dns_audit, {"wildcard_nameservers": ["1.1.1.1", "8.8.8.8"]}),
     ],
 )
@@ -87,7 +91,7 @@ def test_takeover_and_dns_audit_setup_errors_are_hard_failures(module_type, conf
     module._name = module_type.__name__
     module.scan = SimpleNamespace(
         config={"modules": {module.name: config}},
-        helpers=SimpleNamespace(chain_lists=lambda value: value),
+        helpers=SimpleNamespace(chain_lists=lambda value: value, tools_dir=Path("/nonexistent/bbot-tools")),
     )
 
     status, _reason = asyncio.run(module.setup())

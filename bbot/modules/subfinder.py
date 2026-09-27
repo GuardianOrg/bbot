@@ -73,13 +73,13 @@ class subfinder(subdomain_enum):
 
         if "/" in self.binary:
             if not Path(self.binary).is_file():
-                return None, f"subfinder binary not found at path: {self.binary}"
+                return False, f"subfinder binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
             tools_binary = self.helpers.tools_dir / self.binary
             if tools_binary.is_file():
                 self.binary = str(tools_binary)
             else:
-                return None, f'subfinder binary "{self.binary}" was not found in PATH'
+                return False, f'subfinder binary "{self.binary}" was not found in PATH'
 
         return await super().setup()
 
