@@ -68,6 +68,11 @@ class TestDomainPhishing(ModuleTestBase):
             return FakeResult()
 
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
+        module_test.monkeypatch.setattr(
+            module_test.module,
+            "_monitor_extra_candidates",
+            lambda _root, _rows: asyncio.sleep(0, result=[]),
+        )
 
         async def fake_request(url, **_kwargs):
             if "black-lanternsecurity.com" in url:
@@ -179,6 +184,7 @@ def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
         return SimpleNamespace(stdout="[]")
 
     mod.run_process = run_process
+    mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
     asyncio.run(mod.handle_event(SimpleNamespace(data="bitpay.com")))
 
     assert "--tld" in command
@@ -187,6 +193,87 @@ def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
     )
     assert "vowel-swap" in command[command.index("--fuzzers") + 1].split(",")
     assert "repetition" in command[command.index("--fuzzers") + 1].split(",")
+
+
+def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.binary = "/bin/echo"
+    mod.registered_only = True
+    mod.enable_lsh = False
+    mod.threads = 1
+    mod.fuzzers = domain_phishing.options["fuzzers"]
+    mod.tld_swap_tlds = domain_phishing.options["tld_swap_tlds"]
+    mod.nameservers = []
+    mod.tld_file = None
+    mod.max_candidates = 2000
+    mod.min_score = 3
+    mod.young_domain_days = 45
+    mod.lsh_threshold = 70
+    mod.history_file = ""
+    mod.known = {}
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
+        split_domain=lambda _domain: ("", "coinbase.com"),
+        is_domain=lambda _domain: True,
+        tempfile=lambda _contents, pipe=False: Path("/tmp/tlds.txt"),
+    ))
+    mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout="[]"))
+    mod._redirects_to_protected_domain = lambda *_args: asyncio.sleep(0, result=False)
+    mod.info = lambda *_args: None
+    mod.debug = lambda *_args: None
+    emitted = []
+
+    async def resolve_extra(domain, fuzzer):
+        if domain not in {"coinba5e.com", "coinbasre.com"}:
+            return None
+        return {
+            "domain": domain,
+            "fuzzer": fuzzer,
+            "dns-a": ["1.2.3.4"],
+            "dns-ns": ["ns.example.com"],
+            "_monitor_fingerprint": mod._empty_fingerprint(),
+        }
+
+    async def emit_event(payload, event_type, **_kwargs):
+        emitted.append((payload["host"], event_type))
+
+    mod._resolve_monitor_extra_candidate = resolve_extra
+    mod.emit_event = emit_event
+    asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
+
+    assert set(emitted) == {("coinba5e.com", "VULNERABILITY"), ("coinbasre.com", "FINDING")}
+
+
+def test_domain_phishing_resolves_only_missing_monitor_permutations(monkeypatch):
+    import dns.asyncresolver
+    import dns.resolver
+
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.fuzzers = ["homoglyph", "insertion"]
+    looked_up = []
+
+    async def resolve(domain, record_type, lifetime):
+        looked_up.append((domain, record_type))
+        if domain != "coinbasre.com":
+            raise dns.resolver.NXDOMAIN()
+        return {"A": ["1.2.3.4"], "AAAA": [], "MX": ["10 mx.example.com."], "NS": ["ns.example.com."]}[record_type]
+
+    async def fingerprint(_domain):
+        return {"registrar": "Example Registrar", "registration_date": "2026-09-01"}
+
+    monkeypatch.setattr(dns.asyncresolver, "resolve", resolve)
+    mod._lookup_ownership_fingerprint = fingerprint
+    rows = asyncio.run(mod._monitor_extra_candidates("coinbase.com", [{"domain": "coinba5e.com"}]))
+
+    assert len(rows) == 1
+    assert rows[0]["domain"] == "coinbasre.com"
+    assert rows[0]["dns-a"] == ["1.2.3.4"]
+    assert rows[0]["dns-ns"] == ["ns.example.com"]
+    assert rows[0]["whois-created"] == "2026-09-01"
+    assert not any(domain == "coinba5e.com" for domain, _record_type in looked_up)
 
 
 def test_domain_phishing_suppression_disabled_without_history_file():
