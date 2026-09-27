@@ -60,6 +60,12 @@ class TestDomainPhishing(ModuleTestBase):
                             "created": "2026-05-01",
                         },
                         {
+                            "domain": "blacklanternsecuritys.com",
+                            "fuzzer": "addition",
+                            "dns-mx": ["mx3.example.com"],
+                            "dns-ns": ["ns3.example.com"],
+                        },
+                        {
                             "domain": "blacklanternsecurity.com",
                             "fuzzer": "replacement",
                         },
@@ -107,9 +113,9 @@ class TestDomainPhishing(ModuleTestBase):
             for e in events
             if e.type in ("FINDING", "VULNERABILITY") and e.data.get("category") == "phishing-lookalike-domain"
         ]
-        assert len(phishing_events) == 1
+        assert len(phishing_events) == 2
 
-        event = phishing_events[0]
+        event = next(e for e in phishing_events if e.data["host"] == "blacklanternsecur1ty.com")
         assert event.type == "VULNERABILITY"
         assert event.data["host"] == "blacklanternsecur1ty.com"
         assert event.data["category"] == "phishing-lookalike-domain"
@@ -126,6 +132,10 @@ class TestDomainPhishing(ModuleTestBase):
         assert event.data["registrant_email"] == "abuse@evil.example"
         assert event.data["registrant_name"] == "John Phisher"
         assert event.data["registrant_country"] == "PA"
+
+        low = next(e for e in phishing_events if e.data["host"] == "blacklanternsecuritys.com")
+        assert low.type == "FINDING"
+        assert low.data["severity"] == "LOW"
 
 
 def test_domain_phishing_change_key_suppression():
