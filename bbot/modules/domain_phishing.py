@@ -14,6 +14,7 @@ from bbot.modules.base import BaseModule
 
 
 class domain_phishing(BaseModule):
+    fatal_on_error = True
     watched_events = ["DNS_NAME"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-enum", "phishing"]
@@ -430,7 +431,7 @@ class domain_phishing(BaseModule):
         self.tld_swap_tlds = [str(tld).strip().lower().lstrip(".") for tld in self.config.get("tld_swap_tlds", [])]
         self.tld_file = None
         if "tld-swap" in self.fuzzers and not self.tld_swap_tlds:
-            return None, "tld-swap requires at least one tld_swap_tlds entry"
+            return False, "tld-swap requires at least one tld_swap_tlds entry"
         self.nameservers = list(self.config.get("nameservers", []))
         self.threads = int(self.config.get("threads", 16))
         self.enable_lsh = bool(self.config.get("lsh", False))
@@ -444,9 +445,9 @@ class domain_phishing(BaseModule):
 
         if "/" in self.binary:
             if not Path(self.binary).is_file():
-                return None, f"dnstwist binary not found at path: {self.binary}"
+                return False, f"dnstwist binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
-            return None, f'dnstwist binary "{self.binary}" was not found in PATH'
+            return False, f'dnstwist binary "{self.binary}" was not found in PATH'
 
         if self.enable_lsh:
             self.info("domain_phishing: LSH similarity checks enabled (slower).")

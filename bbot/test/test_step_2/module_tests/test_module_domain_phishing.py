@@ -108,6 +108,7 @@ class TestDomainPhishing(ModuleTestBase):
         )
 
     def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
         phishing_events = [
             e
             for e in events
@@ -136,6 +137,44 @@ class TestDomainPhishing(ModuleTestBase):
         low = next(e for e in phishing_events if e.data["host"] == "blacklanternsecuritys.com")
         assert low.type == "FINDING"
         assert low.data["severity"] == "LOW"
+
+
+class TestDomainPhishingFailedProcess(ModuleTestBase):
+    module_name = "domain_phishing"
+    config_overrides = {
+        "deps": {"behavior": "disable"},
+        "modules": {"domain_phishing": {"binary": "/bin/echo", "fuzzers": ["omission"]}},
+    }
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+
+    async def setup_after_prep(self, module_test):
+        from bbot.modules.base import BaseModule
+
+        async def failed_run_process(self_module, cmd, *args, **kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr="dnstwist failed")
+
+        module_test.monkeypatch.setattr(BaseModule, "run_process", failed_run_process)
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FAILED"
+        assert not any(e.type in ("FINDING", "VULNERABILITY") for e in events)
+
+
+class TestDomainPhishingCancelledProcess(TestDomainPhishingFailedProcess):
+    async def setup_after_prep(self, module_test):
+        from bbot.modules.base import BaseModule
+
+        async def cancelled_run_process(self_module, cmd, *args, **kwargs):
+            raise asyncio.CancelledError
+
+        module_test.monkeypatch.setattr(BaseModule, "run_process", cancelled_run_process)
 
 
 def test_domain_phishing_change_key_suppression():
@@ -356,6 +395,19 @@ def test_domain_phishing_fails_when_dnstwist_output_is_unusable(returncode, stdo
 
     with pytest.raises(RuntimeError, match=expected_error):
         asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
+
+
+def test_domain_phishing_missing_binary_is_a_hard_setup_failure(tmp_path):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    binary = str(tmp_path / "missing-dnstwist")
+    mod._name = "domain_phishing"
+    mod.scan = SimpleNamespace(config={"modules": {"domain_phishing": {"binary": binary, "fuzzers": ["omission"]}}})
+    status, message = asyncio.run(mod.setup())
+
+    assert status is False
+    assert binary in message
 
 
 def test_domain_phishing_suppression_disabled_without_history_file():

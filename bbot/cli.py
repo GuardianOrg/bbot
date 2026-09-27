@@ -295,7 +295,7 @@ async def _main():
 
             await scan.async_start_without_generator()
 
-        return True
+        return bool(scan._finish_event and scan._finish_event.data.get("status") == "FINISHED")
 
     except BBOTError as e:
         log.error(str(e))
@@ -317,7 +317,9 @@ def main():
 
     global scan_name
     try:
-        asyncio.run(_main())
+        result = asyncio.run(_main())
+        if result is False:
+            sys.exit(1)
     except asyncio.CancelledError:
         if CORE.logger.log_level <= logging.DEBUG:
             log_to_stderr(traceback.format_exc(), level="DEBUG")

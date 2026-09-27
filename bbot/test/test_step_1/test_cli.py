@@ -5,6 +5,23 @@ from ..bbot_fixtures import *
 from bbot import cli
 
 
+def test_cli_main_exits_nonzero_when_scan_returns_failure(monkeypatch):
+    async def failed_scan():
+        return False
+
+    monkeypatch.setattr(cli, "_main", failed_scan)
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main()
+    assert exit_info.value.code == 1
+
+
+def test_naabu_fast_options_have_descriptions():
+    options = DEFAULT_PRESET.module_loader.modules_options(["naabu_fast"])["naabu_fast"]
+    names = {name for name, _type, _description, _default in options}
+    assert "modules.naabu_fast.exclude_cdn" in names
+    assert len(options) == len(DEFAULT_PRESET.module_loader.preloaded()["naabu_fast"]["config"])
+
+
 @pytest.mark.asyncio
 async def test_cli_scope(monkeypatch, capsys):
     import json
