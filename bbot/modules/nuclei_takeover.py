@@ -8,6 +8,7 @@ from bbot.modules.base import BaseModule
 
 
 class nuclei_takeover(BaseModule):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
@@ -39,7 +40,7 @@ class nuclei_takeover(BaseModule):
         "concurrency": "Nuclei template concurrency",
         "retries": "Nuclei retries",
         "timeout": "Nuclei timeout in seconds",
-        "module_timeout": "Maximum seconds to wait for a nuclei takeover batch before skipping it",
+        "module_timeout": "Maximum seconds to wait for a nuclei takeover batch",
         "check_unresolved": "Also run takeover templates against DNS_NAME_UNRESOLVED events",
         "silent": "Only show findings output from nuclei",
     }
@@ -141,7 +142,7 @@ class nuclei_takeover(BaseModule):
         target_file = self.helpers.tempfile(targets, pipe=False)
         command += ["-l", target_file]
         self.info(f"Running nuclei takeover command: {' '.join(str(part) for part in command)}")
-        process = self.run_process_live(command, stderr=subprocess.DEVNULL)
+        process = self.run_process_live(command, stderr=subprocess.DEVNULL, check=True)
         try:
             async with asyncio.timeout(self.module_timeout):
                 async for line in process:
@@ -213,10 +214,10 @@ class nuclei_takeover(BaseModule):
                         tags=["takeover", "nuclei-takeover"],
                         context=f'{{module}} used nuclei takeover templates and found {{event.type}} on "{host}"',
                     )
-        except TimeoutError:
-            self.warning(
-                f"nuclei_takeover exceeded {self.module_timeout:g}s for batch of {len(targets)} targets, skipping batch"
-            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"nuclei_takeover exceeded {self.module_timeout:g}s for batch of {len(targets)} targets"
+            ) from exc
         finally:
             await process.aclose()
 

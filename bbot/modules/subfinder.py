@@ -5,6 +5,7 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
 class subfinder(subdomain_enum):
+    fatal_on_error = True
     watched_events = ["DNS_NAME"]
     produced_events = ["DNS_NAME"]
     flags = ["subdomain-enum", "passive", "safe"]
@@ -137,9 +138,8 @@ class subfinder(subdomain_enum):
         stderr = getattr(result, "stderr", "") or ""
         returncode = getattr(result, "returncode", 0)
 
-        if returncode != 0 and not stdout.strip():
-            self.info(f'Subfinder query for "{query}" failed with code {returncode}: {stderr.strip()}')
-            return []
+        if returncode != 0:
+            raise RuntimeError(f'Subfinder query for "{query}" failed with code {returncode}: {stderr.strip()}')
 
         discovered = set()
         for line in stdout.splitlines():

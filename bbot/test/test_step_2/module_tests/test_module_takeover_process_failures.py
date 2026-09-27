@@ -76,6 +76,42 @@ class TestSubzyMalformedOutput(TestSubzyFailedProcess):
         module_test.monkeypatch.setattr(module_test.module, "run_process", malformed_run_process)
 
 
+class TestSubfinderFailedProcess(_TakeoverFailureBase):
+    module_name = "subfinder"
+    config_overrides = {
+        **_TakeoverFailureBase.config_overrides,
+        "modules": {"subfinder": {"binary": "/bin/echo"}},
+    }
+
+
+class TestNucleiTakeoverTimeout(_TakeoverFailureBase):
+    module_name = "nuclei_takeover"
+
+    async def setup_before_prep(self, module_test):
+        await super().setup_before_prep(module_test)
+        import os
+
+        from bbot.modules.base import BaseModule
+
+        real_isfile = os.path.isfile
+        module_test.monkeypatch.setattr(
+            os.path, "isfile", lambda path: str(path).endswith("/nuclei") or real_isfile(path)
+        )
+
+        async def fake_update_templates(module, *args, **kwargs):
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module_test.monkeypatch.setattr(BaseModule, "run_process", fake_update_templates)
+
+    async def setup_after_prep(self, module_test):
+        async def timed_out_process(cmd, *args, **kwargs):
+            assert kwargs["check"] is True
+            raise TimeoutError("nuclei timeout")
+            yield  # pragma: no cover
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process_live", timed_out_process)
+
+
 @pytest.mark.parametrize(
     ("module_type", "config"),
     [
