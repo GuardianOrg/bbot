@@ -245,7 +245,7 @@ class domain_phishing(BaseModule):
             score += 3
             reasons.append(f"high page similarity (LSH {lsh_value}%)")
 
-        severity = ""
+        severity = "LOW"
         if score >= 6:
             severity = "HIGH"
         elif score >= 4:
@@ -550,6 +550,7 @@ class domain_phishing(BaseModule):
                 "fuzzer": fuzzer,
                 "probability": score,
                 "score": score,
+                "severity": severity,
             }
             # Attach the WHOIS ownership fingerprint (registrar + registration date +
             # registrant identity) so Sentry can distinguish a re-registered/newly-bought
@@ -557,9 +558,8 @@ class domain_phishing(BaseModule):
             payload.update(fingerprint)
 
             event_type = "FINDING"
-            if severity:
+            if severity in ("HIGH", "MEDIUM"):
                 event_type = "VULNERABILITY"
-                payload["severity"] = severity
 
             await self.emit_event(
                 payload,

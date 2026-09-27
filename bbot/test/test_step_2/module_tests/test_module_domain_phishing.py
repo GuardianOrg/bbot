@@ -236,13 +236,16 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
         }
 
     async def emit_event(payload, event_type, **_kwargs):
-        emitted.append((payload["host"], event_type))
+        emitted.append((payload["host"], event_type, payload.get("severity")))
 
     mod._resolve_monitor_extra_candidate = resolve_extra
     mod.emit_event = emit_event
     asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
 
-    assert set(emitted) == {("coinba5e.com", "VULNERABILITY"), ("coinbasre.com", "FINDING")}
+    assert set(emitted) == {
+        ("coinba5e.com", "VULNERABILITY", "MEDIUM"),
+        ("coinbasre.com", "FINDING", "LOW"),
+    }
 
 
 def test_domain_phishing_resolves_only_missing_monitor_permutations(monkeypatch):
