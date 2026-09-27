@@ -1,13 +1,40 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from .base import ModuleTestBase
+from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
 kingfisher_calls = []
 # What the fake Kingfisher run returns; a test may change it in setup_after_prep.
 kingfisher_outcome = {}
+
+
+def test_public_recaptcha_site_key_is_not_reported_as_a_secret(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    key = "6LsyntheticSiteKeyForRegressionTest1234567890"
+    artifact = tmp_path / "manifest.json"
+    artifact.write_text(f'<div class="g-recaptcha" data-sitekey="{key}"></div>\n')
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://accounts.example.com/manifest.json", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="reCAPTCHA API Key", file_path=str(artifact), line=1,
+    ) is None
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="reCAPTCHA API Key", file_path=str(artifact), line=1, verified=True,
+    )["severity"] == "High"
+
+    artifact.write_text(f'<script>const recaptchaSecretKey = "{key}";</script>\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="reCAPTCHA API Key", file_path=str(artifact), line=1,
+    )["category"] == "secret"
 
 
 @pytest.fixture

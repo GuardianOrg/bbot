@@ -235,6 +235,8 @@ class github_leak_formatter:
         severity="",
         extra_fields=None,
     ):
+        if self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified):
+            return None
         source_url = self.get_artifact_source_url(event)
         if Path(scan_path).is_file():
             # A scanned file reports its own path, or "<file>!<member>" inside an archive.
@@ -287,6 +289,28 @@ class github_leak_formatter:
             # Same key as Git leaks: one secret exposed in several places is one credential to rotate.
             data["dedupe_key"] = f"github-leak-secret:{secret_fingerprint}"
         return self.add_secret_fields(data, leak_value, secret_fingerprint, artifact_path, line, extra_fields)
+
+    @staticmethod
+    def is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified):
+        """A client-side site key is deliberately public; require its source label before filtering."""
+        if verified or str(detector or "").lower() != "recaptcha api key":
+            return False
+        key = str(leak or "").strip()
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+        except (OSError, TypeError, ValueError):
+            return False
+        if not key or line_number < 1 or source != reported or not source.is_file():
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                source_line = next((text for index, text in enumerate(stream, 1) if index == line_number), "")
+        except OSError:
+            return False
+        site_key_label = r"(?:data-sitekey|recaptcha[_-]?site[_-]?key|site[_-]?key)"
+        return bool(re.search(rf"{site_key_label}\s*[=:]\s*[\"']?{re.escape(key)}(?=[\"'\s<]|$)", source_line, re.IGNORECASE))
 
     def get_artifact_source_url(self, event):
         current = event
