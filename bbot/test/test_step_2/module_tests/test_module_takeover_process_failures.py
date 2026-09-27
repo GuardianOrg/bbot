@@ -170,3 +170,25 @@ def test_nuclei_takeover_accepts_downloaded_templates(tmp_path, monkeypatch):
     module.run_process = update_templates
 
     assert asyncio.run(module.setup()) is True
+
+
+def test_nuclei_takeover_accepts_custom_template_without_default_directory(tmp_path, monkeypatch):
+    (tmp_path / "nuclei").touch()
+    template = tmp_path / "custom-takeover.yaml"
+    template.write_text("id: custom-takeover\n")
+    monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
+    module = object.__new__(nuclei_takeover)
+    module._name = "nuclei_takeover"
+    module.scan = SimpleNamespace(
+        config={"modules": {"nuclei_takeover": {"templates": str(template)}}},
+        helpers=SimpleNamespace(tools_dir=tmp_path),
+    )
+    module.info = lambda *args, **kwargs: None
+    module.warning = lambda *args, **kwargs: None
+
+    async def failed_update(*args, **kwargs):
+        return SimpleNamespace(returncode=1, stderr="update unavailable")
+
+    module.run_process = failed_update
+
+    assert asyncio.run(module.setup()) is True

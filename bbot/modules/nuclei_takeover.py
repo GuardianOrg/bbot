@@ -65,9 +65,10 @@ class nuclei_takeover(BaseModule):
         if not os.path.isfile(self.nuclei_bin):
             return False, 'nuclei binary "nuclei" was not found in PATH'
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
+        self.templates = str(self.config.get("templates", "")).strip()
         had_templates = self.nuclei_templates_dir.is_dir()
         should_update_templates = (
-            os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or not had_templates
+            os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or (not had_templates and not self.templates)
         )
         if should_update_templates:
             self.info("Updating Nuclei templates for takeover scans")
@@ -75,16 +76,15 @@ class nuclei_takeover(BaseModule):
                 [self.nuclei_bin, "-update-template-dir", self.nuclei_templates_dir, "-update-templates"]
             )
             if update_result is None or update_result.returncode != 0:
-                if not had_templates:
+                if not had_templates and not self.templates:
                     return False, "nuclei takeover templates could not be downloaded"
                 self.warning(f"Failed to update nuclei templates: {getattr(update_result, 'stderr', '')}")
         elif had_templates:
             self.info("Using existing Nuclei templates for takeover scans")
-        if not self.nuclei_templates_dir.is_dir():
+        if not self.nuclei_templates_dir.is_dir() and not self.templates:
             return False, "nuclei takeover templates directory is missing after update"
         self.takeover_templates_dir = self.nuclei_templates_dir / "http" / "takeovers"
         self.tags = str(self.config.get("tags", "takeover")).strip() or "takeover"
-        self.templates = str(self.config.get("templates", "")).strip()
         self.etags = str(self.config.get("etags", "")).strip()
         self.ratelimit = int(self.config.get("ratelimit", 150))
         self.concurrency = int(self.config.get("concurrency", 25))
