@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 import dns.exception
 import dns.flags
 import dns.message
+import dns.name
 import dns.query
+import dns.rdata
 import dns.rdataclass
 import dns.rdatatype
 import dns.resolver
@@ -778,27 +780,52 @@ class domain_config_dns_audit(BaseModule):
         remaining = rrsig.expiration - datetime.now(tz=timezone.utc).timestamp()
         return remaining < validity * RRSIG_STALLED_REMAINING_FRACTION
 
+    @staticmethod
+    def nsec_successor(record, zone, owner):
+        try:
+            successor = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NSEC, record).next.canonicalize()
+            zone_name = dns.name.from_text(zone).canonicalize()
+            owner_name = dns.name.from_text(owner).canonicalize()
+        except (dns.exception.DNSException, ValueError):
+            return None
+        # Online signers can manufacture minimally covering successors such as
+        # "\\000.example.com". They prove nonexistence without exposing the next
+        # real hostname, so they do not establish that the zone is walkable.
+        if not successor.is_subdomain(zone_name) or successor == owner_name:
+            return None
+        if any(byte < 33 or byte > 126 for label in successor.labels for byte in label):
+            return None
+        return successor.to_text(omit_final_dot=True)
+
     async def check_nsec_records(self, domain, findings):
         success, nsec_records = await self.query_dns(domain, "NSEC")
         if success and nsec_records:
-            findings.append(AuditFinding(
-                "NSEC Allows Zone Walking",
-                "MEDIUM",
-                "DNSSEC",
-                (
-                    "The zone uses NSEC denial-of-existence records. NSEC can allow zone walking, letting an attacker enumerate valid hostnames and use that list for reconnaissance and targeted attacks."
-                    ' NSEC records are used by DNSSEC to prove that a requested name does not exist. A'
-                    ' side effect is that they can reveal the next valid name in the zone, allowing someone to walk through the zone'
-                    ' and enumerate many real hostnames. This does not give direct access to systems, but it can expose staging'
-                    ' hosts, admin names, forgotten services, naming conventions, and other reconnaissance value. Some zones accept'
-                    ' this tradeoff because NSEC is simple and standards-compliant. If hostname privacy matters, NSEC3 or other'
-                    ' operational controls should be considered, while remembering that DNS should not be the only place sensitive'
-                    ' systems are hidden.'
-                ),
-                f"NSEC: {nsec_records[0][:100]}",
-                "Use NSEC3 if zone-walking resistance is required.",
-                f"dig {domain} NSEC +short",
-            ))
+            first = self.nsec_successor(nsec_records[0], domain, domain)
+            next_records = []
+            if first:
+                next_success, next_records = await self.query_dns(first, "NSEC")
+                second = self.nsec_successor(next_records[0], domain, first) if next_success and next_records else None
+            else:
+                second = None
+            if first and second:
+                findings.append(AuditFinding(
+                    "NSEC Allows Zone Walking",
+                    "MEDIUM",
+                    "DNSSEC",
+                    (
+                        "The zone exposes a repeatable NSEC chain, allowing zone walking to enumerate valid hostnames for reconnaissance and targeted attacks."
+                        ' NSEC records are used by DNSSEC to prove that a requested name does not exist. A'
+                        ' side effect is that they can reveal the next valid name in the zone, allowing someone to walk through the zone'
+                        ' and enumerate many real hostnames. This does not give direct access to systems, but it can expose staging'
+                        ' hosts, admin names, forgotten services, naming conventions, and other reconnaissance value. Some zones accept'
+                        ' this tradeoff because NSEC is simple and standards-compliant. If hostname privacy matters, NSEC3 or other'
+                        ' operational controls should be considered, while remembering that DNS should not be the only place sensitive'
+                        ' systems are hidden.'
+                    ),
+                    f"NSEC chain: {domain} -> {first} -> {second}",
+                    "Use NSEC3 or minimally covering online-signed NSEC if zone-walking resistance is required.",
+                    f"dig {domain} NSEC +short",
+                ))
         success, nsec3param = await self.query_dns(domain, "NSEC3PARAM")
         if success and nsec3param:
             parts = nsec3param[0].split()
