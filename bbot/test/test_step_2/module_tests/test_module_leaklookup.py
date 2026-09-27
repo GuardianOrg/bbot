@@ -92,6 +92,36 @@ class TestLeaklookupUsernamePassword(ModuleTestBase):
         assert "hunter2" not in str(findings[0].data)
 
 
+class TestLeaklookupMultiValue(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={
+                "error": "false",
+                "message": {
+                    "Example": [{
+                        "email_address": ["alice@blacklanternsecurity.com", "bob@blacklanternsecurity.com"],
+                        "password": ["alpha-pass", "beta-pass"],
+                    }]
+                },
+            },
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        passwords = [e for e in events if e.type == "PASSWORD"]
+        assert {e.data for e in passwords} == {
+            "alice@blacklanternsecurity.com:alpha-pass",
+            "alice@blacklanternsecurity.com:beta-pass",
+            "bob@blacklanternsecurity.com:alpha-pass",
+            "bob@blacklanternsecurity.com:beta-pass",
+        }
+
+
 class TestLeaklookupEscalation(ModuleTestBase):
     module_name = "leaklookup"
     config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub", "private_api_key": "priv"}}}
