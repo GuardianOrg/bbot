@@ -100,20 +100,29 @@ class leaklookup(subdomain_enum):
         if not breaches:
             return
 
-        # Step 3: obtain the actual records. If the detection response already carried records
-        # (the key was private) use them; otherwise escalate to the paid key when available.
-        records_by_breach = detection if self._has_records(detection) else {}
-        if not records_by_breach and self.private_api_key and self.private_api_key != self.detection_key:
-            records_by_breach = await self._search(self.private_api_key, query)
-        if not isinstance(records_by_breach, dict):
-            records_by_breach = {}
+        # Public responses may contain metadata rows without credentials. Always query the
+        # distinct paid key when configured; prefer its record rows per breach, retaining the
+        # public response as a fallback if the paid query has no rows for that breach.
+        records_by_breach = dict(detection)
+        if self.private_api_key and self.private_api_key != self.detection_key:
+            paid_records = await self._search(self.private_api_key, query)
+            for breach, rows in paid_records.items():
+                if isinstance(rows, list) and rows:
+                    records_by_breach[breach] = rows
 
         for breach in breaches:
-            rows = [row for row in records_by_breach.get(breach, []) if isinstance(row, dict)]
+            candidate_rows = records_by_breach.get(breach)
+            rows = [row for row in candidate_rows if isinstance(row, dict)] if isinstance(candidate_rows, list) else []
             if rows:
                 source_tag = f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"
+                saw_metadata_only_row = False
                 for row in rows:
-                    await self._emit_row_results(row, event, query, breach, source_tag)
+                    outcome = await self._emit_row_results(row, event, query, breach, source_tag)
+                    if outcome is False:
+                        saw_metadata_only_row = True
+                if saw_metadata_only_row and not self.history.contains(self._breach_fp(query, breach)):
+                    await self._emit_public_breach_finding(breach, event, query, public_lookup=not bool(self.private_api_key))
+                    self.history.add(self._breach_fp(query, breach))
             elif not self.history.contains(self._breach_fp(query, breach)):
                 # No records (public-only, or the paid key returned nothing) — alert on the
                 # breach-name hit, deduped by breach so we do not re-emit it every scan.
@@ -131,7 +140,7 @@ class leaklookup(subdomain_enum):
         async with self._state_lock:
             self.history.save()
 
-    async def _emit_public_breach_finding(self, breach, event, query):
+    async def _emit_public_breach_finding(self, breach, event, query, public_lookup=True):
         await self.emit_event(
             {
                 "host": query,
@@ -139,10 +148,10 @@ class leaklookup(subdomain_enum):
                 "title": f"Leak-Lookup breach match for {query}: {breach}",
                 "category": "breach-dataset-match",
                 "description": (
-                    f'The public Leak-Lookup API reports that "{query}" appears in the breach dataset "{breach}". '
-                    "No individual account or secret was returned by the public lookup, so this does not establish "
-                    "a leaked credential. Retrieve the individual records with a paid key or alternate telemetry "
-                    "before assessing account impact."
+                    f'Leak-Lookup reports that "{query}" appears in the breach dataset "{breach}". '
+                    "This result identified no individual account or secret, so it does not establish a leaked "
+                    "credential. Retrieve individual records with a paid key or alternate telemetry before "
+                    "assessing account impact."
                 ),
                 "recommendation": (
                     "Retrieve individual records and verify whether any active accounts or secrets are affected "
@@ -153,8 +162,9 @@ class leaklookup(subdomain_enum):
             },
             "FINDING",
             parent=event,
-            tags=["leaklookup-public-api", f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"],
-            context=f'{{module}} queried Leak-Lookup (public) and found {{event.type}} breach match for "{query}": {breach}',
+            tags=(["leaklookup-public-api"] if public_lookup else [])
+            + [f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"],
+            context=f'{{module}} queried Leak-Lookup and found {{event.type}} breach match for "{query}": {breach}',
         )
         return True
 
@@ -170,7 +180,7 @@ class leaklookup(subdomain_enum):
         if date_tags:
             record_fp += ":" + ":".join(date_tags)
         if self.history.contains(record_fp):
-            return False
+            return None
         self.history.add(record_fp)
 
         if not passwords and not hashed_passwords:
@@ -257,7 +267,7 @@ class leaklookup(subdomain_enum):
                     tags=[source_tag, *date_tags],
                     context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
                 )
-        return True
+        return bool(emails or usernames or passwords or hashed_passwords)
 
     async def handle_hashed_password_event(self, event):
         identity, hash_value = self._split_hashed_password_event(event)
@@ -325,10 +335,6 @@ class leaklookup(subdomain_enum):
             return {}
         message = json_result.get("message", {})
         return message if isinstance(message, dict) else {}
-
-    @staticmethod
-    def _has_records(result):
-        return any(isinstance(rows, list) and rows for rows in result.values())
 
     async def _extract_emails_from_row(self, row):
         emails = set()

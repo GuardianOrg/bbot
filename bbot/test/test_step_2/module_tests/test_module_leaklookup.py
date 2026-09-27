@@ -122,6 +122,43 @@ class TestLeaklookupMultiValue(ModuleTestBase):
         }
 
 
+class TestLeaklookupMetadataOnlyPaid(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": {"Example": [{"source": "dataset-metadata"}]}},
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING" and e.data.get("category") == "breach-dataset-match"]
+        assert len(findings) == 1
+        assert findings[0].data["severity"] == "INFO"
+        assert "leaklookup-public-api" not in findings[0].tags
+
+
+class TestLeaklookupPublicMetadataRows(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": {"Example": [{"source": "public-index"}]}},
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING" and e.data.get("category") == "breach-dataset-match"]
+        assert len(findings) == 1
+        assert "leaklookup-public-api" in findings[0].tags
+
+
 class TestLeaklookupEscalation(ModuleTestBase):
     module_name = "leaklookup"
     config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub", "private_api_key": "priv"}}}
@@ -144,6 +181,31 @@ class TestLeaklookupEscalation(ModuleTestBase):
     def check(self, module_test, events):
         # Public detected the breach → escalated to the paid key → emitted the record.
         assert 1 == len([e for e in events if e.type == "PASSWORD" and e.data == "bob@blacklanternsecurity.com:hunter2"])
+
+
+class TestLeaklookupEscalationFromMetadataRows(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub", "private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": {"Example": [{"source": "public-index"}]}},
+        )
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={
+                "error": "false",
+                "message": {"Example": [{"email_address": "alice@blacklanternsecurity.com", "password": "hunter2"}]},
+            },
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        passwords = [e for e in events if e.type == "PASSWORD"]
+        assert [e.data for e in passwords] == ["alice@blacklanternsecurity.com:hunter2"]
 
 
 def test_leak_history_fingerprint_and_store(tmp_path):
