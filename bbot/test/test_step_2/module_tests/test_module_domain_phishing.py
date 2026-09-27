@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 from .base import ModuleTestBase
@@ -31,6 +32,11 @@ class TestDomainPhishing(ModuleTestBase):
         from bbot.modules.base import BaseModule
 
         async def fake_run_process(self_module, cmd, *args, **kwargs):
+            assert "--tld" in cmd
+            tlds = Path(cmd[cmd.index("--tld") + 1]).read_text().splitlines()
+            assert {"com", "net", "io", "co", "xyz", "finance", "money"}.issubset(set(tlds))
+            assert "vowel-swap" in cmd[cmd.index("--fuzzers") + 1].split(",")
+
             class FakeResult:
                 returncode = 0
                 stdout = json.dumps(
@@ -141,6 +147,44 @@ def test_domain_phishing_change_key_suppression():
         {"domain": "x.com", "whois_created": "2027-01-01", "whois_registrar": "MarkMonitor, Inc."}
     )
     assert mod._is_known_unchanged("x.com", key_changed) is False
+
+
+def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.binary = "/bin/echo"
+    mod.registered_only = True
+    mod.enable_lsh = False
+    mod.threads = 1
+    mod.fuzzers = domain_phishing.options["fuzzers"]
+    mod.tld_swap_tlds = domain_phishing.options["tld_swap_tlds"]
+    mod.nameservers = []
+    mod.tld_file = None
+    mod.debug = lambda *_args: None
+    command = []
+
+    def tempfile(contents, pipe=False):
+        path = tmp_path / "tlds.txt"
+        path.write_text("\n".join(contents))
+        return path
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
+        split_domain=lambda _domain: ("", "bitpay.com"), is_domain=lambda _domain: True, tempfile=tempfile
+    ))
+
+    async def run_process(cmd, **_kwargs):
+        command.extend(cmd)
+        return SimpleNamespace(stdout="[]")
+
+    mod.run_process = run_process
+    asyncio.run(mod.handle_event(SimpleNamespace(data="bitpay.com")))
+
+    assert "--tld" in command
+    assert {"com", "net", "io", "co", "xyz", "finance", "money"}.issubset(
+        set(Path(command[command.index("--tld") + 1]).read_text().splitlines())
+    )
+    assert "vowel-swap" in command[command.index("--fuzzers") + 1].split(",")
 
 
 def test_domain_phishing_suppression_disabled_without_history_file():

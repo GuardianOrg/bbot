@@ -31,8 +31,10 @@ class domain_phishing(BaseModule):
             "omission",
             "replacement",
             "transposition",
+            "vowel-swap",
             "tld-swap",
         ],
+        "tld_swap_tlds": ["com", "net", "org", "io", "co", "app", "xyz", "info", "online", "site", "live", "finance", "money"],
         "nameservers": [],
         "threads": 16,
         "lsh": False,
@@ -46,6 +48,7 @@ class domain_phishing(BaseModule):
         "binary": "Path to dnstwist binary",
         "registered_only": "Only analyze registered permutations",
         "fuzzers": "Subset of dnstwist fuzzers to use",
+        "tld_swap_tlds": "TLDs to test with the tld-swap fuzzer (one domain per TLD)",
         "nameservers": "Custom resolvers for dnstwist (comma-separated)",
         "threads": "dnstwist worker threads",
         "lsh": "Enable dnstwist LSH page-similarity checks (slower)",
@@ -364,6 +367,10 @@ class domain_phishing(BaseModule):
         self.binary = str(self.config.get("binary", "dnstwist")).strip()
         self.registered_only = bool(self.config.get("registered_only", True))
         self.fuzzers = list(self.config.get("fuzzers", []))
+        self.tld_swap_tlds = [str(tld).strip().lower().lstrip(".") for tld in self.config.get("tld_swap_tlds", [])]
+        self.tld_file = None
+        if "tld-swap" in self.fuzzers and not self.tld_swap_tlds:
+            return None, "tld-swap requires at least one tld_swap_tlds entry"
         self.nameservers = list(self.config.get("nameservers", []))
         self.threads = int(self.config.get("threads", 16))
         self.enable_lsh = bool(self.config.get("lsh", False))
@@ -409,6 +416,11 @@ class domain_phishing(BaseModule):
 
         if self.fuzzers:
             command += ["--fuzzers", ",".join(self.fuzzers)]
+
+        if "tld-swap" in self.fuzzers:
+            if self.tld_file is None:
+                self.tld_file = self.helpers.tempfile(self.tld_swap_tlds, pipe=False)
+            command += ["--tld", str(self.tld_file)]
 
         if self.nameservers:
             command += ["--nameservers", ",".join(self.nameservers)]
