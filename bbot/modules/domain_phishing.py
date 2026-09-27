@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-from bbot.core.helpers.whois import normalize_whois_ownership
+from bbot.core.helpers.whois import normalize_whois_ownership, whois_result_with_registrant
 from bbot.modules.base import BaseModule
 
 
@@ -236,10 +236,7 @@ class domain_phishing(BaseModule):
     def _whois_lookup(domain):
         import whois
 
-        data = whois.whois(domain)
-        if isinstance(data, dict):
-            return data
-        return dict(data) if data else {}
+        return whois_result_with_registrant(whois.whois(domain))
 
     @staticmethod
     def _canonical_day(value):

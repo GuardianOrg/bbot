@@ -88,6 +88,7 @@ class TestDomainPhishing(ModuleTestBase):
                 "creation_date": datetime(2026, 4, 15, 10, 0, 0),
                 "org": "Shady Buyer LLC",
                 "emails": ["abuse@evil.example"],
+                "registrant_email": "abuse@evil.example",
                 "name": "John Phisher",
                 "country": "PA",
             },

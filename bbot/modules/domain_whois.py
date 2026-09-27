@@ -1,7 +1,7 @@
 import asyncio
 from datetime import date, datetime
 
-from bbot.core.helpers.whois import normalize_whois_ownership, whois_first_string
+from bbot.core.helpers.whois import normalize_whois_ownership, whois_first_string, whois_result_with_registrant
 from bbot.modules.base import BaseModule
 
 
@@ -47,10 +47,7 @@ class domain_whois(BaseModule):
     def lookup_whois(self, domain):
         import whois
 
-        data = whois.whois(domain)
-        if isinstance(data, dict):
-            return data
-        return dict(data) if data else {}
+        return whois_result_with_registrant(whois.whois(domain))
 
     def normalize_result(self, host, result):
         ownership = normalize_whois_ownership(result)

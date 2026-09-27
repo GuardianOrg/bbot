@@ -27,6 +27,7 @@ class TestDomainWhois(ModuleTestBase):
                 "updated_date": "2025-04-01T02:03:04Z",
                 "name": "Example Admin",
                 "emails": ["dns-admin@blacklanternsecurity.com"],
+                "registrant_email": "dns-admin@blacklanternsecurity.com",
                 "org": "Black Lantern Security",
                 "country": "US",
                 "dnssec": "signed",
