@@ -35,3 +35,36 @@ def test_static_nsec_chain_still_reports_zone_walking():
     asyncio.run(audit.check_nsec_records("example.com", findings))
 
     assert any(finding.title == "NSEC Allows Zone Walking" for finding in findings)
+
+
+def test_nsec3_zero_extra_iterations_is_not_a_weakness():
+    audit = audit_with_nsec_records({
+        ("example.com", "NSEC3PARAM"): ["1 0 0 -"],
+    })
+    findings = []
+
+    asyncio.run(audit.check_nsec_records("example.com", findings))
+
+    assert not any("NSEC3" in finding.title for finding in findings)
+
+
+def test_nsec3_extra_iterations_are_reported():
+    audit = audit_with_nsec_records({
+        ("example.com", "NSEC3PARAM"): ["1 0 1 B91097EDF2E4502C"],
+    })
+    findings = []
+
+    asyncio.run(audit.check_nsec_records("example.com", findings))
+
+    assert any(finding.title == "NSEC3 Uses Extra Iterations" for finding in findings)
+
+
+def test_nsec3_many_extra_iterations_remain_high_priority():
+    audit = audit_with_nsec_records({
+        ("example.com", "NSEC3PARAM"): ["1 0 151 -"],
+    })
+    findings = []
+
+    asyncio.run(audit.check_nsec_records("example.com", findings))
+
+    assert any(finding.title == "NSEC3 Uses Extra Iterations" and finding.severity == "HIGH" for finding in findings)

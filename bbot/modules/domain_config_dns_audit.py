@@ -831,42 +831,17 @@ class domain_config_dns_audit(BaseModule):
             parts = nsec3param[0].split()
             if len(parts) >= 3 and parts[2].isdigit():
                 iterations = int(parts[2])
-                if iterations == 0:
+                if iterations > 0:
                     findings.append(AuditFinding(
-                        "NSEC3 Without Iterations",
-                        "LOW",
+                        "NSEC3 Uses Extra Iterations",
+                        "HIGH" if iterations > 150 else "MEDIUM",
                         "DNSSEC",
                         (
-                            "NSEC3 is enabled with zero iterations. This lowers the cost of reversing hashed names and weakens the protection NSEC3 is intended to provide against zone enumeration."
-                            ' NSEC3 is designed to make DNSSEC denial-of-existence records less directly'
-                            ' enumerable by using hashed names instead of plain names. When it is configured with zero iterations, reversing'
-                            ' or guessing those hashed names becomes cheaper for attackers, especially if hostnames follow predictable'
-                            ' patterns such as admin, vpn, dev, or staging. This is usually a reconnaissance issue rather than an immediate'
-                            ' compromise. It means the protection expected from NSEC3 is weaker than intended. The setting should be'
-                            ' reviewed with the DNS provider, balancing privacy benefits against resolver performance and current DNSSEC'
-                            ' guidance.'
+                            f"NSEC3 uses {iterations} additional hash iterations. RFC 9276 requires zero extra iterations because more hashing increases resolver CPU cost and denial-of-service or interoperability risk without materially preventing dictionary attacks on guessable names."
+                            " The initial NSEC3 hash still runs when the iterations field is zero."
                         ),
                         f"NSEC3PARAM: {nsec3param[0]}",
-                        "Use a modest NSEC3 iteration count if zone-walking resistance is required.",
-                        f"dig {domain} NSEC3PARAM +short",
-                    ))
-                elif iterations > 150:
-                    findings.append(AuditFinding(
-                        "Excessive NSEC3 Iterations",
-                        "MEDIUM",
-                        "DNSSEC",
-                        (
-                            f"NSEC3 uses {iterations} iterations. Excessive iteration counts can increase CPU load for authoritative servers and validating resolvers, creating unnecessary availability risk."
-                            ' NSEC3 iterations make each proof more computationally expensive. A modest value can'
-                            ' slow down zone enumeration, but a very high value can also increase work for authoritative DNS servers and'
-                            ' validating resolvers. That extra CPU cost may become visible during traffic spikes, attacks, or normal'
-                            ' high-volume resolution, turning a privacy feature into an availability risk. Modern guidance often favors'
-                            ' conservative NSEC3 settings because high iteration counts provide limited real-world protection against'
-                            ' determined enumeration. The configuration should be reduced to a safe range that preserves compatibility and'
-                            ' keeps DNS responses fast and reliable.'
-                        ),
-                        f"NSEC3PARAM: {nsec3param[0]}",
-                        "Reduce NSEC3 iterations to a safer range.",
+                        "Set NSEC3 iterations to 0 and re-sign the zone, following RFC 9276.",
                         f"dig {domain} NSEC3PARAM +short",
                     ))
 
