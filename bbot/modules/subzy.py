@@ -10,6 +10,7 @@ from bbot.modules.base import BaseModule
 # - Gemfury: its fingerprint is Next.js's not-found text, which every Next.js page embeds, while the
 #   unclaimed Gemfury page is that same Next.js 404 and is never served with a 200.
 VERCEL_DISPROVED_ENGINES = frozenset({"vercel", "gemfury"})
+NON_CARGO_CNAME_SUFFIXES = ("sendgrid.net", "readmessl.com")
 
 
 class subzy(BaseModule):
@@ -82,19 +83,27 @@ class subzy(BaseModule):
         """
         if response is None:
             return False
-        # Subzy's Cargo fingerprint also matches the stock nginx ingress 404. A host that
-        # resolves directly to its ingress IP, with no Cargo CNAME, is not routed to Cargo.
-        # Require both signals before suppressing; an unknown DNS state retains the alert.
+        # Subzy's Cargo fingerprint also matches stock nginx/openresty ingress 404s.
+        # A direct ingress address plus that exact generic page is not Cargo routing.
+        # A CNAME to a known other provider likewise disproves the Cargo match.
+        # Unknown DNS state and Cargo's own CNAME retain the alert.
         dns_records = raw_dns_records or {}
-        if str(engine).lower() == "cargo collective" and response.status_code == 404:
-            body = str(getattr(response, "text", "") or "").lower()
-            if (
-                (dns_records.get("A") or dns_records.get("AAAA"))
-                and not dns_records.get("CNAME")
-                and "<title>404 not found</title>" in body
-                and "<center>nginx</center>" in body
+        if str(engine).lower() == "cargo collective":
+            cname_targets = (str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ()))
+            if any(
+                target == suffix or target.endswith(f".{suffix}")
+                for target in cname_targets
+                for suffix in NON_CARGO_CNAME_SUFFIXES
             ):
                 return True
+            if response.status_code == 404 and not dns_records.get("CNAME"):
+                body = str(getattr(response, "text", "") or "").lower()
+                if (
+                    (dns_records.get("A") or dns_records.get("AAAA"))
+                    and "<title>404 not found</title>" in body
+                    and any(f"<center>{server}</center>" in body for server in ("nginx", "openresty"))
+                ):
+                    return True
         if response.status_code != 200:
             return False
         headers = {str(key).lower() for key in response.headers.keys()}

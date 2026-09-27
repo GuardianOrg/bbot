@@ -53,3 +53,14 @@ def test_subzy_ignores_cargo_match_on_unrelated_nginx_ingress():
     assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"A": {"3.23.242.41"}}) is True
     assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"CNAME": {"site.cargo.site"}}) is False
     assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {}) is False
+
+
+def test_subzy_ignores_cargo_match_on_other_provider_or_generic_openresty():
+    nginx_404 = response(404, {}, "<title>404 Not Found</title><center>nginx</center>")
+    openresty_404 = response(404, {}, "<title>404 Not Found</title><center>openresty</center>")
+    readme_site = response(302, {"Location": "/reference"})
+
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"CNAME": {"sendgrid.net."}}) is True
+    assert subzy.is_claimed_provider_response(readme_site, "Cargo Collective", {"CNAME": {"site.readmessl.com."}}) is True
+    assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"A": {"104.18.79.118"}}) is True
+    assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"CNAME": {"site.cargo.site."}}) is False
