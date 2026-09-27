@@ -173,6 +173,31 @@ class leaklookup(subdomain_enum):
             return False
         self.history.add(record_fp)
 
+        if not passwords and not hashed_passwords:
+            # A paid row can identify an account without exposing a password. Keep the
+            # record-level observation, but do not present it as a leaked credential.
+            accounts = emails or usernames
+            for account in sorted(accounts):
+                await self.emit_event(
+                    {
+                        "host": query,
+                        "account": account,
+                        "severity": "MEDIUM",
+                        "title": f"Breach record mentions {account} in {breach}",
+                        "category": "breach-account-exposure",
+                        "description": (
+                            f"Leak-Lookup returned a record for {account} in {breach}, but no password or hash. "
+                            "Verify the account and whether another source confirms credential exposure."
+                        ),
+                        "recommendation": "Review the account and enforce MFA; rotate credentials if a secret is confirmed exposed.",
+                        "leaklookup_breach": breach,
+                    },
+                    "FINDING",
+                    parent=parent_event,
+                    tags=[source_tag, *date_tags],
+                    context=f'{{module}} found {{event.type}} for "{account}" in "{breach}" without a secret',
+                )
+
         for email in emails:
             email_event = self.make_event(email, "EMAIL_ADDRESS", parent=parent_event, tags=[source_tag, *date_tags])
             if email_event is None:
