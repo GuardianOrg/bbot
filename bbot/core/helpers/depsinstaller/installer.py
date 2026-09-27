@@ -11,15 +11,44 @@ from time import sleep
 from pathlib import Path
 from threading import Lock
 from itertools import chain
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from secrets import token_bytes
 from ansible_runner.interface import run
 from subprocess import CalledProcessError
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from bbot import __version__
 from ..misc import can_sudo_without_password, os_platform, rm_at_exit, get_python_constraints
 
 log = logging.getLogger("bbot.core.helpers.depsinstaller")
+
+
+@contextmanager
+def locked_setup_status_cache(path):
+    """Serialize read/merge/replace across scans sharing one BBOT home."""
+    lock_path = path.with_name(f"{path.name}.lock")
+    with open(lock_path, "a+b") as lock_file:
+        if os.name == "nt":
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 class DepsInstaller:
@@ -448,20 +477,23 @@ class DepsInstaller:
         self.setup_status_writes[key] = value
 
     def write_setup_status(self):
-        merged = {**self.read_setup_status(), **self.setup_status_writes}
-        # Write through a temp file so a concurrent reader gets either the old cache or the
-        # new one, never a half-written one.
-        tmp_path = self.setup_status_cache.with_name(f"{self.setup_status_cache.name}.{os.getpid()}.tmp")
         try:
-            with open(tmp_path, "w") as f:
-                json.dump(merged, f)
-            os.replace(tmp_path, self.setup_status_cache)
+            with locked_setup_status_cache(self.setup_status_cache):
+                merged = {**self.read_setup_status(), **self.setup_status_writes}
+                # Readers need an atomic replacement even though writers hold the lock.
+                tmp_path = self.setup_status_cache.with_name(
+                    f"{self.setup_status_cache.name}.{os.getpid()}.{token_bytes(8).hex()}.tmp"
+                )
+                try:
+                    with open(tmp_path, "w") as f:
+                        json.dump(merged, f)
+                    os.replace(tmp_path, self.setup_status_cache)
+                finally:
+                    with suppress(FileNotFoundError):
+                        tmp_path.unlink()
+                self.setup_status = merged
         except Exception as e:
             log.debug(f"Failed to write setup status cache: {e}")
-            with suppress(Exception):
-                tmp_path.unlink()
-            return
-        self.setup_status = merged
 
     def ensure_root(self, message=""):
         self._install_sudo_askpass()
