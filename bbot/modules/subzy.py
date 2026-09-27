@@ -15,6 +15,7 @@ NON_CARGO_CNAME_SUFFIXES = ("sendgrid.net", "readmessl.com")
 
 
 class subzy(BaseModule):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED"]
     produced_events = ["VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
@@ -64,9 +65,9 @@ class subzy(BaseModule):
         self.check_unresolved = bool(self.config.get("check_unresolved", False))
         if "/" in self.binary:
             if not Path(self.binary).is_file():
-                return None, f"subzy binary not found at path: {self.binary}"
+                return False, f"subzy binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
-            return None, f'subzy binary "{self.binary}" was not found in PATH'
+            return False, f'subzy binary "{self.binary}" was not found in PATH'
         return True
 
     async def filter_event(self, event):
@@ -192,17 +193,22 @@ class subzy(BaseModule):
             if self.verify_ssl:
                 command.append("--verify_ssl")
 
-            await self.run_process(command, _log_stderr=False)
+            result = await self.run_process(command, _log_stderr=False)
+            if getattr(result, "returncode", 0) != 0:
+                raise RuntimeError(
+                    f"subzy failed for batch of {len(targets)} targets "
+                    f"(exit {result.returncode}): {str(getattr(result, 'stderr', '') or '').strip()}"
+                )
 
             output_raw = Path(output_file).read_text(errors="ignore").strip()
             if not output_raw:
                 return
             try:
                 results = json.loads(output_raw)
-            except Exception:
-                return
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("subzy returned invalid JSON") from exc
             if not isinstance(results, list):
-                return
+                raise RuntimeError("subzy returned a non-list JSON result")
 
             for result in results:
                 if not isinstance(result, dict):

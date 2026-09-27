@@ -152,7 +152,7 @@ class domain_config_dns_audit(BaseModule):
         self.audited_domains = set()
         self.wildcard_checked_hosts = set()
         if len(self.wildcard_nameservers) < 3:
-            return None, "domain_config_dns_audit requires at least 3 wildcard_nameservers"
+            return False, "domain_config_dns_audit requires at least 3 wildcard_nameservers"
         return True
 
     def _coerce_string_list(self, value):
