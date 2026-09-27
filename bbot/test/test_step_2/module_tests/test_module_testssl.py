@@ -160,3 +160,20 @@ class TestTestsslMalformedStdout(TestTestsslFailedProcess):
             return SimpleNamespace(returncode=0, stdout="{broken json}", stderr="")
 
         module_test.monkeypatch.setattr(module_test.module, "run_process", malformed_process)
+
+
+class TestTestsslEmptyResults(TestTestsslFailedProcess):
+    async def setup_after_prep(self, module_test):
+        async def empty_process(command, *args, **kwargs):
+            output_file = command[command.index("--jsonfile-pretty") + 1]
+            with open(output_file, "w") as output:
+                output.write("[]")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", empty_process)
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+        assert not any(
+            event.type in ("FINDING", "VULNERABILITY") and str(event.module) == "testssl" for event in events
+        )
