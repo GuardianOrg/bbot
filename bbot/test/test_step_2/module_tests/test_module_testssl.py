@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from .base import ModuleTestBase
 
@@ -91,7 +92,8 @@ class TestTestssl(ModuleTestBase):
         assert tls1.data.get("title") == "TLS: TLS1 (CVE-2024-9999, CWE-326)"
         assert tls1.data.get("severity") == "MEDIUM"
         assert tls1.data.get("category") == "TLS"
-        assert tls1.data.get("description") == "TLS 1.0 is offered"
+        assert tls1.data.get("description", "").startswith("TLS 1.0 is offered")
+        assert "TLS/SSL configuration weakness" in tls1.data.get("description", "")
         assert tls1.data.get("recommendation") == "Disable TLS 1.0 unless a documented legacy requirement remains."
         assert "CVE-2024-9999" in tls1.data.get("evidence", "")
         assert "CWE-326" in tls1.data.get("evidence", "")
@@ -101,3 +103,41 @@ class TestTestssl(ModuleTestBase):
         assert any(e.data.get("testssl_id") == "HSTS" for e in findings)
         assert not any(e.data.get("testssl_id") == "cert_chain_of_trust" for e in findings + vulnerabilities)
         assert not any(e.data.get("testssl_id") == "TLS1_3" for e in findings + vulnerabilities)
+
+
+class TestTestsslFailedProcess(TestTestssl):
+    async def setup_after_prep(self, module_test):
+        async def failed_process(command, *args, **kwargs):
+            return SimpleNamespace(returncode=246, stdout="", stderr="connection failed")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", failed_process)
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FAILED"
+        assert not any(event.type == "VULNERABILITY" and str(event.module) == "testssl" for event in events)
+
+
+class TestTestsslTimeout(TestTestsslFailedProcess):
+    async def setup_after_prep(self, module_test):
+        async def timed_out_process(command, *args, **kwargs):
+            raise TimeoutError("testssl exceeded timeout")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", timed_out_process)
+
+
+class TestTestsslPartialResults(TestTestsslFailedProcess):
+    async def setup_after_prep(self, module_test):
+        async def partial_process(command, *args, **kwargs):
+            output_file = command[command.index("--jsonfile-pretty") + 1]
+            with open(output_file, "w") as output:
+                json.dump([{"id": "TLS1", "severity": "MEDIUM", "finding": "TLS 1.0 is offered"}], output)
+            return SimpleNamespace(returncode=1, stdout="", stderr="one ambiguous check")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", partial_process)
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FAILED"
+        assert any(
+            event.type == "VULNERABILITY" and str(event.module) == "testssl" and event.data.get("testssl_id") == "TLS1"
+            for event in events
+        )

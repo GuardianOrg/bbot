@@ -6,6 +6,7 @@ from bbot.modules.base import BaseModule
 
 
 class testssl(BaseModule):
+    fatal_on_error = True
     watched_events = ["URL", "URL_UNVERIFIED", "HTTP_RESPONSE"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "slow", "web-thorough"]
@@ -151,18 +152,21 @@ class testssl(BaseModule):
         ]
         try:
             process = await self.run_process(command, _log_stderr=False, idle_timeout=self.timeout)
+            if process is None:
+                raise RuntimeError(f"testssl.sh did not start for {url}")
             results = self.load_results(output_file)
             if not results:
                 results = self.parse_json_blob(getattr(process, "stdout", ""))
-            if not results and getattr(process, "returncode", 0) not in (0, None):
-                self.warning(f"testssl.sh exited with code {process.returncode} for {url}: {getattr(process, 'stderr', '')}")
-                return
             for item in results:
                 normalized = self.normalize_result(item)
                 if normalized:
                     yield normalized
-        except TimeoutError:
-            self.warning(f"testssl.sh timed out after {self.timeout}s for {url}")
+            if process.returncode != 0:
+                raise RuntimeError(
+                    f"testssl.sh exited with code {process.returncode} for {url}: {getattr(process, 'stderr', '')}"
+                )
+        except TimeoutError as exc:
+            raise RuntimeError(f"testssl.sh timed out after {self.timeout}s for {url}") from exc
         finally:
             with suppress(Exception):
                 output_file.unlink(missing_ok=True)
