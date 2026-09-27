@@ -798,6 +798,14 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 for result in results:
                     if not self._is_jwt(result):
                         continue
+                    claims = self._decode_claims(result)
+                    expires_at = claims.get("exp")
+                    # RFC 7519 forbids accepting a token after exp; retain a small
+                    # clock-skew allowance so borderline tokens remain visible.
+                    if isinstance(expires_at, (int, float)) and not isinstance(expires_at, bool):
+                        if expires_at <= time.time() - 300:
+                            self.excavate.debug("Suppressing expired JWT")
+                            continue
                     if self._is_public_gitbook_content_token(result, event):
                         self.excavate.debug("Suppressing public GitBook content-delivery JWT")
                         continue

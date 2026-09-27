@@ -285,6 +285,28 @@ class TestExcavateRejectsMalformedJwtLookalikes(TestExcavate):
         assert "fixturesignature" in jwt_findings[0].data["description"]
 
 
+class TestExcavateRejectsExpiredJwt(TestExcavate):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["excavate", "httpx"]
+
+    async def setup_before_prep(self, module_test):
+        def token(expires_at):
+            header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+            claims = base64.urlsafe_b64encode(json.dumps({"sub": "fixture", "exp": expires_at}).encode()).decode().rstrip("=")
+            return f"{header}.{claims}.fixturesignature"
+
+        module_test.httpserver.expect_request("/").respond_with_data(
+            f"{token(1701980000)}\n{token(4102444800)}"
+        )
+
+    def check(self, module_test, events):
+        jwt_findings = [
+            event for event in events
+            if event.type == "FINDING" and "JWT" in event.data.get("description", "") and str(event.module) == "excavate"
+        ]
+        assert len(jwt_findings) == 1
+
+
 class TestExcavateRedirect(TestExcavate):
     targets = ["http://127.0.0.1:8888/", "http://127.0.0.1:8888/relative/", "http://127.0.0.1:8888/nonhttpredirect/"]
     config_overrides = {"scope": {"report_distance": 1}}
