@@ -174,6 +174,7 @@ class dnsreaper(BaseModule):
                     continue
 
                 signature = finding.get("signature", "unknown")
+                generic_reference = str(signature).startswith("_generic_")
                 confidence = str(finding.get("confidence", "UNKNOWN")).upper()
                 info = finding.get("info", "")
                 more_info_url = finding.get("more_info_url", "")
@@ -187,6 +188,11 @@ class dnsreaper(BaseModule):
                 )
                 if info:
                     description += f" Additional detail: {info}"
+                if generic_reference:
+                    description += (
+                        " This generic DNS signature establishes only that a reference is dangling; it does not establish"
+                        " that another account can claim the referenced provider resource. Verify that claimability separately."
+                    )
                 evidence = f"Signature: {signature}; Confidence: {confidence}"
                 if info:
                     evidence += f"; Info: {info}"
@@ -195,7 +201,7 @@ class dnsreaper(BaseModule):
                 if more_info_url:
                     recommendation += f" Reference: {more_info_url}"
 
-                if confidence == "UNLIKELY":
+                if confidence == "UNLIKELY" or generic_reference:
                     await self.emit_event(
                         {
                             "title": title,
