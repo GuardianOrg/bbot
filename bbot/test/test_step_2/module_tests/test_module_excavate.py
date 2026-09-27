@@ -258,6 +258,33 @@ class TestExcavateSuppressesPublicGitbookContentJwt(TestExcavate):
         )
 
 
+class TestExcavateRejectsMalformedJwtLookalikes(TestExcavate):
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["excavate", "httpx"]
+
+    async def setup_before_prep(self, module_test):
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        claims = base64.urlsafe_b64encode(json.dumps({"sub": "fixture"}).encode()).decode().rstrip("=")
+        # The two malformed shapes were reported on shared hosting IPs across multiple QA worlds.
+        module_test.httpserver.expect_request("/").respond_with_data(
+            "\n".join(
+                (
+                    f"{header}.Af39.HiggoUXvmLu7osIZ-rMgWYCutUna7fynJKQRarwrMT8",
+                    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..G31efeT8e7MKiOnm",
+                    f"{header}.{claims}.fixturesignature",
+                )
+            )
+        )
+
+    def check(self, module_test, events):
+        jwt_findings = [
+            event for event in events
+            if event.type == "FINDING" and "JWT" in event.data.get("description", "") and str(event.module) == "excavate"
+        ]
+        assert len(jwt_findings) == 1
+        assert "fixturesignature" in jwt_findings[0].data["description"]
+
+
 class TestExcavateRedirect(TestExcavate):
     targets = ["http://127.0.0.1:8888/", "http://127.0.0.1:8888/relative/", "http://127.0.0.1:8888/nonhttpredirect/"]
     config_overrides = {"scope": {"report_distance": 1}}
