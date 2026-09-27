@@ -83,3 +83,22 @@ def test_subzy_ignores_uptimerobot_match_on_cloudflare_default_404():
         "Uptimerobot",
         {"A": {"104.18.35.15"}},
     ) is False
+
+
+def test_subzy_ignores_cargo_match_on_own_apex_varnish_404():
+    # direct.panteracapital.com CNAMEs to panteracapital.com. Its generic
+    # Varnish 404 is not a dangling Cargo site.
+    varnish_404 = response(404, {"Server": "Varnish"}, "404 Not Found")
+
+    assert subzy.is_claimed_provider_response(
+        varnish_404,
+        "Cargo Collective",
+        {"CNAME": {"panteracapital.com."}, "A": {"23.185.0.2"}},
+        host="direct.panteracapital.com",
+    ) is True
+    assert subzy.is_claimed_provider_response(
+        varnish_404,
+        "Cargo Collective",
+        {"CNAME": {"site.cargo.site."}},
+        host="direct.panteracapital.com",
+    ) is False

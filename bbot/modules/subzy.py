@@ -74,7 +74,7 @@ class subzy(BaseModule):
         return True
 
     @staticmethod
-    def is_claimed_provider_response(response, engine, raw_dns_records=None):
+    def is_claimed_provider_response(response, engine, raw_dns_records=None, host=None):
         """
         subzy matches response bodies only, so generic text matches live sites. A 200 carrying a
         hosting provider's claimed-site headers proves the host is served by a site someone owns:
@@ -89,11 +89,26 @@ class subzy(BaseModule):
         # Unknown DNS state and Cargo's own CNAME retain the alert.
         dns_records = raw_dns_records or {}
         if str(engine).lower() == "cargo collective":
-            cname_targets = (str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ()))
+            cname_targets = {str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ())}
             if any(
                 target == suffix or target.endswith(f".{suffix}")
                 for target in cname_targets
                 for suffix in NON_CARGO_CNAME_SUFFIXES
+            ):
+                return True
+            # A host that CNAMEs to its own parent domain and receives that
+            # domain's stock Varnish 404 is not routed through Cargo.
+            parent_domain = str(host or "").lower().partition(".")[2]
+            if (
+                parent_domain in cname_targets
+                and parent_domain
+                and (dns_records.get("A") or dns_records.get("AAAA"))
+                and response.status_code == 404
+                and str(getattr(response, "text", "") or "").strip().lower() == "404 not found"
+                and any(
+                    str(key).lower() == "server" and str(value).lower() == "varnish"
+                    for key, value in response.headers.items()
+                )
             ):
                 return True
             if response.status_code == 404 and not dns_records.get("CNAME"):
@@ -130,7 +145,7 @@ class subzy(BaseModule):
                 response = await self.helpers.request(f"{scheme}://{host}")
             except Exception:
                 continue
-            if self.is_claimed_provider_response(response, engine, raw_dns_records):
+            if self.is_claimed_provider_response(response, engine, raw_dns_records, host=host):
                 return True
         return False
 
