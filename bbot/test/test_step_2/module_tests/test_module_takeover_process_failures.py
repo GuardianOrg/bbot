@@ -99,7 +99,9 @@ class TestNucleiTakeoverTimeout(_TakeoverFailureBase):
         )
 
         async def fake_update_templates(module, *args, **kwargs):
-            (module.helpers.tools_dir / "nuclei-templates" / "http" / "takeovers").mkdir(parents=True, exist_ok=True)
+            templates_dir = module.helpers.tools_dir / "nuclei-templates" / "http" / "takeovers"
+            templates_dir.mkdir(parents=True, exist_ok=True)
+            (templates_dir / "example.yaml").write_text("id: example-takeover\n")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_update_templates)
@@ -164,12 +166,34 @@ def test_nuclei_takeover_accepts_downloaded_templates(tmp_path, monkeypatch):
     module.info = lambda *args, **kwargs: None
 
     async def update_templates(*args, **kwargs):
-        (tmp_path / "nuclei-templates" / "http" / "takeovers").mkdir(parents=True)
+        templates_dir = tmp_path / "nuclei-templates" / "http" / "takeovers"
+        templates_dir.mkdir(parents=True)
+        (templates_dir / "example.yaml").write_text("id: example-takeover\n")
         return SimpleNamespace(returncode=0, stderr="")
 
     module.run_process = update_templates
 
     assert asyncio.run(module.setup()) is True
+
+
+def test_nuclei_takeover_rejects_empty_template_directory(tmp_path, monkeypatch):
+    (tmp_path / "nuclei").touch()
+    (tmp_path / "nuclei-templates").mkdir()
+    monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
+    module = object.__new__(nuclei_takeover)
+    module._name = "nuclei_takeover"
+    module.scan = SimpleNamespace(config={"modules": {}}, helpers=SimpleNamespace(tools_dir=tmp_path))
+    module.info = lambda *args, **kwargs: None
+    module.warning = lambda *args, **kwargs: None
+
+    async def failed_update(*args, **kwargs):
+        return SimpleNamespace(returncode=1, stderr="update failed")
+
+    module.run_process = failed_update
+
+    result = asyncio.run(module.setup())
+    assert isinstance(result, tuple) and result[0] is False
+    assert "templates" in result[1]
 
 
 def test_nuclei_takeover_accepts_custom_template_without_default_directory(tmp_path, monkeypatch):

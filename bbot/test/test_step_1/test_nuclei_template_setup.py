@@ -52,6 +52,16 @@ def test_nuclei_setup_rejects_missing_binary(tmp_path, monkeypatch):
     assert "binary" in result[1]
 
 
+def test_nuclei_setup_rejects_empty_template_directory(tmp_path, monkeypatch):
+    monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
+    (tmp_path / "nuclei-templates").mkdir()
+    module = make_module(tmp_path)
+
+    result = asyncio.run(module.setup())
+    assert isinstance(result, tuple) and result[0] is False
+    assert "templates" in result[1]
+
+
 @pytest.mark.parametrize("custom", [False, True])
 def test_nuclei_setup_accepts_available_templates(tmp_path, monkeypatch, custom):
     monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
@@ -60,7 +70,9 @@ def test_nuclei_setup_accepts_available_templates(tmp_path, monkeypatch, custom)
         template.write_text("id: example\n")
         module = make_module(tmp_path, templates=str(template))
     else:
-        (tmp_path / "nuclei-templates").mkdir()
+        templates_dir = tmp_path / "nuclei-templates"
+        templates_dir.mkdir()
+        (templates_dir / "example.yaml").write_text("id: example\n")
         module = make_module(tmp_path)
 
     assert asyncio.run(module.setup()) is True

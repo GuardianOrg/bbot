@@ -150,7 +150,10 @@ class nuclei(BaseModule):
         self.budget = int(self.config.get("budget", 1))
         self.silent = self.config.get("silent", False)
         self.templates = self.config.get("templates")
-        if not self.nuclei_templates_dir.is_dir() and not self.templates and not self.template_source_dirs:
+        has_web_templates = self.nuclei_templates_dir.is_dir() and any(
+            path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
+        )
+        if not has_web_templates and not self.templates and not self.template_source_dirs:
             return False, "Nuclei has no installed or configured web templates"
         cache_dir = str(self.config.get("mobile_apk_cache_dir") or "").strip()
         self.mobile_apk_cache_dir = Path(cache_dir) if cache_dir else None

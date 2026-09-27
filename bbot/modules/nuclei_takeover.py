@@ -66,7 +66,9 @@ class nuclei_takeover(BaseModule):
             return False, 'nuclei binary "nuclei" was not found in PATH'
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
         self.templates = str(self.config.get("templates", "")).strip()
-        had_templates = self.nuclei_templates_dir.is_dir()
+        had_templates = self.nuclei_templates_dir.is_dir() and any(
+            path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
+        )
         should_update_templates = (
             os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or (not had_templates and not self.templates)
         )
@@ -81,8 +83,11 @@ class nuclei_takeover(BaseModule):
                 self.warning(f"Failed to update nuclei templates: {getattr(update_result, 'stderr', '')}")
         elif had_templates:
             self.info("Using existing Nuclei templates for takeover scans")
-        if not self.nuclei_templates_dir.is_dir() and not self.templates:
-            return False, "nuclei takeover templates directory is missing after update"
+        has_templates = self.nuclei_templates_dir.is_dir() and any(
+            path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
+        )
+        if not has_templates and not self.templates:
+            return False, "nuclei takeover templates are missing after update"
         self.takeover_templates_dir = self.nuclei_templates_dir / "http" / "takeovers"
         self.tags = str(self.config.get("tags", "takeover")).strip() or "takeover"
         self.etags = str(self.config.get("etags", "")).strip()
