@@ -206,6 +206,29 @@ def test_domain_phishing_change_key_suppression():
     assert mod._is_known_unchanged("x.com", key_changed) is False
 
 
+def test_domain_phishing_does_not_score_dnstwist_dns_errors_as_live_records():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.young_domain_days = 45
+    mod.lsh_threshold = 70
+    candidate = {
+        "domain": "coindase.com",
+        "fuzzer": "homoglyph",
+        "dns_a": ["!ServFail"],
+        "dns_aaaa": ["!ServFail"],
+        "dns_ns": ["!ServFail"],
+        "whois_created": "2017-06-21",
+    }
+
+    score, severity, reasons = mod._score_candidate(candidate)
+
+    assert score == 2
+    assert severity == "LOW"
+    assert reasons == ["visually deceptive permutation (homoglyph)"]
+    assert "!ServFail" not in mod._build_evidence(candidate, "homoglyph", score, reasons)
+
+
 def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
     from bbot.modules.domain_phishing import domain_phishing
 

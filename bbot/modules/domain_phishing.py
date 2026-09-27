@@ -156,10 +156,10 @@ class domain_phishing(BaseModule):
     def _as_list(self, value):
         if value is None:
             return []
-        if isinstance(value, list):
-            return [str(v).strip() for v in value if str(v).strip()]
-        text = str(value).strip()
-        return [text] if text else []
+        values = value if isinstance(value, list) else [value]
+        # dnstwist places DNS error sentinels such as !ServFail in record arrays.
+        # They are not A, AAAA, MX, or NS records and must not increase the score.
+        return [text for item in values if (text := str(item).strip()) and not text.startswith("!")]
 
     def _parse_json_output(self, text):
         raw = str(text or "").strip()
