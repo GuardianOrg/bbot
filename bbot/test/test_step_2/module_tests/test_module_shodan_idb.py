@@ -120,8 +120,15 @@ class TestShodan_IDB(ModuleTestBase):
         assert 1 == len(
             [e for e in events if e.type == "OPEN_UDP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"]
         )
-        assert 2 == len([e for e in events if e.type == "VULNERABILITY" and str(e.module) == "shodan_idb"])
-        assert any(e.type == "VULNERABILITY" and e.data["title"] == "Shodan detected CVE-2021-26857" for e in events)
+        assert not any(e.type == "VULNERABILITY" and str(e.module) == "shodan_idb" for e in events)
+        assert 1 == len([
+            e for e in events if e.type == "FINDING"
+            and str(e.module) == "shodan_idb"
+            and e.data["title"] == "Shodan InternetDB unverified CVE candidates for 1.2.3.4"
+            and e.data["severity"] == "LOW"
+            and "CVE-2021-26857" in e.data["evidence"]
+            and "CVE-2021-26855" in e.data["evidence"]
+        ])
         assert not any(e.type == "VULNERABILITY" and e.data["title"] == "Shodan detected CVE-2099-0001" for e in events)
         assert 2 == len([e for e in events if e.type == "TECHNOLOGY" and str(e.module) == "shodan_idb"])
         assert 1 == len(
@@ -209,7 +216,13 @@ class TestShodan_IDB_RangeSearch(ModuleTestBase):
                             "CVE-2024-12345": {
                                 "summary": "Example vulnerable service fingerprint.",
                                 "cvss": 8.1,
-                            }
+                                "verified": True,
+                            },
+                            "CVE-2024-54321": {
+                                "summary": "An unverified version match.",
+                                "cvss": 9.0,
+                                "verified": False,
+                            },
                         },
                     }
                 ],
@@ -237,5 +250,16 @@ class TestShodan_IDB_RangeSearch(ModuleTestBase):
             and e.data.get("severity") == "HIGH"
             and e.data.get("cve") == "CVE-2024-12345"
             and "Example vulnerable service fingerprint" in e.data.get("description", "")
+            and "verified by Shodan" in e.data.get("evidence", "")
+            and "Shodan host search net:1.2.3.0/24" in e.data.get("evidence", "")
             for e in events
         ), "Failed to emit vulnerability details from Shodan range search"
+        assert any(
+            e.type == "FINDING"
+            and e.data.get("severity") == "LOW"
+            and "CVE-2024-54321" in e.data.get("evidence", "")
+            for e in events
+        ), "Unverified Shodan CVE must remain a single review lead"
+        assert not any(
+            e.type == "VULNERABILITY" and e.data.get("cve") == "CVE-2024-54321" for e in events
+        ), "Unverified Shodan CVE must not be promoted to a confirmed vulnerability"

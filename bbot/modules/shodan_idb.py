@@ -82,6 +82,7 @@ class shodan_idb(BaseModule):
         self.queried_ips = set()
         self.queried_ranges = set()
         self.reported_vulnerabilities = set()
+        self.reported_unverified_batches = set()
         self.full_host = bool(self.config.get("full_host", True))
         self.max_range_pages = max(1, int(self.config.get("max_range_pages", 3)))
         self.max_open_ports_per_ip = max(1, int(self.config.get("max_open_ports_per_ip", 70)))
@@ -234,8 +235,9 @@ class shodan_idb(BaseModule):
             ip_event,
             context=f'{{module}} queried Shodan host search for "net:{cidr}" and found {{event.type}}: {{event.data}}',
         )
-        await self._parse_response(data=data, event=ip_event, ip=ip)
-        await self._parse_host_response(data=data, event=ip_event, ip=ip, source=f"Shodan host search net:{cidr}")
+        source = f"Shodan host search net:{cidr}"
+        await self._parse_response(data=data, event=ip_event, ip=ip, source=source)
+        await self._parse_host_response(data=data, event=ip_event, ip=ip, source=source)
 
     async def query_full_host(self, event, ip):
         for _ in range(self.api_retries):
@@ -260,7 +262,7 @@ class shodan_idb(BaseModule):
             self.verbose(f"Shodan host API error for {ip}: {err_data}: {err_msg}")
             self.cycle_api_key()
 
-    async def _parse_response(self, data: dict, event, ip):
+    async def _parse_response(self, data: dict, event, ip, source="Shodan InternetDB"):
         """Handles emitting events from returned JSON"""
         data: dict  # has keys: cpes, hostnames, ip, ports, tags, vulns
         ip = str(ip)
@@ -272,14 +274,14 @@ class shodan_idb(BaseModule):
                     hostname,
                     "DNS_NAME",
                     parent=event,
-                    context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
+                    context=f'{{module}} queried {source} for "{query_host}" and found {{event.type}}: {{event.data}}',
                 )
         for cpe in data.get("cpes", []):
             await self.emit_event(
                 {"technology": cpe, "host": str(event.host)},
                 "TECHNOLOGY",
                 parent=event,
-                context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
+                context=f'{{module}} queried {source} for "{query_host}" and found {{event.type}}: {{event.data}}',
             )
         ports = sorted({port for port in data.get("ports", []) if isinstance(port, int)})
         if len(ports) > self.max_open_ports_per_ip:
@@ -292,9 +294,9 @@ class shodan_idb(BaseModule):
                     self.helpers.make_netloc(event.data, port),
                     "OPEN_TCP_PORT",
                     parent=event,
-                    context=f'{{module}} queried Shodan\'s InternetDB API for "{query_host}" and found {{event.type}}: {{event.data}}',
+                    context=f'{{module}} queried {source} for "{query_host}" and found {{event.type}}: {{event.data}}',
                 )
-        await self.emit_vulnerability_events(data=data, event=event, ip=ip, query_host=query_host, source="Shodan InternetDB")
+        await self.emit_vulnerability_events(data=data, event=event, ip=ip, query_host=query_host, source=source)
 
     async def _parse_host_response(self, data: dict, event, ip, source):
         tags = self.normalize_string_list(data.get("tags", []))
@@ -404,9 +406,13 @@ class shodan_idb(BaseModule):
             )
             return
 
+        unverified_ids = set()
         for vuln in self.iter_vulnerabilities(data):
             vuln_id = vuln.get("id")
             if not vuln_id:
+                continue
+            if not vuln.get("verified"):
+                unverified_ids.add(vuln_id)
                 continue
             dedupe_key = (str(ip), str(vuln_id))
             if dedupe_key in self.reported_vulnerabilities:
@@ -419,15 +425,37 @@ class shodan_idb(BaseModule):
                     "severity": self.vulnerability_severity(vuln.get("cvss")),
                     "title": f"Shodan detected {vuln_id}",
                     "category": "Shodan",
-                    "description": self.vulnerability_description(vuln_id, vuln.get("summary"), query_host, source),
+                    "description": self.vulnerability_description(vuln_id, vuln.get("summary"), query_host, source)
+                    + " Shodan marked this CVE as verified for the host.",
                     "recommendation": "Validate the exposed service, confirm the fingerprint, and remediate or patch the affected software if the issue is present.",
-                    "evidence": self.vulnerability_evidence(vuln_id, source, vuln.get("cvss")),
+                    "evidence": self.vulnerability_evidence(vuln_id, source, vuln.get("cvss"), verified=True),
                     "cve": vuln_id,
+                    "verified": True,
                 },
                 "VULNERABILITY",
                 parent=event,
                 context=f'{{module}} queried {source} for "{query_host}" and found {{event.type}}: {vuln_id}',
             )
+
+        if unverified_ids:
+            candidates = tuple(sorted(unverified_ids))
+            dedupe_key = (str(ip), candidates)
+            if dedupe_key not in self.reported_unverified_batches:
+                self.reported_unverified_batches.add(dedupe_key)
+                await self.emit_event(
+                    {
+                        "host": str(ip),
+                        "severity": "LOW",
+                        "title": f"{source} unverified CVE candidates for {ip}",
+                        "category": "Shodan",
+                        "description": self.unverified_vulnerability_description(ip, source, len(candidates)),
+                        "recommendation": "Confirm the affected service and version on this asset before treating any listed CVE as a vulnerability; review Shodan's verification status and validate each relevant candidate independently.",
+                        "evidence": f"{source} listed {len(candidates)} unverified CVE candidates for {ip}: {', '.join(candidates)}",
+                    },
+                    "FINDING",
+                    parent=event,
+                    context=f'{{module}} queried {source} for "{query_host}" and found unverified CVE candidates',
+                )
 
     def detect_privacy_flags(self, tags):
         normalized = {tag.lower() for tag in tags}
@@ -625,7 +653,7 @@ class shodan_idb(BaseModule):
             for vuln in vulns:
                 vuln_id = self.clean_string(vuln)
                 if vuln_id:
-                    yield {"id": vuln_id, "summary": None, "cvss": None}
+                    yield {"id": vuln_id, "summary": None, "cvss": None, "verified": False}
             return
 
         if isinstance(vulns, dict):
@@ -638,7 +666,16 @@ class shodan_idb(BaseModule):
                     "id": cleaned_id,
                     "summary": self.clean_string(details.get("summary") or details.get("description")),
                     "cvss": self.to_float(details.get("cvss") or details.get("cvss_score")),
+                    "verified": details.get("verified") is True,
                 }
+
+    def unverified_vulnerability_description(self, ip, source, count):
+        return (
+            f"{source} listed {count} CVE candidates for {ip}, but did not verify that the exposed service is vulnerable. "
+            "Shodan can associate CVEs with service metadata such as product and version; the same version may have been patched without a visible version change, and an IP address can host multiple services. "
+            "These identifiers are investigation leads, not confirmed vulnerabilities. Confirm the service, product, version, exposure path, and patch level on the actual in-scope asset before assigning a vulnerability. "
+            "The complete candidate list is preserved in the evidence so that relevant CVEs can still be reviewed without creating one unverified vulnerability alert per identifier."
+        )
 
     def vulnerability_severity(self, cvss):
         if isinstance(cvss, (int, float)):
@@ -661,8 +698,10 @@ class shodan_idb(BaseModule):
             "If the match is correct, patch or disable the affected service, restrict access with firewall rules or VPN controls, and review logs for exploitation attempts around the period the service was exposed."
         )
 
-    def vulnerability_evidence(self, vuln_id, source, cvss):
+    def vulnerability_evidence(self, vuln_id, source, cvss, verified=False):
         evidence = f"{source} listed {vuln_id} on the scanned host"
+        if verified:
+            evidence += " as verified by Shodan"
         if isinstance(cvss, (int, float)):
             evidence += f" with CVSS {cvss}"
         return evidence
