@@ -163,20 +163,20 @@ class domain_phishing(BaseModule):
     def _parse_json_output(self, text):
         raw = str(text or "").strip()
         if not raw:
-            return []
+            raise ValueError("empty output")
         # dnstwist might prepend logs, keep only JSON array payload.
         start = raw.find("[")
         end = raw.rfind("]")
         if start == -1 or end == -1 or end <= start:
-            return []
+            raise ValueError("missing JSON array")
         payload = raw[start : end + 1]
         try:
             data = json.loads(payload)
-        except Exception:
-            return []
+        except json.JSONDecodeError as error:
+            raise ValueError("malformed JSON array") from error
         if isinstance(data, list):
             return data
-        return []
+        raise ValueError("expected JSON array")
 
     def _parse_domain_age_days(self, created):
         if not created:
@@ -488,7 +488,14 @@ class domain_phishing(BaseModule):
         command.append(root_domain)
 
         process = await self.run_process(command, _log_stderr=False)
-        rows = self._parse_json_output(getattr(process, "stdout", ""))
+        returncode = getattr(process, "returncode", 0)
+        if returncode not in (0, None):
+            stderr = str(getattr(process, "stderr", "") or "").strip()
+            raise RuntimeError(f"dnstwist exited with code {returncode} for {root_domain}: {stderr[-500:]}")
+        try:
+            rows = self._parse_json_output(getattr(process, "stdout", ""))
+        except ValueError as error:
+            raise RuntimeError(f"invalid dnstwist JSON for {root_domain}: {error}") from error
         rows = await self._monitor_extra_candidates(root_domain, rows) + rows
         if not rows:
             self.debug(f"domain_phishing: no candidates returned by dnstwist for {root_domain}")

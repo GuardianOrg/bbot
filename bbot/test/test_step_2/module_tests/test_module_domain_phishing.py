@@ -327,6 +327,37 @@ def test_domain_phishing_does_not_remember_an_event_that_failed_to_emit(tmp_path
     assert not Path(mod.history_file).exists()
 
 
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "expected_error"),
+    [
+        (1, "[]", "dnstwist exited with code 1"),
+        (0, "not JSON", "invalid dnstwist JSON"),
+        (0, "", "invalid dnstwist JSON"),
+    ],
+)
+def test_domain_phishing_fails_when_dnstwist_output_is_unusable(returncode, stdout, expected_error):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.binary = "/bin/echo"
+    mod.registered_only = False
+    mod.enable_lsh = False
+    mod.threads = 1
+    mod.fuzzers = []
+    mod.nameservers = []
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
+        split_domain=lambda _domain: ("", "coinbase.com"), is_domain=lambda _domain: True,
+    ))
+    mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(
+        0, result=SimpleNamespace(returncode=returncode, stdout=stdout, stderr="dnstwist failed")
+    )
+    mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
+    mod.debug = lambda *_args: None
+
+    with pytest.raises(RuntimeError, match=expected_error):
+        asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
+
+
 def test_domain_phishing_suppression_disabled_without_history_file():
     from bbot.modules.domain_phishing import domain_phishing
 
