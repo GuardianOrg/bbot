@@ -99,6 +99,7 @@ class TestNucleiTakeoverTimeout(_TakeoverFailureBase):
         )
 
         async def fake_update_templates(module, *args, **kwargs):
+            (module.helpers.tools_dir / "nuclei-templates" / "http" / "takeovers").mkdir(parents=True, exist_ok=True)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_update_templates)
@@ -132,3 +133,40 @@ def test_takeover_and_dns_audit_setup_errors_are_hard_failures(module_type, conf
 
     status, _reason = asyncio.run(module.setup())
     assert status is False
+
+
+@pytest.mark.parametrize("update_returncode", [0, 1])
+def test_nuclei_takeover_requires_downloaded_templates(tmp_path, monkeypatch, update_returncode):
+    (tmp_path / "nuclei").touch()
+    monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
+    module = object.__new__(nuclei_takeover)
+    module._name = "nuclei_takeover"
+    module.scan = SimpleNamespace(config={"modules": {}}, helpers=SimpleNamespace(tools_dir=tmp_path))
+    module.info = lambda *args, **kwargs: None
+    module.warning = lambda *args, **kwargs: None
+
+    async def update_templates(*args, **kwargs):
+        return SimpleNamespace(returncode=update_returncode, stderr="update failed")
+
+    module.run_process = update_templates
+
+    result = asyncio.run(module.setup())
+    assert isinstance(result, tuple) and result[0] is False
+    assert "templates" in result[1]
+
+
+def test_nuclei_takeover_accepts_downloaded_templates(tmp_path, monkeypatch):
+    (tmp_path / "nuclei").touch()
+    monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
+    module = object.__new__(nuclei_takeover)
+    module._name = "nuclei_takeover"
+    module.scan = SimpleNamespace(config={"modules": {}}, helpers=SimpleNamespace(tools_dir=tmp_path))
+    module.info = lambda *args, **kwargs: None
+
+    async def update_templates(*args, **kwargs):
+        (tmp_path / "nuclei-templates" / "http" / "takeovers").mkdir(parents=True)
+        return SimpleNamespace(returncode=0, stderr="")
+
+    module.run_process = update_templates
+
+    assert asyncio.run(module.setup()) is True
