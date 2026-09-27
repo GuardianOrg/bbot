@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import http.client
 import re
 import socket
@@ -16,6 +18,7 @@ import dns.rdataclass
 import dns.rdatatype
 import dns.resolver
 import dns.zone
+from Crypto.PublicKey import RSA
 
 from bbot.modules.base import BaseModule
 from bbot.core.event.base import _normalize_event_description
@@ -1296,8 +1299,28 @@ class domain_config_dns_audit(BaseModule):
                 continue
             found.append(selector)
             if "k=rsa" in dkim.lower() or "k=" not in dkim.lower():
-                match = re.search(r"p=([A-Za-z0-9+/=]+)", dkim)
-                if match and len(match.group(1)) * 6 < 1024:
+                match = re.search(r"(?:^|;)\s*p\s*=\s*([^;]*)", dkim, re.I)
+                if not match:
+                    continue
+                encoded_key = "".join(match.group(1).split())
+                if not encoded_key:
+                    continue  # An empty p= tag revokes the selector.
+                try:
+                    # RFC 6376 permits optional Base64 padding in p=.
+                    padded_key = encoded_key + "=" * (-len(encoded_key) % 4)
+                    key_bits = RSA.import_key(base64.b64decode(padded_key, validate=True)).size_in_bits()
+                except (binascii.Error, ValueError, TypeError):
+                    findings.append(AuditFinding(
+                        "Invalid DKIM Public Key",
+                        "MEDIUM",
+                        "Email",
+                        f"DKIM selector {selector} publishes a p= value that is not a valid RSA public key, so receivers cannot use it to verify signatures.",
+                        f"Selector {selector} has an invalid RSA public key",
+                        "Publish a valid RSA public key for this selector or remove the unusable record.",
+                        f"dig TXT {selector}._domainkey.{domain}",
+                    ))
+                    continue
+                if key_bits < 1024:
                     findings.append(AuditFinding(
                         "Weak DKIM Key Size",
                         "MEDIUM",
@@ -1312,7 +1335,7 @@ class domain_config_dns_audit(BaseModule):
                             ' coordinated with the mail provider so old and new selectors overlap long enough to avoid breaking legitimate'
                             ' mail delivery.'
                         ),
-                        f"Key appears to be about {len(match.group(1)) * 6} bits",
+                        f"RSA modulus is {key_bits} bits",
                         "Use at least 2048-bit RSA keys or modern DKIM key types.",
                         f"dig TXT {selector}._domainkey.{domain}",
                     ))
