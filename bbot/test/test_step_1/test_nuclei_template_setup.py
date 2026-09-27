@@ -7,11 +7,17 @@ from bbot.modules.nuclei import nuclei
 
 
 def make_module(tmp_path, templates=""):
+    binary = tmp_path / "nuclei"
+    binary.touch()
     module = object.__new__(nuclei)
     module._name = "nuclei"
     module.scan = SimpleNamespace(
         config={"modules": {"nuclei": {"mode": "technology", "templates": templates}}},
-        helpers=SimpleNamespace(tools_dir=tmp_path, mkdir=lambda path: path.mkdir(parents=True, exist_ok=True)),
+        helpers=SimpleNamespace(
+            tools_dir=tmp_path,
+            mkdir=lambda path: path.mkdir(parents=True, exist_ok=True),
+            which=lambda name: str(binary) if name == "nuclei" and binary.is_file() else None,
+        ),
         temp_dir=tmp_path,
         web_config={},
     )
@@ -33,6 +39,17 @@ def test_nuclei_setup_rejects_missing_default_templates(tmp_path, monkeypatch):
     result = asyncio.run(module.setup())
     assert isinstance(result, tuple) and result[0] is False
     assert "templates" in result[1]
+
+
+def test_nuclei_setup_rejects_missing_binary(tmp_path, monkeypatch):
+    monkeypatch.delenv("BBOT_NUCLEI_UPDATE_TEMPLATES", raising=False)
+    (tmp_path / "nuclei-templates").mkdir()
+    module = make_module(tmp_path)
+    (tmp_path / "nuclei").unlink()
+
+    result = asyncio.run(module.setup())
+    assert isinstance(result, tuple) and result[0] is False
+    assert "binary" in result[1]
 
 
 @pytest.mark.parametrize("custom", [False, True])

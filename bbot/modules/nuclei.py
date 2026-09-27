@@ -90,6 +90,8 @@ class nuclei(BaseModule):
     _batch_size = 200
 
     async def setup(self):
+        if not self.helpers.which("nuclei"):
+            return False, 'nuclei binary "nuclei" was not found in PATH'
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
         self.nuclei_home = self.helpers.tools_dir / "nuclei-state" / "home"
         self.nuclei_config_dir = self.nuclei_home / ".config" / "nuclei"
