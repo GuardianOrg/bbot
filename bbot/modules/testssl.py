@@ -174,15 +174,16 @@ class testssl(BaseModule):
     def load_results(self, output_file):
         try:
             with open(output_file, "r", errors="ignore") as f:
-                return self.normalize_results_container(json.load(f))
+                raw = f.read()
+            if not raw.strip():
+                return []
+            return self.normalize_results_container(json.loads(raw))
         except FileNotFoundError:
             return []
         except json.JSONDecodeError as e:
-            self.debug(f"Failed to decode testssl.sh JSON output {output_file}: {e}")
-            return []
-        except Exception as e:
-            self.warning(f"Unable to read testssl.sh JSON output {output_file}: {e}")
-            return []
+            raise RuntimeError(f"testssl.sh wrote invalid JSON to {output_file}") from e
+        except OSError as e:
+            raise RuntimeError(f"Unable to read testssl.sh JSON output {output_file}") from e
 
     def parse_json_blob(self, text):
         raw = str(text or "").strip()
@@ -190,8 +191,8 @@ class testssl(BaseModule):
             return []
         try:
             return self.normalize_results_container(json.loads(raw))
-        except json.JSONDecodeError:
-            return []
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("testssl.sh returned invalid JSON on stdout") from exc
 
     def normalize_results_container(self, payload):
         if isinstance(payload, list):

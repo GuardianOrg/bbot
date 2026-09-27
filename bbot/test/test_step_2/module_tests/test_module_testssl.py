@@ -141,3 +141,22 @@ class TestTestsslPartialResults(TestTestsslFailedProcess):
             event.type == "VULNERABILITY" and str(event.module) == "testssl" and event.data.get("testssl_id") == "TLS1"
             for event in events
         )
+
+
+class TestTestsslMalformedOutput(TestTestsslFailedProcess):
+    async def setup_after_prep(self, module_test):
+        async def malformed_process(command, *args, **kwargs):
+            output_file = command[command.index("--jsonfile-pretty") + 1]
+            with open(output_file, "w") as output:
+                output.write("{broken json}")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", malformed_process)
+
+
+class TestTestsslMalformedStdout(TestTestsslFailedProcess):
+    async def setup_after_prep(self, module_test):
+        async def malformed_process(command, *args, **kwargs):
+            return SimpleNamespace(returncode=0, stdout="{broken json}", stderr="")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", malformed_process)
