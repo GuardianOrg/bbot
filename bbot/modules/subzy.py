@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.takeover import takeover_finding_title
 
 
 # A Vercel rewrite can proxy an external upstream, passing its body and status through, so a live
@@ -243,7 +244,7 @@ class subzy(BaseModule):
                 await self.emit_event(
                     {
                         "severity": "MEDIUM",
-                        "title": f"Potential subdomain takeover on {host}",
+                        "title": takeover_finding_title(host, engine),
                         "category": "subdomain-takeover",
                         "description": description,
                         "recommendation": (

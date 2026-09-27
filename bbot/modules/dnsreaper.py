@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.takeover import takeover_finding_title
 
 
 class dnsreaper(BaseModule):
@@ -178,7 +179,7 @@ class dnsreaper(BaseModule):
                 confidence = str(finding.get("confidence", "UNKNOWN")).upper()
                 info = finding.get("info", "")
                 more_info_url = finding.get("more_info_url", "")
-                title = f"Potential subdomain takeover via {signature}"
+                title = takeover_finding_title(host, signature)
                 description = (
                     f"{host} may be vulnerable to subdomain takeover because it matches the '{signature}' signature with {confidence.lower()} confidence. "
                     "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
