@@ -38,6 +38,28 @@ def test_public_recaptcha_site_key_is_not_reported_as_a_secret(tmp_path):
     )["category"] == "secret"
 
 
+def test_public_amplitude_project_api_key_is_not_a_secret_key(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    key = "0123456789abcdef0123456789abcdef"
+    artifact = tmp_path / "page.html"
+    artifact.write_text(f'<script>\\"integrations\\":{{\\"amplitude\\":{{\\"apiKey\\":\\"{key}\\"}}}}</script>\n')
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/page.html", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Amplitude Secret Key", file_path=str(artifact), line=1, verified=True,
+    ) is None
+
+    artifact.write_text(f'<script>const amplitudeSecretKey = "{key}";</script>\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Amplitude Secret Key", file_path=str(artifact), line=1, verified=True,
+    )["category"] == "secret"
+
+
 def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
     class Formatter(github_leak_formatter):
         name = "kingfisher"
