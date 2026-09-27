@@ -1,7 +1,11 @@
 from pathlib import Path
 from hashlib import sha256
 from urllib.parse import urlparse
+import base64
+import binascii
+import json
 import re
+import time
 from bbot.core.helpers.observation_dates import indexed_date
 
 # Parent hops searched for the URL an artifact (downloaded file, app package, image) came from.
@@ -235,7 +239,11 @@ class github_leak_formatter:
         severity="",
         extra_fields=None,
     ):
-        if self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified) or self.is_documentation_placeholder(leak, detector, verified):
+        if (
+            self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified)
+            or self.is_documentation_placeholder(leak, detector, verified)
+            or self.is_expired_jwt(leak, detector, verified)
+        ):
             return None
         source_url = self.get_artifact_source_url(event)
         if Path(scan_path).is_file():
@@ -323,6 +331,28 @@ class github_leak_formatter:
         if detector == "generic secret":
             return bool(re.fullmatch(r"SECRET\s*=\s*[\"']?X{8,}", value, re.IGNORECASE))
         return False
+
+    @staticmethod
+    def is_expired_jwt(leak, detector, verified):
+        if verified or str(detector or "").strip().lower() not in {"jwt", "json web token (base64url-encoded)"}:
+            return False
+        value = str(leak or "").strip()
+        if not re.fullmatch(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*", value):
+            return False
+        try:
+            header, claims, _ = value.split(".")
+            header = json.loads(base64.urlsafe_b64decode(header + "=" * (-len(header) % 4)))
+            claims = json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))
+        except (ValueError, binascii.Error):
+            return False
+        if not isinstance(header, dict) or not isinstance(header.get("alg"), str) or not isinstance(claims, dict):
+            return False
+        expires_at = claims.get("exp")
+        return (
+            isinstance(expires_at, (int, float))
+            and not isinstance(expires_at, bool)
+            and expires_at <= time.time() - 300
+        )
 
     def get_artifact_source_url(self, event):
         current = event

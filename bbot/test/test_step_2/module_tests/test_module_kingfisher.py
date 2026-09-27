@@ -1,4 +1,5 @@
 import json
+import base64
 from types import SimpleNamespace
 
 import pytest
@@ -60,6 +61,32 @@ def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
     assert formatter.format_artifact_leak(
         event, artifact, "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", detector="HTTP Bearer Token"
     )["category"] == "secret"
+
+
+def test_expired_jwt_artifacts_are_not_reported_as_secrets(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    def token(expires_at):
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        claims = base64.urlsafe_b64encode(json.dumps({"sub": "fixture", "exp": expires_at}).encode()).decode().rstrip("=")
+        return f"{header}.{claims}.fixturesignature"
+
+    expired = token(1701980000)
+    future = token(4102444800)
+    artifact = tmp_path / "api-docs.yaml"
+    artifact.write_text(f"jwt: {expired}\n")
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/api-docs.yaml", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    for detector in ("jwt", "JSON Web Token (base64url-encoded)"):
+        assert formatter.format_artifact_leak(event, artifact, expired, detector=detector) is None
+        assert formatter.format_artifact_leak(event, artifact, expired, detector=detector, verified=True)[
+            "category"
+        ] == "secret"
+        assert formatter.format_artifact_leak(event, artifact, future, detector=detector)["category"] == "secret"
 
 
 @pytest.fixture
