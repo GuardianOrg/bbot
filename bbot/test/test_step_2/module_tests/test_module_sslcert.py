@@ -1,6 +1,54 @@
 from .base import ModuleTestBase
 
 
+def test_sslcert_rechecks_scoped_san_host_with_sni_only_on_its_resolved_ip():
+    import asyncio
+    from types import SimpleNamespace
+
+    from bbot.modules.sslcert import sslcert
+
+    mod = object.__new__(sslcert)
+    resolved = {
+        "fix.bakkt.com": ["34.54.2.96"],
+        "other.bakkt.com": ["203.0.113.10"],
+    }
+    mod.scan = SimpleNamespace(
+        in_scope=lambda name: name.endswith(".bakkt.com"),
+        helpers=SimpleNamespace(
+            resolve=lambda name: asyncio.sleep(0, result=resolved.get(name, [])),
+            make_netloc=lambda name, port: f"{name}:{port}",
+        ),
+    )
+    visited = []
+    emitted = []
+
+    async def visit_host(address, port, server_name=None):
+        visited.append((address, port, server_name))
+        return [], [], {"certNotAfter": "2025-06-20T15:12:28+00:00", "certSanDomains": ["fix.bakkt.com"]}, (address, port)
+
+    async def emit_event(data, event_type, **kwargs):
+        emitted.append((data, event_type, kwargs))
+
+    mod.visit_host = visit_host
+    mod.emit_event = emit_event
+    parent = SimpleNamespace(host="34.54.2.96")
+    asyncio.run(mod.recheck_scoped_san_hosts(
+        parent,
+        {"certSanDomains": ["fix.bakkt.com", "other.bakkt.com", "external.example", "*.bakkt.com"]},
+        "34.54.2.96",
+        5556,
+    ))
+
+    assert visited == [("34.54.2.96", 5556, "fix.bakkt.com")]
+    assert len(emitted) == 1
+    data, event_type, kwargs = emitted[0]
+    assert event_type == "TLS_CERTIFICATE"
+    assert data["host"] == "fix.bakkt.com"
+    assert data["url"] == "https://fix.bakkt.com:5556/"
+    assert data["certNotAfter"] == "2025-06-20T15:12:28+00:00"
+    assert kwargs["parent"] is parent
+
+
 class TestSSLCert(ModuleTestBase):
     targets = ["127.0.0.1:9999", "bbottest.notreal"]
     config_overrides = {"deps": {"behavior": "disable"}, "scope": {"report_distance": 1}}

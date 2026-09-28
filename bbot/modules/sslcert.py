@@ -100,6 +100,8 @@ class sslcert(BaseModule):
                     parent=event,
                     context=f"{{module}} retrieved TLS certificate metadata from {cert_event_data['host']}:{port}",
                 )
+                if server_name is None:
+                    await self.recheck_scoped_san_hosts(event, cert_data, str(host), port)
             if len(dns_names) > abort_threshold:
                 netloc = self.helpers.make_netloc(host, port)
                 self.verbose(
@@ -131,6 +133,40 @@ class sslcert(BaseModule):
         parent_scope_distance = event.get_parent().scope_distance
         if parent_scope_distance == 0 and event.scope_distance > 0:
             event.add_tag("affiliate")
+
+    async def recheck_scoped_san_hosts(self, event, cert_data, address, port):
+        """Recheck a discovered IP with SNI for in-scope names that still resolve to it."""
+        names = sorted({
+            normalized
+            for raw_name in cert_data.get("certSanDomains", [])
+            if isinstance(raw_name, str)
+            if (normalized := raw_name.lower().rstrip(".")) and "*" not in normalized and self.scan.in_scope(normalized)
+        })
+        semaphore = asyncio.Semaphore(8)
+
+        async def recheck(name):
+            async with semaphore:
+                addresses = await self.helpers.resolve(name)
+                if address not in {str(candidate) for candidate in addresses}:
+                    return
+                result = await self.visit_host(address, port, server_name=name)
+                if not isinstance(result, tuple) or len(result) != 4 or not result[2]:
+                    return
+                metadata = result[2]
+                payload = {
+                    **metadata,
+                    "host": name,
+                    "url": f"https://{self.helpers.make_netloc(name, port if port != 443 else None)}/",
+                    "port": port,
+                }
+                await self.emit_event(
+                    payload,
+                    "TLS_CERTIFICATE",
+                    parent=event,
+                    context=f"{{module}} rechecked TLS certificate for {name}:{port} with SNI",
+                )
+
+        await asyncio.gather(*(recheck(name) for name in names))
 
     async def visit_host(self, host, port, server_name=None):
         host = self.helpers.make_ip_type(host)

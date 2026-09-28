@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.takeover import takeover_finding_title
 
 
 # A Vercel rewrite can proxy an external upstream, passing its body and status through, so a live
@@ -10,9 +11,11 @@ from bbot.modules.base import BaseModule
 # - Gemfury: its fingerprint is Next.js's not-found text, which every Next.js page embeds, while the
 #   unclaimed Gemfury page is that same Next.js 404 and is never served with a 200.
 VERCEL_DISPROVED_ENGINES = frozenset({"vercel", "gemfury"})
+NON_CARGO_CNAME_SUFFIXES = ("sendgrid.net", "readmessl.com")
 
 
 class subzy(BaseModule):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED"]
     produced_events = ["VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
@@ -62,9 +65,9 @@ class subzy(BaseModule):
         self.check_unresolved = bool(self.config.get("check_unresolved", False))
         if "/" in self.binary:
             if not Path(self.binary).is_file():
-                return None, f"subzy binary not found at path: {self.binary}"
+                return False, f"subzy binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
-            return None, f'subzy binary "{self.binary}" was not found in PATH'
+            return False, f'subzy binary "{self.binary}" was not found in PATH'
         return True
 
     async def filter_event(self, event):
@@ -73,28 +76,84 @@ class subzy(BaseModule):
         return True
 
     @staticmethod
-    def is_claimed_provider_response(response, engine):
+    def is_claimed_provider_response(response, engine, raw_dns_records=None, host=None):
         """
         subzy matches response bodies only, so generic text matches live sites. A 200 carrying a
         hosting provider's claimed-site headers proves the host is served by a site someone owns:
         - GitBook (X-GitBook-Route-Site / X-GitBook-Target), which serves only its own sites;
         - Vercel (x-vercel-id without x-vercel-error), for the engines in VERCEL_DISPROVED_ENGINES.
         """
-        if response is None or response.status_code != 200:
+        if response is None:
             return False
+        # Subzy's Cargo fingerprint also matches stock nginx/openresty ingress 404s.
+        # A direct ingress address plus that exact generic page is not Cargo routing.
+        # A CNAME to a known other provider likewise disproves the Cargo match.
+        # Unknown DNS state and Cargo's own CNAME retain the alert.
+        dns_records = raw_dns_records or {}
+        if str(engine).lower() == "cargo collective":
+            cname_targets = {str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ())}
+            if any(
+                target == suffix or target.endswith(f".{suffix}")
+                for target in cname_targets
+                for suffix in NON_CARGO_CNAME_SUFFIXES
+            ):
+                return True
+            # A host that CNAMEs to its own parent domain and receives that
+            # domain's stock Varnish 404 is not routed through Cargo.
+            parent_domain = str(host or "").lower().partition(".")[2]
+            if (
+                parent_domain in cname_targets
+                and parent_domain
+                and (dns_records.get("A") or dns_records.get("AAAA"))
+                and response.status_code == 404
+                and str(getattr(response, "text", "") or "").strip().lower() == "404 not found"
+                and any(
+                    str(key).lower() == "server" and str(value).lower() == "varnish"
+                    for key, value in response.headers.items()
+                )
+            ):
+                return True
+            if response.status_code == 404 and not dns_records.get("CNAME"):
+                body = str(getattr(response, "text", "") or "").lower()
+                if (
+                    (dns_records.get("A") or dns_records.get("AAAA"))
+                    and "<title>404 not found</title>" in body
+                    and any(f"<center>{server}</center>" in body for server in ("nginx", "openresty"))
+                ):
+                    return True
+        # Subzy's Uptimerobot fingerprint is the generic "page not found".
+        # Cloudflare's own default 404 includes that phrase on directly
+        # addressed hosts, but is not an Uptimerobot unclaimed-site response.
+        if str(engine).lower() == "uptimerobot" and response.status_code == 404:
+            server = str(next((value for key, value in response.headers.items() if str(key).lower() == "server"), ""))
+            if (
+                server.lower() == "cloudflare"
+                and str(getattr(response, "text", "") or "").strip().lower() == "404 page not found"
+                and (dns_records.get("A") or dns_records.get("AAAA"))
+                and not dns_records.get("CNAME")
+            ):
+                return True
+        if response.status_code != 200:
+            return False
+        # A live Next.js page can embed the default 404 text in its script data even when
+        # served by a provider other than Vercel. Gemfury's unclaimed response is an error,
+        # so an HTTP 200 containing that generic fingerprint is not a Gemfury takeover.
+        body = str(getattr(response, "text", "") or "").lower()
+        if str(engine).lower() == "gemfury" and "404: this page could not be found." in body:
+            return True
         headers = {str(key).lower() for key in response.headers.keys()}
         if "x-gitbook-route-site" in headers or "x-gitbook-target" in headers:
             return True
         vercel_deployment = "x-vercel-id" in headers and "x-vercel-error" not in headers
         return vercel_deployment and str(engine).lower() in VERCEL_DISPROVED_ENGINES
 
-    async def is_claimed_provider_host(self, host, engine):
+    async def is_claimed_provider_host(self, host, engine, raw_dns_records=None):
         for scheme in ("https", "http"):
             try:
                 response = await self.helpers.request(f"{scheme}://{host}")
             except Exception:
                 continue
-            if self.is_claimed_provider_response(response, engine):
+            if self.is_claimed_provider_response(response, engine, raw_dns_records, host=host):
                 return True
         return False
 
@@ -134,17 +193,22 @@ class subzy(BaseModule):
             if self.verify_ssl:
                 command.append("--verify_ssl")
 
-            await self.run_process(command, _log_stderr=False)
+            result = await self.run_process(command, _log_stderr=False)
+            if getattr(result, "returncode", 0) != 0:
+                raise RuntimeError(
+                    f"subzy failed for batch of {len(targets)} targets "
+                    f"(exit {result.returncode}): {str(getattr(result, 'stderr', '') or '').strip()}"
+                )
 
             output_raw = Path(output_file).read_text(errors="ignore").strip()
             if not output_raw:
                 return
             try:
                 results = json.loads(output_raw)
-            except Exception:
-                return
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("subzy returned invalid JSON") from exc
             if not isinstance(results, list):
-                return
+                raise RuntimeError("subzy returned a non-list JSON result")
 
             for result in results:
                 if not isinstance(result, dict):
@@ -160,7 +224,7 @@ class subzy(BaseModule):
                     continue
 
                 engine = result.get("engine") or result.get("service") or "subzy"
-                if await self.is_claimed_provider_host(host, engine):
+                if await self.is_claimed_provider_host(host, engine, getattr(parent_event, "raw_dns_records", None)):
                     self.debug(f"Suppressing {engine} takeover result for {host}: the response proves a claimed site")
                     continue
 
@@ -186,7 +250,7 @@ class subzy(BaseModule):
                 await self.emit_event(
                     {
                         "severity": "MEDIUM",
-                        "title": f"Potential subdomain takeover on {host}",
+                        "title": takeover_finding_title(host, engine),
                         "category": "subdomain-takeover",
                         "description": description,
                         "recommendation": (

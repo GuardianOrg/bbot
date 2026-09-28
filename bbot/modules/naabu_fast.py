@@ -33,7 +33,9 @@ class naabu_fast(naabu):
         "module_timeout": 259200,
     }
     options_desc = {
+        "version": "naabu version",
         "ports": "Best-effort explicit TCP port range to scan",
+        "top_ports": "Top ports to scan when ports is empty",
         "rate": "Packets/connections to send per second (naabu -rate)",
         "threads": "General internal worker threads (naabu -c)",
         "scan_type": "Type of port scan: 'c' (connect) or 's' (syn)",
@@ -41,6 +43,13 @@ class naabu_fast(naabu):
         "timeout_ms": "Per-port timeout in milliseconds",
         "process_timeout_multiplier": "Safety multiplier for the calculated naabu process runtime limit",
         "process_timeout_grace": "Extra seconds added to the calculated naabu process runtime limit",
+        "exclude_cdn": "Skip full port scans for CDN/WAF (only scan 80,443)",
+        "scan_all_ips": "Scan all IPs associated with a hostname (naabu -sa)",
+        "verify": "Ask naabu to validate discovered ports with TCP verification before emitting them",
+        "port_chunk_size": "Number of explicit ports to pass to each naabu run",
+        "scan_passes": "Number of naabu passes per target or port chunk",
+        "scan_individual_targets": "Scan one target per naabu process",
         "target_concurrency": "Maximum number of individual target groups to scan concurrently",
         "max_open_ports_per_ip": "Discard this module's OPEN_TCP_PORT results for an IP when more than this many ports are found",
+        "module_timeout": "Max time in seconds to spend handling each batch of events",
     }

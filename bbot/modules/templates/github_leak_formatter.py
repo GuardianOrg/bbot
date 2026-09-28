@@ -1,7 +1,11 @@
 from pathlib import Path
 from hashlib import sha256
 from urllib.parse import urlparse
+import base64
+import binascii
+import json
 import re
+import time
 from bbot.core.helpers.observation_dates import indexed_date
 
 # Parent hops searched for the URL an artifact (downloaded file, app package, image) came from.
@@ -235,6 +239,14 @@ class github_leak_formatter:
         severity="",
         extra_fields=None,
     ):
+        if (
+            self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified)
+            or self.is_public_google_maps_javascript_key(scan_path, file_path, line, leak, detector, verified)
+            or self.is_public_amplitude_api_key(scan_path, file_path, line, leak, detector)
+            or self.is_documentation_placeholder(leak, detector, verified)
+            or self.is_expired_jwt(leak, detector, verified)
+        ):
+            return None
         source_url = self.get_artifact_source_url(event)
         if Path(scan_path).is_file():
             # A scanned file reports its own path, or "<file>!<member>" inside an archive.
@@ -287,6 +299,121 @@ class github_leak_formatter:
             # Same key as Git leaks: one secret exposed in several places is one credential to rotate.
             data["dedupe_key"] = f"github-leak-secret:{secret_fingerprint}"
         return self.add_secret_fields(data, leak_value, secret_fingerprint, artifact_path, line, extra_fields)
+
+    @staticmethod
+    def is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified):
+        """A client-side site key is deliberately public; require its source label before filtering."""
+        if verified or str(detector or "").lower() != "recaptcha api key":
+            return False
+        key = str(leak or "").strip()
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+        except (OSError, TypeError, ValueError):
+            return False
+        if not key or line_number < 1 or source != reported or not source.is_file():
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                source_line = next((text for index, text in enumerate(stream, 1) if index == line_number), "")
+        except OSError:
+            return False
+        site_key_label = r"(?:data-sitekey|recaptcha[_-]?site[_-]?key|site[_-]?key)"
+        return bool(re.search(rf"{site_key_label}\s*[=:]\s*[\"']?{re.escape(key)}(?=[\"'\s<]|$)", source_line, re.IGNORECASE))
+
+    @staticmethod
+    def is_public_amplitude_api_key(scan_path, file_path, line, leak, detector):
+        """Amplitude project apiKey values are client-side identifiers, not analytics secret keys."""
+        if str(detector or "").strip().lower() != "amplitude secret key":
+            return False
+        key = str(leak or "").strip()
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+        except (OSError, TypeError, ValueError):
+            return False
+        if not key or line_number < 1 or source != reported or not source.is_file():
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                source_line = next((text for index, text in enumerate(stream, 1) if index == line_number), "")
+        except OSError:
+            return False
+        source_line = re.sub(r'\\+"', '"', source_line)
+        pattern = rf'"amplitude"\s*:\s*\{{\s*"apiKey"\s*:\s*"{re.escape(key)}"'
+        return bool(re.search(pattern, source_line, re.IGNORECASE))
+
+    @staticmethod
+    def is_public_google_maps_javascript_key(scan_path, file_path, line, leak, detector, verified):
+        """A Maps JavaScript script URL necessarily exposes its browser key to visitors."""
+        if verified or str(detector or "").strip().lower() not in {"google api key", "gcp-api-key"}:
+            return False
+        key = str(leak or "").strip()
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+        except (OSError, TypeError, ValueError):
+            return False
+        if not key or line_number < 1 or source != reported or not source.is_file():
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                source_line = next((text for index, text in enumerate(stream, 1) if index == line_number), "")
+        except OSError:
+            return False
+        pattern = (
+            rf'\bsrc\s*=\s*["\']https://maps\.googleapis\.com/maps/api/js\?'
+            rf'(?:[^"\'\s<>]*&)?key={re.escape(key)}(?=[&"\'\s<>]|$)'
+        )
+        return bool(re.search(pattern, source_line, re.IGNORECASE))
+
+    @staticmethod
+    def is_documentation_placeholder(leak, detector, verified):
+        if verified:
+            return False
+        value = str(leak or "").strip().strip("\"'")
+        detector = str(detector or "").strip().lower()
+        if detector == "http bearer token":
+            return bool(re.fullmatch(r"Authorization:\s*Bearer\s+YOUR_[A-Z0-9_]+", value, re.IGNORECASE))
+        if detector == "generic secret":
+            return bool(re.fullmatch(r"SECRET\s*=\s*[\"']?X{8,}", value, re.IGNORECASE))
+        if detector == "private-key":
+            # Documentation can show an escaped PEM skeleton followed by sample code.
+            # Require the literal placeholder as the complete PEM body.
+            normalized = value.replace(r"\n", "\n")
+            return bool(re.match(
+                r"^-----BEGIN (?P<kind>(?:EC |RSA )?)PRIVATE KEY-----\n"
+                r"YOUR PRIVATE KEY\n"
+                r"-----END (?P=kind)PRIVATE KEY-----",
+                normalized,
+                re.IGNORECASE,
+            ))
+        return False
+
+    @staticmethod
+    def is_expired_jwt(leak, detector, verified):
+        if verified or str(detector or "").strip().lower() not in {"jwt", "json web token (base64url-encoded)"}:
+            return False
+        value = str(leak or "").strip()
+        if not re.fullmatch(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*", value):
+            return False
+        try:
+            header, claims, _ = value.split(".")
+            header = json.loads(base64.urlsafe_b64decode(header + "=" * (-len(header) % 4)))
+            claims = json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))
+        except (ValueError, binascii.Error):
+            return False
+        if not isinstance(header, dict) or not isinstance(header.get("alg"), str) or not isinstance(claims, dict):
+            return False
+        expires_at = claims.get("exp")
+        return (
+            isinstance(expires_at, (int, float))
+            and not isinstance(expires_at, bool)
+            and expires_at <= time.time() - 300
+        )
 
     def get_artifact_source_url(self, event):
         current = event

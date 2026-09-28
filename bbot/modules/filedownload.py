@@ -153,13 +153,20 @@ class filedownload(BaseModule):
         orig_filename, file_destination, base_url = self.make_filename(url, content_type=content_type)
         if orig_filename is None:
             return
-        result = await self.helpers.download(url, warn=False, filename=file_destination, max_size=self.max_filesize)
+        result = await self.helpers.download(
+            url, warn=False, filename=file_destination, max_size=self.max_filesize, include_response_url=True
+        )
         if result:
-            self.info(f'Found "{orig_filename}" at "{base_url}", downloaded to {file_destination}')
+            downloaded_path, final_url = result
+            if not self.scan.in_scope(final_url):
+                downloaded_path.unlink(missing_ok=True)
+                self.urls_downloaded.add(hash(url))
+                return
+            self.info(f'Found "{orig_filename}" at "{base_url}", downloaded to {downloaded_path}')
             self.files_downloaded += 1
             if source_event:
                 file_event = self.make_event(
-                    {"path": str(file_destination)}, "FILESYSTEM", tags=["filedownload", "file"], parent=source_event
+                    {"path": str(downloaded_path)}, "FILESYSTEM", tags=["filedownload", "file"], parent=source_event
                 )
                 if file_event is not None:
                     await self.emit_event(file_event)

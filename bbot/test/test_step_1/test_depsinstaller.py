@@ -1,6 +1,54 @@
 import json
+import multiprocessing
+import time
+
+from pathlib import Path
+
+from bbot.core.helpers.depsinstaller.installer import DepsInstaller
 
 from ..bbot_fixtures import *
+
+
+def _write_concurrent_setup_status(cache_path, key, start):
+    installer = object.__new__(DepsInstaller)
+    installer.setup_status_cache = Path(cache_path)
+    installer.setup_status_writes = {key: True}
+    original_read = installer.read_setup_status
+
+    def read_with_install_work():
+        status = original_read()
+        # A dependency install takes time after reading the shared cache. Make
+        # the stale-read window deterministic for both independent processes.
+        time.sleep(0.25)
+        return status
+
+    installer.read_setup_status = read_with_install_work
+    if not start.wait(timeout=10):
+        raise RuntimeError("concurrent setup status writers did not start")
+    installer.write_setup_status()
+
+
+def test_depsinstaller_concurrent_setup_status_writers(tmp_path):
+    """Two scans sharing a BBOT home must retain both installed dependency keys."""
+    cache_path = tmp_path / "setup_status.json"
+    cache_path.write_text("{}")
+    context = multiprocessing.get_context("spawn")
+    start = context.Event()
+    processes = [
+        context.Process(target=_write_concurrent_setup_status, args=(str(cache_path), key, start))
+        for key in ("module:first", "module:second")
+    ]
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(timeout=15)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+        assert process.exitcode == 0
+
+    assert json.loads(cache_path.read_text()) == {"module:first": True, "module:second": True}
 
 
 @pytest.mark.asyncio

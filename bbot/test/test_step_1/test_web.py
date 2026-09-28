@@ -190,10 +190,20 @@ async def test_web_helpers(bbot_scanner, bbot_httpserver, httpx_mock):
     filename = Path("/tmp/bbot_download_test_file")
     filename.unlink(missing_ok=True)
     filename2 = await scan1.helpers.download(url, filename=filename)
-    assert filename2 == filename
+    assert filename2 == filename.resolve()
     assert filename2.is_file()
     with open(filename2) as f:
         assert f.read() == download_content
+
+    redirect_url = bbot_httpserver.url_for("/test_download_redirect")
+    final_url = bbot_httpserver.url_for("/test_download_final")
+    bbot_httpserver.expect_request(uri="/test_download_redirect").respond_with_data(
+        "", status=302, headers={"Location": final_url}
+    )
+    bbot_httpserver.expect_request(uri="/test_download_final").respond_with_data("redirected content")
+    downloaded, resolved_url = await scan1.helpers.download(redirect_url, include_response_url=True)
+    assert downloaded.read_text() == "redirected content"
+    assert resolved_url == final_url
 
     # beautifulsoup
     download_content = """

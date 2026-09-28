@@ -1,13 +1,151 @@
 import json
+import base64
+from types import SimpleNamespace
 
 import pytest
 
 from .base import ModuleTestBase
+from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
 kingfisher_calls = []
 # What the fake Kingfisher run returns; a test may change it in setup_after_prep.
 kingfisher_outcome = {}
+
+
+def test_public_recaptcha_site_key_is_not_reported_as_a_secret(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    key = "6LsyntheticSiteKeyForRegressionTest1234567890"
+    artifact = tmp_path / "manifest.json"
+    artifact.write_text(f'<div class="g-recaptcha" data-sitekey="{key}"></div>\n')
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://accounts.example.com/manifest.json", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="reCAPTCHA API Key", file_path=str(artifact), line=1,
+    ) is None
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="reCAPTCHA API Key", file_path=str(artifact), line=1, verified=True,
+    )["severity"] == "High"
+
+    artifact.write_text(f'<script>const recaptchaSecretKey = "{key}";</script>\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="reCAPTCHA API Key", file_path=str(artifact), line=1,
+    )["category"] == "secret"
+
+
+def test_browser_google_maps_javascript_key_is_not_reported_as_a_secret(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    key = "AIza" + "X" * 35
+    artifact = tmp_path / "page.html"
+    artifact.write_text(
+        '<script\n  async\n  src="https://maps.googleapis.com/maps/api/js?key=' + key + '"\n></script>\n'
+    )
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://example.com/wp-includes/wlwmanifest.xml", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    for detector in ("Google API Key", "gcp-api-key"):
+        assert formatter.format_artifact_leak(
+            event, artifact, key, detector=detector, file_path=str(artifact), line=3,
+        ) is None
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Google API Key", file_path=str(artifact), line=3, verified=True,
+    )["severity"] == "High"
+
+    artifact.write_text(f'GOOGLE_BACKEND_API_KEY="{key}"\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Google API Key", file_path=str(artifact), line=1,
+    )["category"] == "secret"
+
+
+def test_public_amplitude_project_api_key_is_not_a_secret_key(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    key = "0123456789abcdef0123456789abcdef"
+    artifact = tmp_path / "page.html"
+    artifact.write_text(f'<script>\\"integrations\\":{{\\"amplitude\\":{{\\"apiKey\\":\\"{key}\\"}}}}</script>\n')
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/page.html", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Amplitude Secret Key", file_path=str(artifact), line=1, verified=True,
+    ) is None
+
+    artifact.write_text(f'<script>const amplitudeSecretKey = "{key}";</script>\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Amplitude Secret Key", file_path=str(artifact), line=1, verified=True,
+    )["category"] == "secret"
+
+
+def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    artifact = tmp_path / "api-docs.md"
+    artifact.write_text("Authorization: Bearer YOUR_ACCESS_TOKEN\nSECRET=\"XXXXXXXXXXXXXX\"\n")
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/api-docs.md", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    for value, detector in (
+        ("Authorization: Bearer YOUR_ACCESS_TOKEN", "HTTP Bearer Token"),
+        ('SECRET="XXXXXXXXXXXXXX', "Generic Secret"),
+        (
+            r"-----BEGIN EC PRIVATE KEY-----\nYOUR PRIVATE KEY\n-----END EC PRIVATE KEY-----\n"
+            '"\n\nclient = RESTClient(api_key=api_key, api_secret=api_secret)',
+            "private-key",
+        ),
+    ):
+        assert formatter.format_artifact_leak(event, artifact, value, detector=detector) is None
+        assert formatter.format_artifact_leak(event, artifact, value, detector=detector, verified=True)[
+            "severity"
+        ] == "High"
+
+    assert formatter.format_artifact_leak(
+        event, artifact, "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", detector="HTTP Bearer Token"
+    )["category"] == "secret"
+    assert formatter.format_artifact_leak(
+        event, artifact, "-----BEGIN EC PRIVATE KEY-----\nMIIExampleKeyMaterial\n-----END EC PRIVATE KEY-----",
+        detector="private-key",
+    )["category"] == "secret"
+
+
+def test_expired_jwt_artifacts_are_not_reported_as_secrets(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    def token(expires_at):
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        claims = base64.urlsafe_b64encode(json.dumps({"sub": "fixture", "exp": expires_at}).encode()).decode().rstrip("=")
+        return f"{header}.{claims}.fixturesignature"
+
+    expired = token(1701980000)
+    future = token(4102444800)
+    artifact = tmp_path / "api-docs.yaml"
+    artifact.write_text(f"jwt: {expired}\n")
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/api-docs.yaml", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    for detector in ("jwt", "JSON Web Token (base64url-encoded)"):
+        assert formatter.format_artifact_leak(event, artifact, expired, detector=detector) is None
+        assert formatter.format_artifact_leak(event, artifact, expired, detector=detector, verified=True)[
+            "category"
+        ] == "secret"
+        assert formatter.format_artifact_leak(event, artifact, future, detector=detector)["category"] == "secret"
 
 
 @pytest.fixture

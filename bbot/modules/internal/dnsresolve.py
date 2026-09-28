@@ -97,6 +97,10 @@ class DNSResolve(BaseInterceptModule):
 
     async def handle_event(self, event, **kwargs):
         event_is_ip = self.helpers.is_ip(event.host)
+        # Findings may rely on non-address evidence (for example, a registered
+        # phishing domain with NS/MX records). The no-unresolved setting and its
+        # per-module budget govern DNS enumeration, not terminal findings.
+        terminal_finding = event.type in ("FINDING", "VULNERABILITY")
         if event_is_ip:
             minimal_rdtypes = ("PTR",)
             non_minimal_rdtypes = ()
@@ -114,7 +118,7 @@ class DNSResolve(BaseInterceptModule):
 
         # minimal resolution - first, we resolve A/AAAA records for scope purposes
         if new_event or event is main_host_event:
-            if self._unresolved_subdomain_budget_exceeded(main_host_event):
+            if not terminal_finding and self._unresolved_subdomain_budget_exceeded(main_host_event):
                 budget_module = self._unresolved_subdomain_module(main_host_event) or main_host_event.module
                 return False, f'unresolved subdomain budget exceeded for module "{budget_module}"'
             cached_resolution = self.host_resolution_cache.get(host_cache_key)
@@ -124,7 +128,7 @@ class DNSResolve(BaseInterceptModule):
                 whitelisted, blacklisted = self.check_scope(main_host_event)
                 if blacklisted:
                     return False, "it has a blacklisted DNS record"
-                if cached_resolution.get("unresolved") and not self.emit_unresolved:
+                if cached_resolution.get("unresolved") and not self.emit_unresolved and not terminal_finding:
                     return False, "unresolved DNS events are disabled"
                 if event_data_changed:
                     if self.is_duplicate_wildcard_event(event):
@@ -157,11 +161,12 @@ class DNSResolve(BaseInterceptModule):
                     event._resolved_hosts = main_host_event.resolved_hosts
                     return
             else:
-                budget_allowed, budget_module, budget_host_key = await self._reserve_unresolved_subdomain_budget(
-                    main_host_event
-                )
-                if not budget_allowed:
-                    return False, f'unresolved subdomain budget exceeded for module "{budget_module}"'
+                if not terminal_finding:
+                    budget_allowed, budget_module, budget_host_key = await self._reserve_unresolved_subdomain_budget(
+                        main_host_event
+                    )
+                    if not budget_allowed:
+                        return False, f'unresolved subdomain budget exceeded for module "{budget_module}"'
                 try:
                     await self.resolve_event(main_host_event, types=minimal_rdtypes)
                     queried_rdtypes.update(minimal_rdtypes)
@@ -240,7 +245,7 @@ class DNSResolve(BaseInterceptModule):
         self.cache_host_resolution(host_cache_key, main_host_event, queried_rdtypes, unresolved=unresolved)
         await self._release_unresolved_subdomain_budget(budget_module, budget_host_key, unresolved=unresolved)
 
-        if unresolved and not self.emit_unresolved:
+        if unresolved and not self.emit_unresolved and not terminal_finding:
             return False, "unresolved DNS events are disabled"
 
         # main_host_event.add_tag(f"resolve-distance-{main_host_event.dns_resolve_distance}")

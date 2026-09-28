@@ -126,6 +126,7 @@ class Scanner:
         self.duration_seconds = None
 
         self._success = False
+        self._fatal_module_errors = []
         self._scan_finish_status_message = None
 
         if scan_id is not None:
@@ -404,14 +405,14 @@ class Scanner:
                 if self._finished_init and self.modules_finished:
                     new_activity = await self.finish()
                     if not new_activity:
-                        self._success = True
+                        self._success = not self._fatal_module_errors
                         scan_finish_event = await self._mark_finished()
                         yield scan_finish_event
                         break
 
                 await asyncio.sleep(0.1)
 
-            self._success = True
+            self._success = not self._fatal_module_errors
 
         except BaseException as e:
             if self.helpers.in_exception_chain(e, (KeyboardInterrupt, asyncio.CancelledError)):
@@ -1355,6 +1356,11 @@ class Scanner:
                 log.trace(traceback_str)
         if callable(finally_callback):
             finally_callback(e)
+
+    def record_fatal_module_error(self, module_name, error):
+        message = f"Required module {module_name} failed: {error}"
+        self._fatal_module_errors.append(message)
+        self.critical(message, trace=False)
 
     def _make_dummy_module(self, name, _type="scan"):
         """

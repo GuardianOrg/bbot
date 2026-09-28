@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import http.client
 import re
 import socket
@@ -11,11 +13,14 @@ from datetime import datetime, timezone
 import dns.exception
 import dns.flags
 import dns.message
+import dns.name
 import dns.query
+import dns.rdata
 import dns.rdataclass
 import dns.rdatatype
 import dns.resolver
 import dns.zone
+from Crypto.PublicKey import RSA
 
 from bbot.modules.base import BaseModule
 from bbot.core.event.base import _normalize_event_description
@@ -147,7 +152,7 @@ class domain_config_dns_audit(BaseModule):
         self.audited_domains = set()
         self.wildcard_checked_hosts = set()
         if len(self.wildcard_nameservers) < 3:
-            return None, "domain_config_dns_audit requires at least 3 wildcard_nameservers"
+            return False, "domain_config_dns_audit requires at least 3 wildcard_nameservers"
         return True
 
     def _coerce_string_list(self, value):
@@ -349,6 +354,11 @@ class domain_config_dns_audit(BaseModule):
         resolver = self.get_resolver(nameserver)
         try:
             answers = resolver.resolve(domain, rdtype)
+            if str(rdtype).upper() == "TXT":
+                # One TXT RR can contain several character-strings. dnspython's
+                # presentation form quotes and separates them, but consumers need
+                # the wire value with those strings concatenated in order.
+                return True, [b"".join(rdata.strings).decode("utf-8", errors="replace") for rdata in answers]
             return True, [str(rdata).strip() for rdata in answers]
         except dns.resolver.NXDOMAIN:
             return (False, ["NXDOMAIN"]) if raise_on_nxdomain else (True, [])
@@ -770,68 +780,68 @@ class domain_config_dns_audit(BaseModule):
         remaining = rrsig.expiration - datetime.now(tz=timezone.utc).timestamp()
         return remaining < validity * RRSIG_STALLED_REMAINING_FRACTION
 
+    @staticmethod
+    def nsec_successor(record, zone, owner):
+        try:
+            successor = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NSEC, record).next.canonicalize()
+            zone_name = dns.name.from_text(zone).canonicalize()
+            owner_name = dns.name.from_text(owner).canonicalize()
+        except (dns.exception.DNSException, ValueError):
+            return None
+        # Online signers can manufacture minimally covering successors such as
+        # "\\000.example.com". They prove nonexistence without exposing the next
+        # real hostname, so they do not establish that the zone is walkable.
+        if not successor.is_subdomain(zone_name) or successor == owner_name:
+            return None
+        if any(byte < 33 or byte > 126 for label in successor.labels for byte in label):
+            return None
+        return successor.to_text(omit_final_dot=True)
+
     async def check_nsec_records(self, domain, findings):
         success, nsec_records = await self.query_dns(domain, "NSEC")
         if success and nsec_records:
-            findings.append(AuditFinding(
-                "NSEC Allows Zone Walking",
-                "MEDIUM",
-                "DNSSEC",
-                (
-                    "The zone uses NSEC denial-of-existence records. NSEC can allow zone walking, letting an attacker enumerate valid hostnames and use that list for reconnaissance and targeted attacks."
-                    ' NSEC records are used by DNSSEC to prove that a requested name does not exist. A'
-                    ' side effect is that they can reveal the next valid name in the zone, allowing someone to walk through the zone'
-                    ' and enumerate many real hostnames. This does not give direct access to systems, but it can expose staging'
-                    ' hosts, admin names, forgotten services, naming conventions, and other reconnaissance value. Some zones accept'
-                    ' this tradeoff because NSEC is simple and standards-compliant. If hostname privacy matters, NSEC3 or other'
-                    ' operational controls should be considered, while remembering that DNS should not be the only place sensitive'
-                    ' systems are hidden.'
-                ),
-                f"NSEC: {nsec_records[0][:100]}",
-                "Use NSEC3 if zone-walking resistance is required.",
-                f"dig {domain} NSEC +short",
-            ))
+            first = self.nsec_successor(nsec_records[0], domain, domain)
+            next_records = []
+            if first:
+                next_success, next_records = await self.query_dns(first, "NSEC")
+                second = self.nsec_successor(next_records[0], domain, first) if next_success and next_records else None
+            else:
+                second = None
+            if first and second:
+                findings.append(AuditFinding(
+                    "NSEC Allows Zone Walking",
+                    "MEDIUM",
+                    "DNSSEC",
+                    (
+                        "The zone exposes a repeatable NSEC chain, allowing zone walking to enumerate valid hostnames for reconnaissance and targeted attacks."
+                        ' NSEC records are used by DNSSEC to prove that a requested name does not exist. A'
+                        ' side effect is that they can reveal the next valid name in the zone, allowing someone to walk through the zone'
+                        ' and enumerate many real hostnames. This does not give direct access to systems, but it can expose staging'
+                        ' hosts, admin names, forgotten services, naming conventions, and other reconnaissance value. Some zones accept'
+                        ' this tradeoff because NSEC is simple and standards-compliant. If hostname privacy matters, NSEC3 or other'
+                        ' operational controls should be considered, while remembering that DNS should not be the only place sensitive'
+                        ' systems are hidden.'
+                    ),
+                    f"NSEC chain: {domain} -> {first} -> {second}",
+                    "Use NSEC3 or minimally covering online-signed NSEC if zone-walking resistance is required.",
+                    f"dig {domain} NSEC +short",
+                ))
         success, nsec3param = await self.query_dns(domain, "NSEC3PARAM")
         if success and nsec3param:
             parts = nsec3param[0].split()
             if len(parts) >= 3 and parts[2].isdigit():
                 iterations = int(parts[2])
-                if iterations == 0:
+                if iterations > 0:
                     findings.append(AuditFinding(
-                        "NSEC3 Without Iterations",
-                        "LOW",
+                        "NSEC3 Uses Extra Iterations",
+                        "HIGH" if iterations > 150 else "MEDIUM",
                         "DNSSEC",
                         (
-                            "NSEC3 is enabled with zero iterations. This lowers the cost of reversing hashed names and weakens the protection NSEC3 is intended to provide against zone enumeration."
-                            ' NSEC3 is designed to make DNSSEC denial-of-existence records less directly'
-                            ' enumerable by using hashed names instead of plain names. When it is configured with zero iterations, reversing'
-                            ' or guessing those hashed names becomes cheaper for attackers, especially if hostnames follow predictable'
-                            ' patterns such as admin, vpn, dev, or staging. This is usually a reconnaissance issue rather than an immediate'
-                            ' compromise. It means the protection expected from NSEC3 is weaker than intended. The setting should be'
-                            ' reviewed with the DNS provider, balancing privacy benefits against resolver performance and current DNSSEC'
-                            ' guidance.'
+                            f"NSEC3 uses {iterations} additional hash iterations. RFC 9276 requires zero extra iterations because more hashing increases resolver CPU cost and denial-of-service or interoperability risk without materially preventing dictionary attacks on guessable names."
+                            " The initial NSEC3 hash still runs when the iterations field is zero."
                         ),
                         f"NSEC3PARAM: {nsec3param[0]}",
-                        "Use a modest NSEC3 iteration count if zone-walking resistance is required.",
-                        f"dig {domain} NSEC3PARAM +short",
-                    ))
-                elif iterations > 150:
-                    findings.append(AuditFinding(
-                        "Excessive NSEC3 Iterations",
-                        "MEDIUM",
-                        "DNSSEC",
-                        (
-                            f"NSEC3 uses {iterations} iterations. Excessive iteration counts can increase CPU load for authoritative servers and validating resolvers, creating unnecessary availability risk."
-                            ' NSEC3 iterations make each proof more computationally expensive. A modest value can'
-                            ' slow down zone enumeration, but a very high value can also increase work for authoritative DNS servers and'
-                            ' validating resolvers. That extra CPU cost may become visible during traffic spikes, attacks, or normal'
-                            ' high-volume resolution, turning a privacy feature into an availability risk. Modern guidance often favors'
-                            ' conservative NSEC3 settings because high iteration counts provide limited real-world protection against'
-                            ' determined enumeration. The configuration should be reduced to a safe range that preserves compatibility and'
-                            ' keeps DNS responses fast and reliable.'
-                        ),
-                        f"NSEC3PARAM: {nsec3param[0]}",
-                        "Reduce NSEC3 iterations to a safer range.",
+                        "Set NSEC3 iterations to 0 and re-sign the zone, following RFC 9276.",
                         f"dig {domain} NSEC3PARAM +short",
                     ))
 
@@ -863,43 +873,8 @@ class domain_config_dns_audit(BaseModule):
             return
         success_ds, ds_records = await self.query_dns(domain, "DS")
         success_cds, cds_records = await self.query_dns(domain, "CDS")
-        success_cdnskey, cdnskey_records = await self.query_dns(domain, "CDNSKEY")
-        if success_cds and cds_records and not (success_cdnskey and cdnskey_records):
-            findings.append(AuditFinding(
-                "DNSSEC Rollover Signal Incomplete (CDS without CDNSKEY)",
-                "MEDIUM",
-                "DNSSEC",
-                (
-                    "The child zone publishes CDS rollover records without matching CDNSKEY records. Automated parent DS updates may fail or apply incomplete key information during DNSSEC rollover."
-                    ' CDS and CDNSKEY records are signals a child zone can publish to help the parent zone'
-                    ' update DNSSEC delegation information during key rollover. Publishing one without the other can confuse or'
-                    ' block automated parent updates, depending on registrar and registry behavior. For someone unfamiliar with'
-                    ' DNSSEC, this is like sending only part of the paperwork needed to rotate a signing key. The current domain may'
-                    ' still work, but the next rollover could fail or leave old and new keys out of sync. That can eventually break'
-                    ' validation and make the domain fail for resolvers that enforce DNSSEC.'
-                ),
-                f"CDS: {cds_records}",
-                "Publish both CDS and CDNSKEY consistently during rollover.",
-                f"dig {domain} CDS +short && dig {domain} CDNSKEY +short",
-            ))
-        if success_cdnskey and cdnskey_records and not (success_cds and cds_records):
-            findings.append(AuditFinding(
-                "DNSSEC Rollover Signal Incomplete (CDNSKEY without CDS)",
-                "LOW",
-                "DNSSEC",
-                (
-                    "The child zone publishes CDNSKEY records without CDS records. Registrars or parent zones that expect both signals may not update DS records reliably during DNSSEC rollover."
-                    ' CDNSKEY records can help automate DNSSEC key changes by advertising key material'
-                    ' from the child zone to the parent. If CDNSKEY exists without corresponding CDS records, some parent or'
-                    ' registrar workflows may not have enough information to safely update the DS record. The result can be a'
-                    ' stalled or partially completed rollover. This is usually an operational hygiene issue today, but it becomes'
-                    ' important when keys are replaced, compromised, or retired. The safest approach is to publish rollover signals'
-                    ' consistently and verify that the registrar supports the exact automation process being used.'
-                ),
-                f"CDNSKEY: {cdnskey_records[:2]}",
-                "Publish CDS records alongside CDNSKEY when using automated DS management.",
-                f"dig {domain} CDNSKEY +short && dig {domain} CDS +short",
-            ))
+        # RFC 7344 §4 permits either signal by itself when the parent consumes that type;
+        # absence of the other signal is not evidence of a broken rollover.
         if success_ds and ds_records and success_cds and cds_records:
             ds_keytags = {parts[0] for parts in (r.split() for r in ds_records) if parts}
             cds_keytags = {parts[0] for parts in (r.split() for r in cds_records) if parts}
@@ -1210,14 +1185,20 @@ class domain_config_dns_audit(BaseModule):
             return
         records["DMARC"] = dmarc
         lowered = dmarc.lower()
-        policy = re.search(r"p\s*=\s*(none|quarantine|reject)", lowered)
-        if policy and policy.group(1) in {"none", "quarantine"}:
+        tags = {}
+        for tag in lowered.split(";"):
+            if "=" in tag:
+                name, value = tag.split("=", 1)
+                tags[name.strip()] = value.strip()
+        policy = tags.get("p")
+        subdomain_policy = tags.get("sp", policy)
+        if policy in {"none", "quarantine"}:
             findings.append(AuditFinding(
-                f"DMARC Policy Set to {policy.group(1).capitalize()}",
-                "MEDIUM" if policy.group(1) == "none" else "LOW",
+                f"DMARC Policy Set to {policy.capitalize()}",
+                "MEDIUM" if policy == "none" else "LOW",
                 "Email",
                 (
-                    f"The DMARC policy is set to p={policy.group(1)}. DMARC is the domain-owner rule for how receivers treat mail that fails SPF or DKIM alignment, and this setting stops short of full rejection."
+                    f"The DMARC policy is set to p={policy}. DMARC is the domain-owner rule for how receivers treat mail that fails SPF or DKIM alignment, and this setting stops short of full rejection."
                     ' A monitoring-only or partial policy can be useful while legitimate senders are'
                     ' being fixed, but it does not fully stop spoofed mail from reaching recipients. Attackers can take advantage of'
                     ' weak enforcement because the domain still appears in the visible From address. The policy should move'
@@ -1228,8 +1209,21 @@ class domain_config_dns_audit(BaseModule):
                 "Move to p=reject once legitimate sending paths are aligned.",
                 f"dig _dmarc.{domain} TXT +short",
             ))
+        policy_strength = {"none": 0, "quarantine": 1, "reject": 2}
+        if policy in policy_strength and subdomain_policy in policy_strength and policy_strength[subdomain_policy] < policy_strength[policy]:
+            findings.append(AuditFinding(
+                "DMARC Subdomain Policy Weaker Than Parent",
+                "MEDIUM" if subdomain_policy == "none" else "LOW",
+                "Email",
+                (
+                    f"The DMARC record sets p={policy} but sp={subdomain_policy}. Mail failing DMARC checks for subdomains therefore receives weaker treatment than mail for the parent domain."
+                    " An attacker may choose a subdomain to take advantage of the weaker policy when spoofing the organization."
+                ),
+                f"DMARC: {dmarc}",
+                "Align sp with p after validating legitimate subdomain mail, or document the intentional exception.",
+                f"dig _dmarc.{domain} TXT +short",
+            ))
         for tag, title, recommendation in (
-            ("sp=", "DMARC Missing Subdomain Policy", "Add sp=reject or another explicit subdomain policy."),
             ("rua=", "DMARC Missing Aggregate Reports", "Add rua=mailto:... to receive aggregate reports."),
             ("adkim=s", "DMARC DKIM Alignment Not Strict", "Use adkim=s after validating legitimate senders."),
             ("aspf=s", "DMARC SPF Alignment Not Strict", "Use aspf=s after validating legitimate senders."),
@@ -1238,10 +1232,6 @@ class domain_config_dns_audit(BaseModule):
             if tag not in lowered:
                 severity = "INFO" if tag == "fo=" else "LOW"
                 descriptions = {
-                    "DMARC Missing Subdomain Policy": (
-                        "The DMARC record does not define a subdomain policy. Subdomains may inherit a weaker policy than intended, leaving forgotten or unused subdomains easier to spoof. "
-                        "DMARC is the email control that tells receivers how to handle messages that claim to come from the domain but fail authentication checks. A subdomain policy, written as sp=, makes that instruction explicit for names below the main domain. Without it, old campaign domains, test systems, regional subdomains, or abandoned hosts may not receive the same protection as the parent domain. This can let attackers choose a less protected subdomain for phishing while still looking related to the organization."
-                    ),
                     "DMARC Missing Aggregate Reports": (
                         "The DMARC record has no aggregate report destination. The domain owner will not receive regular visibility into spoofing attempts, authentication failures, or misconfigured legitimate senders. "
                         "Aggregate reports are summaries sent by participating mail providers that show who is sending mail using the domain and whether those messages pass SPF, DKIM, and DMARC alignment. Without these reports, teams have much less evidence when deciding whether it is safe to strengthen policy to quarantine or reject. Missing reports can also hide a broken mail provider setup until legitimate messages start failing or spoofed messages reach users."
@@ -1291,8 +1281,28 @@ class domain_config_dns_audit(BaseModule):
                 continue
             found.append(selector)
             if "k=rsa" in dkim.lower() or "k=" not in dkim.lower():
-                match = re.search(r"p=([A-Za-z0-9+/=]+)", dkim)
-                if match and len(match.group(1)) * 6 < 1024:
+                match = re.search(r"(?:^|;)\s*p\s*=\s*([^;]*)", dkim, re.I)
+                if not match:
+                    continue
+                encoded_key = "".join(match.group(1).split())
+                if not encoded_key:
+                    continue  # An empty p= tag revokes the selector.
+                try:
+                    # RFC 6376 permits optional Base64 padding in p=.
+                    padded_key = encoded_key + "=" * (-len(encoded_key) % 4)
+                    key_bits = RSA.import_key(base64.b64decode(padded_key, validate=True)).size_in_bits()
+                except (binascii.Error, ValueError, TypeError):
+                    findings.append(AuditFinding(
+                        "Invalid DKIM Public Key",
+                        "MEDIUM",
+                        "Email",
+                        f"DKIM selector {selector} publishes a p= value that is not a valid RSA public key, so receivers cannot use it to verify signatures.",
+                        f"Selector {selector} has an invalid RSA public key",
+                        "Publish a valid RSA public key for this selector or remove the unusable record.",
+                        f"dig TXT {selector}._domainkey.{domain}",
+                    ))
+                    continue
+                if key_bits < 1024:
                     findings.append(AuditFinding(
                         "Weak DKIM Key Size",
                         "MEDIUM",
@@ -1307,7 +1317,7 @@ class domain_config_dns_audit(BaseModule):
                             ' coordinated with the mail provider so old and new selectors overlap long enough to avoid breaking legitimate'
                             ' mail delivery.'
                         ),
-                        f"Key appears to be about {len(match.group(1)) * 6} bits",
+                        f"RSA modulus is {key_bits} bits",
                         "Use at least 2048-bit RSA keys or modern DKIM key types.",
                         f"dig TXT {selector}._domainkey.{domain}",
                     ))

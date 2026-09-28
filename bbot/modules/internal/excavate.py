@@ -4,6 +4,7 @@ import html
 import time
 import inspect
 import base64
+import binascii
 import regex as re
 from pathlib import Path
 from bbot.errors import ExcavateError, ValidationError
@@ -732,13 +733,36 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         }
 
         @staticmethod
-        def _decode_claims(token):
+        def _decode_json_segment(segment):
             try:
-                encoded = token.split(".", 2)[1]
-                encoded += "=" * (-len(encoded) % 4)
+                encoded = segment + "=" * (-len(segment) % 4)
                 return json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
-            except (IndexError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            except (ValueError, binascii.Error):
                 return None
+
+        @classmethod
+        def _decode_claims(cls, token):
+            try:
+                return cls._decode_json_segment(token.split(".", 2)[1])
+            except IndexError:
+                return None
+
+        @classmethod
+        def _is_jwt(cls, token):
+            # The YARA pattern recognizes three dot-separated base64url-looking parts,
+            # including truncated JWEs and arbitrary binary data. A signed JWT has a
+            # JSON protected header and a JSON object for its claims.
+            parts = token.split(".")
+            if len(parts) != 3:
+                return False
+            header = cls._decode_json_segment(parts[0])
+            claims = cls._decode_json_segment(parts[1])
+            return bool(
+                isinstance(header, dict)
+                and isinstance(header.get("alg"), str)
+                and header["alg"]
+                and isinstance(claims, dict)
+            )
 
         @staticmethod
         def _has_gitbook_response_marker(event):
@@ -772,6 +796,16 @@ class excavate(BaseInternalModule, BaseInterceptModule):
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
             for results in yara_results.values():
                 for result in results:
+                    if not self._is_jwt(result):
+                        continue
+                    claims = self._decode_claims(result)
+                    expires_at = claims.get("exp")
+                    # RFC 7519 forbids accepting a token after exp; retain a small
+                    # clock-skew allowance so borderline tokens remain visible.
+                    if isinstance(expires_at, (int, float)) and not isinstance(expires_at, bool):
+                        if expires_at <= time.time() - 300:
+                            self.excavate.debug("Suppressing expired JWT")
+                            continue
                     if self._is_public_gitbook_content_token(result, event):
                         self.excavate.debug("Suppressing public GitBook content-delivery JWT")
                         continue

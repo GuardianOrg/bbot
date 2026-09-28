@@ -125,6 +125,7 @@ class BaseModule:
     _type = "scan"
     _intercept = False
     _shuffle_incoming_queue = True
+    fatal_on_error = False
 
     def __init__(self, scan):
         """Initializes a module instance.
@@ -1039,7 +1040,16 @@ class BaseModule:
         """
         task = asyncio.create_task(coro)
         async with self.scan._acatch(context=name), self._task_counter.count(task_name=name, asyncio_task=task, n=n):
-            return await task
+            try:
+                return await task
+            except asyncio.CancelledError:
+                if self.fatal_on_error and not self.scan.stopping:
+                    self.scan.record_fatal_module_error(self.name, "event handler cancelled before completion")
+                raise
+            except Exception as error:
+                if self.fatal_on_error:
+                    self.scan.record_fatal_module_error(self.name, error)
+                raise
 
     async def _event_handler_watchdog(self):
         """

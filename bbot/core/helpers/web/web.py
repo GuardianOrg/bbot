@@ -196,15 +196,17 @@ class WebHelper(EngineClient):
                 A negative value disables caching. Defaults to -1.
             method (str, optional): The HTTP method to use for the request, defaults to 'GET'.
             raise_error (bool, optional): Whether to raise exceptions for HTTP connect, timeout errors. Defaults to False.
+            include_response_url (bool, optional): Return ``(path, final_url)`` after redirects instead of only the path.
             **kwargs: Additional keyword arguments to pass to the httpx request.
 
         Returns:
-            Path or None: The full path of the downloaded file as a Path object if successful, otherwise None.
+            Path, tuple, or None: The downloaded path, or a ``(path, final_url)`` tuple when requested.
 
         Examples:
             >>> filepath = await self.helpers.download("https://www.evilcorp.com/passwords.docx", cache_hrs=24)
         """
         success = False
+        include_response_url = kwargs.pop("include_response_url", False)
         raise_error = kwargs.get("raise_error", False)
         filename = kwargs.pop("filename", self.parent_helper.cache_filename(url))
         filename = truncate_filename(Path(filename).resolve())
@@ -214,11 +216,11 @@ class WebHelper(EngineClient):
             max_size = self.parent_helper.human_to_bytes(max_size)
             kwargs["max_size"] = max_size
         cache_hrs = float(kwargs.pop("cache_hrs", -1))
-        if cache_hrs > 0 and self.parent_helper.is_cached(url):
+        if cache_hrs > 0 and not include_response_url and self.parent_helper.is_cached(url):
             log.debug(f"{url} is cached at {self.parent_helper.cache_filename(url)}")
             success = True
         else:
-            result = await self.run_and_return("download", url, **kwargs)
+            result = await self.run_and_return("download", url, include_response_url=include_response_url, **kwargs)
             if isinstance(result, dict) and "_download_error" in result:
                 if raise_error:
                     error_msg = result["_download_error"]
@@ -230,6 +232,8 @@ class WebHelper(EngineClient):
                 success = True
 
         if success:
+            if include_response_url:
+                return filename, result[1]
             return filename
 
     async def wordlist(self, path, lines=None, zip=False, zip_filename=None, **kwargs):

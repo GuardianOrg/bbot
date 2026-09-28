@@ -6,6 +6,7 @@ from bbot.modules.base import BaseModule
 
 
 class testssl(BaseModule):
+    fatal_on_error = True
     watched_events = ["URL", "URL_UNVERIFIED", "HTTP_RESPONSE"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "slow", "web-thorough"]
@@ -151,18 +152,21 @@ class testssl(BaseModule):
         ]
         try:
             process = await self.run_process(command, _log_stderr=False, idle_timeout=self.timeout)
+            if process is None:
+                raise RuntimeError(f"testssl.sh did not start for {url}")
             results = self.load_results(output_file)
             if not results:
                 results = self.parse_json_blob(getattr(process, "stdout", ""))
-            if not results and getattr(process, "returncode", 0) not in (0, None):
-                self.warning(f"testssl.sh exited with code {process.returncode} for {url}: {getattr(process, 'stderr', '')}")
-                return
             for item in results:
                 normalized = self.normalize_result(item)
                 if normalized:
                     yield normalized
-        except TimeoutError:
-            self.warning(f"testssl.sh timed out after {self.timeout}s for {url}")
+            if process.returncode != 0:
+                raise RuntimeError(
+                    f"testssl.sh exited with code {process.returncode} for {url}: {getattr(process, 'stderr', '')}"
+                )
+        except TimeoutError as exc:
+            raise RuntimeError(f"testssl.sh timed out after {self.timeout}s for {url}") from exc
         finally:
             with suppress(Exception):
                 output_file.unlink(missing_ok=True)
@@ -170,15 +174,16 @@ class testssl(BaseModule):
     def load_results(self, output_file):
         try:
             with open(output_file, "r", errors="ignore") as f:
-                return self.normalize_results_container(json.load(f))
+                raw = f.read()
+            if not raw.strip():
+                return []
+            return self.normalize_results_container(json.loads(raw))
         except FileNotFoundError:
             return []
         except json.JSONDecodeError as e:
-            self.debug(f"Failed to decode testssl.sh JSON output {output_file}: {e}")
-            return []
-        except Exception as e:
-            self.warning(f"Unable to read testssl.sh JSON output {output_file}: {e}")
-            return []
+            raise RuntimeError(f"testssl.sh wrote invalid JSON to {output_file}") from e
+        except OSError as e:
+            raise RuntimeError(f"Unable to read testssl.sh JSON output {output_file}") from e
 
     def parse_json_blob(self, text):
         raw = str(text or "").strip()
@@ -186,8 +191,8 @@ class testssl(BaseModule):
             return []
         try:
             return self.normalize_results_container(json.loads(raw))
-        except json.JSONDecodeError:
-            return []
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("testssl.sh returned invalid JSON on stdout") from exc
 
     def normalize_results_container(self, payload):
         if isinstance(payload, list):

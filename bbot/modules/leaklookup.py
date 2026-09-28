@@ -1,12 +1,12 @@
 import asyncio
-from contextlib import suppress
 
-from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint
+from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint, secret_hash
 from bbot.core.helpers.observation_dates import indexed_date_tags
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
 class leaklookup(subdomain_enum):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "HASHED_PASSWORD"]
     produced_events = ["EMAIL_ADDRESS", "FINDING", "HASHED_PASSWORD", "PASSWORD", "USERNAME"]
     flags = ["passive", "safe", "email-enum"]
@@ -100,20 +100,33 @@ class leaklookup(subdomain_enum):
         if not breaches:
             return
 
-        # Step 3: obtain the actual records. If the detection response already carried records
-        # (the key was private) use them; otherwise escalate to the paid key when available.
-        records_by_breach = detection if self._has_records(detection) else {}
-        if not records_by_breach and self.private_api_key and self.private_api_key != self.detection_key:
-            records_by_breach = await self._search(self.private_api_key, query)
-        if not isinstance(records_by_breach, dict):
-            records_by_breach = {}
+        # Public responses may contain metadata rows without credentials. Always query the
+        # distinct paid key when configured; prefer its record rows per breach, retaining the
+        # public response as a fallback if the paid query has no rows for that breach.
+        records_by_breach = dict(detection)
+        if self.private_api_key and self.private_api_key != self.detection_key:
+            paid_records = await self._search(self.private_api_key, query)
+            for breach, rows in paid_records.items():
+                if not breach:
+                    continue
+                if breach not in breaches:
+                    breaches.append(breach)
+                if isinstance(rows, list) and rows:
+                    records_by_breach[breach] = rows
 
         for breach in breaches:
-            rows = [row for row in records_by_breach.get(breach, []) if isinstance(row, dict)]
+            candidate_rows = records_by_breach.get(breach)
+            rows = [row for row in candidate_rows if isinstance(row, dict)] if isinstance(candidate_rows, list) else []
             if rows:
                 source_tag = f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"
+                saw_metadata_only_row = False
                 for row in rows:
-                    await self._emit_row_results(row, event, query, breach, source_tag)
+                    outcome = await self._emit_row_results(row, event, query, breach, source_tag)
+                    if outcome is False:
+                        saw_metadata_only_row = True
+                if saw_metadata_only_row and not self.history.contains(self._breach_fp(query, breach)):
+                    await self._emit_public_breach_finding(breach, event, query, public_lookup=not bool(self.private_api_key))
+                    self.history.add(self._breach_fp(query, breach))
             elif not self.history.contains(self._breach_fp(query, breach)):
                 # No records (public-only, or the paid key returned nothing) — alert on the
                 # breach-name hit, deduped by breach so we do not re-emit it every scan.
@@ -131,28 +144,31 @@ class leaklookup(subdomain_enum):
         async with self._state_lock:
             self.history.save()
 
-    async def _emit_public_breach_finding(self, breach, event, query):
+    async def _emit_public_breach_finding(self, breach, event, query, public_lookup=True):
         await self.emit_event(
             {
                 "host": query,
+                "severity": "INFO",
                 "title": f"Leak-Lookup breach match for {query}: {breach}",
-                "category": "credential-exposure",
+                "category": "breach-dataset-match",
                 "description": (
-                    f'The public Leak-Lookup API reports that "{query}" appears in the breach dataset "{breach}". '
-                    "Accounts, passwords, or hashes associated with the domain may be exposed in this dataset. "
-                    "A paid Leak-Lookup key (or Dehashed) is required to retrieve the individual leaked records. "
-                    "Review exposed accounts, prioritize privileged users and accounts without MFA, and enforce password resets where reuse is possible."
+                    f'Leak-Lookup reports that "{query}" appears in the breach dataset "{breach}". '
+                    "This result identified no individual account or secret, so it does not establish a leaked "
+                    "credential. Retrieve individual records with a paid key or alternate telemetry before "
+                    "assessing account impact."
                 ),
                 "recommendation": (
-                    "Retrieve the individual records with a paid key or alternate telemetry, then rotate any affected credentials."
+                    "Retrieve individual records and verify whether any active accounts or secrets are affected "
+                    "before taking credential-specific action."
                 ),
                 "evidence": f"Breach source: {breach}",
                 "leaklookup_breach": breach,
             },
             "FINDING",
             parent=event,
-            tags=["leaklookup-public-api", f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"],
-            context=f'{{module}} queried Leak-Lookup (public) and found {{event.type}} breach match for "{query}": {breach}',
+            tags=(["leaklookup-public-api"] if public_lookup else [])
+            + [f"leaklookup-source-{self.helpers.tagify(breach, maxlen=48)}"],
+            context=f'{{module}} queried Leak-Lookup and found {{event.type}} breach match for "{query}": {breach}',
         )
         return True
 
@@ -168,8 +184,61 @@ class leaklookup(subdomain_enum):
         if date_tags:
             record_fp += ":" + ":".join(date_tags)
         if self.history.contains(record_fp):
-            return False
+            return None
         self.history.add(record_fp)
+
+        if not passwords and not hashed_passwords:
+            # A paid row can identify an account without exposing a password. Keep the
+            # record-level observation, but do not present it as a leaked credential.
+            accounts = emails or usernames
+            for account in sorted(accounts):
+                await self.emit_event(
+                    {
+                        "host": query,
+                        "account": account,
+                        "severity": "MEDIUM",
+                        "title": f"Breach record mentions {account} in {breach}",
+                        "category": "breach-account-exposure",
+                        "description": (
+                            f"Leak-Lookup returned a record for {account} in {breach}, but no password or hash. "
+                            "Verify the account and whether another source confirms credential exposure."
+                        ),
+                        "recommendation": "Review the account and enforce MFA; rotate credentials if a secret is confirmed exposed.",
+                        "leaklookup_breach": breach,
+                    },
+                    "FINDING",
+                    parent=parent_event,
+                    tags=[source_tag, *date_tags],
+                    context=f'{{module}} found {{event.type}} for "{account}" in "{breach}" without a secret',
+                )
+
+        if not emails and (passwords or hashed_passwords):
+            # Password events need an email-address parent. Preserve rows that only have a
+            # username (or no identity) as findings, with the secret hashed before emission.
+            secret_hashes = {secret_hash(value) for value in passwords}
+            secret_hashes.update(secret_hash(value, already_hashed=True) for value in hashed_passwords)
+            for account in sorted(usernames) or [None]:
+                for hashed in sorted(secret_hashes):
+                    await self.emit_event(
+                        {
+                            "host": query,
+                            "account": account,
+                            "secret_hash": hashed,
+                            "severity": "HIGH",
+                            "title": f"Leaked credential in {breach} for {account or query}",
+                            "category": "credential-exposure",
+                            "description": (
+                                f"Leak-Lookup returned a password or password hash in {breach} "
+                                f"for {account or query}. Only its non-reversible hash is retained in this finding."
+                            ),
+                            "recommendation": "Identify the affected account, rotate its credential, and check for password reuse.",
+                            "leaklookup_breach": breach,
+                        },
+                        "FINDING",
+                        parent=parent_event,
+                        tags=[source_tag, *date_tags],
+                        context=f'{{module}} found {{event.type}} for "{account or query}" in "{breach}"',
+                    )
 
         for email in emails:
             email_event = self.make_event(email, "EMAIL_ADDRESS", parent=parent_event, tags=[source_tag, *date_tags])
@@ -203,7 +272,7 @@ class leaklookup(subdomain_enum):
                     tags=[source_tag, *date_tags],
                     context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
                 )
-        return True
+        return bool(emails or usernames or passwords or hashed_passwords)
 
     async def handle_hashed_password_event(self, event):
         identity, hash_value = self._split_hashed_password_event(event)
@@ -217,16 +286,13 @@ class leaklookup(subdomain_enum):
             data={"key": crack_key, "query": hash_value},
         )
         json_result = self._safe_json(response)
-        if not json_result:
-            return
         if str(json_result.get("error", "")).lower() == "true":
             message = json_result.get("message", "")
-            self.warning(f'Leak-Lookup hash lookup failed for "{hash_value}": {message}')
-            return
+            raise RuntimeError(f'Leak-Lookup hash lookup failed for "{hash_value}": {message}')
 
-        message = json_result.get("message", {})
+        message = json_result.get("message")
         if not isinstance(message, dict):
-            return
+            raise RuntimeError("Leak-Lookup hash lookup returned malformed data")
 
         emitted = False
         for source_rows in message.values():
@@ -264,17 +330,12 @@ class leaklookup(subdomain_enum):
             data={"key": key, "type": "domain", "query": query},
         )
         json_result = self._safe_json(response)
-        if not json_result:
-            return {}
         if str(json_result.get("error", "")).lower() == "true":
-            self.warning(f'Leak-Lookup returned an error for "{query}": {json_result.get("message", "")}')
-            return {}
-        message = json_result.get("message", {})
-        return message if isinstance(message, dict) else {}
-
-    @staticmethod
-    def _has_records(result):
-        return any(isinstance(rows, list) and rows for rows in result.values())
+            raise RuntimeError(f'Leak-Lookup search failed for "{query}": {json_result.get("message", "")}')
+        message = json_result.get("message")
+        if not isinstance(message, dict):
+            raise RuntimeError(f'Leak-Lookup search returned malformed data for "{query}"')
+        return message
 
     async def _extract_emails_from_row(self, row):
         emails = set()
@@ -309,11 +370,13 @@ class leaklookup(subdomain_enum):
 
     def _safe_json(self, response):
         if response is None:
-            return {}
+            raise RuntimeError("Leak-Lookup request returned no response")
         if getattr(response, "status_code", 0) != 200:
-            self.warning(f"Error retrieving results from leak-lookup.com (status code {response.status_code})")
-            return {}
-        json_result = {}
-        with suppress(Exception):
+            raise RuntimeError(f"Leak-Lookup HTTP {response.status_code}")
+        try:
             json_result = response.json()
+        except Exception as error:
+            raise RuntimeError("Leak-Lookup response was not valid JSON") from error
+        if not isinstance(json_result, dict):
+            raise RuntimeError("Leak-Lookup response was not a JSON object")
         return json_result

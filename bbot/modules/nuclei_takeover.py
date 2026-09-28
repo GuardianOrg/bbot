@@ -8,6 +8,7 @@ from bbot.modules.base import BaseModule
 
 
 class nuclei_takeover(BaseModule):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
@@ -39,7 +40,7 @@ class nuclei_takeover(BaseModule):
         "concurrency": "Nuclei template concurrency",
         "retries": "Nuclei retries",
         "timeout": "Nuclei timeout in seconds",
-        "module_timeout": "Maximum seconds to wait for a nuclei takeover batch before skipping it",
+        "module_timeout": "Maximum seconds to wait for a nuclei takeover batch",
         "check_unresolved": "Also run takeover templates against DNS_NAME_UNRESOLVED events",
         "silent": "Only show findings output from nuclei",
     }
@@ -62,28 +63,33 @@ class nuclei_takeover(BaseModule):
     async def setup(self):
         self.nuclei_bin = str((self.helpers.tools_dir / "nuclei").resolve())
         if not os.path.isfile(self.nuclei_bin):
-            return None, 'nuclei binary "nuclei" was not found in PATH'
+            return False, 'nuclei binary "nuclei" was not found in PATH'
         self.nuclei_templates_dir = self.helpers.tools_dir / "nuclei-templates"
+        self.templates = str(self.config.get("templates", "")).strip()
+        had_templates = self.nuclei_templates_dir.is_dir() and any(
+            path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
+        )
         should_update_templates = (
-            os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or not self.nuclei_templates_dir.exists()
+            os.environ.get("BBOT_NUCLEI_UPDATE_TEMPLATES") == "1" or (not had_templates and not self.templates)
         )
         if should_update_templates:
             self.info("Updating Nuclei templates for takeover scans")
             update_result = await self.run_process(
                 [self.nuclei_bin, "-update-template-dir", self.nuclei_templates_dir, "-update-templates"]
             )
-            if update_result.returncode != 0:
-                self.warning(f"Failed to update nuclei templates: {update_result.stderr}")
-        elif self.nuclei_templates_dir.exists():
+            if update_result is None or update_result.returncode != 0:
+                if not had_templates and not self.templates:
+                    return False, "nuclei takeover templates could not be downloaded"
+                self.warning(f"Failed to update nuclei templates: {getattr(update_result, 'stderr', '')}")
+        elif had_templates:
             self.info("Using existing Nuclei templates for takeover scans")
-        else:
-            self.warning(
-                "Nuclei templates directory does not exist and template updates are disabled; "
-                "set BBOT_NUCLEI_UPDATE_TEMPLATES=1 to auto-download templates"
-            )
+        has_templates = self.nuclei_templates_dir.is_dir() and any(
+            path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
+        )
+        if not has_templates and not self.templates:
+            return False, "nuclei takeover templates are missing after update"
         self.takeover_templates_dir = self.nuclei_templates_dir / "http" / "takeovers"
         self.tags = str(self.config.get("tags", "takeover")).strip() or "takeover"
-        self.templates = str(self.config.get("templates", "")).strip()
         self.etags = str(self.config.get("etags", "")).strip()
         self.ratelimit = int(self.config.get("ratelimit", 150))
         self.concurrency = int(self.config.get("concurrency", 25))
@@ -141,7 +147,7 @@ class nuclei_takeover(BaseModule):
         target_file = self.helpers.tempfile(targets, pipe=False)
         command += ["-l", target_file]
         self.info(f"Running nuclei takeover command: {' '.join(str(part) for part in command)}")
-        process = self.run_process_live(command, stderr=subprocess.DEVNULL)
+        process = self.run_process_live(command, stderr=subprocess.DEVNULL, check=True)
         try:
             async with asyncio.timeout(self.module_timeout):
                 async for line in process:
@@ -213,10 +219,10 @@ class nuclei_takeover(BaseModule):
                         tags=["takeover", "nuclei-takeover"],
                         context=f'{{module}} used nuclei takeover templates and found {{event.type}} on "{host}"',
                     )
-        except TimeoutError:
-            self.warning(
-                f"nuclei_takeover exceeded {self.module_timeout:g}s for batch of {len(targets)} targets, skipping batch"
-            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"nuclei_takeover exceeded {self.module_timeout:g}s for batch of {len(targets)} targets"
+            ) from exc
         finally:
             await process.aclose()
 

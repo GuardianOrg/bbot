@@ -3,9 +3,11 @@ import json
 from pathlib import Path
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.takeover import takeover_finding_title
 
 
 class dnsreaper(BaseModule):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "DNS_NAME_UNRESOLVED"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["active", "safe", "subdomain-hijack"]
@@ -30,7 +32,7 @@ class dnsreaper(BaseModule):
         "version": "dnsreaper version",
         "binary": "Path to dnsreaper executable",
         "parallelism": "Number of domains to test in parallel",
-        "timeout": "Maximum seconds to wait for a dnsreaper batch before skipping it",
+        "timeout": "Maximum seconds to wait for a dnsreaper batch",
         "resolver": "Optional custom resolver list (comma separated)",
         "disable_probable": "Skip potential/probable findings",
         "enable_unlikely": "Enable unlikely confidence findings",
@@ -93,9 +95,9 @@ class dnsreaper(BaseModule):
         self.exclude_signatures = self.helpers.chain_lists(self.config.get("exclude_signatures", []))
         if "/" in self.binary:
             if not Path(self.binary).is_file():
-                return None, f"dnsreaper binary not found at path: {self.binary}"
+                return False, f"dnsreaper binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
-            return None, f'dnsreaper binary "{self.binary}" was not found in PATH'
+            return False, f'dnsreaper binary "{self.binary}" was not found in PATH'
         return True
 
     async def filter_event(self, event):
@@ -148,20 +150,24 @@ class dnsreaper(BaseModule):
                     self.run_process(command, _log_stderr=False),
                     timeout=self.timeout,
                 )
-            except asyncio.TimeoutError:
-                self.warning(
-                    f"dnsreaper exceeded {self.timeout:g}s for batch of {len(targets)} targets, skipping batch"
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    f"dnsreaper exceeded {self.timeout:g}s for batch of {len(targets)} targets"
+                ) from exc
+            if getattr(result, "returncode", 0) != 0:
+                raise RuntimeError(
+                    f"dnsreaper failed for batch of {len(targets)} targets "
+                    f"(exit {result.returncode}): {str(getattr(result, 'stderr', '') or '').strip()}"
                 )
-                return
             raw = str(getattr(result, "stdout", "") or "").strip()
             if not raw:
                 return
             try:
                 findings = json.loads(raw)
-            except Exception:
-                return
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("dnsreaper returned invalid JSON") from exc
             if not isinstance(findings, list):
-                return
+                raise RuntimeError("dnsreaper returned a non-list JSON result")
 
             for finding in findings:
                 if not isinstance(finding, dict):
@@ -174,10 +180,11 @@ class dnsreaper(BaseModule):
                     continue
 
                 signature = finding.get("signature", "unknown")
+                generic_reference = str(signature).startswith("_generic_")
                 confidence = str(finding.get("confidence", "UNKNOWN")).upper()
                 info = finding.get("info", "")
                 more_info_url = finding.get("more_info_url", "")
-                title = f"Potential subdomain takeover via {signature}"
+                title = takeover_finding_title(host, signature)
                 description = (
                     f"{host} may be vulnerable to subdomain takeover because it matches the '{signature}' signature with {confidence.lower()} confidence. "
                     "Subdomain takeover can happen when DNS still points a hostname to an external provider resource that the organization no longer owns, has not claimed, or has not finished configuring. "
@@ -187,6 +194,11 @@ class dnsreaper(BaseModule):
                 )
                 if info:
                     description += f" Additional detail: {info}"
+                if generic_reference:
+                    description += (
+                        " This generic DNS signature establishes only that a reference is dangling; it does not establish"
+                        " that another account can claim the referenced provider resource. Verify that claimability separately."
+                    )
                 evidence = f"Signature: {signature}; Confidence: {confidence}"
                 if info:
                     evidence += f"; Info: {info}"
@@ -195,7 +207,7 @@ class dnsreaper(BaseModule):
                 if more_info_url:
                     recommendation += f" Reference: {more_info_url}"
 
-                if confidence == "UNLIKELY":
+                if confidence == "UNLIKELY" or generic_reference:
                     await self.emit_event(
                         {
                             "title": title,

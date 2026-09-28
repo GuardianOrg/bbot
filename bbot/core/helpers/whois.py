@@ -1,4 +1,31 @@
 from datetime import date, datetime
+import re
+
+
+def whois_result_with_registrant(value):
+    """Preserve role-labelled registrant fields from raw WHOIS text.
+
+    python-whois flattens every contact email into ``emails`` in response order.
+    On .ca records, the first address belongs to the registrar's abuse desk.
+    """
+    result = dict(value) if value else {}
+    raw_text = getattr(value, "text", None)
+    if not isinstance(raw_text, str):
+        return result
+
+    for key, labels in (
+        ("registrant_name", ("Registrant Name",)),
+        ("registrant_org", ("Registrant Organization", "Registrant Org")),
+        ("registrant_email", ("Registrant Email",)),
+    ):
+        if whois_first_string(result.get(key)):
+            continue
+        for label in labels:
+            match = re.search(rf"^{re.escape(label)}:[ \t]*([^\r\n]+)", raw_text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                result[key] = match.group(1).strip()
+                break
+    return result
 
 
 def whois_first_string(value):
@@ -48,8 +75,8 @@ def normalize_whois_ownership(result):
     return {
         "registrar": whois_first_string(result.get("registrar")),
         "registration_date": whois_to_iso(result.get("creation_date")),
-        "registrant_org": whois_first_string(result.get("org")),
-        "registrant_email": whois_first_string(result.get("emails")),
-        "registrant_name": whois_first_string(result.get("name")),
+        "registrant_org": whois_first_string(result.get("registrant_org")) or whois_first_string(result.get("org")),
+        "registrant_email": whois_first_string(result.get("registrant_email")),
+        "registrant_name": whois_first_string(result.get("registrant_name")) or whois_first_string(result.get("name")),
         "registrant_country": whois_first_string(result.get("country")),
     }

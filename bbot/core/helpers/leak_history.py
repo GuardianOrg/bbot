@@ -14,18 +14,18 @@ def _canonical(value):
     return re.sub(r"\s+", " ", str(value).strip().lower())
 
 
-def secret_hash(secret):
+def secret_hash(secret, already_hashed=False):
     """Return a stable, non-reversible hash for a leaked secret.
 
-    If the value already looks like a hash it is kept (lowercased); otherwise the cleartext
-    is sha256'd so plaintext is never persisted in the history file.
+    The caller identifies hash fields explicitly. Hex-looking cleartext passwords must still
+    be sha256'd so plaintext is never persisted in the history file or finding evidence.
     """
     if secret is None:
         return ""
     text = str(secret).strip()
     if not text:
         return ""
-    if _LOOKS_LIKE_HASH.match(text.lower()):
+    if already_hashed and _LOOKS_LIKE_HASH.match(text.lower()):
         return text.lower()
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
 
@@ -62,8 +62,10 @@ def record_fingerprint(source, breach, emails=None, usernames=None, passwords=No
     dedup stays identical.
     """
     identities = _distinct_canonical(emails, usernames)
-    secrets = sorted({secret_hash(value) for value in list(passwords or []) + list(hashes or []) if secret_hash(value)})
-    parts = [_canonical(source), _canonical(breach), ",".join(identities), ",".join(secrets)]
+    secrets = {secret_hash(value) for value in passwords or []}
+    secrets.update(secret_hash(value, already_hashed=True) for value in hashes or [])
+    secrets.discard("")
+    parts = [_canonical(source), _canonical(breach), ",".join(identities), ",".join(sorted(secrets))]
     return hashlib.sha256("|".join(parts).encode("utf-8", "replace")).hexdigest()
 
 

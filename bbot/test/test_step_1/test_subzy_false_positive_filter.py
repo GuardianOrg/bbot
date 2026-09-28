@@ -5,8 +5,8 @@ from bbot.modules.subzy import subzy
 VERCEL_DEPLOYMENT = {"Server": "Vercel", "X-Vercel-Id": "cdg1::abc"}
 
 
-def response(status_code, headers):
-    return SimpleNamespace(status_code=status_code, headers=headers)
+def response(status_code, headers, text=""):
+    return SimpleNamespace(status_code=status_code, headers=headers, text=text)
 
 
 def test_subzy_recognizes_claimed_gitbook_site_response():
@@ -19,6 +19,19 @@ def test_subzy_does_not_suppress_unclaimed_or_unrecognized_pages():
     assert subzy.is_claimed_provider_response(response(404, {"X-GitBook-Target": "site"}), "GitBook") is False
     assert subzy.is_claimed_provider_response(response(200, {"Server": "nginx"}), "Gemfury") is False
     assert subzy.is_claimed_provider_response(None, "Gemfury") is False
+
+
+def test_subzy_ignores_gemfury_fingerprint_embedded_in_active_non_vercel_site():
+    # developers.fomopay.com serves its own Next.js documentation with this
+    # generic text in the HTML, even though the page itself returns HTTP 200.
+    live_site = response(200, {"Server": "fomogroup", "Via": "1.1 google"}, "404: This page could not be found.")
+    unclaimed = response(404, {"Server": "Gemfury"}, "404: This page could not be found.")
+    redirect_to_error = response(302, {"Location": "https://gemfury.com/404"})
+
+    assert subzy.is_claimed_provider_response(live_site, "Gemfury") is True
+    assert subzy.is_claimed_provider_response(unclaimed, "Gemfury") is False
+    assert subzy.is_claimed_provider_response(redirect_to_error, "Gemfury") is False
+    assert subzy.is_claimed_provider_response(live_site, "Vercel") is False
 
 
 def test_subzy_drops_generic_matches_on_an_active_vercel_deployment():
@@ -39,3 +52,66 @@ def test_subzy_keeps_unclaimed_vercel_hosts():
 
     assert subzy.is_claimed_provider_response(unclaimed, "Vercel") is False
     assert subzy.is_claimed_provider_response(errored, "Vercel") is False
+
+
+def test_subzy_ignores_cargo_match_on_unrelated_nginx_ingress():
+    # A generic nginx 404 matched Subzy's Cargo Collective fingerprint on 17
+    # Cumberland hosts, although these hosts resolve directly to an ingress IP.
+    nginx_404 = response(
+        404,
+        {"Server": "nginx"},
+        "<html><head><title>404 Not Found</title></head>"
+        "<body><center><h1>404 Not Found</h1></center><hr><center>nginx</center></body></html>",
+    )
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"A": {"3.23.242.41"}}) is True
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"CNAME": {"site.cargo.site"}}) is False
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {}) is False
+
+
+def test_subzy_ignores_cargo_match_on_other_provider_or_generic_openresty():
+    nginx_404 = response(404, {}, "<title>404 Not Found</title><center>nginx</center>")
+    openresty_404 = response(404, {}, "<title>404 Not Found</title><center>openresty</center>")
+    readme_site = response(302, {"Location": "/reference"})
+
+    assert subzy.is_claimed_provider_response(nginx_404, "Cargo Collective", {"CNAME": {"sendgrid.net."}}) is True
+    assert subzy.is_claimed_provider_response(readme_site, "Cargo Collective", {"CNAME": {"site.readmessl.com."}}) is True
+    assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"A": {"104.18.79.118"}}) is True
+    assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"CNAME": {"site.cargo.site."}}) is False
+
+
+def test_subzy_ignores_uptimerobot_match_on_cloudflare_default_404():
+    # Fifteen Coinbase hosts with direct Cloudflare A records served the same
+    # generic 404, which contains Subzy's broad "page not found" fingerprint.
+    cloudflare_404 = response(404, {"Server": "cloudflare"}, "404 page not found\n")
+
+    assert subzy.is_claimed_provider_response(
+        cloudflare_404, "Uptimerobot", {"A": {"104.18.35.15", "172.64.152.241"}}
+    ) is True
+    assert subzy.is_claimed_provider_response(
+        cloudflare_404, "Uptimerobot", {"CNAME": {"stats.uptimerobot.com"}}
+    ) is False
+    assert subzy.is_claimed_provider_response(cloudflare_404, "Uptimerobot", {}) is False
+    assert subzy.is_claimed_provider_response(
+        response(404, {"Server": "cloudflare"}, "page not found"),
+        "Uptimerobot",
+        {"A": {"104.18.35.15"}},
+    ) is False
+
+
+def test_subzy_ignores_cargo_match_on_own_apex_varnish_404():
+    # direct.panteracapital.com CNAMEs to panteracapital.com. Its generic
+    # Varnish 404 is not a dangling Cargo site.
+    varnish_404 = response(404, {"Server": "Varnish"}, "404 Not Found")
+
+    assert subzy.is_claimed_provider_response(
+        varnish_404,
+        "Cargo Collective",
+        {"CNAME": {"panteracapital.com."}, "A": {"23.185.0.2"}},
+        host="direct.panteracapital.com",
+    ) is True
+    assert subzy.is_claimed_provider_response(
+        varnish_404,
+        "Cargo Collective",
+        {"CNAME": {"site.cargo.site."}},
+        host="direct.panteracapital.com",
+    ) is False

@@ -5,6 +5,7 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
 class subfinder(subdomain_enum):
+    fatal_on_error = True
     watched_events = ["DNS_NAME"]
     produced_events = ["DNS_NAME"]
     flags = ["subdomain-enum", "passive", "safe"]
@@ -73,13 +74,13 @@ class subfinder(subdomain_enum):
 
         if "/" in self.binary:
             if not Path(self.binary).is_file():
-                return None, f"subfinder binary not found at path: {self.binary}"
+                return False, f"subfinder binary not found at path: {self.binary}"
         elif not self.helpers.which(self.binary):
             tools_binary = self.helpers.tools_dir / self.binary
             if tools_binary.is_file():
                 self.binary = str(tools_binary)
             else:
-                return None, f'subfinder binary "{self.binary}" was not found in PATH'
+                return False, f'subfinder binary "{self.binary}" was not found in PATH'
 
         return await super().setup()
 
@@ -137,9 +138,8 @@ class subfinder(subdomain_enum):
         stderr = getattr(result, "stderr", "") or ""
         returncode = getattr(result, "returncode", 0)
 
-        if returncode != 0 and not stdout.strip():
-            self.info(f'Subfinder query for "{query}" failed with code {returncode}: {stderr.strip()}')
-            return []
+        if returncode != 0:
+            raise RuntimeError(f'Subfinder query for "{query}" failed with code {returncode}: {stderr.strip()}')
 
         discovered = set()
         for line in stdout.splitlines():
