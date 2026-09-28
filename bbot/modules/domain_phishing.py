@@ -161,6 +161,12 @@ class domain_phishing(BaseModule):
         # They are not A, AAAA, MX, or NS records and must not increase the score.
         return [text for item in values if (text := str(item).strip()) and not text.startswith("!")]
 
+    @staticmethod
+    def _is_null_mx(value):
+        # RFC 7505: MX 0 . explicitly declares that this domain accepts no mail.
+        normalized = str(value).strip()
+        return normalized == "." or bool(re.fullmatch(r"0\s*\.?", normalized))
+
     def _parse_json_output(self, text):
         raw = str(text or "").strip()
         if not raw:
@@ -210,22 +216,22 @@ class domain_phishing(BaseModule):
 
         dns_a = self._as_list(self._pick(candidate, "dns-a", "dns_a"))
         dns_aaaa = self._as_list(self._pick(candidate, "dns-aaaa", "dns_aaaa"))
-        dns_mx = self._as_list(self._pick(candidate, "dns-mx", "dns_mx"))
+        dns_mx = [mx for mx in self._as_list(self._pick(candidate, "dns-mx", "dns_mx")) if not self._is_null_mx(mx)]
         dns_ns = self._as_list(self._pick(candidate, "dns-ns", "dns_ns"))
 
-        has_web = bool(dns_a or dns_aaaa)
-        if has_web:
+        has_address = bool(dns_a or dns_aaaa)
+        if has_address:
             score += 1
-            reasons.append("active A/AAAA records")
+            reasons.append("A/AAAA DNS records observed")
         if dns_mx:
             score += 1
-            reasons.append("active MX records")
+            reasons.append("MX DNS records point to mail exchangers")
         if dns_ns:
             score += 1
             reasons.append("delegated NS records")
-        if has_web and dns_mx:
+        if has_address and dns_mx:
             score += 1
-            reasons.append("fully operational (web + mail)")
+            reasons.append("address and mail-exchanger DNS records present")
 
         created = self._pick(candidate, "whois-created", "whois_created", "created")
         age_days = self._parse_domain_age_days(created)

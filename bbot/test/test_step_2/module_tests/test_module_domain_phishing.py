@@ -284,6 +284,29 @@ def test_domain_phishing_does_not_score_dnstwist_dns_errors_as_live_records():
     assert "!ServFail" not in mod._build_evidence(candidate, "homoglyph", score, reasons)
 
 
+@pytest.mark.parametrize("null_mx", ["0 .", "0.", "0 ", "."])
+def test_domain_phishing_null_mx_does_not_score_mail_service(null_mx):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.young_domain_days = 45
+    mod.lsh_threshold = 70
+    candidate = {
+        "domain": "4r.ca",
+        "fuzzer": "homoglyph",
+        "dns-a": ["192.0.2.10"],
+        "dns-mx": [null_mx],
+        "dns-ns": ["ns1.example.net"],
+        "whois-created": "2005-01-20",
+    }
+
+    score, severity, reasons = mod._score_candidate(candidate)
+
+    assert score == 4
+    assert severity == "MEDIUM"
+    assert not any("MX" in reason or "mail" in reason for reason in reasons)
+
+
 def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
     from bbot.modules.domain_phishing import domain_phishing
 
