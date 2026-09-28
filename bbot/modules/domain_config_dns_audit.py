@@ -873,43 +873,8 @@ class domain_config_dns_audit(BaseModule):
             return
         success_ds, ds_records = await self.query_dns(domain, "DS")
         success_cds, cds_records = await self.query_dns(domain, "CDS")
-        success_cdnskey, cdnskey_records = await self.query_dns(domain, "CDNSKEY")
-        if success_cds and cds_records and not (success_cdnskey and cdnskey_records):
-            findings.append(AuditFinding(
-                "DNSSEC Rollover Signal Incomplete (CDS without CDNSKEY)",
-                "MEDIUM",
-                "DNSSEC",
-                (
-                    "The child zone publishes CDS rollover records without matching CDNSKEY records. Automated parent DS updates may fail or apply incomplete key information during DNSSEC rollover."
-                    ' CDS and CDNSKEY records are signals a child zone can publish to help the parent zone'
-                    ' update DNSSEC delegation information during key rollover. Publishing one without the other can confuse or'
-                    ' block automated parent updates, depending on registrar and registry behavior. For someone unfamiliar with'
-                    ' DNSSEC, this is like sending only part of the paperwork needed to rotate a signing key. The current domain may'
-                    ' still work, but the next rollover could fail or leave old and new keys out of sync. That can eventually break'
-                    ' validation and make the domain fail for resolvers that enforce DNSSEC.'
-                ),
-                f"CDS: {cds_records}",
-                "Publish both CDS and CDNSKEY consistently during rollover.",
-                f"dig {domain} CDS +short && dig {domain} CDNSKEY +short",
-            ))
-        if success_cdnskey and cdnskey_records and not (success_cds and cds_records):
-            findings.append(AuditFinding(
-                "DNSSEC Rollover Signal Incomplete (CDNSKEY without CDS)",
-                "LOW",
-                "DNSSEC",
-                (
-                    "The child zone publishes CDNSKEY records without CDS records. Registrars or parent zones that expect both signals may not update DS records reliably during DNSSEC rollover."
-                    ' CDNSKEY records can help automate DNSSEC key changes by advertising key material'
-                    ' from the child zone to the parent. If CDNSKEY exists without corresponding CDS records, some parent or'
-                    ' registrar workflows may not have enough information to safely update the DS record. The result can be a'
-                    ' stalled or partially completed rollover. This is usually an operational hygiene issue today, but it becomes'
-                    ' important when keys are replaced, compromised, or retired. The safest approach is to publish rollover signals'
-                    ' consistently and verify that the registrar supports the exact automation process being used.'
-                ),
-                f"CDNSKEY: {cdnskey_records[:2]}",
-                "Publish CDS records alongside CDNSKEY when using automated DS management.",
-                f"dig {domain} CDNSKEY +short && dig {domain} CDS +short",
-            ))
+        # RFC 7344 §4 permits either signal by itself when the parent consumes that type;
+        # absence of the other signal is not evidence of a broken rollover.
         if success_ds and ds_records and success_cds and cds_records:
             ds_keytags = {parts[0] for parts in (r.split() for r in ds_records) if parts}
             cds_keytags = {parts[0] for parts in (r.split() for r in cds_records) if parts}
