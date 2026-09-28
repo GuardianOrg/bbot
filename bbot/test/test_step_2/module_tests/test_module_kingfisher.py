@@ -38,6 +38,34 @@ def test_public_recaptcha_site_key_is_not_reported_as_a_secret(tmp_path):
     )["category"] == "secret"
 
 
+def test_browser_google_maps_javascript_key_is_not_reported_as_a_secret(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    key = "AIza" + "X" * 35
+    artifact = tmp_path / "page.html"
+    artifact.write_text(
+        '<script\n  async\n  src="https://maps.googleapis.com/maps/api/js?key=' + key + '"\n></script>\n'
+    )
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://example.com/wp-includes/wlwmanifest.xml", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    for detector in ("Google API Key", "gcp-api-key"):
+        assert formatter.format_artifact_leak(
+            event, artifact, key, detector=detector, file_path=str(artifact), line=3,
+        ) is None
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Google API Key", file_path=str(artifact), line=3, verified=True,
+    )["severity"] == "High"
+
+    artifact.write_text(f'GOOGLE_BACKEND_API_KEY="{key}"\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, key, detector="Google API Key", file_path=str(artifact), line=1,
+    )["category"] == "secret"
+
+
 def test_public_amplitude_project_api_key_is_not_a_secret_key(tmp_path):
     class Formatter(github_leak_formatter):
         name = "kingfisher"

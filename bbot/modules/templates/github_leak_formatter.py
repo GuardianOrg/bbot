@@ -241,6 +241,7 @@ class github_leak_formatter:
     ):
         if (
             self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified)
+            or self.is_public_google_maps_javascript_key(scan_path, file_path, line, leak, detector, verified)
             or self.is_public_amplitude_api_key(scan_path, file_path, line, leak, detector)
             or self.is_documentation_placeholder(leak, detector, verified)
             or self.is_expired_jwt(leak, detector, verified)
@@ -342,6 +343,31 @@ class github_leak_formatter:
             return False
         source_line = re.sub(r'\\+"', '"', source_line)
         pattern = rf'"amplitude"\s*:\s*\{{\s*"apiKey"\s*:\s*"{re.escape(key)}"'
+        return bool(re.search(pattern, source_line, re.IGNORECASE))
+
+    @staticmethod
+    def is_public_google_maps_javascript_key(scan_path, file_path, line, leak, detector, verified):
+        """A Maps JavaScript script URL necessarily exposes its browser key to visitors."""
+        if verified or str(detector or "").strip().lower() not in {"google api key", "gcp-api-key"}:
+            return False
+        key = str(leak or "").strip()
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+        except (OSError, TypeError, ValueError):
+            return False
+        if not key or line_number < 1 or source != reported or not source.is_file():
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                source_line = next((text for index, text in enumerate(stream, 1) if index == line_number), "")
+        except OSError:
+            return False
+        pattern = (
+            rf'\bsrc\s*=\s*["\']https://maps\.googleapis\.com/maps/api/js\?'
+            rf'(?:[^"\'\s<>]*&)?key={re.escape(key)}(?=[&"\'\s<>]|$)'
+        )
         return bool(re.search(pattern, source_line, re.IGNORECASE))
 
     @staticmethod
