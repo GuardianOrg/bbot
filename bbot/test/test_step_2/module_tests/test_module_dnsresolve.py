@@ -85,7 +85,8 @@ class TestDNSREsolve(ModuleTestBase):
                 if e.type == "IP_ADDRESS"
                 and e.data == "192.168.0.7"
                 and "private-ip" in e.tags
-                and e.scope_distance == 1
+                # A/AAAA children of an in-scope target inherit its scope distance.
+                and e.scope_distance == 0
             ]
         )
         assert 1 == len(
