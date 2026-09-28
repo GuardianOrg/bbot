@@ -210,6 +210,17 @@ class TestDNSResolveDropUnresolved(ModuleTestBase):
         assert dnsresolve.host_resolution_cache[cache_key]["type"] == "DNS_NAME"
         assert dnsresolve.host_resolution_cache[cache_key]["unresolved"] is True
 
+        # A terminal finding can be based on WHOIS, MX, or NS evidence even if this
+        # resolver finds no A/AAAA/CNAME for its host. Keep the finding, but not the
+        # unresolved DNS_NAME above.
+        finding = module_test.scan.make_event(
+            {"host": "missing.blacklanternsecurity.com", "description": "Registered host with MX evidence"},
+            "FINDING",
+            parent=module_test.scan.root_event,
+        )
+        finding.scope_distance = 0
+        assert await dnsresolve.handle_event(finding) is None
+
         target_event = module_test.scan.make_event(
             "target-missing.blacklanternsecurity.com",
             "DNS_NAME",

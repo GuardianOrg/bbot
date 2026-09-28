@@ -167,6 +167,61 @@ class TestDomainPhishingFailedProcess(ModuleTestBase):
         assert not any(e.type in ("FINDING", "VULNERABILITY") for e in events)
 
 
+class TestDomainPhishingRegisteredWithoutAddress(ModuleTestBase):
+    module_name = "domain_phishing"
+    targets = ["coinbase.com"]
+    config_overrides = {
+        "deps": {"behavior": "disable"},
+        "dns": {"emit_unresolved": False, "max_unresolved_subdomains_per_module": 1},
+        "modules": {"domain_phishing": {"binary": "/bin/echo", "fuzzers": ["addition"], "min_score": 3}},
+    }
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+
+        async def fake_install_core_deps(self):
+            return None
+
+        module_test.monkeypatch.setattr(DepsInstaller, "install_core_deps", fake_install_core_deps)
+        await module_test.mock_dns({"coinbase.com": {"A": ["127.0.0.88"]}})
+
+    async def setup_after_prep(self, module_test):
+        from bbot.modules.base import BaseModule
+
+        async def fake_run_process(self_module, cmd, *args, **kwargs):
+            return SimpleNamespace(returncode=0, stdout=json.dumps([
+                {
+                    "domain": "coinbasef.com", "fuzzer": "addition",
+                    "dns_ns": ["jerome.ns.cloudflare.com"],
+                    "whois_created": datetime.now().date().isoformat(),
+                },
+                {
+                    "domain": "coinbases.com", "fuzzer": "addition",
+                    "dns_mx": ["route1.mx.cloudflare.net"], "dns_ns": ["damon.ns.cloudflare.com"],
+                },
+            ]), stderr="")
+
+        module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
+        module_test.monkeypatch.setattr(
+            module_test.module, "_monitor_extra_candidates", lambda _root, _rows: asyncio.sleep(0, result=[])
+        )
+        module_test.monkeypatch.setattr(
+            module_test.module,
+            "_lookup_ownership_fingerprint",
+            lambda _domain: asyncio.sleep(0, result=module_test.module._empty_fingerprint()),
+        )
+
+    def check(self, module_test, events):
+        phishing_events = [
+            event for event in events
+            if event.type in ("FINDING", "VULNERABILITY")
+            and event.data.get("category") == "phishing-lookalike-domain"
+        ]
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+        assert {event.data["host"] for event in phishing_events} == {"coinbasef.com", "coinbases.com"}
+        assert not any(event.type == "DNS_NAME_UNRESOLVED" for event in events)
+
+
 class TestDomainPhishingCancelledProcess(TestDomainPhishingFailedProcess):
     async def setup_after_prep(self, module_test):
         from bbot.modules.base import BaseModule
