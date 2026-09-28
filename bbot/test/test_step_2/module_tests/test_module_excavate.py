@@ -11,6 +11,11 @@ import time
 import yara
 
 
+def non_http_findings(events, uri):
+    prefix = f"A non-HTTP URI was found in the response: {uri}."
+    return [event for event in events if event.type == "FINDING" and event.data.get("description", "").startswith(prefix)]
+
+
 class TestExcavate(ModuleTestBase):
     targets = ["http://127.0.0.1:8888/", "test.notreal", "http://127.0.0.1:8888/subdir/links.html"]
     modules_overrides = ["excavate", "httpx"]
@@ -97,10 +102,7 @@ class TestExcavate(ModuleTestBase):
         assert "a2https://www3.test.notreal/" not in event_data
         assert "uac20https://www4.test.notreal/" not in event_data
 
-        assert any(
-            e.type == "FINDING" and e.data.get("description", "") == "Non-HTTP URI: ftp://ftp.test.notreal"
-            for e in events
-        )
+        assert non_http_findings(events, "ftp://ftp.test.notreal")
         assert any(
             e.type == "PROTOCOL"
             and e.data.get("protocol", "") == "FTP"
@@ -207,20 +209,19 @@ class TestExcavateInScopeJavascript(TestExcavate):
         found_js_url_event = bool(
             [e for e in events if e.type == "URL" and e.data == "http://127.0.0.1:8888/script.js"]
         )
-        found_excavate_jwt_finding = bool(
-            [
-                e
-                for e in events
-                if e.type == "FINDING" and "JWT" in e.data["description"] and str(e.module) == "excavate"
-            ]
-        )
+        expired_jwt_findings = [
+            e for e in events
+            if e.type == "FINDING" and "JWT" in e.data["description"] and str(e.module) == "excavate"
+        ]
         found_badsecrets_vulnerability = bool(
             [e for e in events if e.type == "VULNERABILITY" and str(e.module) == "badsecrets"]
         )
 
         assert found_js_url_event, "Failed to find URL event for script.js"
         assert found_badsecrets_vulnerability, "Failed to find BADSECRETs event from script.js"
-        assert found_excavate_jwt_finding, "Failed to find JWT finding from script.js"
+        # This fixture's exp was in 2020. The expired token is suppressed, while
+        # badsecrets still reports its independently verified weak signing secret.
+        assert not expired_jwt_findings
 
 
 class TestExcavateSuppressesPublicGitbookContentJwt(TestExcavate):
@@ -336,13 +337,7 @@ class TestExcavateRedirect(TestExcavate):
             ]
         )
         assert 1 == len([e for e in events if e.type == "URL" and e.data == "http://127.0.0.1:8888/relative/owa/"])
-        assert 1 == len(
-            [
-                e
-                for e in events
-                if e.type == "FINDING" and e.data["description"] == "Non-HTTP URI: awb://127.0.0.1:7777"
-            ]
-        )
+        assert 1 == len(non_http_findings(events, "awb://127.0.0.1:7777"))
         assert 1 == len(
             [
                 e
@@ -350,13 +345,7 @@ class TestExcavateRedirect(TestExcavate):
                 if e.type == "PROTOCOL" and e.data["protocol"] == "AWB" and e.data.get("port", 0) == 7777
             ]
         )
-        assert 1 == len(
-            [
-                e
-                for e in events
-                if e.type == "FINDING" and e.data["description"] == "Non-HTTP URI: ftp://127.0.0.1:2121"
-            ]
-        )
+        assert 1 == len(non_http_findings(events, "ftp://127.0.0.1:2121"))
         assert 1 == len(
             [
                 e
@@ -364,9 +353,7 @@ class TestExcavateRedirect(TestExcavate):
                 if e.type == "PROTOCOL" and e.data["protocol"] == "FTP" and e.data.get("port", 0) == 2121
             ]
         )
-        assert 1 == len(
-            [e for e in events if e.type == "FINDING" and e.data["description"] == "Non-HTTP URI: smb://127.0.0.1"]
-        )
+        assert 1 == len(non_http_findings(events, "smb://127.0.0.1"))
         assert 1 == len(
             [e for e in events if e.type == "PROTOCOL" and e.data["protocol"] == "SMB" and "port" not in e.data]
         )
@@ -593,21 +580,9 @@ class TestExcavateNonHttpScheme(TestExcavate):
         module_test.httpserver.expect_request("/").respond_with_data(self.non_http_scheme_html)
 
     def check(self, module_test, events):
-        found_hxxp_url = False
-        found_ftp_url = False
-        found_nonsense_url = False
-
-        for e in events:
-            if e.type == "FINDING":
-                if e.data["description"] == "Non-HTTP URI: hxxp://test.notreal":
-                    found_hxxp_url = True
-                if e.data["description"] == "Non-HTTP URI: ftp://test.notreal":
-                    found_ftp_url = True
-                if "nonsense" in e.data["description"]:
-                    found_nonsense_url = True
-        assert found_hxxp_url
-        assert found_ftp_url
-        assert not found_nonsense_url
+        assert non_http_findings(events, "hxxp://test.notreal")
+        assert non_http_findings(events, "ftp://test.notreal")
+        assert not any(e.type == "FINDING" and "nonsense" in e.data["description"] for e in events)
 
 
 class TestExcavateParameterExtraction(TestExcavate):

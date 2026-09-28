@@ -59,7 +59,7 @@ class domain_phishing(BaseModule):
         "lsh": "Enable dnstwist LSH page-similarity checks (slower)",
         "lsh_threshold": "If LSH score >= this threshold, increase confidence",
         "young_domain_days": "Registration age in days considered suspicious",
-        "max_candidates": "Maximum permutations to evaluate per root domain",
+        "max_candidates": "Maximum dnstwist permutations to evaluate per root domain (monitor-only permutations are additional)",
         "min_score": "Minimum score to emit as finding",
         "history_file": "Optional JSON path to persist already-reported look-alikes + key WHOIS fields (registration date, registrar) so a known domain whose key WHOIS is unchanged is skipped on later scans (no WHOIS lookup, no finding). Leave empty to disable.",
     }
@@ -503,15 +503,17 @@ class domain_phishing(BaseModule):
             rows = self._parse_json_output(getattr(process, "stdout", ""))
         except ValueError as error:
             raise RuntimeError(f"invalid dnstwist JSON for {root_domain}: {error}") from error
-        rows = await self._monitor_extra_candidates(root_domain, rows) + rows
+        # Preserve the configured dnstwist budget. Monitor-only permutations extend
+        # coverage; placing them first under the same cap would hide dnstwist results.
+        rows = rows[: max(0, self.max_candidates)]
+        if self.max_candidates > 0:
+            rows += await self._monitor_extra_candidates(root_domain, rows)
         if not rows:
             self.debug(f"domain_phishing: no candidates returned by dnstwist for {root_domain}")
             return
 
         emitted = 0
-        for idx, candidate in enumerate(rows):
-            if idx >= self.max_candidates:
-                break
+        for candidate in rows:
             if not isinstance(candidate, dict):
                 continue
 
