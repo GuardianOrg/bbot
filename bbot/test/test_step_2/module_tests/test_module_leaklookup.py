@@ -51,6 +51,38 @@ class TestLeaklookupPublic(ModuleTestBase):
         assert 0 == len([e for e in events if e.type in ("PASSWORD", "HASHED_PASSWORD")])
 
 
+class _LeaklookupSearchFailure(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub"}}}
+
+    async def setup_before_prep(self, module_test):
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FAILED"
+        assert not any(e.type in ("PASSWORD", "HASHED_PASSWORD", "FINDING") for e in events)
+
+
+class TestLeaklookupDailyLimit(_LeaklookupSearchFailure):
+    async def setup_before_prep(self, module_test):
+        await super().setup_before_prep(module_test)
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "true", "message": "Daily limit reached"},
+        )
+
+
+class TestLeaklookupHttpFailure(_LeaklookupSearchFailure):
+    async def setup_before_prep(self, module_test):
+        await super().setup_before_prep(module_test)
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            status_code=503,
+        )
+
+
 class TestLeaklookupAccountOnly(ModuleTestBase):
     module_name = "leaklookup"
     config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}

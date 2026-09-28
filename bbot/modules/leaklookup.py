@@ -1,5 +1,4 @@
 import asyncio
-from contextlib import suppress
 
 from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, record_fingerprint, secret_hash
 from bbot.core.helpers.observation_dates import indexed_date_tags
@@ -7,6 +6,7 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
 class leaklookup(subdomain_enum):
+    fatal_on_error = True
     watched_events = ["DNS_NAME", "HASHED_PASSWORD"]
     produced_events = ["EMAIL_ADDRESS", "FINDING", "HASHED_PASSWORD", "PASSWORD", "USERNAME"]
     flags = ["passive", "safe", "email-enum"]
@@ -286,16 +286,13 @@ class leaklookup(subdomain_enum):
             data={"key": crack_key, "query": hash_value},
         )
         json_result = self._safe_json(response)
-        if not json_result:
-            return
         if str(json_result.get("error", "")).lower() == "true":
             message = json_result.get("message", "")
-            self.warning(f'Leak-Lookup hash lookup failed for "{hash_value}": {message}')
-            return
+            raise RuntimeError(f'Leak-Lookup hash lookup failed for "{hash_value}": {message}')
 
-        message = json_result.get("message", {})
+        message = json_result.get("message")
         if not isinstance(message, dict):
-            return
+            raise RuntimeError("Leak-Lookup hash lookup returned malformed data")
 
         emitted = False
         for source_rows in message.values():
@@ -333,13 +330,12 @@ class leaklookup(subdomain_enum):
             data={"key": key, "type": "domain", "query": query},
         )
         json_result = self._safe_json(response)
-        if not json_result:
-            return {}
         if str(json_result.get("error", "")).lower() == "true":
-            self.warning(f'Leak-Lookup returned an error for "{query}": {json_result.get("message", "")}')
-            return {}
-        message = json_result.get("message", {})
-        return message if isinstance(message, dict) else {}
+            raise RuntimeError(f'Leak-Lookup search failed for "{query}": {json_result.get("message", "")}')
+        message = json_result.get("message")
+        if not isinstance(message, dict):
+            raise RuntimeError(f'Leak-Lookup search returned malformed data for "{query}"')
+        return message
 
     async def _extract_emails_from_row(self, row):
         emails = set()
@@ -374,11 +370,13 @@ class leaklookup(subdomain_enum):
 
     def _safe_json(self, response):
         if response is None:
-            return {}
+            raise RuntimeError("Leak-Lookup request returned no response")
         if getattr(response, "status_code", 0) != 200:
-            self.warning(f"Error retrieving results from leak-lookup.com (status code {response.status_code})")
-            return {}
-        json_result = {}
-        with suppress(Exception):
+            raise RuntimeError(f"Leak-Lookup HTTP {response.status_code}")
+        try:
             json_result = response.json()
+        except Exception as error:
+            raise RuntimeError("Leak-Lookup response was not valid JSON") from error
+        if not isinstance(json_result, dict):
+            raise RuntimeError("Leak-Lookup response was not a JSON object")
         return json_result
