@@ -215,7 +215,8 @@ class leaklookup(subdomain_enum):
         if not emails and (passwords or hashed_passwords):
             # Password events need an email-address parent. Preserve rows that only have a
             # username (or no identity) as findings, with the secret hashed before emission.
-            secret_hashes = {secret_hash(value) for value in passwords | hashed_passwords}
+            secret_hashes = {secret_hash(value) for value in passwords}
+            secret_hashes.update(secret_hash(value, already_hashed=True) for value in hashed_passwords)
             for account in sorted(usernames) or [None]:
                 for hashed in sorted(secret_hashes):
                     await self.emit_event(

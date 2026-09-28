@@ -92,6 +92,25 @@ class TestLeaklookupUsernamePassword(ModuleTestBase):
         assert "hunter2" not in str(findings[0].data)
 
 
+class TestLeaklookupHexPasswordWithoutEmail(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": {"Example": [{"username": "alice", "password": "0123456789abcdef"}]}},
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING" and e.data.get("category") == "credential-exposure"]
+        assert len(findings) == 1
+        assert findings[0].data["secret_hash"] == hashlib.sha256(b"0123456789abcdef").hexdigest()
+        assert "0123456789abcdef" not in str(findings[0].data)
+
+
 class TestLeaklookupMultiValue(ModuleTestBase):
     module_name = "leaklookup"
     config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}
@@ -236,9 +255,11 @@ class TestLeaklookupPaidOnlyBreach(ModuleTestBase):
 def test_leak_history_fingerprint_and_store(tmp_path):
     from bbot.core.helpers.leak_history import LeakHistory, leak_fingerprint, secret_hash
 
-    # Cleartext is hashed; an existing hash is kept as-is.
+    # Cleartext is hashed even if it looks like hex; known hashes are kept as-is.
     assert secret_hash("hunter2") == hashlib.sha256(b"hunter2").hexdigest()
-    assert secret_hash("a" * 64) == "a" * 64
+    hex_password = "0123456789abcdef0123456789abcdef"
+    assert secret_hash(hex_password) == hashlib.sha256(hex_password.encode()).hexdigest()
+    assert secret_hash("a" * 64, already_hashed=True) == "a" * 64
 
     # Fingerprint is canonicalized (case/space) and source-scoped.
     fp = leak_fingerprint("leaklookup", "LinkedIn", "bob@x.com", "hunter2")
