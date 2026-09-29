@@ -1,10 +1,12 @@
 """Offline contract tests; run with python -m unittest discover -s tests."""
 
 import importlib.util
+import asyncio
 import json
 from pathlib import Path
 import unittest
 import sys
+import httpx
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -140,15 +142,80 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
         refreshed = {"192.0.2.0/24": {"type": ["Whitelist"]}}
         self.assertEqual(mw.matching_ranges(refreshed, "192.0.2.1")[0][1]["type"], ["Whitelist"])
 
+    def test_large_range_index_is_not_retained_after_lookup(self):
+        original_budget = getattr(mw, "MAX_RANGE_INDEX_BYTES", 64 * 1024 * 1024)
+        mw.MAX_RANGE_INDEX_BYTES = 1_000
+        mw.RANGE_INDEXES.clear()
+        try:
+            shard = {"192.0.2.0/24": {"type": ["Malware"], "payload": "x" * 2_000}}
+            self.assertEqual(len(mw.matching_ranges(shard, "192.0.2.1")), 1)
+            self.assertNotIn(id(shard), mw.RANGE_INDEXES)
+        finally:
+            mw.RANGE_INDEX_RESIDENT_BYTES = 0
+            mw.MAX_RANGE_INDEX_BYTES = original_budget
+            mw.RANGE_INDEXES.clear()
+
     async def test_missing_shard_is_not_a_clean_result(self):
         cls = load_module("host_reputation_test", "bbot/modules/host_reputation.py").host_reputation
         module = object.__new__(cls)
         module.malwareworld_base = "https://fixture.invalid/data/"
-        module.scan = SimpleNamespace(
-            helpers=SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(status_code=404)))
-        )
-        with self.assertRaises(RuntimeError):
-            await module.mw_fetch_json("domains_a.json")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(404))) as client:
+            module.scan = SimpleNamespace(helpers=SimpleNamespace(AsyncClient=lambda: client))
+            with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+                await module.mw_fetch_json("domains_a.json")
+
+    async def test_large_parsed_malwareworld_shard_is_not_retained(self):
+        cls = load_module("host_reputation_cache_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        module._mw_cache_max_resident_bytes = 1_000
+        module.mw_fetch_json = AsyncMock(return_value={"example.test": {"type": ["Malware"], "payload": "x" * 2_000}})
+
+        await module.mw_load_json("domains_e.json")
+        await module.mw_load_json("domains_e.json")
+
+        self.assertEqual(module.mw_fetch_json.await_count, 2)
+
+    async def test_remote_malwareworld_shard_is_bounded_before_json_parse(self):
+        loaded = load_module("host_reputation_response_test", "bbot/modules/host_reputation.py")
+        loaded.MAX_MALWAREWORLD_RESPONSE_BYTES = 32
+        module = object.__new__(loaded.host_reputation)
+        module.malwareworld_base = "https://fixture.invalid/data/"
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b'{"value":"' + b'x' * 100 + b'"}'))
+        ) as client:
+            module.scan = SimpleNamespace(helpers=SimpleNamespace(AsyncClient=lambda: client))
+            with self.assertRaisesRegex(ValueError, "response exceeds 32 bytes"):
+                await module.mw_fetch_json("domains_a.json")
+
+    async def test_failed_malwareworld_shard_can_be_retried(self):
+        cls = load_module("host_reputation_retry_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        module.mw_fetch_json = AsyncMock(side_effect=[RuntimeError("HTTP 503"), {"example.test": {"type": []}}])
+        with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            await module.mw_load_json("domains_e.json")
+        self.assertEqual(await module.mw_load_json("domains_e.json"), {"example.test": {"type": []}})
+        self.assertEqual(module.mw_fetch_json.await_count, 2)
+
+    async def test_malwareworld_cache_shares_inflight_shards_and_limits_downloads(self):
+        cls = load_module("host_reputation_concurrency_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        active = 0
+        peak = 0
+
+        async def fetch(asset):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return {asset: {"type": []}}
+
+        module.mw_fetch_json = AsyncMock(side_effect=fetch)
+        assets = ["domains_a.json", "domains_b.json", "domains_c.json", "domains_d.json"]
+        await asyncio.gather(*(module.mw_load_json(asset) for asset in [*assets, assets[0]]))
+
+        self.assertLessEqual(peak, 2)
+        self.assertEqual(module.mw_fetch_json.await_count, len(assets))
 
     async def test_git_dates_survive_secret_deduplication(self):
         formatter = formatter_module.github_leak_formatter()
