@@ -187,6 +187,27 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "response exceeds 32 bytes"):
                 await module.mw_fetch_json("domains_a.json")
 
+    async def test_streamed_malwareworld_feed_preserves_malicious_verdict(self):
+        cls = load_module("host_reputation_streamed_contract_test", "bbot/modules/host_reputation.py").host_reputation
+        module = object.__new__(cls)
+        module.malwareworld_base = "https://fixture.invalid/data/"
+        files = json.loads((ROOT / "tests/fixtures/malwareworld-contract.json").read_text())["files"]
+        requests = []
+
+        def feed(request):
+            asset = request.url.path.rsplit("/", 1)[-1]
+            requests.append(asset)
+            return httpx.Response(200, json=files[asset])
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(feed)) as client:
+            module.scan = SimpleNamespace(helpers=SimpleNamespace(AsyncClient=lambda: client))
+            first = await module.check_malwareworld("evil.test")
+            second = await module.check_malwareworld("evil.test")
+
+        self.assertTrue(first["malicious"])
+        self.assertEqual(first, second)
+        self.assertEqual(requests.count("domains_e.json"), 1)
+
     async def test_failed_malwareworld_shard_can_be_retried(self):
         cls = load_module("host_reputation_retry_test", "bbot/modules/host_reputation.py").host_reputation
         module = object.__new__(cls)
