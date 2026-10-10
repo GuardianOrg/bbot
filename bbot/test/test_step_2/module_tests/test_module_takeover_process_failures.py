@@ -76,6 +76,20 @@ class TestSubzyMalformedOutput(TestSubzyFailedProcess):
         module_test.monkeypatch.setattr(module_test.module, "run_process", malformed_run_process)
 
 
+class TestSubzyNoVulnerableHosts(TestSubzyFailedProcess):
+    # With --vuln and nothing vulnerable, subzy saves its unset results slice as `null`.
+    async def setup_after_prep(self, module_test):
+        async def clean_run_process(cmd, *args, **kwargs):
+            Path(cmd[cmd.index("--output") + 1]).write_text("null\n")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        module_test.monkeypatch.setattr(module_test.module, "run_process", clean_run_process)
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+        assert not any(event.type == "VULNERABILITY" for event in events)
+
+
 class TestSubfinderFailedProcess(_TakeoverFailureBase):
     module_name = "subfinder"
     config_overrides = {

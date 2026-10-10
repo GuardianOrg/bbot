@@ -4,6 +4,7 @@ import re
 import json
 import asyncio
 import time
+from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 from urllib.parse import urljoin
@@ -11,6 +12,13 @@ from urllib.parse import urljoin
 from bbot.modules.base import BaseModule
 from bbot.core.helpers.malwareworld import lookup as malwareworld_lookup
 from bbot.core.helpers.malwareworld import normalize_indicator
+from bbot.core.helpers.malwareworld import json_resident_bytes
+
+
+MAX_MALWAREWORLD_RESPONSE_BYTES = 160 * 1024 * 1024
+MAX_MALWAREWORLD_CACHE_RESIDENT_BYTES = 256 * 1024 * 1024
+MAX_MALWAREWORLD_CACHE_ENTRIES = 4
+MAX_MALWAREWORLD_PARALLEL_DOWNLOADS = 2
 
 
 class host_reputation(BaseModule):
@@ -404,19 +412,40 @@ class host_reputation(BaseModule):
     async def mw_load_json(self, asset):
         cache = getattr(self, "_mw_json_cache", None)
         if cache is None:
-            self._mw_json_cache = cache = {}
+            self._mw_json_cache = cache = OrderedDict()
+            self._mw_json_pending = {}
+            self._mw_cache_resident_bytes = 0
+            self._mw_download_slots = asyncio.Semaphore(MAX_MALWAREWORLD_PARALLEL_DOWNLOADS)
         cached = cache.get(asset)
         if cached and cached[0] > time.monotonic():
-            return await cached[1]
-        if len(cache) >= 64:
-            cache.pop(next(iter(cache)))
-        task = asyncio.create_task(self.mw_fetch_json(asset))
-        cache[asset] = (time.monotonic() + 900, task)
+            cache.move_to_end(asset)
+            return cached[1]
+        if cached:
+            self._mw_cache_resident_bytes -= cache.pop(asset)[2]
+        pending = self._mw_json_pending.get(asset)
+        if pending is None:
+            pending = asyncio.create_task(self._mw_fetch_and_cache(asset))
+            self._mw_json_pending[asset] = pending
+        return await asyncio.shield(pending)
+
+    async def _mw_fetch_and_cache(self, asset):
         try:
-            return await task
-        except BaseException:
-            cache.pop(asset, None)
-            raise
+            async with self._mw_download_slots:
+                value = await self.mw_fetch_json(asset)
+            budget = getattr(self, "_mw_cache_max_resident_bytes", MAX_MALWAREWORLD_CACHE_RESIDENT_BYTES)
+            resident_bytes = json_resident_bytes(value, budget)
+            if resident_bytes <= budget:
+                cache = self._mw_json_cache
+                while cache and (
+                    len(cache) >= MAX_MALWAREWORLD_CACHE_ENTRIES
+                    or self._mw_cache_resident_bytes + resident_bytes > budget
+                ):
+                    self._mw_cache_resident_bytes -= cache.popitem(last=False)[1][2]
+                cache[asset] = (time.monotonic() + 900, value, resident_bytes)
+                self._mw_cache_resident_bytes += resident_bytes
+            return value
+        finally:
+            self._mw_json_pending.pop(asset, None)
 
     async def mw_fetch_json(self, asset):
         if not self.malwareworld_base.startswith(("https://", "http://")):
@@ -425,15 +454,31 @@ class host_reputation(BaseModule):
                 if self.malwareworld_base.startswith("file://")
                 else self.malwareworld_base
             )
-            data = json.loads(await asyncio.to_thread((Path(base) / asset).read_text))
+            path = Path(base) / asset
+            if (await asyncio.to_thread(path.stat)).st_size > MAX_MALWAREWORLD_RESPONSE_BYTES:
+                raise ValueError(f"MalwareWorld {asset}: response exceeds {MAX_MALWAREWORLD_RESPONSE_BYTES} bytes")
+            body = await asyncio.to_thread(path.read_bytes)
+            if len(body) > MAX_MALWAREWORLD_RESPONSE_BYTES:
+                raise ValueError(f"MalwareWorld {asset}: response exceeds {MAX_MALWAREWORLD_RESPONSE_BYTES} bytes")
+            data = json.loads(body)
             if not isinstance(data, dict):
                 raise ValueError(f"MalwareWorld {asset}: invalid JSON object")
             return data
         url = urljoin(self.malwareworld_base, asset)
-        response = await self.helpers.request(url=url, headers={"User-Agent": "bbot-host-reputation"}, timeout=10)
-        if response is None or response.status_code < 200 or response.status_code >= 300:
-            raise RuntimeError(f"MalwareWorld {asset}: HTTP {getattr(response, 'status_code', 'unavailable')}")
-        data = response.json()
+        body = bytearray()
+        async with self.helpers.AsyncClient().stream(
+            "GET", url, headers={"User-Agent": "bbot-host-reputation"}, timeout=120
+        ) as response:
+            if response.status_code < 200 or response.status_code >= 300:
+                raise RuntimeError(f"MalwareWorld {asset}: HTTP {response.status_code}")
+            declared_size = response.headers.get("content-length")
+            if declared_size and declared_size.isdigit() and int(declared_size) > MAX_MALWAREWORLD_RESPONSE_BYTES:
+                raise ValueError(f"MalwareWorld {asset}: response exceeds {MAX_MALWAREWORLD_RESPONSE_BYTES} bytes")
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > MAX_MALWAREWORLD_RESPONSE_BYTES:
+                    raise ValueError(f"MalwareWorld {asset}: response exceeds {MAX_MALWAREWORLD_RESPONSE_BYTES} bytes")
+                body.extend(chunk)
+        data = json.loads(body)
         if not isinstance(data, dict):
             raise ValueError(f"MalwareWorld {asset}: invalid JSON object")
         return data

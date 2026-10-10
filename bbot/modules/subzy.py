@@ -207,6 +207,9 @@ class subzy(BaseModule):
                 results = json.loads(output_raw)
             except json.JSONDecodeError as exc:
                 raise RuntimeError("subzy returned invalid JSON") from exc
+            # subzy encodes a batch with no vulnerable hosts as `null` (an unset Go slice under --vuln).
+            if results is None:
+                return
             if not isinstance(results, list):
                 raise RuntimeError("subzy returned a non-list JSON result")
 
