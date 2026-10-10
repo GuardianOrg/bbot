@@ -290,8 +290,8 @@ class leaklookup(subdomain_enum):
             message = json_result.get("message", "")
             raise RuntimeError(f'Leak-Lookup hash lookup failed for "{hash_value}": {message}')
 
-        message = json_result.get("message")
-        if not isinstance(message, dict):
+        message = self._result_message(json_result)
+        if message is None:
             raise RuntimeError("Leak-Lookup hash lookup returned malformed data")
 
         emitted = False
@@ -332,10 +332,20 @@ class leaklookup(subdomain_enum):
         json_result = self._safe_json(response)
         if str(json_result.get("error", "")).lower() == "true":
             raise RuntimeError(f'Leak-Lookup search failed for "{query}": {json_result.get("message", "")}')
-        message = json_result.get("message")
-        if not isinstance(message, dict):
+        message = self._result_message(json_result)
+        if message is None:
             raise RuntimeError(f'Leak-Lookup search returned malformed data for "{query}"')
         return message
+
+    @staticmethod
+    def _result_message(json_result):
+        message = json_result.get("message")
+        if isinstance(message, dict):
+            return message
+        # Leak-Lookup answers a query with no breaches as `"message": []`, not `{}`.
+        if isinstance(message, list) and not message:
+            return {}
+        return None
 
     async def _extract_emails_from_row(self, row):
         emails = set()

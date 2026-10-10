@@ -63,6 +63,34 @@ class _LeaklookupSearchFailure(ModuleTestBase):
         assert not any(e.type in ("PASSWORD", "HASHED_PASSWORD", "FINDING") for e in events)
 
 
+class TestLeaklookupNoBreaches(ModuleTestBase):
+    # Leak-Lookup answers a domain with no breaches as an empty list, not an empty object.
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"private_api_key": "priv"}}}
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": []},
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+        assert not any(e.type in ("PASSWORD", "HASHED_PASSWORD", "FINDING", "EMAIL_ADDRESS") for e in events)
+
+
+class TestLeaklookupNonEmptyListMessage(_LeaklookupSearchFailure):
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search",
+            method="POST",
+            json={"error": "false", "message": ["LinkedIn"]},
+        )
+        await super().setup_before_prep(module_test)
+
+
 class TestLeaklookupDailyLimit(_LeaklookupSearchFailure):
     async def setup_before_prep(self, module_test):
         await super().setup_before_prep(module_test)
