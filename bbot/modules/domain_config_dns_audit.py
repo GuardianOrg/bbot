@@ -1021,7 +1021,7 @@ class domain_config_dns_audit(BaseModule):
 
     async def check_spf(self, domain, records, findings):
         txt_records = records.get("TXT", [])
-        spf_records = [r.strip('"') for r in txt_records if re.match(r"^v=spf1(?: |$)", r.strip('"'), re.I)]
+        spf_records = self.spf_records(txt_records)
         if not spf_records:
             if records.get("MX"):
                 findings.append(AuditFinding(
@@ -1065,7 +1065,7 @@ class domain_config_dns_audit(BaseModule):
         records["SPF"] = spf
         # SPF mechanisms are space-delimited terms, not substrings of provider names.
         # The first all mechanism terminates evaluation; trailing modifiers do not alter it.
-        terms = spf.lower().split()[1:]
+        terms = [term.lower() for term in self.spf_policy_terms(spf)]
         all_term = next((term for term in terms if re.fullmatch(r"[+?~-]?all", term)), "")
         if all_term in ("all", "+all"):
             severity, title = "HIGH", "SPF Allows All Senders"
@@ -1112,7 +1112,7 @@ class domain_config_dns_audit(BaseModule):
                 "Replace ptr with explicit ip4/ip6/a/mx/include mechanisms.",
                 f"dig {domain} TXT +short | grep spf",
             ))
-        lookups = re.findall(r"(include:|a:|mx:|ptr:|exists:|redirect=)", spf, re.I)
+        lookups = self.spf_lookup_terms(terms)
         if len(lookups) > 10:
             findings.append(AuditFinding(
                 "SPF Exceeds DNS Lookup Limit",
@@ -1132,17 +1132,37 @@ class domain_config_dns_audit(BaseModule):
                 f"dig {domain} TXT +short | grep spf",
             ))
 
+    @staticmethod
+    def spf_records(txt_records):
+        return [record.strip('"') for record in txt_records if re.match(r"^v=spf1(?: |$)", record.strip('"'), re.I)]
+
+    @staticmethod
+    def spf_policy_terms(spf):
+        terms = spf.split()[1:]
+        for index, term in enumerate(terms):
+            if re.fullmatch(r"[+?~-]?all", term, re.I):
+                # RFC 7208: mechanisms after all and redirects anywhere are ignored.
+                return [item for item in terms[:index + 1] if not re.match(r"^redirect=", item, re.I)]
+        return terms
+
+    @staticmethod
+    def spf_lookup_terms(terms):
+        # Count bare a/mx/ptr too, and never match mechanism text inside modifiers.
+        return [term for term in terms if re.match(
+            r"^(?:[+?~-]?(?:include:|exists:|(?:a|mx|ptr)(?=[:/]|$))|redirect=)", term, re.I
+        )]
+
     async def check_spf_include_depth(self, domain, records, findings):
         spf = records.get("SPF")
         if not spf:
             return
-        includes = re.findall(r"include:([^\s]+)", spf, re.I)
-        redirects = re.findall(r"redirect=([^\s]+)", spf, re.I)
-        total = len(includes) + len(redirects)
+        terms = self.spf_policy_terms(spf)
+        includes = [term.split(":", 1)[1] for term in terms if re.match(r"^[+?~-]?include:", term, re.I)]
+        total = len(self.spf_lookup_terms(terms))
         for include in includes[:5]:
             success, txt_records = await self.query_dns(include, "TXT")
             if success:
-                total += sum(len(re.findall(r"include:|redirect=", rec, re.I)) for rec in txt_records if "v=spf1" in rec.lower())
+                total += sum(len(self.spf_lookup_terms(self.spf_policy_terms(rec))) for rec in self.spf_records(txt_records))
         if total > 8:
             findings.append(AuditFinding(
                 "SPF Approaching Lookup Limit",
