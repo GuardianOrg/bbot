@@ -3,6 +3,12 @@ import json
 from bbot.modules.templates.code_secret_scanner import code_secret_scanner
 
 
+class _IncompleteKingfisherReport(RuntimeError):
+    def __init__(self, findings):
+        super().__init__("Kingfisher returned malformed finding records")
+        self.findings = findings
+
+
 class kingfisher(code_secret_scanner):
     fatal_on_error = True
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
@@ -52,14 +58,23 @@ class kingfisher(code_secret_scanner):
         return await super().setup()
 
     async def iter_findings(self, scan_path, event):
-        records = await self.run_kingfisher([scan_path])
+        try:
+            records = await self.run_kingfisher([scan_path])
+        except _IncompleteKingfisherReport as error:
+            for record in error.findings:
+                yield await self.format_record(event, scan_path, record)
+            raise
         if records is None:
             raise RuntimeError(f"Kingfisher scan failed for {scan_path}")
         for record in records:
             yield await self.format_record(event, scan_path, record)
 
     async def scan_file_batch(self, paths):
-        records = await self.run_kingfisher(paths)
+        try:
+            records = await self.run_kingfisher(paths)
+        except _IncompleteKingfisherReport:
+            # Recover per-file attribution and findings before failing incomplete inputs.
+            return None
         if records is None:
             return None
         return [(record.get("finding", {}).get("path", ""), record) for record in records]
@@ -107,8 +122,11 @@ class kingfisher(code_secret_scanner):
             self.error(f"Kingfisher returned an unexpected JSON shape for {target}: {type(findings).__name__}")
             return None
         if any(not isinstance(record, dict) or not isinstance(record.get("finding"), dict) for record in findings):
-            self.error(f"Kingfisher returned malformed finding records for {target}")
-            return None
+            valid_findings = [
+                record for record in findings
+                if isinstance(record, dict) and isinstance(record.get("finding"), dict)
+            ]
+            raise _IncompleteKingfisherReport(valid_findings)
         if not findings and returncode != 0:
             self.error(f"Kingfisher reported findings but returned an empty list for {target}")
             return None

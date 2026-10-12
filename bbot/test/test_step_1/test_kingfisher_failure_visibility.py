@@ -53,3 +53,22 @@ def test_individual_fallback_finishes_other_inputs_and_then_fails():
     with pytest.raises(RuntimeError, match='failed'):
         asyncio.run(module.rescan_individually(files, 'the batched scan failed'))
     assert seen == ['bad', 'good']
+
+
+def test_partial_single_file_report_keeps_valid_findings_before_failure():
+    module = scanner(SimpleNamespace(returncode=200, stdout='{"findings":[{"finding":{"path":"fixture"}},7]}', stderr=''))
+    module.format_record = AsyncMock(return_value={'title': 'valid fixture finding'})
+    findings = []
+
+    async def collect():
+        with pytest.raises(RuntimeError, match='Kingfisher'):
+            async for finding in module.iter_findings('/tmp/fixture', SimpleNamespace()):
+                findings.append(finding)
+
+    asyncio.run(collect())
+    assert findings == [{'title': 'valid fixture finding'}]
+
+
+def test_partial_batch_report_keeps_individual_fallback_available():
+    module = scanner(SimpleNamespace(returncode=200, stdout='{"findings":[{"finding":{"path":"fixture"}},7]}', stderr=''))
+    assert asyncio.run(module.scan_file_batch(['/tmp/fixture'])) is None
