@@ -129,8 +129,15 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
 
     async def rescan_individually(self, files, reason):
         self.error(f"{self.name}: {reason}; rescanning {len(files)} files individually")
+        failures = []
         for event, _ in files.values():
-            await self.handle_event(event)
+            try:
+                await self.handle_event(event)
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            # Preserve recoverable inputs, but never report incomplete secret coverage as clean.
+            raise RuntimeError(f"{self.name}: {len(failures)} individual file scans failed") from failures[0]
 
     @staticmethod
     def batch_source_key(reported_path, lookup):
