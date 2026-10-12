@@ -389,4 +389,11 @@ class leaklookup(subdomain_enum):
             raise RuntimeError("Leak-Lookup response was not valid JSON") from error
         if not isinstance(json_result, dict):
             raise RuntimeError("Leak-Lookup response was not a JSON object")
-        return json_result
+        flag = json_result.get("error")
+        if (
+            "message" not in json_result
+            or not isinstance(flag, (bool, str))
+            or str(flag).strip().lower() not in {"true", "false"}
+        ):
+            raise RuntimeError("Leak-Lookup returned a malformed response")
+        return {**json_result, "error": str(flag).strip().lower() == "true"}
