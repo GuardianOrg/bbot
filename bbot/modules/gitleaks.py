@@ -1,11 +1,11 @@
 import json
 import re
-from contextlib import suppress
 
 from bbot.modules.templates.code_secret_scanner import code_secret_scanner
 
 
 class gitleaks(code_secret_scanner):
+    fatal_on_error = True
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
@@ -103,37 +103,47 @@ class gitleaks(code_secret_scanner):
                     fallback.append("--redact")
                 if self.config_file:
                     fallback.extend(["--config", str(self.config_file)])
-                await self.run_process(fallback)
+                result = await self.run_process(fallback)
 
-            with suppress(Exception):
-                raw = report_file.read_text(encoding="utf-8", errors="ignore")
+            try:
+                raw = report_file.read_text(encoding="utf-8")
                 parsed = json.loads(raw)
-                findings = parsed.get("findings", []) if isinstance(parsed, dict) else parsed
-                if isinstance(findings, list):
-                    for finding in findings:
-                        if not isinstance(finding, dict):
-                            continue
-                        rule = finding.get("RuleID") or finding.get("rule") or "unknown"
-                        if str(rule).strip().lower() in self.disabled_rules:
-                            self.debug(f"Skipping disabled gitleaks rule: {rule}")
-                            continue
-                        file_name = finding.get("File") or finding.get("file") or str(scan_path)
-                        line = finding.get("StartLine") or finding.get("line") or "?"
-                        secret = finding.get("Secret") or finding.get("Match") or "<redacted>"
-                        commit = finding.get("Commit") or finding.get("commit") or ""
-                        if not commit:
-                            commit = self.commit_from_fingerprint(finding.get("Fingerprint", ""))
-                        yield await self.format_github_leak(
-                            event,
-                            scan_path,
-                            secret,
-                            detector=rule,
-                            file_path=file_name,
-                            line=line,
-                            commit=commit,
-                            verified=False,
-                            severity="Medium",
-                        )
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                raise RuntimeError("Gitleaks report could not be read") from error
+            # Go's JSON encoder may serialize a nil findings slice as null.
+            findings = parsed.get("findings") if isinstance(parsed, dict) else parsed
+            if parsed is None:
+                findings = []
+            if not isinstance(findings, list):
+                raise RuntimeError("Gitleaks returned an unexpected report shape")
+            malformed = False
+            for finding in findings:
+                if not isinstance(finding, dict):
+                    malformed = True
+                    continue
+                rule = finding.get("RuleID") or finding.get("rule") or "unknown"
+                if str(rule).strip().lower() in self.disabled_rules:
+                    self.debug(f"Skipping disabled gitleaks rule: {rule}")
+                    continue
+                file_name = finding.get("File") or finding.get("file") or str(scan_path)
+                line = finding.get("StartLine") or finding.get("line") or "?"
+                secret = finding.get("Secret") or finding.get("Match") or "<redacted>"
+                commit = finding.get("Commit") or finding.get("commit") or ""
+                if not commit:
+                    commit = self.commit_from_fingerprint(finding.get("Fingerprint", ""))
+                yield await self.format_github_leak(
+                    event,
+                    scan_path,
+                    secret,
+                    detector=rule,
+                    file_path=file_name,
+                    line=line,
+                    commit=commit,
+                    verified=False,
+                    severity="Medium",
+                )
+            if malformed or getattr(result, "returncode", None) != 0:
+                raise RuntimeError("Gitleaks scan failed or returned malformed records")
         finally:
             report_file.unlink(missing_ok=True)
 

@@ -7,6 +7,7 @@ from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
 
 class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
+    fatal_on_error = True
     watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
@@ -248,11 +249,17 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             f"stdout_bytes={len(str(getattr(result, 'stdout', '') or ''))} "
             f"stderr_bytes={len(str(getattr(result, 'stderr', '') or ''))}"
         )
+        malformed = False
         for line in str(getattr(result, "stdout", "") or "").splitlines():
+            if not line.strip():
+                continue
             try:
                 j = json.loads(line)
             except json.decoder.JSONDecodeError:
-                self.debug(f"Failed to decode line: {line}")
+                malformed = True
+                continue
+            if not isinstance(j, dict):
+                malformed = True
                 continue
 
             decoder_name = j.get("DecoderName", "")
@@ -266,6 +273,9 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
         stderr = str(getattr(result, "stderr", "") or "")
         for line in stderr.splitlines():
             self.log_trufflehog_status(path, line)
+        # Keep valid observations from a partial report, then mark coverage incomplete.
+        if malformed or getattr(result, "returncode", None) != 0:
+            raise RuntimeError("TruffleHog scan failed or returned malformed records")
 
     def log_trufflehog_status(self, path, line):
         try:
