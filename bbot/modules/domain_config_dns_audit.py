@@ -1021,7 +1021,7 @@ class domain_config_dns_audit(BaseModule):
 
     async def check_spf(self, domain, records, findings):
         txt_records = records.get("TXT", [])
-        spf_records = [r.strip('"') for r in txt_records if "v=spf1" in r.lower()]
+        spf_records = [r.strip('"') for r in txt_records if re.match(r"^v=spf1(?: |$)", r.strip('"'), re.I)]
         if not spf_records:
             if records.get("MX"):
                 findings.append(AuditFinding(
@@ -1063,12 +1063,15 @@ class domain_config_dns_audit(BaseModule):
             ))
         spf = spf_records[0]
         records["SPF"] = spf
-        lowered = spf.lower()
-        if lowered.endswith("+all"):
+        # SPF mechanisms are space-delimited terms, not substrings of provider names.
+        # The first all mechanism terminates evaluation; trailing modifiers do not alter it.
+        terms = spf.lower().split()[1:]
+        all_term = next((term for term in terms if re.fullmatch(r"[+?~-]?all", term)), "")
+        if all_term in ("all", "+all"):
             severity, title = "HIGH", "SPF Allows All Senders"
-        elif lowered.endswith("?all"):
+        elif all_term == "?all":
             severity, title = "MEDIUM", "SPF Neutral Policy"
-        elif lowered.endswith("~all"):
+        elif all_term == "~all":
             severity, title = "LOW", "SPF Softfail Policy"
         else:
             severity, title = None, None
@@ -1078,7 +1081,7 @@ class domain_config_dns_audit(BaseModule):
                 severity,
                 "Email",
                 (
-                    f"The SPF record ends with a weak terminal policy ({spf.split()[-1]}). Mail that fails SPF may still be accepted or treated ambiguously, which reduces protection against forged sender domains."
+                    f"The SPF record ends with a weak terminal policy ({all_term}). Mail that fails SPF may still be accepted or treated ambiguously, which reduces protection against forged sender domains."
                     ' SPF terminal policies decide what receivers should do when a sending server is not'
                     ' authorized. A strong -all policy says unauthorized senders should fail, while ~all, ?all, or +all are weaker'
                     ' and may let forged mail pass or be treated ambiguously. Weak endings are sometimes used during rollout, but'
@@ -1090,7 +1093,7 @@ class domain_config_dns_audit(BaseModule):
                 "Use -all after confirming legitimate senders are included.",
                 f"dig {domain} TXT +short | grep spf",
             ))
-        if "ptr" in lowered:
+        if any(re.fullmatch(r"[+?~-]?ptr(?::[^\s]+)?", term) for term in terms):
             findings.append(AuditFinding(
                 "SPF Uses Deprecated PTR Mechanism",
                 "LOW",
@@ -1671,11 +1674,7 @@ class domain_config_dns_audit(BaseModule):
                 "Use either null MX alone or remove it when accepting mail.",
                 f"dig MX {domain} +short",
             ))
-        priorities = []
         for mx in mx_records:
-            parts = mx.split()
-            if parts and parts[0].isdigit():
-                priorities.append(int(parts[0]))
             mx_host = self.mx_host(mx)
             if not mx_host:
                 continue
@@ -1738,34 +1737,8 @@ class domain_config_dns_audit(BaseModule):
                     "Ensure the MX hostname resolves to valid public IP addresses.",
                     f"dig A {mx_host} && dig AAAA {mx_host}",
                 ))
-        duplicate_priorities = {priority for priority in priorities if priorities.count(priority) > 1}
-        duplicate_hosts = [
-            self.mx_host(mx)
-            for mx in mx_records
-            if self.mx_priority(mx) in duplicate_priorities
-        ]
-        managed_provider_load_balancing = bool(duplicate_hosts) and all(
-            self.is_managed_mx_host(host) for host in duplicate_hosts
-        )
-        if duplicate_priorities and not managed_provider_load_balancing:
-            findings.append(AuditFinding(
-                "Duplicate MX Priorities",
-                "INFO",
-                "Email",
-                (
-                    "Multiple MX records share the same priority. This can be intentional load balancing, but if accidental it may send mail to unexpected servers or make failover behavior harder to predict."
-                    ' MX priority values tell senders which mail servers to try first. Duplicate'
-                    ' priorities can be valid when they are intentionally used for load balancing across equivalent mail servers. If'
-                    ' they are accidental, senders may distribute mail across systems that are not equally configured, leading to'
-                    ' inconsistent spam filtering, TLS behavior, mailbox routing, or delivery reliability. This is not automatically'
-                    ' a vulnerability, but it should be reviewed because mail issues often appear only for some senders. Confirm'
-                    ' that each server with the same priority is intended to receive the same traffic and has equivalent security'
-                    ' controls, certificates, and anti-abuse configuration.'
-                ),
-                f"MX priorities: {priorities}",
-                "Verify duplicate priorities are intentional for load-balancing.",
-                f"dig MX {domain} +short",
-            ))
+        # RFC 5321 section 5.1 permits equal preferences for load balancing, including
+        # self-hosted exchangers. Keep their inventory and validate each destination above.
         if len(mx_records) == 1 and not self.is_managed_mx_host(self.mx_host(mx_records[0])):
             findings.append(AuditFinding(
                 "No Backup MX Server",
