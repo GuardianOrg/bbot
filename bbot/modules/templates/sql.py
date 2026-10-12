@@ -4,6 +4,8 @@ from bbot.modules.output.base import BaseOutputModule
 
 class SQLTemplate(BaseOutputModule):
     meta = {"description": "SQL output module template"}
+    # A configured output losing event writes means the scan's audit trail is incomplete.
+    fatal_on_error = True
     options = {
         "database": "bbot",
         "username": "",

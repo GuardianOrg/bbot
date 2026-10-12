@@ -52,3 +52,32 @@ def test_missing_sql_runtime_still_fails_enabled_output_setup(monkeypatch):
     monkeypatch.setattr(builtins, '__import__', block_sql)
     with pytest.raises(ImportError, match='SQL runtime unavailable during setup'):
         asyncio.run(output.init_database())
+
+
+@pytest.mark.parametrize('module_name', SQL_OUTPUT_MODULES)
+def test_sql_output_task_failure_marks_scan_incomplete(module_name):
+    from contextlib import asynccontextmanager
+    from unittest.mock import Mock
+    from bbot.modules.base import TaskCounter
+
+    module = importlib.import_module(f'bbot.modules.output.{module_name}')
+    cls = getattr(module, {'sqlite': 'SQLite', 'postgres': 'Postgres', 'mysql': 'MySQL'}[module_name])
+    output = object.__new__(cls)
+    output._task_counter = TaskCounter()
+
+    @asynccontextmanager
+    async def catch(context):
+        # The scan's outer handler catches module exceptions so other outputs can finish.
+        try:
+            yield
+        except RuntimeError:
+            pass
+
+    output.scan = SimpleNamespace(_acatch=catch, record_fatal_module_error=Mock(), stopping=False)
+
+    async def persist():
+        raise RuntimeError('database write failed')
+
+    asyncio.run(output.run_task(persist(), 'handle_event'))
+    output.scan.record_fatal_module_error.assert_called_once()
+    assert str(output.scan.record_fatal_module_error.call_args.args[1]) == 'database write failed'
