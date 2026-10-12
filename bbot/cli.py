@@ -53,7 +53,7 @@ async def _main():
         except BBOTArgumentError as e:
             log_to_stderr(str(e), level="WARNING")
             log.trace(traceback.format_exc())
-            return
+            return False
         # ensure arguments (-c config options etc.) are valid
         options = preset.args.parsed
 
@@ -295,11 +295,13 @@ async def _main():
 
             await scan.async_start_without_generator()
 
-        return bool(scan._finish_event and scan._finish_event.data.get("status") == "FINISHED")
+        # A dry run prepares modules but intentionally never produces a finish event.
+        return options.dry_run or bool(scan._finish_event and scan._finish_event.data.get("status") == "FINISHED")
 
     except BBOTError as e:
         log.error(str(e))
         log.trace(traceback.format_exc())
+        return False
 
     finally:
         # save word cloud
@@ -323,6 +325,7 @@ def main():
     except asyncio.CancelledError:
         if CORE.logger.log_level <= logging.DEBUG:
             log_to_stderr(traceback.format_exc(), level="DEBUG")
+        sys.exit(1)
     except KeyboardInterrupt:
         msg = "Interrupted"
         if scan_name:

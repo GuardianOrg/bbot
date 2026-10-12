@@ -481,6 +481,15 @@ class Scanner:
                 break
             await asyncio.sleep(0.05)
 
+        # A required writer can fail while flushing the terminal event itself.
+        # Recheck after the flush before returning success to the CLI/caller.
+        if status == "FINISHED" and self._fatal_module_errors:
+            self._success = False
+            status = "FAILED"
+            scan_finish_event.data["status"] = status
+            self._scan_finish_status_message = f"Scan {self.name} completed in {self.duration_human} with status {status}"
+            scan_finish_event.context = self._scan_finish_status_message
+
         self.status = status
         return scan_finish_event
 

@@ -1,14 +1,11 @@
 from contextlib import suppress
-from sqlmodel import SQLModel
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-
-from bbot.db.sql.models import Event, Scan, Target
 from bbot.modules.output.base import BaseOutputModule
 
 
 class SQLTemplate(BaseOutputModule):
     meta = {"description": "SQL output module template"}
+    # A configured output losing event writes means the scan's audit trail is incomplete.
+    fatal_on_error = True
     options = {
         "database": "bbot",
         "username": "",
@@ -37,6 +34,8 @@ class SQLTemplate(BaseOutputModule):
         return True
 
     async def handle_event(self, event):
+        from bbot.db.sql.models import Event, Scan, Target
+
         event_obj = Event(**event.json()).validated
 
         async with self.async_session() as session:
@@ -64,6 +63,13 @@ class SQLTemplate(BaseOutputModule):
         pass
 
     async def init_database(self):
+        # Module discovery precedes enabled-module dependency installation. Only load the
+        # SQL runtime here, after deps_pip has installed it; setup failures still propagate.
+        from sqlmodel import SQLModel
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        from bbot.db.sql import models  # noqa: F401 - register all tables before create_all
+
         await self.create_database()
 
         # Now create the engine for the actual database

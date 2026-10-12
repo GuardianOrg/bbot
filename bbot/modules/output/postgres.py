@@ -23,7 +23,7 @@ class Postgres(SQLTemplate):
         "database": "The database name to connect to",
     }
     # NaiveDatetime column mapping (bbot/db/sql/models.py) requires SQLModel 0.0.45+.
-    deps_pip = ["sqlmodel>=0.0.45", "asyncpg"]
+    deps_pip = ["sqlmodel>=0.0.45", "sqlalchemy[asyncio]", "asyncpg"]
     protocol = "postgresql+asyncpg"
 
     async def create_database(self):
