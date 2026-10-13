@@ -24,8 +24,11 @@ class wafw00f(BaseModule):
 
     deps_pip = ["wafw00f~=2.3.1"]
 
-    options = {"generic_detect": True}
-    options_desc = {"generic_detect": "When no specific WAF detections are made, try to perform a generic detect"}
+    options = {"generic_detect": True, "find_all": True}
+    options_desc = {
+        "generic_detect": "When no specific WAF detections are made, try to perform a generic detect",
+        "find_all": "Continue fingerprinting after the first WAF to identify stacked firewalls",
+    }
 
     in_scope_only = True
     per_hostport_only = True
@@ -42,7 +45,9 @@ class wafw00f(BaseModule):
     async def handle_event(self, event):
         original_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}/"
         WW = await self.helpers.run_in_executor(wafw00f_main.WAFW00F, original_url, followredirect=False)
-        waf_detections, detected_url = await self.helpers.run_in_executor(WW.identwaf)
+        waf_detections, detected_url = await self.helpers.run_in_executor(
+            WW.identwaf, bool(self.config.get("find_all", True))
+        )
         resolved_url = detected_url or original_url
         if waf_detections:
             for waf in waf_detections:

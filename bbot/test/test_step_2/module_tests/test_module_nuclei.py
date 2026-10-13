@@ -59,6 +59,28 @@ class TestNucleiManual(ModuleTestBase):
         assert second_run_detect
 
 
+class TestNucleiWafDetection(TestNucleiManual):
+    modules_overrides = ["httpx", "nuclei"]
+
+    async def setup_after_prep(self, module_test):
+        module_test.set_expect_requests(expect_args={"method": "GET", "uri": "/"},
+                                        respond_args={"response_data": "alive"})
+
+        async def fake_nuclei(inputs, include_mobile_templates=False):
+            for name in ("cloudfront", "cloudflare"):
+                yield {
+                    "severity": "INFO", "template": "waf-detect", "tags": ["waf", "tech"],
+                    "host": inputs[0], "url": inputs[0], "matched_at": inputs[0], "name": name,
+                }
+
+        module_test.monkeypatch.setattr(module_test.module, "execute_nuclei", fake_nuclei)
+
+    def check(self, module_test, events):
+        assert {e.data["waf"] for e in events if e.type == "WAF"} == {"cloudfront", "cloudflare"}
+        assert not any(e.type == "FINDING" and e.data.get("title") in {"cloudfront", "cloudflare"}
+                       for e in events)
+
+
 class TestNucleiSevere(TestNucleiManual):
     modules_overrides = ["httpx", "nuclei"]
     config_overrides = {
