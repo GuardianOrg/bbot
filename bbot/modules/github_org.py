@@ -101,7 +101,7 @@ class github_org(github):
                 )
 
             # find members from org (SOCIAL --> SOCIAL)
-            if is_org and self.include_members:
+            if is_org and in_scope and self.include_members:
                 self.verbose(f"Searching for any members belonging to {user}")
                 org_members = await self.query_org_members(user)
                 for member in org_members:
