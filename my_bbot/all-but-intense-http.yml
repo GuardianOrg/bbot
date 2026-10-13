@@ -99,24 +99,26 @@ config:
       google_oauth_token: ${env:APKEEP_GOOGLE_OAUTH_TOKEN,""}
       google_accept_tos: ${env:APKEEP_GOOGLE_ACCEPT_TOS,false}
     nuclei:
-      mode: technology
+      mode: manual
       tags: ""
       templates: ""
       mobile_template_sources: /workspace/bbot-guardian/my_bbot/mobile-nuclei-templates
       mobile_download_enabled: false
-      severity: "critical,high,medium"
-      etags: "dos,fuzz,fuzzing,intrusive,destructive"
-      exclude_types: "code,headless,javascript,tcp"
+      severity: ""
+      etags: "dos,destructive"
+      exclude_types: "code"
       ratelimit: 120
       concurrency: 20
       bulk_size: 10
       retries: 0
-      timeout: 5
-      batch_size: 50
-      module_timeout: 900
-      verbose_templates: true
+      timeout: 10
+      batch_size: 20
+      module_timeout: 3600
+      verbose_templates: false
       directory_only: true
       silent: true
+    wafw00f:
+      find_all: true
     fingerprintx:
       batch_size: 1
       module_threads: 64
