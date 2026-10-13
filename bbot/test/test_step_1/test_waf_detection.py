@@ -15,13 +15,13 @@ async def test_wafw00f_requests_every_match_and_emits_each_vendor(monkeypatch):
 
         def identwaf(self, findall=False):
             assert findall is True
-            return ["Cloudfront (Amazon)", "Cloudflare (Cloudflare Inc.)"], self.url
+            return ["Cloudfront (Amazon)", "Cloudflare (Cloudflare Inc.)"], self.url + "?probe=attack"
 
     monkeypatch.setattr("bbot.modules.wafw00f.wafw00f_main.WAFW00F", StackedWafs)
     emitted = []
 
     async def emit_event(data, event_type, **kwargs):
-        emitted.append((event_type, data["waf"]))
+        emitted.append((event_type, data["waf"], data["url"]))
 
     async def run_in_executor(callable_, *args, **kwargs):
         return await asyncio.to_thread(callable_, *args, **kwargs)
@@ -35,7 +35,10 @@ async def test_wafw00f_requests_every_match_and_emits_each_vendor(monkeypatch):
         parsed_url=SimpleNamespace(scheme="https", netloc="example.com"), host="example.com"
     )
     await wafw00f.handle_event(module, event)
-    assert emitted == [("WAF", "Cloudfront (Amazon)"), ("WAF", "Cloudflare (Cloudflare Inc.)")]
+    assert emitted == [
+        ("WAF", "Cloudfront (Amazon)", "https://example.com/"),
+        ("WAF", "Cloudflare (Cloudflare Inc.)", "https://example.com/"),
+    ]
 
 
 @pytest.mark.asyncio
