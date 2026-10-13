@@ -249,6 +249,7 @@ class sslcert(BaseModule):
         san_domains = sorted({name for name in cls.get_cert_san_entries(cert) if name})
         return {
             "certificate": {
+                "pem": crypto.dump_certificate(crypto.FILETYPE_PEM, cert).decode("ascii"),
                 "subject": subject_components,
                 "issuer": issuer_components,
                 "serialNumber": str(cert.get_serial_number()),

@@ -113,4 +113,7 @@ def test_sslcert_metadata_keeps_wildcard_sans():
 
     assert metadata["certSanDomains"] == ["*.api.example.com", "api.example.com"]
     assert metadata["certificate"]["sanDomains"] == ["*.api.example.com", "api.example.com"]
+    pem = metadata["certificate"]["pem"]
+    assert pem.startswith("-----BEGIN CERTIFICATE-----\n")
+    assert crypto.load_certificate(crypto.FILETYPE_PEM, pem).digest("sha256").decode().replace(":", "").lower() == metadata["certFingerprintSha256"]
     assert sslcert.get_cert_sans(cert) == ["api.example.com", "api.example.com"]
