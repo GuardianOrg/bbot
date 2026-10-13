@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from bbot.modules.base import BaseModule
 
 
@@ -15,7 +16,7 @@ class medusa(BaseModule):
     scope_distance_modifier = None
 
     options = {
-        "snmp_wordlist": "https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/SNMP/common-snmp-community-strings.txt",
+        "snmp_wordlist": str(Path(__file__).resolve().parent.parent / "wordlists" / "common-snmp-community-strings.txt"),
         "snmp_versions": ["1", "2C"],  # Only 1 and 2C are available with medusa 2.3.
         "wait_microseconds": 200,
         "timeout_s": 5,
@@ -23,7 +24,7 @@ class medusa(BaseModule):
     }
 
     options_desc = {
-        "snmp_wordlist": "Wordlist url for SNMP community strings, newline separated (default https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Discovery/SNMP/snmp.txt)",
+        "snmp_wordlist": "Local path or URL for newline-separated SNMP community strings; defaults to the bundled SecLists wordlist",
         "snmp_versions": "List of SNMP versions to attempt against the SNMP server (default ['1', '2C'])",
         "wait_microseconds": "Wait time after every SNMP request in microseconds (default 200)",
         "timeout_s": "Wait time for the SNMP response(s) once at the end of all attempts (default 5)",
