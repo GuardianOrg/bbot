@@ -45,10 +45,12 @@ class wafw00f(BaseModule):
     async def handle_event(self, event):
         original_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}/"
         WW = await self.helpers.run_in_executor(wafw00f_main.WAFW00F, original_url, followredirect=False)
-        waf_detections, detected_url = await self.helpers.run_in_executor(
+        waf_detections, _ = await self.helpers.run_in_executor(
             WW.identwaf, bool(self.config.get("find_all", True))
         )
-        resolved_url = detected_url or original_url
+        # WAFW00F returns its last probe URL, which may contain attack payloads.
+        # Associate the detection with the original root website instead.
+        resolved_url = original_url
         if waf_detections:
             for waf in waf_detections:
                 await self.emit_event(
