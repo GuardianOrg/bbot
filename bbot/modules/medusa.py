@@ -16,7 +16,7 @@ class medusa(BaseModule):
     scope_distance_modifier = None
 
     options = {
-        "snmp_wordlist": str(Path(__file__).resolve().parent.parent / "wordlists" / "common-snmp-community-strings.txt"),
+        "snmp_wordlist": "bundled",
         "snmp_versions": ["1", "2C"],  # Only 1 and 2C are available with medusa 2.3.
         "wait_microseconds": 200,
         "timeout_s": 5,
@@ -34,7 +34,10 @@ class medusa(BaseModule):
     deps_apt = ["medusa"]
 
     async def setup_deps(self):
-        self.snmp_wordlist_path = await self.helpers.wordlist(self.config.get("snmp_wordlist"))
+        wordlist = self.config.get("snmp_wordlist")
+        if wordlist == "bundled":
+            wordlist = Path(__file__).resolve().parent.parent / "wordlists" / "common-snmp-community-strings.txt"
+        self.snmp_wordlist_path = await self.helpers.wordlist(wordlist)
         return True
 
     async def setup(self):
