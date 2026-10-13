@@ -16,6 +16,30 @@ class TestWafw00f(ModuleTestBase):
         assert any(e.type == "WAF" and "LiteSpeed" in e.data["waf"] for e in events)
 
 
+class TestWafw00f_all(ModuleTestBase):
+    targets = ["http://127.0.0.1:8888"]
+    modules_overrides = ["httpx", "wafw00f"]
+
+    async def setup_after_prep(self, module_test):
+        module_test.set_expect_requests(expect_args={"method": "GET", "uri": "/"},
+                                        respond_args={"response_data": "alive"})
+
+        class StackedWafs:
+            def __init__(self, url, followredirect=False):
+                self.url = url
+
+            def identwaf(self, findall=False):
+                assert findall is True
+                return ["Cloudfront (Amazon)", "Cloudflare (Cloudflare Inc.)"], self.url
+
+        module_test.monkeypatch.setattr("bbot.modules.wafw00f.wafw00f_main.WAFW00F", StackedWafs)
+
+    def check(self, module_test, events):
+        assert {e.data["waf"] for e in events if e.type == "WAF"} == {
+            "Cloudfront (Amazon)", "Cloudflare (Cloudflare Inc.)"
+        }
+
+
 class TestWafw00f_noredirect(ModuleTestBase):
     targets = ["http://127.0.0.1:8888"]
     modules_overrides = ["httpx", "wafw00f"]

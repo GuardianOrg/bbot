@@ -15,7 +15,7 @@ from bbot.modules.base import BaseModule
 class nuclei(BaseModule):
     fatal_on_error = True
     watched_events = ["URL", "MOBILE_APP", "FILESYSTEM"]
-    produced_events = ["FINDING", "VULNERABILITY", "TECHNOLOGY"]
+    produced_events = ["FINDING", "VULNERABILITY", "TECHNOLOGY", "WAF"]
     flags = ["active", "aggressive", "deadly"]
     meta = {
         "description": "Check assets against vulnerability, exposure, and misconfiguration templates",
@@ -532,6 +532,20 @@ class nuclei(BaseModule):
 
             if url == "" and not matched_at:
                 url = str(parent_event.data)
+
+            # The official waf-detect template reports the WAF vendor in its
+            # matcher name. Keep it on the website as a WAF attribute instead
+            # of turning it into a generic technology or a vulnerability.
+            if template == "waf-detect":
+                if name != "WAF Detection":
+                    await self.emit_event(
+                        {"waf": name, "url": url or str(parent_event.data), "host": str(parent_event.host),
+                         "info": "Nuclei waf-detect template"},
+                        "WAF",
+                        parent_event,
+                        context=f"{{module}} scanned {url} and identified {{event.type}}: {name}",
+                    )
+                continue
 
             if severity == "INFO" and "tech" in tags:
                 await self.emit_event(
