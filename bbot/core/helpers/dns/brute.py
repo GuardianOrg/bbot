@@ -6,6 +6,8 @@ import subprocess
 import time
 from collections import Counter
 from itertools import islice
+from .resolvers import ResolverPool
+from bbot.errors import DNSError
 
 
 class DNSBrute:
@@ -27,22 +29,44 @@ class DNSBrute:
         self.log = logging.getLogger("bbot.helper.dns.brute")
         self.dns_config = self.parent_helper.config.get("dns", {})
         self.num_canaries = 100
-        self.max_resolvers = self.dns_config.get("brute_threads", 1000)
-        self.nameservers_url = self.dns_config.get("brute_nameservers", self._nameservers_url)
+        self.max_resolvers = int(self.dns_config.get("brute_threads", 1000))
+        if self.max_resolvers <= 0:
+            raise ValueError("dns.brute_threads must be positive")
+        self.nameservers_url = self.dns_config.get("brute_nameservers", "")
         self.devops_mutations = list(self.parent_helper.word_cloud.devops_mutations)
         self.digit_regex = self.parent_helper.re.compile(r"\d+")
         self._resolver_file = None
         self._dnsbrute_lock = None
-        self.max_candidates = int(self.dns_config.get("brute_max_candidates", 200000))
+        self.parallel_batches = int(self.dns_config.get("brute_parallel_batches", 2))
+        self.per_resolver_threads = int(self.dns_config.get("brute_threads_per_resolver", 50))
+        if not 0 < self.parallel_batches <= 4 or not 0 < self.per_resolver_threads <= 100:
+            raise ValueError("DNS parallel batches must be 1..4 and per-resolver concurrency 1..100")
+        self.resolver_pool = ResolverPool()
+        self.transport_failures = 0
+        self.transport_retries = 0
+        self._resolver_lock = asyncio.Lock()
+        self.max_candidates = int(self.dns_config.get("brute_max_candidates", 400000))
         if self.max_candidates <= 0:
             raise ValueError("dns.brute_max_candidates must be positive")
         # Exact keys are shared by every brute/permutation module in this scan.
         self.queries_tried = set()
         self._budget_reported = False
-        self.max_runtime = float(self.dns_config.get("brute_max_runtime", 3600))
+        self.max_runtime = float(self.dns_config.get("brute_max_runtime", 7200))
         if not 0 < self.max_runtime < float("inf"):
             raise ValueError("dns.brute_max_runtime must be finite and positive")
         self.deadline = None
+        self.strategy_queries = Counter()
+        self.strategy_results = {}
+        self.strategy_seconds = Counter()
+        active = set(self.parent_helper.preset.scan_modules)
+        self.reservations = {
+            name: min(amount, self.max_candidates // 4)
+            for name, amount in (("dnsgen", 40000), ("dnsdepth", 4000))
+            if name in active
+        }
+        self.reservations_released = asyncio.Event()
+        if not self.reservations:
+            self.reservations_released.set()
         self.wildcard_deadline = None
         self.wildcard_candidates = Counter()
         self.wildcard_verified_names = set()
@@ -60,8 +84,39 @@ class DNSBrute:
     @property
     def dnsbrute_lock(self):
         if self._dnsbrute_lock is None:
-            self._dnsbrute_lock = asyncio.Lock()
+            self._dnsbrute_lock = asyncio.Semaphore(self.parallel_batches)
         return self._dnsbrute_lock
+
+    def remaining_candidates(self, module):
+        name = getattr(module, "name", str(module))
+        held = sum(
+            max(0, amount - self.strategy_queries[strategy])
+            for strategy, amount in self.reservations.items()
+            if strategy != name
+        )
+        return max(0, self.max_candidates - len(self.queries_tried) - held)
+
+    def claim(self, module, key):
+        if key in self.queries_tried or not self.remaining_candidates(module):
+            return False
+        self.queries_tried.add(key)
+        self.strategy_queries[getattr(module, "name", str(module))] += 1
+        return True
+
+    def release_reservation(self, name):
+        self.reservations.pop(name, None)
+        if not self.reservations:
+            self.reservations_released.set()
+
+    def metrics(self):
+        return {
+            name: {
+                "queries": count,
+                "names": len(self.strategy_results.get(name, ())),
+                "call_seconds": round(self.strategy_seconds[name], 3),
+            }
+            for name, count in self.strategy_queries.items()
+        }
 
     async def dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
         if self.deadline is None:
@@ -72,11 +127,17 @@ class DNSBrute:
         if remaining <= 0:
             self.log.info("DNS brute-force stopped at its shared runtime deadline")
             return []
+        started = time.monotonic()
+        name = getattr(module, "name", str(module))
         try:
-            return await asyncio.wait_for(self._dnsbrute(module, domain, subdomains, type, remaining), remaining)
+            results = await asyncio.wait_for(self._dnsbrute(module, domain, subdomains, type, remaining), remaining)
+            self.strategy_results.setdefault(name, set()).update(results)
+            return results
         except asyncio.TimeoutError:
             self.log.info("DNS brute-force reached its runtime budget; subprocess work cancelled")
             return []
+        finally:
+            self.strategy_seconds[name] += time.monotonic() - started
 
     async def _dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
         domain = str(domain).lower().rstrip(".")
@@ -85,7 +146,7 @@ class DNSBrute:
             type = "A"
         type = str(type).strip().upper()
 
-        if len(self.queries_tried) >= self.max_candidates:
+        if not self.remaining_candidates(module):
             if not self._budget_reported:
                 self.log.info(
                     f"DNS brute-force stopped at its scan-wide budget of {self.max_candidates:,} candidate queries"
@@ -98,7 +159,7 @@ class DNSBrute:
         for wildcard_domain, rdtypes in wildcard_domains.items():
             wildcard_rdtypes.update(rdtypes)
         if wildcard_domains:
-            return await self._wildcard_brute(domain, subdomains, type)
+            return await self._wildcard_brute(module, domain, subdomains, type)
 
         # Claim after the wildcard await, without yielding, so concurrent modules cannot
         # submit the same full name/type through different parents or batches.
@@ -109,9 +170,8 @@ class DNSBrute:
             key = (hostname, type)
             if key in self.queries_tried:
                 continue
-            if len(self.queries_tried) >= self.max_candidates:
+            if not self.claim(module, key):
                 break
-            self.queries_tried.add(key)
             selected.append(prefix)
         if not selected:
             return []
@@ -141,9 +201,13 @@ class DNSBrute:
             return []
 
         # everything checks out
-        return results
+        if results and self.resolver_pool.selected:
+            names = list(dict.fromkeys(results))
+            verified = await asyncio.gather(*(self.resolver_pool.confirm(host, type) for host in names))
+            results = [host for host, valid in zip(names, verified) if valid]
+        return list(dict.fromkeys(results))
 
-    async def _wildcard_brute(self, domain, subdomains, rdtype):
+    async def _wildcard_brute(self, module, domain, subdomains, rdtype):
         limits = self.wildcard_limits
         if self.wildcard_deadline is None:
             self.wildcard_deadline = time.monotonic() + limits["max_runtime"]
@@ -155,13 +219,16 @@ class DNSBrute:
         remaining = min(self.wildcard_deadline, self.deadline) - time.monotonic()
         if remaining <= 0:
             return []
+        found = []
         try:
-            return await asyncio.wait_for(self._wildcard_evidence(domain, subdomains, rdtype), remaining)
+            return await asyncio.wait_for(
+                self._wildcard_evidence(module, domain, subdomains, rdtype, found), remaining
+            )
         except asyncio.TimeoutError:
-            self.log.info("Wildcard discovery reached its  bounded runtime budget")
-            return []
+            self.log.info("Wildcard discovery reached its bounded runtime budget")
+            return found
 
-    async def _wildcard_evidence(self, domain, subdomains, rdtype):
+    async def _wildcard_evidence(self, module, domain, subdomains, rdtype, results):
         types = ("CNAME", "TXT", "MX", "HTTPS", "SVCB", "NS")
         controls = [f"{prefix}.{domain}" for prefix in islice(self.gen_random_subdomains(3), 3)]
 
@@ -185,7 +252,6 @@ class DNSBrute:
                 safe_types[kind] = samples[0]
         if not safe_types:
             return []
-        results = []
         remaining = max(0, int(self.wildcard_limits["max_candidates"]) - self.wildcard_candidates[domain])
         for prefix in islice(subdomains, remaining):
             if self.wildcard_candidates[domain] >= self.wildcard_limits["max_candidates"]:
@@ -193,9 +259,8 @@ class DNSBrute:
             hostname = f"{str(prefix).lower().rstrip('.')}.{domain}"
             if (hostname, rdtype) in self.queries_tried or hostname in self.wildcard_verified_names:
                 continue
-            if len(self.queries_tried) >= self.max_candidates:
+            if not self.claim(module, (hostname, rdtype)):
                 break
-            self.queries_tried.add((hostname, rdtype))
             self.wildcard_candidates[domain] += 1
             first = await asyncio.gather(*(evidence(hostname, kind) for kind in safe_types))
             interesting = [
@@ -246,21 +311,59 @@ class DNSBrute:
             "-r",
             resolver_file,
             "-s",
-            self.max_resolvers,
+            min(self.max_resolvers, max(1, len(self.resolver_pool.selected)) * self.per_resolver_threads),
             "-t",
             rdtype,
             "-o",
-            "J",
+            "Je",
+            "-c",
+            3,
+            "--verify-ip",
             "-q",
         )
         subdomains = [f"{prefix}.{domain}" if domain else prefix for prefix in subdomains]
         hosts_yielded = set()
+        requested = set(subdomains)
+        retry_names = []
+        started = time.monotonic()
         async with self.dnsbrute_lock:
             result = await module.run_process(
                 *command, stderr=subprocess.DEVNULL, input=subdomains, idle_timeout=timeout
             )
-            stdout = result.stdout if result is not None else ""
-            for line in stdout.splitlines():
+            if result is None or getattr(result, "returncode", 0) != 0:
+                raise DNSError("massdns failed to execute; DNS discovery results are incomplete")
+            output = result.stdout.splitlines()
+            failures = []
+            for line in output:
+                try:
+                    record = json.loads(line)
+                except json.decoder.JSONDecodeError:
+                    continue
+                if record.get("error"):
+                    name = record.get("name", "").lower().rstrip(".")
+                    if name in requested:
+                        failures.append(name)
+            self.transport_failures += len(failures)
+            if len(failures) > max(5, len(subdomains) // 100):
+                self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
+                self.log.info(
+                    f"DNS transport failures: {len(failures)}; reducing per-resolver concurrency to {self.per_resolver_threads}"
+                )
+            retry_names = list(dict.fromkeys(failures))[:100]
+            remaining = None if timeout is None else timeout - (time.monotonic() - started)
+            if retry_names and (remaining is None or remaining > 0):
+                retry_command = list(command)
+                retry_command[retry_command.index("-s") + 1] = min(
+                    self.max_resolvers, max(1, len(self.resolver_pool.selected)) * self.per_resolver_threads
+                )
+                retry = await module.run_process(
+                    *retry_command, stderr=subprocess.DEVNULL, input=retry_names, idle_timeout=remaining
+                )
+                self.transport_retries += len(retry_names)
+                if retry is None or getattr(retry, "returncode", 0) != 0:
+                    raise DNSError("massdns transport retry failed to execute")
+                output.extend(retry.stdout.splitlines())
+            for line in output:
                 try:
                     j = json.loads(line)
                 except json.decoder.JSONDecodeError:
@@ -283,17 +386,35 @@ class DNSBrute:
                                 yield hostname, data, answer_type
 
     async def resolver_file(self):
-        if self._resolver_file is None:
-            self._resolver_file_original = await self.parent_helper.wordlist(
-                self.nameservers_url,
-                cache_hrs=24 * 7,
-            )
-            nameservers = set(self.parent_helper.read_file(self._resolver_file_original))
-            nameservers.difference_update(self.parent_helper.dns.system_resolvers)
-            # exclude system nameservers from brute-force
-            # this helps prevent rate-limiting which might cause BBOT's main dns queries to fail
-            self._resolver_file = self.parent_helper.tempfile(nameservers, pipe=False)
+        async with self._resolver_lock:
+            if not self.resolver_pool.selected:
+                candidates = await self.prepare_resolvers()
+                selected = await self.resolver_pool.validate(
+                    candidates, fallback=self.parent_helper.dns.system_resolvers
+                )
+                self._resolver_file = self.parent_helper.tempfile(selected, pipe=False)
+                self.log.info(
+                    f"Validated DNS resolvers (A/AAAA, NXDOMAIN and latency): {self.resolver_pool.measurements}"
+                )
         return self._resolver_file
+
+    async def prepare_resolvers(self):
+        # Dependency warmup prepares inputs but does not cache a validation result
+        # from a different network. Every real scan validates its own endpoints.
+        if not self.nameservers_url:
+            return list(ResolverPool.defaults)
+        path = await self.parent_helper.wordlist(self.nameservers_url, cache_hrs=24 * 7)
+        candidates = []
+        for line in self.parent_helper.read_file(path):
+            try:
+                ResolverPool.endpoint(line)
+            except (ValueError, TypeError):
+                continue
+            if line not in candidates:
+                candidates.append(line)
+            if len(candidates) >= 64:
+                break
+        return candidates
 
     def gen_random_subdomains(self, n=50):
         delimiters = (".", "-")

@@ -3,13 +3,14 @@
 `dnsdepth` distinguishes authoritative NOERROR/NODATA from NXDOMAIN and errors
 using A and AAAA queries. It keeps target seeds independently of unresolved
 event emission. Known names and their in-scope ancestors are classified first;
-a small survey of ranked labels beneath apex targets follows. Only parents with
+a survey of at most 25 ranked labels beneath apex targets follows, leaving
+probe slots for later observed ancestors. Exploration starts as events arrive. Only parents with
 NOERROR and no answer for both address types qualify. Their children are tested
 with A and AAAA and emitted once.
 
 Defaults per scan: 100 distinct parent probes, 20 empty parents, 100 ranked labels
-per parent and a total 60-second deadline. The shared brute-force budget remains
-200,000 distinct name/type queries and 3,600 seconds across all modules/rounds.
+per parent and a total 60-second active-work budget; idle time does not consume it. The shared brute-force budget remains
+400,000 distinct name/type queries and 7,200 seconds across all modules/rounds.
 Limits bound discovery rather than promise exhaustive coverage.
 
 `baddns_zone` independently checks NS/SOA answers and authority sections to find

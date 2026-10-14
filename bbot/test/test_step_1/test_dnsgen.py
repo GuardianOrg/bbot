@@ -34,7 +34,9 @@ def test_dnsgen_wordlists_are_isolated_between_interleaved_scans():
 
 
 async def make_module(bbot_scanner, overrides=None, targets=("example.com",)):
-    scan = bbot_scanner(*targets, modules=["dnsgen"], config={"modules": {"dnsgen": overrides or {}}})
+    scan = bbot_scanner(
+        *targets, modules=["dnsgen"], config={"modules": {"dnsgen": {"incremental": False, **(overrides or {})}}}
+    )
     module = dnsgen(scan)
     module._name = "dnsgen"
     await module.setup()

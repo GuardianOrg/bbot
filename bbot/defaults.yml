@@ -41,17 +41,21 @@ dns:
   brute_threads: 1000
   # Hard scan-wide budget shared by all brute-force/permutation modules; A/AAAA count separately.
   # Exact full-name/type deduplication applies across modules and finish rounds. Must be positive.
-  brute_max_candidates: 200000
+  brute_max_candidates: 400000
   # One hard deadline for all brute-force modules and depths; seconds from first brute batch.
-  brute_max_runtime: 3600
+  brute_max_runtime: 7200
+  # Two fair-sized subprocess batches; concurrency is also capped per validated resolver.
+  brute_parallel_batches: 2
+  brute_threads_per_resolver: 50
   # Wildcard exploration only accepts stable non-address evidence distinct from three controls.
   brute_wildcard_max_candidates: 100
   brute_wildcard_max_domains: 20
   brute_wildcard_max_results: 50
   brute_wildcard_max_runtime: 60
   # nameservers to use for DNS brute-forcing
-  # default is updated weekly and contains ~10K high-quality public servers
-  brute_nameservers: https://raw.githubusercontent.com/blacklanternsecurity/public-dns-servers/master/nameservers.txt
+  # Empty uses Cloudflare/Google endpoints validated per scan with DNS-only controls.
+  # An optional custom file/URL is limited to 64 candidates and validated identically.
+  brute_nameservers: ''
   # How far away from the main target to explore via DNS resolution (independent of scope.search_distance)
   # This is safe to change
   search_distance: 1
