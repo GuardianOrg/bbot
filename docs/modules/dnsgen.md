@@ -13,8 +13,9 @@ does not monopolize the candidate budget. Words come from a bounded common list
 and observed names within the same registrable domain; concurrent scanners do
 not share DNSGen's mutable word state.
 
-Generation runs at scan finish. Newly discovered names may seed the next finish
-round. Limits apply across all rounds and must be finite and positive:
+Generation starts with one batch on the first observed subdomain and then after
+every 25 new seeds. Scan finish drains the remaining candidates; newly discovered
+names can seed the next finish round. Limits apply across all rounds and must be finite and positive:
 
 | Setting | Default |
 | --- | ---: |
@@ -31,12 +32,12 @@ A and AAAA are queried separately, including IPv6-only results. Confirmed names
 are emitted once. Observed names and previously generated names are excluded.
 The shared DNS brute helper deduplicates exact `(full hostname, record type)`
 queries across modules, parents and rounds. `dns.brute_max_candidates` defaults
-to 200,000 across the scan; it counts A/AAAA separately and excludes random
+to 400,000 across the scan; it counts A/AAAA separately and excludes random
 wildcard-control probes and normal DNS event enrichment. Attempted queries remain
 claimed after a failure/cancellation, preventing repeated permutation attempts.
 
-The runtime deadline starts at the first finish round and persists through later
-rounds. Massdns receives the remaining time as its subprocess timeout as well.
+The 180-second budget counts active generation/DNS time across early batches and
+finish rounds; idle time between events does not consume it. Massdns receives the remaining time as its subprocess timeout as well.
 Budget exhaustion ends this discovery step and is logged; it does not mean all
 possible names were tested. No unlimited-budget mode is available.
 
@@ -47,7 +48,7 @@ GuardianSentry builds its sidecar from the pinned `bbot-guardian` submodule and
 uses this preset by default, so changing its submodule revision carries both
 the code and the configured limits into the next image build.
 
-All brute-force modules also share `dns.brute_max_runtime=3600`: the deadline
+All brute-force modules also share `dns.brute_max_runtime=7200`: the deadline
 starts at the first brute batch and includes waiting for the massdns lock.
 Nested ordinary brute force uses the first 1,000 labels with maximum depth five.
 The bounded DNS-only empty-parent and wildcard strategies are described in
