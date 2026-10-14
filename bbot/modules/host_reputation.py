@@ -113,6 +113,11 @@ class host_reputation(BaseModule):
         mw_result = await self.check_malwareworld(host)
 
         risk_score, malicious, sources = mw_result["risk_score"], mw_result["malicious"], mw_result["sources"]
+        # An empty threat-intelligence result is an observation, not a security
+        # finding. In particular, an unavailable feed must not create a benign
+        # verdict or mask independent findings emitted by other modules.
+        if not malicious and risk_score == 0 and not sources:
+            return
         verdict = "malicious" if malicious else "not malicious"
         await self.emit_event(
             {

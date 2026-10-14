@@ -60,3 +60,13 @@ def test_equal_explicit_subdomain_policy_is_not_marked_weak():
     findings = findings_for_dmarc("v=DMARC1; p=reject; sp=reject; rua=mailto:dmarc@example.com")
 
     assert not any(finding.title == "DMARC Subdomain Policy Weaker Than Parent" for finding in findings)
+
+
+def test_forensic_report_destination_does_not_require_optional_fo_tag():
+    findings = findings_for_dmarc("v=DMARC1; p=reject; rua=mailto:aggregate@example.com; ruf=mailto:forensic@example.com")
+    assert not any(finding.title == "DMARC Forensic Reporting Not Configured" for finding in findings)
+
+
+def test_missing_optional_forensic_reporting_is_not_a_vulnerability():
+    findings = findings_for_dmarc("v=DMARC1; p=reject; rua=mailto:aggregate@example.com")
+    assert not any(finding.title == "DMARC Forensic Reporting Not Configured" for finding in findings)

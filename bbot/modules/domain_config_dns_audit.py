@@ -258,6 +258,14 @@ class domain_config_dns_audit(BaseModule):
             except Exception:
                 self.verbose(f"{check.__name__} failed for {domain}", trace=True)
 
+        # Preserve optional reporting observations on the DNS asset without
+        # presenting missing telemetry as an exploitable vulnerability.
+        dns_config["optional_reporting"] = {
+            "dmarc_failure_reports": bool(records.get("DMARC") and re.search(r"(?:^|;)\s*ruf\s*=", records["DMARC"], re.I)),
+            "smtp_tls_reports": bool(records.get("TLS-RPT")),
+            "caa_incident_reports": any("iodef" in entry.lower() for entry in records.get("CAA", [])),
+        }
+
         try:
             zone_status = await self.check_zone_transfer(domain, records)
             dns_config["zone_transfer_possible"] = zone_status["zone_transfer_possible"]
@@ -1250,10 +1258,9 @@ class domain_config_dns_audit(BaseModule):
             ("rua=", "DMARC Missing Aggregate Reports", "Add rua=mailto:... to receive aggregate reports."),
             ("adkim=s", "DMARC DKIM Alignment Not Strict", "Use adkim=s after validating legitimate senders."),
             ("aspf=s", "DMARC SPF Alignment Not Strict", "Use aspf=s after validating legitimate senders."),
-            ("fo=", "DMARC Forensic Reporting Not Configured", "Consider adding fo=1 if your reporting pipeline can handle forensic reports."),
         ):
             if tag not in lowered:
-                severity = "INFO" if tag == "fo=" else "LOW"
+                severity = "LOW"
                 descriptions = {
                     "DMARC Missing Aggregate Reports": (
                         "The DMARC record has no aggregate report destination. The domain owner will not receive regular visibility into spoofing attempts, authentication failures, or misconfigured legitimate senders. "
@@ -1266,10 +1273,6 @@ class domain_config_dns_audit(BaseModule):
                     "DMARC SPF Alignment Not Strict": (
                         "DMARC does not require strict SPF alignment. Related but different domains may satisfy SPF alignment, reducing precision in anti-spoofing enforcement. "
                         "SPF checks whether the sending server is allowed to send for a domain, while DMARC checks whether that domain aligns with the visible From address. Relaxed alignment can be useful during complex mail-provider setups, but it may allow mail authenticated for a related domain to satisfy DMARC for this domain. Strict alignment narrows that relationship and provides clearer control. Before enabling it, legitimate senders should be reviewed so normal mail does not fail unexpectedly."
-                    ),
-                    "DMARC Forensic Reporting Not Configured": (
-                        "The DMARC record does not request forensic failure reports. This limits detailed visibility into individual spoofing or authentication-failure events. "
-                        "Forensic reports can provide more specific examples of failed messages than aggregate reports, helping teams investigate active phishing campaigns or misconfigured senders. Not every mailbox provider sends them, and they can contain sensitive message information, so they require careful handling and privacy review. This is not always a must-have setting, but the absence means incident responders may have fewer details when abuse happens. If used, reports should go to a controlled mailbox or processing service."
                     ),
                 }
                 findings.append(AuditFinding(title, severity, "Email", descriptions[title], f"DMARC: {dmarc}", recommendation, f"dig _dmarc.{domain} TXT +short"))
@@ -1396,25 +1399,6 @@ class domain_config_dns_audit(BaseModule):
         tls_rpt = next((rec for rec in tls_records if "v=tlsrptv1" in rec.lower()), None) if success else None
         if tls_rpt:
             records["TLS-RPT"] = tls_rpt
-        elif records.get("MX"):
-            findings.append(AuditFinding(
-                "Missing TLS-RPT",
-                "INFO",
-                "Email",
-                (
-                    "The domain does not publish TLS-RPT for SMTP. Mail transport TLS failures, downgrade attempts, and MTA-STS problems may go unnoticed because receivers have no reporting destination."
-                    ' TLS-RPT is a reporting mechanism for SMTP transport security problems. It lets other'
-                    ' mail systems send reports when they cannot deliver mail securely, when MTA-STS validation fails, or when'
-                    ' downgrade-like behavior is observed. Without TLS-RPT, the domain owner may not notice that inbound mail'
-                    ' encryption is failing for some senders, especially if delivery falls back to plaintext or intermittent errors'
-                    ' are hidden in remote systems. This is mostly a visibility issue rather than a direct vulnerability. It becomes'
-                    ' more important when MTA-STS is enabled, because strict TLS policies need reporting to detect certificate,'
-                    ' policy, and delivery issues quickly.'
-                ),
-                f"_smtp._tls.{domain} has no TLS-RPT record",
-                "Add TLS-RPT to receive SMTP TLS failure reports.",
-                f"dig TXT _smtp._tls.{domain}",
-            ))
 
     async def check_tls_rpt_destinations(self, domain, records, findings):
         tls_rpt = records.get("TLS-RPT")
@@ -1547,25 +1531,6 @@ class domain_config_dns_audit(BaseModule):
             ))
             return
         records["CAA"] = caa_records
-        if "iodef" not in " ".join(caa_records).lower():
-            findings.append(AuditFinding(
-                "CAA Missing Incident Reporting",
-                "INFO",
-                "Certificate",
-                (
-                    "The CAA policy does not include an iodef reporting destination. Certificate issuance violations may not be reported to the domain owner."
-                    ' The CAA iodef tag provides a place for certificate authorities to send reports when'
-                    " certificate issuance violates the domain's CAA policy. Without it, an unauthorized or mistaken issuance"
-                    " attempt may fail silently from the domain owner's perspective. The core CAA restrictions can still work, but"
-                    ' the organization loses a useful early-warning signal about certificate abuse, provider misconfiguration, or'
-                    ' forgotten validation paths. This is usually a visibility and governance issue rather than an immediate'
-                    ' compromise. The destination should be a monitored mailbox or incident handling endpoint that can route'
-                    ' certificate-related reports to the right team.'
-                ),
-                f"CAA: {caa_records}",
-                "Add iodef to receive certificate issuance violation reports.",
-                f"dig CAA {domain}",
-            ))
 
     async def check_caa_policy_quality(self, domain, records, findings):
         caa_records = records.get("CAA", [])
