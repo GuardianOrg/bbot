@@ -27,7 +27,7 @@ Put keys in your config (or pass via `-c`):
 - Aggregators:
 `subfinder`.
 - Active discovery:
-`dnsbrute`, `dnsbrute_mutations`, `dnscommonsrv`.
+`dnsbrute`, `dnsbrute_mutations`, `dnsgen`, `dnscommonsrv`.
 - Subdomain takeover checks:
 `baddns`, `dnsreaper`, `nuclei_takeover`, `subzy`.
 - Relationship/affiliate expansion:
@@ -115,6 +115,7 @@ Note: `dnscaa` is gated to original `DNS_NAME` scan seeds. It may still emit `EM
 | dnscaa | URL_UNVERIFIED | Check for CAA records | No | Yes, recommended | Yes |
 | dnsbrute | DNS_NAME | Brute-force subdomains with massdns + static wordlist | No | Yes, recommended | Yes |
 | dnsbrute_mutations | DNS_NAME | Brute-force subdomains with massdns + target-specific mutations | No | Yes, recommended | Yes |
+| dnsgen | DNS_NAME | Apply bounded static DNSGen rules at existing DNS label depths, with scan-wide exact query deduplication | No | Enabled instead of dnsbrute_mutations in all-but-intense-http.yml | Yes |
 | dnscommonsrv | DNS_NAME | Check for common SRV records | No | Yes, recommended | Yes |
 | dnsdumpster | DNS_NAME | Query dnsdumpster for subdomains | No | Yes, recommended | Yes |
 | dnsreaper | FINDING | Check potential subdomain takeovers with dnsReaper | No | Yes, recommended | Yes |

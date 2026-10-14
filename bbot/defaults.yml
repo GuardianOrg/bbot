@@ -39,6 +39,9 @@ dns:
   # How many concurrent DNS resolvers to use when brute-forcing
   # (under the hood this is passed through directly to massdns -s)
   brute_threads: 1000
+  # Hard scan-wide budget shared by all brute-force/permutation modules; A/AAAA count separately.
+  # Exact full-name/type deduplication applies across modules and finish rounds. Must be positive.
+  brute_max_candidates: 200000
   # nameservers to use for DNS brute-forcing
   # default is updated weekly and contains ~10K high-quality public servers
   brute_nameservers: https://raw.githubusercontent.com/blacklanternsecurity/public-dns-servers/master/nameservers.txt

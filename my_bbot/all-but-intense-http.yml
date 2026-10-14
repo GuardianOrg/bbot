@@ -7,6 +7,7 @@ modules:
   - apkeep
   - azure_tenant
   - badsecrets
+  - baddns_zone
   - bucket_amazon
   - bucket_digitalocean
   - bucket_file_enum
@@ -22,7 +23,7 @@ modules:
   - domain_whois
   - dnscommonsrv
   - dnsbrute
-  - dnsbrute_mutations
+  - dnsgen
   - dnsdumpster
   - offchain_scope_filter
   - domain_config_dns_audit
@@ -87,6 +88,7 @@ config:
     emit_unresolved: false
     max_unresolved_subdomains_per_module: 50
     threads: 150
+    brute_max_candidates: 200000
   interactsh_disable: true
   modules:
     stdout:
@@ -214,8 +216,16 @@ config:
     dnsbrute:
       wordlist: https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt
       max_depth: 3
-    dnsbrute_mutations:
-      max_mutations: 5000
+    dnsgen:
+      max_candidates: 50000
+      max_candidates_per_domain: 10000
+      max_candidates_per_seed: 300
+      max_seeds: 5000
+      max_words: 64
+      max_rounds: 2
+      dns_batch_size: 1000
+      max_runtime: 180
+      record_types: [A, AAAA]
     speculate:
       unresolved_parent_domains: false
       open_ports_from_ip_only: true

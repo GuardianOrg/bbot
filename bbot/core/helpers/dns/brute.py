@@ -30,6 +30,12 @@ class DNSBrute:
         self.digit_regex = self.parent_helper.re.compile(r"\d+")
         self._resolver_file = None
         self._dnsbrute_lock = None
+        self.max_candidates = int(self.dns_config.get("brute_max_candidates", 200000))
+        if self.max_candidates <= 0:
+            raise ValueError("dns.brute_max_candidates must be positive")
+        # Exact keys are shared by every brute/permutation module in this scan.
+        self.queries_tried = set()
+        self._budget_reported = False
 
     async def __call__(self, *args, **kwargs):
         return await self.dnsbrute(*args, **kwargs)
@@ -40,12 +46,18 @@ class DNSBrute:
             self._dnsbrute_lock = asyncio.Lock()
         return self._dnsbrute_lock
 
-    async def dnsbrute(self, module, domain, subdomains, type=None):
-        subdomains = list(subdomains)
+    async def dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
+        domain = str(domain).lower().rstrip(".")
 
         if type is None:
             type = "A"
         type = str(type).strip().upper()
+
+        if len(self.queries_tried) >= self.max_candidates:
+            if not self._budget_reported:
+                self.log.info(f"DNS brute-force stopped at its scan-wide budget of {self.max_candidates:,} candidate queries")
+                self._budget_reported = True
+            return []
 
         wildcard_domains = await self.parent_helper.dns.is_wildcard_domain(domain, (type, "CNAME"))
         wildcard_rdtypes = set()
@@ -57,16 +69,33 @@ class DNSBrute:
             )
             return []
 
+        # Claim after the wildcard await, without yielding, so concurrent modules cannot
+        # submit the same full name/type through different parents or batches.
+        selected = []
+        for prefix in subdomains:
+            prefix = str(prefix).lower().rstrip(".")
+            hostname = f"{prefix}.{domain}" if domain else prefix
+            key = (hostname, type)
+            if key in self.queries_tried:
+                continue
+            if len(self.queries_tried) >= self.max_candidates:
+                break
+            self.queries_tried.add(key)
+            selected.append(prefix)
+        if not selected:
+            return []
+
         canaries_list = list(self.gen_random_subdomains(self.num_canaries))
         canary_set = set(canaries_list)
         canaries_pre = canaries_list[: int(self.num_canaries / 2)]
         canaries_post = canaries_list[int(self.num_canaries / 2) :]
         # sandwich subdomains between canaries
-        subdomains = canaries_pre + subdomains + canaries_post
+        subdomains = canaries_pre + selected + canaries_post
 
         results = []
         canaries_triggered = []
-        async for hostname, ip, rdtype in self._massdns(module, domain, subdomains, rdtype=type):
+        timeout_kwargs = {} if timeout is None else {"timeout": timeout}
+        async for hostname, ip, rdtype in self._massdns(module, domain, subdomains, rdtype=type, **timeout_kwargs):
             suffix = f".{domain}"
             sub = hostname[: -len(suffix)] if hostname.endswith(suffix) else hostname
             if sub in canary_set:
@@ -83,7 +112,7 @@ class DNSBrute:
         # everything checks out
         return results
 
-    async def _massdns(self, module, domain, subdomains, rdtype):
+    async def _massdns(self, module, domain, subdomains, rdtype, timeout=None):
         """
         {
             "name": "www.blacklanternsecurity.com.",
@@ -127,7 +156,7 @@ class DNSBrute:
         subdomains = [f"{prefix}.{domain}" if domain else prefix for prefix in subdomains]
         hosts_yielded = set()
         async with self.dnsbrute_lock:
-            result = await module.run_process(*command, stderr=subprocess.DEVNULL, input=subdomains)
+            result = await module.run_process(*command, stderr=subprocess.DEVNULL, input=subdomains, idle_timeout=timeout)
             stdout = result.stdout if result is not None else ""
             for line in stdout.splitlines():
                 try:

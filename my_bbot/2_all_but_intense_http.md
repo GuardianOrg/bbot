@@ -16,6 +16,7 @@ modules:
   - azure_tenant
   - baddns
   - baddns_direct
+  - baddns_zone
   - badsecrets
   - bucket_amazon
   - bucket_digitalocean
@@ -30,7 +31,7 @@ modules:
   - crt_db
   - dehashed
   - dnsbrute
-  - dnsbrute_mutations
+  - dnsgen
   - dnscaa
   - dnscommonsrv
   - dnsdumpster

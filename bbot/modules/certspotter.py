@@ -13,9 +13,40 @@ class certspotter(subdomain_enum):
 
     base_url = "https://api.certspotter.com/v1"
 
-    def request_url(self, query):
+    handle_event = subdomain_enum.handle_event_paginated
+
+    def request_url(self, query, after=None):
         url = f"{self.base_url}/issuances?domain={self.helpers.quote(query)}&include_subdomains=true&expand=dns_names"
+        if after is not None:
+            url += f"&after={self.helpers.quote(str(after))}"
         return self.api_request(url)
+
+    async def query_paginated(self, query):
+        after = None
+        cursors_seen = set()
+        while True:
+            try:
+                response = await self.request_url(query, after=after)
+                if response is None or not response.is_success:
+                    return
+                issuances = response.json()
+                if not isinstance(issuances, list) or not issuances:
+                    return
+                yield await self.parse_results(response, query)
+                last_issuance = issuances[-1]
+                cursor = last_issuance.get("id") if isinstance(last_issuance, dict) else None
+                if cursor is None:
+                    self.warning(f'CertSpotter returned no pagination cursor for "{query}"')
+                    return
+                cursor = str(cursor)
+                if cursor in cursors_seen:
+                    self.warning(f'CertSpotter repeated pagination cursor for "{query}"')
+                    return
+                cursors_seen.add(cursor)
+                after = cursor
+            except Exception as e:
+                self.info(f'Error retrieving CertSpotter results for "{query}": {e}', trace=True)
+                return
 
     async def parse_results(self, r, query):
         results = set()
