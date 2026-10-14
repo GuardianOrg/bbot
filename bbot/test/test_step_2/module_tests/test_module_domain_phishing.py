@@ -213,12 +213,12 @@ class TestDomainPhishingRegisteredWithoutAddress(ModuleTestBase):
 
     def check(self, module_test, events):
         phishing_events = [
-            event for event in events
-            if event.type in ("FINDING", "VULNERABILITY")
-            and event.data.get("category") == "phishing-lookalike-domain"
+            event
+            for event in events
+            if event.type in ("FINDING", "VULNERABILITY") and event.data.get("category") == "phishing-lookalike-domain"
         ]
         assert module_test.scan.finish_event().data["status"] == "FINISHED"
-        assert {event.data["host"] for event in phishing_events} == {"coinbasef.com", "coinbases.com"}
+        assert {event.data["host"] for event in phishing_events} == {"coinbases.com"}
         assert not any(event.type == "DNS_NAME_UNRESOLVED" for event in events)
 
 
@@ -366,13 +366,15 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
     mod.lsh_threshold = 70
     mod.history_file = ""
     mod.known = {}
-    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
-        split_domain=lambda _domain: ("", "coinbase.com"),
-        is_domain=lambda _domain: True,
-        tempfile=lambda _contents, pipe=False: Path("/tmp/tlds.txt"),
-    ))
+    mod.scan = SimpleNamespace(
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "coinbase.com"),
+            is_domain=lambda _domain: True,
+            tempfile=lambda _contents, pipe=False: Path("/tmp/tlds.txt"),
+        )
+    )
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout="[]"))
-    mod._redirects_to_protected_domain = lambda *_args: asyncio.sleep(0, result=False)
+    mod._check_candidate_web = lambda *_args: asyncio.sleep(0, result=(False, True))
     mod.info = lambda *_args: None
     mod.debug = lambda *_args: None
     emitted = []
@@ -450,14 +452,22 @@ def test_domain_phishing_extra_candidates_do_not_displace_dnstwist_results(tmp_p
     mod.history_file = str(tmp_path / "phishing-history.json")
     mod.known = {}
     mod._state_lock = asyncio.Lock()
-    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
-        split_domain=lambda _domain: ("", "coinbase.com"), is_domain=lambda _domain: True,
-    ))
+    mod.scan = SimpleNamespace(
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "coinbase.com"),
+            is_domain=lambda _domain: True,
+        )
+    )
     row = {"domain": "coinbases.com", "fuzzer": "addition", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
-    extra = {"domain": "coinba5e.com", "fuzzer": "homoglyph", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
+    extra = {
+        "domain": "coinba5e.com",
+        "fuzzer": "homoglyph",
+        "dns-mx": ["mx.example.com"],
+        "dns-ns": ["ns.example.com"],
+    }
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps([row])))
     mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[extra])
-    mod._redirects_to_protected_domain = lambda *_args: asyncio.sleep(0, result=False)
+    mod._check_candidate_web = lambda *_args: asyncio.sleep(0, result=(False, True))
     mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
     emitted = []
 
@@ -490,13 +500,16 @@ def test_domain_phishing_does_not_remember_an_event_that_failed_to_emit(tmp_path
     mod.history_file = str(tmp_path / "phishing-history.json")
     mod.known = {}
     mod._state_lock = asyncio.Lock()
-    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
-        split_domain=lambda _domain: ("", "coinbase.com"), is_domain=lambda _domain: True,
-    ))
+    mod.scan = SimpleNamespace(
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "coinbase.com"),
+            is_domain=lambda _domain: True,
+        )
+    )
     row = {"domain": "coinbases.com", "fuzzer": "addition", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps([row])))
     mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
-    mod._redirects_to_protected_domain = lambda *_args: asyncio.sleep(0, result=False)
+    mod._check_candidate_web = lambda *_args: asyncio.sleep(0, result=(False, True))
     mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
     mod.emit_event = lambda *_args, **_kwargs: asyncio.sleep(0, result=None)
     mod.info = lambda *_args: None
@@ -565,7 +578,7 @@ def test_domain_phishing_suppression_disabled_without_history_file():
     assert mod._is_known_unchanged("x.com", key) is False
 
 
-def test_domain_phishing_suppresses_redirects_to_protected_domain():
+def test_domain_phishing_suppresses_check_candidate_web():
     from bbot.modules.domain_phishing import domain_phishing
 
     mod = object.__new__(domain_phishing)
@@ -579,8 +592,9 @@ def test_domain_phishing_suppresses_redirects_to_protected_domain():
 
     mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
     candidate = {"dns-a": ["1.2.3.4"]}
-    assert (
-        asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate)) is True
+    assert asyncio.run(mod._check_candidate_web("guardian-audits.com", "guardianaudits.com", candidate)) == (
+        True,
+        False,
     )
 
 
@@ -598,9 +612,9 @@ def test_domain_phishing_does_not_trust_deceptive_redirect_suffix():
 
     mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
     candidate = {"dns-a": ["1.2.3.4"]}
-    assert (
-        asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate))
-        is False
+    assert asyncio.run(mod._check_candidate_web("guardian-audits.com", "guardianaudits.com", candidate)) == (
+        False,
+        False,
     )
 
 
@@ -626,8 +640,142 @@ def test_domain_phishing_does_not_follow_redirects_to_private_addresses():
     mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request, resolve=resolve))
     candidate = {"dns-a": ["1.2.3.4"]}
 
-    assert (
-        asyncio.run(mod._redirects_to_protected_domain("guardian-audits.com", "guardianaudits.com", candidate))
-        is False
+    assert asyncio.run(mod._check_candidate_web("guardian-audits.com", "guardianaudits.com", candidate)) == (
+        False,
+        False,
     )
-    assert requested_urls == ["https://guardian-audits.com/"]
+    assert set(requested_urls) == {"https://guardian-audits.com/", "http://guardian-audits.com/"}
+
+
+@pytest.mark.parametrize(
+    "mx,status,expected",
+    [
+        ([], 404, False),
+        ([], 503, False),
+        ([], None, False),
+        (["0 ."], 200, True),
+        (["0 ."], 404, False),
+        (["!ServFail"], 404, False),
+        (["mx.example.com"], 404, True),
+        ([], 200, True),
+        ([], 204, True),
+        ([], 206, True),
+    ],
+)
+def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.binary = "/bin/echo"
+    mod.registered_only = False
+    mod.enable_lsh = False
+    mod.threads = 1
+    mod.fuzzers = []
+    mod.nameservers = []
+    mod.max_candidates = 1
+    mod.min_score = 3
+    mod.young_domain_days = 45
+    mod.lsh_threshold = 70
+    mod.history_file = ""
+    mod.known = {}
+    requested = []
+
+    async def request(url, **kwargs):
+        requested.append(url)
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["timeout"] <= 5
+        return None if status is None else SimpleNamespace(status_code=status, headers={})
+
+    mod.scan = SimpleNamespace(
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "coinbase.com"),
+            is_domain=lambda _domain: True,
+            request=request,
+        )
+    )
+    row = {
+        "domain": "coinba5e.com",
+        "fuzzer": "homoglyph",
+        "dns-a": ["1.2.3.4"],
+        "dns-ns": ["ns.example.com"],
+        "dns-mx": mx,
+    }
+    mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps([row])))
+    mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
+    mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
+    emitted = []
+
+    async def emit_event(payload, *_args, **_kwargs):
+        emitted.append(payload)
+        return payload
+
+    mod.emit_event = emit_event
+    mod.info = lambda *_args: None
+    mod.debug = lambda *_args: None
+    asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
+    assert bool(emitted) is expected
+    assert len(requested) <= 2
+    assert mod.known == {}
+
+
+def test_domain_phishing_web_probe_falls_back_to_http_and_handles_ipv6():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    requested = []
+
+    async def request(url, **_kwargs):
+        requested.append(url)
+        if url.startswith("https:"):
+            raise ConnectionError("HTTPS unavailable")
+        return SimpleNamespace(status_code=204, headers={})
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    assert asyncio.run(
+        mod._check_candidate_web("coinba5e.com", "coinbase.com", {"dns-aaaa": ["2606:4700:4700::1111"]})
+    ) == (False, True)
+    assert set(requested) == {"https://coinba5e.com/", "http://coinba5e.com/"}
+
+
+def test_domain_phishing_web_probe_follows_same_domain_redirect_to_20x():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+
+    async def request(url, **_kwargs):
+        return SimpleNamespace(status_code=200 if url.endswith("/login") else 302, headers={"location": "/login"})
+
+    async def resolve(_hostname, **_kwargs):
+        return {"1.2.3.4"}
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request, resolve=resolve))
+    assert asyncio.run(mod._check_candidate_web("coinba5e.com", "coinbase.com", {"dns-a": ["1.2.3.4"]})) == (
+        False,
+        True,
+    )
+
+
+def test_domain_phishing_web_probe_bounds_whole_chain_and_preserves_cancellation():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.REDIRECT_TIMEOUT_SECONDS = 0.02
+    cancelled = []
+
+    async def request(url, **_kwargs):
+        try:
+            await asyncio.sleep(10)
+        finally:
+            cancelled.append(url)
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    candidate = {"dns-a": ["1.2.3.4"]}
+    assert asyncio.run(mod._check_candidate_web("coinba5e.com", "coinbase.com", candidate)) == (False, False)
+    assert len(cancelled) == 2
+
+    async def cancel_request(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    mod.scan.helpers.request = cancel_request
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(mod._check_candidate_web("coinba5e.com", "coinbase.com", candidate))

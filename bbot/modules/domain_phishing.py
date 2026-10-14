@@ -349,54 +349,56 @@ class domain_phishing(BaseModule):
             return
         self.known[domain] = change_key
 
-    async def _redirects_to_protected_domain(self, candidate_domain, root_domain, candidate):
+    async def _check_candidate_web(self, candidate_domain, root_domain, candidate):
         web_addresses = self._as_list(self._pick(candidate, "dns-a", "dns_a")) + self._as_list(
             self._pick(candidate, "dns-aaaa", "dns_aaaa")
         )
         if not web_addresses or not all(self._is_public_ip(address) for address in web_addresses):
-            return False
+            return False, False
 
         normalized_root = str(root_domain or "").strip().lower().rstrip(".")
         normalized_candidate = str(candidate_domain or "").strip().lower().rstrip(".")
-        for scheme in ("https", "http"):
+
+        async def probe(scheme):
             current_url = f"{scheme}://{candidate_domain}/"
             for _redirect_count in range(self.MAX_REDIRECTS + 1):
-                try:
-                    response = await self.helpers.request(
-                        current_url,
-                        follow_redirects=False,
-                        timeout=self.REDIRECT_TIMEOUT_SECONDS,
-                    )
-                except Exception:
-                    response = None
+                response = await self.helpers.request(
+                    current_url,
+                    follow_redirects=False,
+                    timeout=self.REDIRECT_TIMEOUT_SECONDS,
+                )
                 if response is None:
-                    break
-
+                    return False, False
                 status_code = int(getattr(response, "status_code", 0) or 0)
+                if 200 <= status_code < 210:
+                    return False, True
                 location = response.headers.get("location") if 300 <= status_code < 400 else None
                 if not location:
-                    return False
-
+                    return False, False
                 next_url = urljoin(current_url, str(location))
                 parsed = urlparse(next_url)
                 if parsed.scheme not in ("http", "https"):
-                    return False
+                    return False, False
                 next_hostname = str(parsed.hostname or "").strip().lower().rstrip(".")
                 if next_hostname == normalized_root or next_hostname.endswith(f".{normalized_root}"):
-                    return True
+                    return True, False
                 if not (next_hostname == normalized_candidate or next_hostname.endswith(f".{normalized_candidate}")):
-                    return False
-                try:
-                    redirect_addresses = await self.helpers.resolve(next_hostname, use_cache=False)
-                except Exception:
-                    return False
+                    return False, False
+                redirect_addresses = await self.helpers.resolve(next_hostname, use_cache=False)
                 if not redirect_addresses or not all(self._is_public_ip(address) for address in redirect_addresses):
-                    return False
+                    return False, False
                 current_url = next_url
-            else:
-                return False
+            return False, False
 
-        return False
+        async def bounded_probe(scheme):
+            try:
+                # Bound the whole redirect chain, and check both schemes concurrently.
+                return await asyncio.wait_for(probe(scheme), timeout=self.REDIRECT_TIMEOUT_SECONDS)
+            except Exception:
+                return False, False
+
+        results = await asyncio.gather(*(bounded_probe(scheme) for scheme in ("https", "http")))
+        return any(protected for protected, _ in results), any(active for _, active in results)
 
     @staticmethod
     def _is_public_ip(address):
@@ -532,14 +534,24 @@ class domain_phishing(BaseModule):
                 # be generated downstream, so skip the WHOIS enrichment + emit entirely.
                 continue
 
-            if await self._redirects_to_protected_domain(candidate_domain, root_domain, candidate):
+            protected_redirect, web_active = await self._check_candidate_web(candidate_domain, root_domain, candidate)
+            if protected_redirect:
                 self.debug(
                     f"domain_phishing: suppressing {candidate_domain}; it redirects to protected domain {root_domain}"
                 )
                 continue
 
+            usable_mx = [
+                mx for mx in self._as_list(self._pick(candidate, "dns-mx", "dns_mx")) if not self._is_null_mx(mx)
+            ]
+            if not web_active and not usable_mx:
+                self.debug(f"domain_phishing: suppressing {candidate_domain}; no web 20X response or usable MX")
+                continue
+
             fuzzer = str(self._pick(candidate, "fuzzer", "fuzz") or "unknown").strip()
-            fingerprint = candidate.get("_monitor_fingerprint") or await self._lookup_ownership_fingerprint(candidate_domain)
+            fingerprint = candidate.get("_monitor_fingerprint") or await self._lookup_ownership_fingerprint(
+                candidate_domain
+            )
             tags = ["phishing", "typosquatting", f"fuzzer-{fuzzer.lower()}"]
             description = f"Look-alike domain {candidate_domain} was generated from {root_domain} using the {fuzzer} permutation technique."
             if reasons:
