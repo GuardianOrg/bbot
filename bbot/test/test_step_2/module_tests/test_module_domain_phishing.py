@@ -662,7 +662,7 @@ def test_domain_phishing_does_not_follow_redirects_to_private_addresses():
         ([], 206, True),
     ],
 )
-def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected):
+def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected, tmp_path):
     from bbot.modules.domain_phishing import domain_phishing
 
     mod = object.__new__(domain_phishing)
@@ -676,7 +676,8 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected):
     mod.min_score = 3
     mod.young_domain_days = 45
     mod.lsh_threshold = 70
-    mod.history_file = ""
+    mod.history_file = str(tmp_path / "history.json")
+    mod._state_lock = asyncio.Lock()
     mod.known = {}
     requested = []
 
@@ -702,7 +703,13 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected):
     }
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps([row])))
     mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
-    mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
+    looked_up = []
+
+    async def fingerprint(domain):
+        looked_up.append(domain)
+        return mod._empty_fingerprint()
+
+    mod._lookup_ownership_fingerprint = fingerprint
     emitted = []
 
     async def emit_event(payload, *_args, **_kwargs):
@@ -715,7 +722,8 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected):
     asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
     assert bool(emitted) is expected
     assert len(requested) <= 2
-    assert mod.known == {}
+    assert bool(mod.known) is expected
+    assert looked_up == (["coinba5e.com"] if expected else [])
 
 
 def test_domain_phishing_web_probe_falls_back_to_http_and_handles_ipv6():
