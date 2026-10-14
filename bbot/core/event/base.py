@@ -1862,6 +1862,7 @@ class DOMAIN_DNS_CONFIG(DictHostEvent):
         is_wildcard: Optional[bool] = None
         wildcard_ips: Optional[list[str]] = None
         wildcard_records: Optional[dict[str, list[str]]] = None
+        optional_reporting: Optional[dict[str, bool]] = None
         _validate_host = field_validator("host")(validators.validate_host)
 
 
