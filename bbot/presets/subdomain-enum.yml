@@ -4,6 +4,10 @@ flags:
   # enable every module with the subdomain-enum flag
   - subdomain-enum
 
+exclude_modules:
+  # DNSGen supplies bounded static permutations under the shared DNS budget.
+  - dnsbrute_mutations
+
 output_modules:
   # output unique subdomains to TXT file
   - subdomains

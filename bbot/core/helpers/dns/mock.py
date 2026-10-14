@@ -49,7 +49,7 @@ flags QR AA RD
         # log.verbose(message_text)
         return message
 
-    async def resolve(self, query_name, rdtype=None):
+    async def resolve(self, query_name, rdtype=None, **kwargs):
         if rdtype is None:
             rdtype = "A"
         elif isinstance(rdtype, str):
@@ -59,6 +59,10 @@ flags QR AA RD
 
         domain_name = dns.name.from_text(query_name)
         rdtype_obj = dns.rdatatype.from_text(rdtype)
+
+        if query_name in self.mock_data.get("_NOERROR", []):
+            response = self.create_dns_response(query_name, [], rdtype)
+            return dns.resolver.Answer(domain_name, rdtype_obj, dns.rdataclass.IN, response)
 
         if "_NXDOMAIN" in self.mock_data and query_name in self.mock_data["_NXDOMAIN"]:
             # Simulate the NXDOMAIN exception

@@ -16,6 +16,7 @@ modules:
   - azure_tenant
   - baddns
   - baddns_direct
+  - baddns_zone
   - badsecrets
   - bucket_amazon
   - bucket_digitalocean
@@ -30,7 +31,8 @@ modules:
   - crt_db
   - dehashed
   - dnsbrute
-  - dnsbrute_mutations
+  - dnsgen
+  - dnsdepth
   - dnscaa
   - dnscommonsrv
   - dnsdumpster
@@ -172,6 +174,7 @@ export VT_API_KEY=""
 ## Notes
 - This preset keeps generic/root URL checks but removes URL-internal deep probing modules.
 - Some modules are still active and can be intensive (`naabu`, `dnsbrute*`, `gowitness`, `trufflehog`, etc.).
+- The executable YAML is the source of truth for current options. DNS brute force shares a 200,000-query / 3,600-second budget across modules and rounds. The bundled ranked list contains 10,000 unique labels; nested parents use its first 1,000, to depth five. `dnsdepth` surveys at most 100 parents and explores at most 20 confirmed NODATA parents with 100 labels each, within 60 seconds. Wildcards use at most 100 candidates per parent, 20 parents, 50 verified names and 60 seconds; stable non-address evidence is required. Zone enumeration is limited to 100 parent checks, 20 zones, 5,000 results and 120 seconds.
 
 ## How to run
 

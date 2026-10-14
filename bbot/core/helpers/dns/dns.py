@@ -89,6 +89,9 @@ class DNSHelper(EngineClient):
     async def resolve_raw(self, query, **kwargs):
         return await self.run_and_return("resolve_raw", query=query, **kwargs)
 
+    async def resolve_status(self, query, **kwargs):
+        return await self.run_and_return("resolve_status", query=query, **kwargs)
+
     async def resolve_batch(self, queries, **kwargs):
         agen = self.run_and_yield("resolve_batch", queries=queries, **kwargs)
         while 1:

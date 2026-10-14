@@ -1,4 +1,6 @@
 import asyncio
+import time
+from pathlib import Path
 
 from bbot.errors import WordlistError
 from bbot.modules.templates.subdomain_enum import subdomain_enum
@@ -14,17 +16,24 @@ class dnsbrute(subdomain_enum):
         "created_date": "2024-04-24",
     }
     options = {
-        "wordlist": "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt",
+        "wordlist": "",
+        "wordlists": [],
+        "max_words": 10000,
+        "child_words": 1000,
         "max_depth": 5,
     }
     options_desc = {
-        "wordlist": "Subdomain wordlist URL",
+        "wordlist": "Wordlist path/URL; empty uses the bundled ranked 10,000-label list without HTTP",
+        "wordlists": "Additional wordlist paths/URLs merged in order with exact deduplication",
+        "max_words": "Maximum unique words retained across all lists",
+        "child_words": "Maximum highest-ranked words tried beneath each non-apex parent",
         "max_depth": "How many subdomains deep to brute force, i.e. 5.4.3.2.1.evilcorp.com",
     }
     deps_common = ["massdns"]
-    reject_wildcards = "strict"
+    reject_wildcards = False
     dedup_strategy = "lowest_parent"
     _qsize = 10000
+
     async def _fetch_required_wordlist(self, fetcher, description):
         last_error = None
         for attempt in range(1, 4):
@@ -40,7 +49,9 @@ class dnsbrute(subdomain_enum):
 
     async def setup_deps(self):
         self.subdomain_file = await self._fetch_required_wordlist(
-            lambda: self.helpers.wordlist(self.config.get("wordlist")),
+            lambda: self.helpers.wordlist(
+                self.config.get("wordlist") or str(Path(__file__).parent.parent / "wordlists/subdomains-ranked.txt")
+            ),
             "dnsbrute wordlist",
         )
         # tell the dnsbrute helper to fetch the resolver file
@@ -52,11 +63,33 @@ class dnsbrute(subdomain_enum):
 
     async def setup(self):
         self.max_depth = max(1, self.config.get("max_depth", 5))
-        self.subdomain_list = set(self.helpers.read_file(self.subdomain_file))
+        self.max_words = int(self.config.get("max_words", 10000))
+        self.child_words = int(self.config.get("child_words", 1000))
+        if self.max_words <= 0 or self.child_words <= 0:
+            raise ValueError("dnsbrute max_words and child_words must be positive")
+        lists = [self.subdomain_file]
+        for extra in self.config.get("wordlists", []):
+            lists.append(await self.helpers.wordlist(extra))
+        ordered = {}
+        for wordlist in lists:
+            for word in self.helpers.read_file(wordlist):
+                word = word.strip().lower().rstrip(".")
+                if word and not word.startswith("#"):
+                    ordered.setdefault(word, None)
+                if len(ordered) >= self.max_words:
+                    break
+            if len(ordered) >= self.max_words:
+                break
+        self.subdomain_list = list(ordered)
         self.wordlist_size = len(self.subdomain_list)
         return await super().setup()
 
     async def filter_event(self, event):
+        brute = self.helpers.dns.brute
+        if brute.deadline is not None and time.monotonic() >= brute.deadline:
+            return False, "shared brute-force runtime budget exhausted"
+        if len(brute.queries_tried) >= brute.max_candidates:
+            return False, "shared brute-force candidate budget exhausted"
         eligible, reason = await super().filter_event(event)
         query = self.make_query(event)
 
@@ -75,11 +108,16 @@ class dnsbrute(subdomain_enum):
 
     async def handle_event(self, event):
         query = self.make_query(event)
-        self.info(f"Brute-forcing {self.wordlist_size:,} subdomains for {query} (source: {event.data})")
-        for hostname in await self.helpers.dns.brute(self, query, self.subdomain_list):
+        words = (
+            self.subdomain_list
+            if query == self.helpers.split_domain(query)[1]
+            else self.subdomain_list[: self.child_words]
+        )
+        self.info(f"Brute-forcing {len(words):,} subdomains for {query} (source: {event.data})")
+        for hostname in await self.helpers.dns.brute(self, query, words):
             await self.emit_event(
                 hostname,
                 "DNS_NAME",
                 parent=event,
-                context=f'{{module}} tried {self.wordlist_size:,} subdomains against "{query}" and found {{event.type}}: {{event.data}}',
+                context=f'{{module}} tried {len(words):,} subdomains against "{query}" and found {{event.type}}: {{event.data}}',
             )

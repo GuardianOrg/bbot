@@ -57,6 +57,16 @@ class baddns(BaseModule):
 
     async def handle_event(self, event):
         tasks = []
+        try:
+            await self._handle_checks(event, tasks)
+        finally:
+            pending = [task for _, task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _handle_checks(self, event, tasks):
         for ModuleClass in self.select_modules():
             kwargs = {
                 "http_client_class": self.scan.helpers.web.AsyncClient,
