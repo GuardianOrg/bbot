@@ -164,6 +164,27 @@ files = [
 extras = ["regex"]
 
 [[package]]
+name = "baddns"
+version = "1.12.294"
+description = "Check subdomains for subdomain takeovers and other DNS tomfoolery"
+optional = false
+python-versions = "<4.0,>=3.9"
+groups = ["dev"]
+files = [
+    {file = "baddns-1.12.294-py3-none-any.whl", hash = "sha256:47868dd4447851eb2ec2452e95f130253b0ea6caadf2879512ad2049fb639161"},
+    {file = "baddns-1.12.294.tar.gz", hash = "sha256:3c232f4810ebe5b0f8b657f91501597d545bc258606214b19368b0e79eba4395"},
+]
+
+[package.dependencies]
+colorama = ">=0.4.6,<0.5.0"
+dnspython = ">=2.4.2,<3.0.0"
+httpx = ">=0.27.0,<0.29.0"
+python-dateutil = "2.9.0.post0"
+python-whois = ">=0.9.6,<0.10.0"
+pyyaml = ">=6.0.1,<7.0.0"
+tldextract = ">=5.1.1,<6.0.0"
+
+[[package]]
 name = "beautifulsoup4"
 version = "4.14.3"
 description = "Screen-scraping library"
@@ -1031,7 +1052,7 @@ version = "2.7.0"
 description = "DNS toolkit"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "dnspython-2.7.0-py3-none-any.whl", hash = "sha256:b4c34b7d10b51bcc3a5071e7b8dee77939f1e878477eeecc965e9835f63c6c86"},
     {file = "dnspython-2.7.0.tar.gz", hash = "sha256:ce9c432eda0dc91cf618a5cedf1a4e142651196bbcd2c80e89ed5a907e5cfaf1"},
@@ -3126,7 +3147,7 @@ version = "2.9.0.post0"
 description = "Extensions to the standard Python datetime module"
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
-groups = ["docs"]
+groups = ["dev", "docs"]
 files = [
     {file = "python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3"},
     {file = "python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427"},
@@ -3134,6 +3155,21 @@ files = [
 
 [package.dependencies]
 six = ">=1.5"
+
+[[package]]
+name = "python-whois"
+version = "0.9.6"
+description = "Whois querying and parsing of domain registration information."
+optional = false
+python-versions = "*"
+groups = ["dev"]
+files = [
+    {file = "python_whois-0.9.6-py3-none-any.whl", hash = "sha256:153261941a4d238b1278a4ca9b5b5e0590ed3b4d0c534ba111c4434d5d339410"},
+    {file = "python_whois-0.9.6.tar.gz", hash = "sha256:2e6de7b6d70e305a85f4859cd17781ee3f0da3a02a8e94f23cb4cdcd2e400bfa"},
+]
+
+[package.dependencies]
+python-dateutil = "*"
 
 [[package]]
 name = "pyyaml"
@@ -3691,7 +3727,7 @@ version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
-groups = ["docs"]
+groups = ["dev", "docs"]
 files = [
     {file = "six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274"},
     {file = "six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"},
@@ -4448,4 +4484,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "5bfbc749a141844cc86a17e7473bb9a634876871d57e8900c6fa9d6784367580"
+content-hash = "a4e9fb552e2cfad28ab2ed925dd83f6bb312f71384954dfc21ba3b5ec624da04"

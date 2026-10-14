@@ -48,7 +48,12 @@ class TestBaddns_zone_nsec(BaseTestBaddns_zone):
 
         await module_test.mock_dns(
             {
-                "bad.dns": {"A": ["127.0.0.5"], "NSEC": ["asdf.bad.dns"]},
+                "bad.dns": {
+                    "A": ["127.0.0.5"],
+                    "NS": ["ns.bad.dns"],
+                    "SOA": ["ns.bad.dns. admin.bad.dns. 1 3600 900 86400 300"],
+                    "NSEC": ["asdf.bad.dns"],
+                },
                 "asdf.bad.dns": {"NSEC": ["zzzz.bad.dns"]},
                 "zzzz.bad.dns": {"NSEC": ["xyz.bad.dns"]},
             }

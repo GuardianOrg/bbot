@@ -3,6 +3,9 @@ import random
 import asyncio
 import logging
 import subprocess
+import time
+from collections import Counter
+from itertools import islice
 
 
 class DNSBrute:
@@ -36,6 +39,20 @@ class DNSBrute:
         # Exact keys are shared by every brute/permutation module in this scan.
         self.queries_tried = set()
         self._budget_reported = False
+        self.max_runtime = float(self.dns_config.get("brute_max_runtime", 3600))
+        if not 0 < self.max_runtime < float("inf"):
+            raise ValueError("dns.brute_max_runtime must be finite and positive")
+        self.deadline = None
+        self.wildcard_deadline = None
+        self.wildcard_candidates = Counter()
+        self.wildcard_verified_names = set()
+        self.wildcard_domains = set()
+        self.wildcard_limits = {}
+        for key, default in (("max_candidates", 100), ("max_domains", 20), ("max_results", 50), ("max_runtime", 60)):
+            value = float(self.dns_config.get(f"brute_wildcard_{key}", default))
+            if not 0 < value < float("inf"):
+                raise ValueError(f"dns.brute_wildcard_{key} must be finite and positive")
+            self.wildcard_limits[key] = value
 
     async def __call__(self, *args, **kwargs):
         return await self.dnsbrute(*args, **kwargs)
@@ -47,6 +64,21 @@ class DNSBrute:
         return self._dnsbrute_lock
 
     async def dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
+        if self.deadline is None:
+            self.deadline = time.monotonic() + self.max_runtime
+        remaining = self.deadline - time.monotonic()
+        if timeout is not None:
+            remaining = min(remaining, timeout)
+        if remaining <= 0:
+            self.log.info("DNS brute-force stopped at its shared runtime deadline")
+            return []
+        try:
+            return await asyncio.wait_for(self._dnsbrute(module, domain, subdomains, type, remaining), remaining)
+        except asyncio.TimeoutError:
+            self.log.info("DNS brute-force reached its runtime budget; subprocess work cancelled")
+            return []
+
+    async def _dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
         domain = str(domain).lower().rstrip(".")
 
         if type is None:
@@ -55,7 +87,9 @@ class DNSBrute:
 
         if len(self.queries_tried) >= self.max_candidates:
             if not self._budget_reported:
-                self.log.info(f"DNS brute-force stopped at its scan-wide budget of {self.max_candidates:,} candidate queries")
+                self.log.info(
+                    f"DNS brute-force stopped at its scan-wide budget of {self.max_candidates:,} candidate queries"
+                )
                 self._budget_reported = True
             return []
 
@@ -64,10 +98,7 @@ class DNSBrute:
         for wildcard_domain, rdtypes in wildcard_domains.items():
             wildcard_rdtypes.update(rdtypes)
         if wildcard_domains:
-            self.log.hugewarning(
-                f"Aborting massdns on {domain} because it's a wildcard domain ({','.join(sorted(wildcard_rdtypes))})"
-            )
-            return []
+            return await self._wildcard_brute(domain, subdomains, type)
 
         # Claim after the wildcard await, without yielding, so concurrent modules cannot
         # submit the same full name/type through different parents or batches.
@@ -110,6 +141,75 @@ class DNSBrute:
             return []
 
         # everything checks out
+        return results
+
+    async def _wildcard_brute(self, domain, subdomains, rdtype):
+        limits = self.wildcard_limits
+        if self.wildcard_deadline is None:
+            self.wildcard_deadline = time.monotonic() + limits["max_runtime"]
+        if time.monotonic() >= self.wildcard_deadline or len(self.wildcard_verified_names) >= limits["max_results"]:
+            return []
+        if domain not in self.wildcard_domains and len(self.wildcard_domains) >= limits["max_domains"]:
+            return []
+        self.wildcard_domains.add(domain)
+        remaining = min(self.wildcard_deadline, self.deadline) - time.monotonic()
+        if remaining <= 0:
+            return []
+        try:
+            return await asyncio.wait_for(self._wildcard_evidence(domain, subdomains, rdtype), remaining)
+        except asyncio.TimeoutError:
+            self.log.info("Wildcard discovery reached its  bounded runtime budget")
+            return []
+
+    async def _wildcard_evidence(self, domain, subdomains, rdtype):
+        types = ("CNAME", "TXT", "MX", "HTTPS", "SVCB", "NS")
+        controls = [f"{prefix}.{domain}" for prefix in islice(self.gen_random_subdomains(3), 3)]
+
+        async def evidence(host, record_type):
+            response = await self.parent_helper.dns.resolve_status(host, type=record_type, timeout=1)
+            if response["status"] not in ("NOERROR", "NXDOMAIN"):
+                return None
+            values = set()
+            for record in response["answers"]:
+                if record["type"] != record_type or record["owner"].lower() != host:
+                    continue
+                values.add(record["answer"].lower())
+            return frozenset(values)
+
+        baseline = await asyncio.gather(*(evidence(host, kind) for kind in types for host in controls))
+        safe_types = {}
+        for index, kind in enumerate(types):
+            samples = baseline[index * 3 : index * 3 + 3]
+            # Rotating/random/name-dependent control records cannot establish existence.
+            if None not in samples and len(set(samples)) == 1:
+                safe_types[kind] = samples[0]
+        if not safe_types:
+            return []
+        results = []
+        remaining = max(0, int(self.wildcard_limits["max_candidates"]) - self.wildcard_candidates[domain])
+        for prefix in islice(subdomains, remaining):
+            if self.wildcard_candidates[domain] >= self.wildcard_limits["max_candidates"]:
+                break
+            hostname = f"{str(prefix).lower().rstrip('.')}.{domain}"
+            if (hostname, rdtype) in self.queries_tried or hostname in self.wildcard_verified_names:
+                continue
+            if len(self.queries_tried) >= self.max_candidates:
+                break
+            self.queries_tried.add((hostname, rdtype))
+            self.wildcard_candidates[domain] += 1
+            first = await asyncio.gather(*(evidence(hostname, kind) for kind in safe_types))
+            interesting = [
+                (kind, value) for (kind, base), value in zip(safe_types.items(), first) if value and value != base
+            ]
+            for kind, value in interesting:
+                if await evidence(hostname, kind) == value:
+                    if len(self.wildcard_verified_names) >= self.wildcard_limits["max_results"]:
+                        break
+                    self.wildcard_verified_names.add(hostname)
+                    results.append(hostname)
+                    break
+            if len(self.wildcard_verified_names) >= self.wildcard_limits["max_results"]:
+                break
         return results
 
     async def _massdns(self, module, domain, subdomains, rdtype, timeout=None):
@@ -156,7 +256,9 @@ class DNSBrute:
         subdomains = [f"{prefix}.{domain}" if domain else prefix for prefix in subdomains]
         hosts_yielded = set()
         async with self.dnsbrute_lock:
-            result = await module.run_process(*command, stderr=subprocess.DEVNULL, input=subdomains, idle_timeout=timeout)
+            result = await module.run_process(
+                *command, stderr=subprocess.DEVNULL, input=subdomains, idle_timeout=timeout
+            )
             stdout = result.stdout if result is not None else ""
             for line in stdout.splitlines():
                 try:

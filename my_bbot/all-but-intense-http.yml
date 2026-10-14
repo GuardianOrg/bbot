@@ -24,6 +24,7 @@ modules:
   - dnscommonsrv
   - dnsbrute
   - dnsgen
+  - dnsdepth
   - dnsdumpster
   - offchain_scope_filter
   - domain_config_dns_audit
@@ -89,6 +90,11 @@ config:
     max_unresolved_subdomains_per_module: 50
     threads: 150
     brute_max_candidates: 200000
+    brute_max_runtime: 3600
+    brute_wildcard_max_candidates: 100
+    brute_wildcard_max_domains: 20
+    brute_wildcard_max_results: 50
+    brute_wildcard_max_runtime: 60
   interactsh_disable: true
   modules:
     stdout:
@@ -214,8 +220,15 @@ config:
       permutation_numbers: 0
       expand_found_buckets: false
     dnsbrute:
-      wordlist: https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt
-      max_depth: 3
+      wordlist: ''
+      max_words: 10000
+      child_words: 1000
+      max_depth: 5
+    dnsdepth:
+      max_parent_probes: 100
+      max_empty_parents: 20
+      words_per_parent: 100
+      max_runtime: 60
     dnsgen:
       max_candidates: 50000
       max_candidates_per_domain: 10000

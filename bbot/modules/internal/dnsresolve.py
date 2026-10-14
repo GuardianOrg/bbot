@@ -276,9 +276,7 @@ class DNSResolve(BaseInterceptModule):
                     if main_host_event._graph_important:
                         await self.emit_event(main_host_event)
                     else:
-                        self.debug(
-                            f"Not queueing {main_host_event} because its wildcard DNS_NAME was already emitted"
-                        )
+                        self.debug(f"Not queueing {main_host_event} because its wildcard DNS_NAME was already emitted")
                 else:
                     await self.emit_event(main_host_event)
 
@@ -406,6 +404,10 @@ class DNSResolve(BaseInterceptModule):
         return False
 
     async def handle_wildcard_event(self, event):
+        brute = getattr(self.helpers.dns, "_brute", None)
+        if brute and str(event.host) in brute.wildcard_verified_names:
+            event.add_tag("wildcard-dns-verified")
+            return False
         rdtypes = tuple(event.raw_dns_records)
         wildcard_rdtypes = await self.helpers.is_wildcard(
             event.host, rdtypes=rdtypes, raw_dns_records=event.raw_dns_records
@@ -480,7 +482,9 @@ class DNSResolve(BaseInterceptModule):
                     if (
                         child_is_in_scope
                         or (child_is_address_record_ip and parent_is_in_scope)
-                        or (self.emit_out_of_scope_children and child_event.scope_distance <= self._dns_search_distance)
+                        or (
+                            self.emit_out_of_scope_children and child_event.scope_distance <= self._dns_search_distance
+                        )
                     ):
                         self.children_emitted.add(child_hash)
                         # if it's a hostname and it's only one hop away, mark it as affiliate
@@ -630,7 +634,9 @@ class DNSResolve(BaseInterceptModule):
                 if key not in ("rua", "ruf"):
                     continue
                 for candidate in [entry.strip() for entry in kvp_match.group("v").split(",") if entry.strip()]:
-                    await self.emit_email_matches(event, record_host, candidate, ["dmarc-record", f"dmarc-record-{key}"])
+                    await self.emit_email_matches(
+                        event, record_host, candidate, ["dmarc-record", f"dmarc-record-{key}"]
+                    )
                     await self.emit_url_matches(event, record_host, candidate, ["dmarc-record", f"dmarc-record-{key}"])
 
     async def emit_tlsrpt_enrichments(self, event, host):
@@ -767,7 +773,7 @@ class DNSResolve(BaseInterceptModule):
 
     def normalize_txt_answer(self, value):
         text = str(value or "").strip()
-        if ((text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'"))):
+        if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
             return text[1:-1]
         return text.replace('" "', "").replace('"', "")
 

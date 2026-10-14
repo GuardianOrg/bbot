@@ -142,6 +142,8 @@ class dnsgen(BaseModule):
             return
         if self.deadline is None:
             self.deadline = time.monotonic() + self.max_runtime
+        if self.brute.deadline is not None:
+            self.deadline = min(self.deadline, self.brute.deadline)
         if time.monotonic() >= self.deadline:
             return
         self.rounds += 1

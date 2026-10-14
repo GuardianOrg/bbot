@@ -187,8 +187,16 @@ def extract_targets(record):
             results.add((rdtype, cleaned))
 
     rdtype = str(record.rdtype.name).upper()
-    if rdtype in ("A", "AAAA", "NS", "CNAME", "PTR"):
+    if rdtype in ("A", "AAAA", "NS", "CNAME", "PTR", "DNAME"):
         add_result(rdtype, record)
+    elif rdtype in ("HTTPS", "SVCB"):
+        if str(record.target) != ".":
+            add_result(rdtype, record.target)
+    elif rdtype == "NAPTR":
+        if str(record.replacement) != ".":
+            add_result(rdtype, record.replacement)
+        for match in dns_name_extraction_regex.finditer(smart_decode(record.regexp)):
+            add_result(rdtype, match.group(0))
     elif rdtype == "SOA":
         add_result(rdtype, record.mname)
     elif rdtype == "MX":

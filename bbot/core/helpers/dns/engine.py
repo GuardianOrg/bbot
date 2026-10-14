@@ -20,7 +20,7 @@ from bbot.core.helpers.misc import (
 
 log = logging.getLogger("bbot.core.helpers.dns.engine.server")
 
-all_rdtypes = ["A", "AAAA", "SRV", "MX", "NS", "SOA", "CNAME", "TXT"]
+all_rdtypes = ["A", "AAAA", "SRV", "MX", "NS", "SOA", "CNAME", "TXT", "HTTPS", "SVCB", "NAPTR", "DNAME"]
 
 
 class DNSEngine(EngineServer):
@@ -31,6 +31,7 @@ class DNSEngine(EngineServer):
         3: "resolve_raw_batch",
         4: "is_wildcard",
         5: "is_wildcard_domain",
+        6: "resolve_status",
         99: "_mock_dns",
     }
 
@@ -357,6 +358,38 @@ class DNSEngine(EngineServer):
             query = args[0]
             rdtype = kwargs["type"]
             yield ((query, rdtype), (answers, errors))
+
+    async def resolve_status(self, query, type="A", timeout=2):
+        """Return DNS response status and wire-record evidence without swallowing NODATA."""
+        try:
+            answer = await self.resolver.resolve(query, rdtype=type, raise_on_no_answer=False, lifetime=timeout)
+            response = getattr(answer, "response", None)
+            if response is None:
+                return {"status": "UNKNOWN", "answers": [], "authority": []}
+        except dns.resolver.NXDOMAIN:
+            return {"status": "NXDOMAIN", "answers": [], "authority": []}
+        except dns.resolver.NoAnswer as error:
+            response = error.response()
+        except (dns.exception.Timeout, dns.resolver.NoNameservers, TimeoutError) as error:
+            return {"status": "ERROR", "error": error.__class__.__name__, "answers": [], "authority": []}
+
+        def records(section):
+            return [
+                {
+                    "owner": str(rrset.name).rstrip("."),
+                    "type": dns.rdatatype.to_text(rrset.rdtype),
+                    "ttl": rrset.ttl,
+                    "answer": record.to_text(),
+                }
+                for rrset in section
+                for record in rrset
+            ]
+
+        return {
+            "status": dns.rcode.to_text(response.rcode()),
+            "answers": records(response.answer),
+            "authority": records(response.authority),
+        }
 
     async def _catch(self, callback, *args, **kwargs):
         """

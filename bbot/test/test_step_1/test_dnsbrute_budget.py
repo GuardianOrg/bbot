@@ -17,7 +17,7 @@ async def test_brute_deduplicates_full_names_between_domains_modules_and_rounds(
         await asyncio.sleep(0)
         return {}
 
-    async def massdns(module, domain, prefixes, rdtype):
+    async def massdns(module, domain, prefixes, rdtype, timeout=None):
         names = [f"{prefix}.{domain}" for prefix in prefixes if prefix in {"api.dev", "api", "auth", "www", "mail"}]
         calls.extend((name, rdtype) for name in names)
         for name in names:
@@ -43,7 +43,7 @@ async def test_brute_keeps_ipv6_queries_distinct_and_normalizes_case(bbot_scanne
     async def wildcard(*args, **kwargs):
         return {}
 
-    async def massdns(module, domain, prefixes, rdtype):
+    async def massdns(module, domain, prefixes, rdtype, timeout=None):
         calls.append((domain, prefixes, rdtype))
         if False:
             yield

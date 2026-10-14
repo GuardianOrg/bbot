@@ -42,6 +42,13 @@ dns:
   # Hard scan-wide budget shared by all brute-force/permutation modules; A/AAAA count separately.
   # Exact full-name/type deduplication applies across modules and finish rounds. Must be positive.
   brute_max_candidates: 200000
+  # One hard deadline for all brute-force modules and depths; seconds from first brute batch.
+  brute_max_runtime: 3600
+  # Wildcard exploration only accepts stable non-address evidence distinct from three controls.
+  brute_wildcard_max_candidates: 100
+  brute_wildcard_max_domains: 20
+  brute_wildcard_max_results: 50
+  brute_wildcard_max_runtime: 60
   # nameservers to use for DNS brute-forcing
   # default is updated weekly and contains ~10K high-quality public servers
   brute_nameservers: https://raw.githubusercontent.com/blacklanternsecurity/public-dns-servers/master/nameservers.txt

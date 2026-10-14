@@ -41,8 +41,14 @@ Budget exhaustion ends this discovery step and is logged; it does not mean all
 possible names were tested. No unlimited-budget mode is available.
 
 `my_bbot/all-but-intense-http.yml` enables this module instead of the older
-`dnsbrute_mutations` expansion, keeps the small static `dnsbrute` list, and enables
+`dnsbrute_mutations` expansion, uses the bundled ranked 10,000-label `dnsbrute` list, and enables
 `baddns_zone` for AXFR/NSEC discoveries. CertSpotter follows issuance pagination.
 GuardianSentry builds its sidecar from the pinned `bbot-guardian` submodule and
 uses this preset by default, so changing its submodule revision carries both
 the code and the configured limits into the next image build.
+
+All brute-force modules also share `dns.brute_max_runtime=3600`: the deadline
+starts at the first brute batch and includes waiting for the massdns lock.
+Nested ordinary brute force uses the first 1,000 labels with maximum depth five.
+The bounded DNS-only empty-parent and wildcard strategies are described in
+[DNS depth discovery](dnsdepth.md).
