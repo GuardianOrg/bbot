@@ -2,12 +2,104 @@ import base64
 import asyncio
 import ipaddress
 import json
+import re
 from contextlib import suppress
 from pathlib import Path
+
+import dns.message
+import dns.rcode
+import dns.rdataclass
+import dns.rdatatype
 
 from radixtarget import RadixTarget, host_size_key
 
 from bbot.modules.base import BaseModule
+
+
+def parse_udp_response(service_name, response_data, capture_banner=True):
+    """Extract protocol facts from the datagram, never from its port number."""
+    if not response_data:
+        return {}
+    try:
+        raw = base64.b64decode(response_data, validate=True)
+    except (ValueError, TypeError):
+        return {}
+    if not raw:
+        return {}
+
+    details = {"response_bytes": len(raw)}
+    result = {"details": details}
+    service_name = service_name.lower()
+    if service_name == "dns":
+        try:
+            message = dns.message.from_wire(raw)
+            if not message.flags & 0x8000:
+                raise ValueError("not a DNS response")
+            details["response_code"] = dns.rcode.to_text(message.rcode())
+            details["authoritative"] = bool(message.flags & 0x0400)
+            details["recursion_available"] = bool(message.flags & 0x0080)
+            details["answer_count"] = sum(len(rrset) for rrset in message.answer)
+            if message.question:
+                details["query_name"] = str(message.question[0].name).rstrip(".")[:253]
+                details["query_type"] = dns.rdatatype.to_text(message.question[0].rdtype)
+            version_query = any(str(question.name).lower() == "version.bind."
+                                and question.rdclass == dns.rdataclass.CH
+                                for question in message.question)
+            for rrset in (message.answer if version_query else ()):
+                if rrset.rdtype != dns.rdatatype.TXT:
+                    continue
+                for record in rrset:
+                    version_text = b"".join(record.strings).decode("utf-8", "replace").strip()
+                    if version_text:
+                        details["version_bind"] = version_text[:200]
+                        match = re.fullmatch(r"BIND\s+([0-9][\w.\-]+)", version_text, flags=re.I)
+                        if match:
+                            result.update(product="BIND", version=match.group(1))
+                        break
+                if "version_bind" in details:
+                    break
+            if capture_banner:
+                result["banner"] = (f"DNS {details.get('query_name', 'query')} response: {details['response_code']}"
+                                    + (f"; VERSION.BIND: {details['version_bind']}" if "version_bind" in details else ""))
+            return result
+        except Exception:
+            pass
+    elif service_name == "ntp" and len(raw) >= 48:
+        leap, version, mode = raw[0] >> 6, (raw[0] >> 3) & 7, raw[0] & 7
+        if 1 <= version <= 4 and mode in (4, 5):
+            details.update(protocol_version=version, stratum=raw[1], leap_indicator=leap,
+                           mode="server" if mode == 4 else "broadcast")
+            refid = raw[12:16]
+            if all(32 <= byte < 127 for byte in refid):
+                details["reference_id"] = refid.decode("ascii")
+            if capture_banner:
+                result["banner"] = f"NTPv{version} {details['mode']}; stratum {raw[1]}"
+                if details.get("reference_id"):
+                    result["banner"] += f"; reference {details['reference_id']}"
+            return result
+    elif service_name.startswith("snmp") and len(raw) >= 5 and raw[0] == 0x30:
+        # The first INTEGER in an SNMP message is its protocol version.
+        offset = 2 if raw[1] < 0x80 else 2 + (raw[1] & 0x7F)
+        length = raw[1] if raw[1] < 0x80 else int.from_bytes(raw[2:offset], "big")
+        if len(raw) >= offset + length and len(raw) > offset + 2 and raw[offset : offset + 2] == b"\x02\x01":
+            protocol_version = {0: "1", 1: "2c", 3: "3"}.get(raw[offset + 2])
+            if protocol_version:
+                details["protocol_version"] = protocol_version
+                if capture_banner:
+                    result["banner"] = f"SNMPv{protocol_version} response"
+                return result
+
+    if capture_banner:
+        text = raw.decode("utf-8", errors="replace").strip()
+        if text and all(character.isprintable() or character in "\r\n\t" for character in text):
+            result["banner"] = text[:2048]
+            for key in ("server", "user-agent") if service_name in {"ssdp", "upnp", "sip"} else ():
+                match = re.search(rf"(?im)^{re.escape(key)}:\s*(.+)$", text)
+                if match:
+                    details[key.replace("-", "_")] = match.group(1).strip()[:200]
+        else:
+            result["banner"] = raw.hex()[:2048]
+    return result
 
 
 class udpx(BaseModule):
@@ -43,7 +135,7 @@ class udpx(BaseModule):
     deps_ansible = [
         {
             "name": "Install udpx",
-            "shell": "GOBIN=#{BBOT_TOOLS} go install github.com/carlospolop/udpx/cmd/udpx@94264b85770baa744eda7de7e06fc6a86220917f",
+            "shell": "GOBIN=#{BBOT_TOOLS} go install github.com/carlospolop/udpx/cmd/udpx@5b8e6740eaf84293009def068c77bfaa2b38f955",
             "args": {"creates": "#{BBOT_TOOLS}/udpx"},
         },
         {
@@ -187,28 +279,13 @@ class udpx(BaseModule):
                 service = {
                     "port": port,
                     "protocol": service_name.upper(),
-                    "banner": self._decode_banner(result.get("response_data")),
+                    **parse_udp_response(service_name, result.get("response_data"), self.capture_banner),
                 }
                 parsed_results.setdefault(ip_address, []).append(service)
         except FileNotFoundError:
             return {}
 
         return parsed_results
-
-    def _decode_banner(self, response_data):
-        if not self.capture_banner or not response_data:
-            return None
-        try:
-            raw = base64.b64decode(response_data, validate=False)
-        except Exception:
-            return None
-        if not raw:
-            return None
-
-        text = raw.decode("utf-8", errors="ignore").strip()
-        if text and all(character.isprintable() or character in "\r\n\t" for character in text):
-            return text[:512]
-        return raw.hex()[:1024]
 
     async def emit_service_events(self, ip_address, service, parent_event, emitted_ports, emitted_protocols):
         host = str(parent_event.host or ip_address)
@@ -235,6 +312,9 @@ class udpx(BaseModule):
         banner = service.get("banner")
         if banner:
             protocol_data["banner"] = banner
+        for field in ("product", "version", "details"):
+            if service.get(field):
+                protocol_data[field] = service[field]
 
         await self.emit_event(
             protocol_data,
