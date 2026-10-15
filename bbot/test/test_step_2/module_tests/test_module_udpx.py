@@ -27,6 +27,20 @@ def test_dns_version_is_only_attributed_to_version_bind_response():
     assert "version" not in observed
 
 
+def test_quic_requires_matching_version_negotiation_ids():
+    cloudflare = bytes.fromhex("e40000000008111213141516171808010203040506070800000001")
+    observed = parse_udp_response("quic", base64.b64encode(cloudflare).decode())
+    assert observed["details"]["supported_versions"] == ["v1"]
+    assert observed["banner"] == "QUIC Version Negotiation; supported: v1"
+
+    google = bytes.fromhex("c000000000081112131415161718080102030405060708000000013ada3a8aff00001d")
+    observed = parse_udp_response("quic", base64.b64encode(google).decode())
+    assert observed["details"]["supported_versions"] == ["v1", "0x3ada3a8a", "0xff00001d"]
+
+    unrelated = cloudflare[:6] + b"X" + cloudflare[7:]
+    assert parse_udp_response("quic", base64.b64encode(unrelated).decode()) is None
+
+
 @pytest.fixture
 def mock_udpx(monkeypatch):
     async def fake_run_process(self, cmd, *args, **kwargs):
@@ -67,6 +81,14 @@ def mock_udpx(monkeypatch):
                     b"HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\n"
                     b"SERVER: Linux/5.10 UPnP/1.0 MiniUPnPd/2.3\r\n\r\n"
                 ).decode(),
+            },
+            {
+                "address": "1.2.3.4",
+                "port": 443,
+                "service": "quic",
+                "response_data": base64.b64encode(bytes.fromhex(
+                    "e40000000008111213141516171808010203040506070800000001"
+                )).decode(),
             },
         ]
         output_file.write_text("\n".join(json.dumps(result) for result in results) + "\n")
@@ -129,6 +151,13 @@ class TestUdpx(ModuleTestBase):
         assert ssdp_protocol is not None, "Missing SSDP protocol event"
         assert ssdp_protocol.data.get("details", {}).get("server") == "Linux/5.10 UPnP/1.0 MiniUPnPd/2.3"
         assert "MiniUPnPd/2.3" in ssdp_protocol.data.get("banner", "")
+
+        quic_protocol = next(
+            (e for e in events if e.type == "PROTOCOL" and e.data.get("protocol") == "QUIC" and e.data.get("port") == 443),
+            None,
+        )
+        assert quic_protocol is not None, "Missing QUIC protocol event"
+        assert quic_protocol.data.get("details", {}).get("supported_versions") == ["v1"]
 
         snmp_protocol = next(
             (e for e in events if e.type == "PROTOCOL" and e.data.get("protocol") == "SNMP" and e.data.get("port") == 161),
