@@ -15,6 +15,9 @@ from radixtarget import RadixTarget, host_size_key
 
 from bbot.modules.base import BaseModule
 
+QUIC_PROBE_DESTINATION_ID = bytes.fromhex("0102030405060708")
+QUIC_PROBE_SOURCE_ID = bytes.fromhex("1112131415161718")
+
 
 def parse_udp_response(service_name, response_data, capture_banner=True):
     """Extract protocol facts from the datagram, never from its port number."""
@@ -30,6 +33,29 @@ def parse_udp_response(service_name, response_data, capture_banner=True):
     details = {"response_bytes": len(raw)}
     result = {"details": details}
     service_name = service_name.lower()
+    if service_name == "quic":
+        # A Version Negotiation reply swaps the probe's connection IDs. Check
+        # both IDs so an unrelated UDP/443 response cannot become QUIC.
+        if len(raw) < 27 or not raw[0] & 0x80 or raw[1:5] != b"\x00" * 4:
+            return None
+        destination_length = raw[5]
+        source_length_offset = 6 + destination_length
+        if source_length_offset >= len(raw):
+            return None
+        source_length = raw[source_length_offset]
+        versions_offset = source_length_offset + 1 + source_length
+        if (raw[6:source_length_offset] != QUIC_PROBE_SOURCE_ID
+                or raw[source_length_offset + 1:versions_offset] != QUIC_PROBE_DESTINATION_ID
+                or versions_offset >= len(raw) or (len(raw) - versions_offset) % 4):
+            return None
+        versions = []
+        for offset in range(versions_offset, len(raw), 4):
+            number = int.from_bytes(raw[offset:offset + 4], "big")
+            versions.append({1: "v1", 0x6B3343CF: "v2"}.get(number, f"0x{number:08x}"))
+        details["supported_versions"] = versions
+        if capture_banner:
+            result["banner"] = f"QUIC Version Negotiation; supported: {', '.join(versions)}"
+        return result
     if service_name == "dns":
         try:
             message = dns.message.from_wire(raw)
@@ -135,7 +161,7 @@ class udpx(BaseModule):
     deps_ansible = [
         {
             "name": "Install udpx",
-            "shell": "GOBIN=#{BBOT_TOOLS} go install github.com/carlospolop/udpx/cmd/udpx@5b8e6740eaf84293009def068c77bfaa2b38f955",
+            "shell": "GOBIN=#{BBOT_TOOLS} go install github.com/carlospolop/udpx/cmd/udpx@a2c82a13a04d8e93cb2fd43c394fc292e2ff388f",
             "args": {"creates": "#{BBOT_TOOLS}/udpx"},
         },
         {
@@ -276,10 +302,13 @@ class udpx(BaseModule):
                 except Exception:
                     continue
 
+                interpreted = parse_udp_response(service_name, result.get("response_data"), self.capture_banner)
+                if interpreted is None:
+                    continue
                 service = {
                     "port": port,
                     "protocol": service_name.upper(),
-                    **parse_udp_response(service_name, result.get("response_data"), self.capture_banner),
+                    **interpreted,
                 }
                 parsed_results.setdefault(ip_address, []).append(service)
         except FileNotFoundError:
