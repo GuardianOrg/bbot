@@ -124,7 +124,9 @@ config:
       retries: 0
       timeout: 10
       batch_size: 20
-      module_timeout: 3600
+      # Full-template scans can keep producing findings beyond one hour. The
+      # Sentry scan deadline is four hours; do not cancel a healthy batch first.
+      module_timeout: 21600
       verbose_templates: false
       directory_only: true
       silent: true
