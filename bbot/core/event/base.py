@@ -1779,6 +1779,7 @@ class PROTOCOL(DictHostEvent):
         cipher_suite: Optional[str] = None
         cpes: Optional[List[str]] = None
         banner: Optional[str] = None
+        details: Optional[dict[str, str | int | bool]] = None
         _validate_host = field_validator("host")(validators.validate_host)
         _validate_port = field_validator("port")(validators.validate_port)
 
