@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 from bbot.modules.templates.code_secret_scanner import code_secret_scanner
@@ -22,6 +23,7 @@ class gitleaks(code_secret_scanner):
         "output_folder": "",
         "clone_repositories": True,
         "disabled_rules": ["generic-api-key"],
+        "git_commits_per_batch": 100,
     }
     options_desc = {
         "version": "gitleaks version",
@@ -30,6 +32,7 @@ class gitleaks(code_secret_scanner):
         "output_folder": "Folder to clone repositories to. If not specified, repositories are deleted after scanning.",
         "clone_repositories": "Clone CODE_REPOSITORY events before scanning.",
         "disabled_rules": "Gitleaks rule IDs to suppress after scanning. Defaults to generic-api-key to reduce false positives.",
+        "git_commits_per_batch": "Maximum Git commits scanned in one Gitleaks process; every reachable commit is still scanned.",
     }
     deps_ansible = [
         {
@@ -58,6 +61,37 @@ class gitleaks(code_secret_scanner):
         return await super().setup()
 
     async def iter_findings(self, scan_path, event):
+        if event.type == "CODE_REPOSITORY":
+            count_result = await self.run_process(["git", "-C", str(scan_path), "rev-list", "--count", "--all"])
+            if getattr(count_result, "returncode", 1) != 0:
+                raise RuntimeError("Could not count Git commits before Gitleaks scan")
+            try:
+                commit_count = int(str(count_result.stdout).strip())
+            except (ValueError, TypeError) as error:
+                raise RuntimeError("Could not parse Git commit count before Gitleaks scan") from error
+            batch_size = max(1, int(self.config.get("git_commits_per_batch", 100)))
+            for offset in range(0, commit_count, batch_size):
+                async for finding in self.scan_git_batch(scan_path, event, offset, min(batch_size, commit_count - offset)):
+                    yield finding
+        else:
+            async for finding in self.scan_batch(scan_path, event):
+                yield finding
+
+    async def scan_git_batch(self, scan_path, event, offset, size):
+        try:
+            async for finding in self.scan_batch(scan_path, event, offset=offset, size=size):
+                yield finding
+        except GitleaksKilled:
+            if size <= 1:
+                raise RuntimeError(f"Gitleaks was killed while scanning commit at offset {offset}")
+            midpoint = size // 2
+            self.warning(f"Gitleaks was killed scanning {size} commits; retrying two smaller batches")
+            async for finding in self.scan_git_batch(scan_path, event, offset, midpoint):
+                yield finding
+            async for finding in self.scan_git_batch(scan_path, event, offset + midpoint, size - midpoint):
+                yield finding
+
+    async def scan_batch(self, scan_path, event, offset=None, size=None):
         report_file = self.helpers.temp_filename(extension="json")
         use_git_mode = event.type == "CODE_REPOSITORY"
 
@@ -79,8 +113,16 @@ class gitleaks(code_secret_scanner):
                 command.append("--redact")
             if self.config_file:
                 command.extend(["--config", str(self.config_file)])
+            if use_git_mode and size is not None:
+                # Gitleaks otherwise feeds the complete git log into one process.
+                # These stable, disjoint Git-log windows cover every reachable commit.
+                log_options = f"--full-history --all --diff-filter=tuxdb --max-count={size} --skip={offset}"
+                command.extend(["--log-opts", log_options])
 
-            result = await self.run_process(command)
+            scanner_env = {**os.environ, "GOMEMLIMIT": "1024MiB", "GOGC": "50"}
+            result = await self.run_process(command, env=scanner_env)
+            if getattr(result, "returncode", None) == -9:
+                raise GitleaksKilled()
 
             # Backward-compatible fallback used by older versions.
             stderr = str(getattr(result, "stderr", "") or "").lower()
@@ -105,7 +147,9 @@ class gitleaks(code_secret_scanner):
                     fallback.append("--redact")
                 if self.config_file:
                     fallback.extend(["--config", str(self.config_file)])
-                result = await self.run_process(fallback)
+                result = await self.run_process(fallback, env=scanner_env)
+                if getattr(result, "returncode", None) == -9:
+                    raise GitleaksKilled()
 
             try:
                 raw = report_file.read_text(encoding="utf-8")
@@ -171,3 +215,7 @@ class gitleaks(code_secret_scanner):
             except TypeError:
                 items = [value]
         return {str(item).strip().lower() for item in items if str(item).strip()}
+
+
+class GitleaksKilled(RuntimeError):
+    """The OS killed Gitleaks before it could produce a complete report."""

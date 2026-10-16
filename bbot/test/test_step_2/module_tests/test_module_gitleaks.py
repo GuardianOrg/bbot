@@ -19,6 +19,12 @@ def mock_gitleaks(monkeypatch, tmp_path):
 
             return FakeGitResult()
 
+        if cmd[:2] == ["git", "-C"] and cmd[3:] == ["rev-list", "--count", "--all"]:
+            from types import SimpleNamespace
+
+            count = 201 if "many" in cmd[2] else 101 if "kill" in cmd[2] else 1
+            return SimpleNamespace(returncode=0, stdout=f"{count}\n", stderr="")
+
         if cmd[:2] == ["git", "-C"] and cmd[3:] == ["rev-parse", "HEAD"]:
 
             class FakeGitRevParseResult:
@@ -33,6 +39,11 @@ def mock_gitleaks(monkeypatch, tmp_path):
 
             return SimpleNamespace(returncode=0, stdout="2024-06-01T00:00:00Z\n", stderr="")
 
+        self._gitleaks_commands = getattr(self, "_gitleaks_commands", []) + [cmd]
+        if "kill" in cmd[2] and "--max-count=100" in cmd[cmd.index("--log-opts") + 1]:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(returncode=-9, stdout="", stderr="")
         scan_path = Path(cmd[2])
         report_path = Path(cmd[cmd.index("--report-path") + 1])
         report_path.write_text(
@@ -129,3 +140,52 @@ class TestGitleaksSkipsGenericApiKey(ModuleTestBase):
     def check(self, module_test, events):
         findings = [e for e in events if e.type == "FINDING"]
         assert findings == []
+
+
+@pytest.mark.usefixtures("mock_gitleaks")
+class TestGitleaksBatchesAllHistory(ModuleTestBase):
+    module_name = "gitleaks"
+    targets = ["https://github.com/layer-3-smart"]
+    config_overrides = {"deps": {"behavior": "disable"}}
+
+    async def setup_after_prep(self, module_test):
+        repo_event = module_test.scan.make_event(
+            {"url": "https://github.com/layer-3-smart/many.git"},
+            "CODE_REPOSITORY",
+            tags=["git", "target"],
+            parent=module_test.scan.root_event,
+        )
+        await module_test.module.emit_event(repo_event)
+
+    def check(self, module_test, events):
+        options = [command[command.index("--log-opts") + 1] for command in module_test.module._gitleaks_commands]
+        assert options == [
+            "--full-history --all --diff-filter=tuxdb --max-count=100 --skip=0",
+            "--full-history --all --diff-filter=tuxdb --max-count=100 --skip=100",
+            "--full-history --all --diff-filter=tuxdb --max-count=1 --skip=200",
+        ]
+
+
+@pytest.mark.usefixtures("mock_gitleaks")
+class TestGitleaksRetriesKilledBatch(ModuleTestBase):
+    module_name = "gitleaks"
+    targets = ["https://github.com/layer-3-smart"]
+    config_overrides = {"deps": {"behavior": "disable"}}
+
+    async def setup_after_prep(self, module_test):
+        repo_event = module_test.scan.make_event(
+            {"url": "https://github.com/layer-3-smart/kill.git"},
+            "CODE_REPOSITORY",
+            tags=["git", "target"],
+            parent=module_test.scan.root_event,
+        )
+        await module_test.module.emit_event(repo_event)
+
+    def check(self, module_test, events):
+        options = [command[command.index("--log-opts") + 1] for command in module_test.module._gitleaks_commands]
+        assert options == [
+            "--full-history --all --diff-filter=tuxdb --max-count=100 --skip=0",
+            "--full-history --all --diff-filter=tuxdb --max-count=50 --skip=0",
+            "--full-history --all --diff-filter=tuxdb --max-count=50 --skip=50",
+            "--full-history --all --diff-filter=tuxdb --max-count=1 --skip=100",
+        ]
