@@ -10,11 +10,12 @@ class github_org(github):
         "created_date": "2023-12-14",
         "author": "@domwhewell-sage",
     }
-    options = {"api_key": "", "include_members": True, "include_member_repos": False}
+    options = {"api_key": "", "include_members": True, "include_member_repos": False, "include_forks": True}
     options_desc = {
         "api_key": "Github token",
         "include_members": "Enumerate organization members",
         "include_member_repos": "Also enumerate organization members' repositories",
+        "include_forks": "Include forked repositories when listing organization and member repositories",
     }
 
     scope_distance_modifier = 2
@@ -22,6 +23,7 @@ class github_org(github):
     async def setup(self):
         self.include_members = self.config.get("include_members", True)
         self.include_member_repos = self.config.get("include_member_repos", False)
+        self.include_forks = self.config.get("include_forks", True)
         return await super().setup()
 
     def _api_response_is_success(self, r):
@@ -90,7 +92,7 @@ class github_org(github):
                 repo_event = self.make_event(
                     {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
                     "CODE_REPOSITORY",
-                    tags=["git", "github"],
+                    tags=["git", "github", "github-org-scope"],
                     parent=event,
                 )
                 if not repo_event:
@@ -156,8 +158,11 @@ class github_org(github):
                 if not j:
                     break
                 for item in j:
+                    if not isinstance(item, dict) or (not self.include_forks and item.get("fork") is not False):
+                        continue
                     html_url = item.get("html_url", "")
-                    repos.append(html_url)
+                    if html_url:
+                        repos.append(html_url)
         finally:
             await agen.aclose()
         return repos
@@ -212,8 +217,11 @@ class github_org(github):
                 if not j:
                     break
                 for item in j:
+                    if not isinstance(item, dict) or (not self.include_forks and item.get("fork") is not False):
+                        continue
                     html_url = item.get("html_url", "")
-                    repos.append(html_url)
+                    if html_url:
+                        repos.append(html_url)
         finally:
             await agen.aclose()
         return repos

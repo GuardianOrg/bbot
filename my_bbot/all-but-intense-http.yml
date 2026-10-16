@@ -302,6 +302,9 @@ config:
     dehashed:
       api_key: ${env:DEHASHED_API_KEY,""}
     github_org:
+      include_members: true
+      include_member_repos: true
+      include_forks: false
       api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_ORG_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
     github_workflows:
       api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_WORKFLOWS_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
