@@ -5,7 +5,16 @@ import pytest
 from my_bbot.modules.offchain_scope_filter import offchain_scope_filter
 
 
-def make_event(event_type, data=None, host=None, resolved_hosts=None, dns_children=None, tags=None, parent=None):
+def make_event(
+    event_type,
+    data=None,
+    host=None,
+    resolved_hosts=None,
+    dns_children=None,
+    tags=None,
+    parent=None,
+    source_module=None,
+):
     event = SimpleNamespace(
         type=event_type,
         data=data,
@@ -14,6 +23,7 @@ def make_event(event_type, data=None, host=None, resolved_hosts=None, dns_childr
         dns_children=dns_children,
         tags=tags or [],
         parent=parent,
+        module=source_module,
     )
 
     def get_parents(include_self=False):
@@ -29,9 +39,13 @@ def make_event(event_type, data=None, host=None, resolved_hosts=None, dns_childr
 
 
 async def create_scope_filter(scope_targets, seed_events=None):
-    seed_events = seed_events if seed_events is not None else [
-        SimpleNamespace(type="DNS_NAME", data="example.com", input="example.com"),
-    ]
+    seed_events = (
+        seed_events
+        if seed_events is not None
+        else [
+            SimpleNamespace(type="DNS_NAME", data="example.com", input="example.com"),
+        ]
+    )
     scan = SimpleNamespace(
         config={"modules": {"offchain_scope_filter": {"scope_targets": scope_targets}}, "web": {}},
         web_config={},
@@ -46,10 +60,12 @@ async def create_scope_filter(scope_targets, seed_events=None):
 
 @pytest.mark.asyncio
 async def test_offchain_scope_filter_limits_domains_and_repositories_to_world_scope():
-    module = await create_scope_filter([
-        "domain:example.com",
-        "code_repository_owner:https://github.com/acme",
-    ])
+    module = await create_scope_filter(
+        [
+            "domain:example.com",
+            "code_repository_owner:https://github.com/acme",
+        ]
+    )
 
     allowed_domain = make_event("DNS_NAME", data="api.example.com", host="api.example.com")
     blocked_domain = make_event("DNS_NAME", data="vendor.net", host="vendor.net")
@@ -72,6 +88,29 @@ async def test_offchain_scope_filter_limits_domains_and_repositories_to_world_sc
 
     assert blocked_domain_result == (False, "dns event is outside the seeded domain scope")
     assert blocked_repo_result == (False, "repository is outside the seeded repository scope")
+
+
+@pytest.mark.asyncio
+async def test_offchain_scope_filter_allows_verified_org_and_member_repositories_only():
+    module = await create_scope_filter(["domain:example.com"])
+    org = make_event("SOCIAL", {"profile_name": "company"}, tags={"github-org"})
+    member = make_event(
+        "SOCIAL", {"profile_name": "employee"}, tags={"github-org-member"}, parent=org, source_module="github_org"
+    )
+    repo = make_event(
+        "CODE_REPOSITORY",
+        {"url": "https://github.com/employee/project"},
+        host="github.com",
+        tags={"git", "github", "github-org-scope"},
+        parent=member,
+        source_module="github_org",
+    )
+    assert await module.handle_event(repo) is True
+    repo.module = "other_module"
+    assert await module.handle_event(repo) == (False, "repository is outside the seeded repository scope")
+    repo.module = "github_org"
+    repo.data = {"url": "https://github.com/stranger/project"}
+    assert await module.handle_event(repo) == (False, "repository is outside the seeded repository scope")
 
 
 @pytest.mark.asyncio
@@ -109,10 +148,12 @@ async def test_offchain_scope_filter_allows_emails_discovered_from_seeded_domain
 
 @pytest.mark.asyncio
 async def test_offchain_scope_filter_exact_repository_seed_does_not_authorize_owner():
-    module = await create_scope_filter([
-        "code_repository:https://github.com/acme/api",
-        "code_repository:https://gitlab.com/acme/security/tools/scanner",
-    ])
+    module = await create_scope_filter(
+        [
+            "code_repository:https://github.com/acme/api",
+            "code_repository:https://gitlab.com/acme/security/tools/scanner",
+        ]
+    )
 
     allowed_repo = make_event(
         "CODE_REPOSITORY",
@@ -232,10 +273,12 @@ async def test_offchain_scope_filter_allows_open_ports_by_netloc_for_seeded_ips(
 
 @pytest.mark.asyncio
 async def test_offchain_scope_filter_allows_urls_for_scoped_domains_and_ip_ranges():
-    module = await create_scope_filter([
-        "domain:example.com",
-        "ip_range:10.0.0.0/30",
-    ])
+    module = await create_scope_filter(
+        [
+            "domain:example.com",
+            "ip_range:10.0.0.0/30",
+        ]
+    )
 
     allowed_domain_url = make_event("URL", data="https://portal.example.com/login", host="portal.example.com")
     allowed_ip_url = make_event("URL", data="https://10.0.0.2/login", host="10.0.0.2")

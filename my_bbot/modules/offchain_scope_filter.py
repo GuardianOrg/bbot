@@ -141,7 +141,9 @@ class offchain_scope_filter(BaseInterceptModule):
                 continue
 
             if seed_type == "CODE_REPOSITORY_OWNER":
-                owner = self._parse_repository_owner_scope(self._extract_seed_url(raw_input, seed_data, "CODE_REPOSITORY_OWNER:"))
+                owner = self._parse_repository_owner_scope(
+                    self._extract_seed_url(raw_input, seed_data, "CODE_REPOSITORY_OWNER:")
+                )
                 if owner:
                     self.allowed_repo_owners.add(owner)
                 continue
@@ -236,7 +238,30 @@ class offchain_scope_filter(BaseInterceptModule):
             return False, "repository event does not contain a supported repository URL"
         if repo in self.allowed_repo_tuples or self._owner_allowed((repo[0], repo[1])):
             return True
+        if self._is_discovered_github_org_repository(event, repo):
+            return True
         return False, "repository is outside the seeded repository scope"
+
+    @staticmethod
+    def _is_discovered_github_org_repository(event, repo):
+        if repo[0] != "github.com" or str(getattr(event, "module", "")) != "github_org":
+            return False
+        if "github-org-scope" not in getattr(event, "tags", ()):
+            return False
+        get_parent = getattr(event, "get_parent", None)
+        parent = get_parent() if callable(get_parent) else getattr(event, "parent", None)
+        if getattr(parent, "type", "") != "SOCIAL":
+            return False
+        profile = getattr(parent, "data", {})
+        if not isinstance(profile, dict) or str(profile.get("profile_name", "")).lower() != repo[1]:
+            return False
+        if "github-org-member" in getattr(parent, "tags", ()):
+            if str(getattr(parent, "module", "")) != "github_org":
+                return False
+            get_grandparent = getattr(parent, "get_parent", None)
+            grandparent = get_grandparent() if callable(get_grandparent) else getattr(parent, "parent", None)
+            return getattr(grandparent, "type", "") == "SOCIAL" and "github-org" in getattr(grandparent, "tags", ())
+        return True
 
     def _owner_allowed(self, owner_tuple):
         platform, owner = owner_tuple
@@ -255,7 +280,9 @@ class offchain_scope_filter(BaseInterceptModule):
         if email in self.allowed_email_addresses:
             return True
         _, _, domain = email.rpartition("@")
-        return bool(domain and any(domain == root or domain.endswith(f".{root}") for root in self.allowed_domain_roots))
+        return bool(
+            domain and any(domain == root or domain.endswith(f".{root}") for root in self.allowed_domain_roots)
+        )
 
     def _event_has_allowed_ip(self, event):
         return any(self._ip_allowed(candidate) for candidate in self._event_ip_candidates(event))
@@ -470,7 +497,7 @@ class offchain_scope_filter(BaseInterceptModule):
             if isinstance(url, str) and url.strip():
                 return url.strip()
         if raw_input.startswith(prefix):
-            return raw_input[len(prefix):].strip()
+            return raw_input[len(prefix) :].strip()
         if isinstance(seed_data, str) and seed_data.strip():
             return seed_data.strip()
         return None
