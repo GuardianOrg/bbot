@@ -46,6 +46,23 @@ def test_gitleaks_valid_empty_report_is_clean(tmp_path, report):
     assert asyncio.run(collect()) == []
 
 
+def test_gitleaks_missing_report_preserves_killed_process_diagnostic(tmp_path):
+    output = tmp_path / 'missing-report.json'
+    module = object.__new__(gitleaks)
+    module.scan = SimpleNamespace(helpers=SimpleNamespace(temp_filename=lambda **kwargs: output))
+    module.redact = False
+    module.config_file = ''
+    module.disabled_rules = set()
+    module.run_process = AsyncMock(return_value=SimpleNamespace(returncode=-9, stderr='killed'))
+
+    async def collect():
+        return [finding async for finding in module.iter_findings(tmp_path, SimpleNamespace(type='FILESYSTEM'))]
+
+    with pytest.raises(RuntimeError, match=r'Gitleaks report could not be read \(exit -9; FileNotFoundError\)'):
+        asyncio.run(collect())
+    assert module.run_process.await_count == 1
+
+
 def truffle_module(returncode, stdout):
     module = object.__new__(trufflehog)
     module.scan = SimpleNamespace(home=Path('/tmp/fixture'), helpers=SimpleNamespace(tools_dir=Path('/tmp/tools')))

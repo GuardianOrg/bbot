@@ -83,7 +83,9 @@ class gitleaks(code_secret_scanner):
             result = await self.run_process(command)
 
             # Backward-compatible fallback used by older versions.
-            if getattr(result, "returncode", 0) != 0 and not report_file.is_file():
+            stderr = str(getattr(result, "stderr", "") or "").lower()
+            old_cli = 'unknown command "git"' in stderr or 'unknown flag: --report-path' in stderr
+            if getattr(result, "returncode", 0) != 0 and not report_file.is_file() and old_cli:
                 fallback = [
                     "gitleaks",
                     "detect",
@@ -109,7 +111,12 @@ class gitleaks(code_secret_scanner):
                 raw = report_file.read_text(encoding="utf-8")
                 parsed = json.loads(raw)
             except (OSError, UnicodeError, json.JSONDecodeError) as error:
-                raise RuntimeError("Gitleaks report could not be read") from error
+                # Keep the process exit code and parser failure type visible:
+                # a killed scanner and malformed output need different fixes.
+                raise RuntimeError(
+                    f"Gitleaks report could not be read (exit {getattr(result, 'returncode', 'unknown')}; "
+                    f"{type(error).__name__})"
+                ) from error
             # Go's JSON encoder may serialize a nil findings slice as null.
             findings = parsed.get("findings") if isinstance(parsed, dict) else parsed
             if parsed is None:
