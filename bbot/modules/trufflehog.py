@@ -75,6 +75,8 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
 
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY":
+            if "github-private-repo" in event.tags:
+                return False, "private repository is scanned from its authenticated local clone"
             if not self.is_code_repository_in_scope(event):
                 return False, "CODE_REPOSITORY is outside configured repository owner/repo scope"
             if self.deleted_forks:

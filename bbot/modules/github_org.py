@@ -10,12 +10,25 @@ class github_org(github):
         "created_date": "2023-12-14",
         "author": "@domwhewell-sage",
     }
-    options = {"api_key": "", "include_members": True, "include_member_repos": False, "include_forks": True}
+    options = {
+        "api_key": "",
+        "include_members": True,
+        "include_member_repos": False,
+        "include_forks": True,
+        "include_private_org_repos": False,
+        "max_org_repos": 100,
+        "max_org_members": 20,
+        "max_member_repos": 20,
+    }
     options_desc = {
         "api_key": "Github token",
         "include_members": "Enumerate organization members",
         "include_member_repos": "Also enumerate organization members' repositories",
         "include_forks": "Include forked repositories when listing organization and member repositories",
+        "include_private_org_repos": "Include private repositories of scoped organizations only when the scan supplies the signed-in user's token",
+        "max_org_repos": "Maximum recent public repositories to list per organization (up to 100)",
+        "max_org_members": "Maximum publicly listed members to enumerate per organization (up to 20)",
+        "max_member_repos": "Maximum recent public repositories to list per member (up to 20)",
     }
 
     scope_distance_modifier = 2
@@ -24,6 +37,11 @@ class github_org(github):
         self.include_members = self.config.get("include_members", True)
         self.include_member_repos = self.config.get("include_member_repos", False)
         self.include_forks = self.config.get("include_forks", True)
+        self.include_private_org_repos = self.config.get("include_private_org_repos", False)
+        self._private_org_repo_urls = set()
+        self.max_org_repos = max(0, min(int(self.config.get("max_org_repos", 100)), 100))
+        self.max_org_members = max(0, min(int(self.config.get("max_org_members", 20)), 20))
+        self.max_member_repos = max(0, min(int(self.config.get("max_member_repos", 20)), 20))
         return await super().setup()
 
     def _api_response_is_success(self, r):
@@ -54,7 +72,7 @@ class github_org(github):
                 repo_event = self.make_event(
                     {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
                     "CODE_REPOSITORY",
-                    tags=["git", "github"],
+                    tags=["git", "github"] + (["github-private-repo"] if repo_url in self._private_org_repo_urls else []),
                     parent=event,
                 )
                 if not repo_event:
@@ -92,7 +110,8 @@ class github_org(github):
                 repo_event = self.make_event(
                     {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
                     "CODE_REPOSITORY",
-                    tags=["git", "github", "github-org-scope"],
+                    tags=["git", "github", "github-org-scope"]
+                    + (["github-private-repo"] if repo_url in self._private_org_repo_urls else []),
                     parent=event,
                 )
                 if not repo_event:
@@ -138,7 +157,15 @@ class github_org(github):
 
     async def query_org_repos(self, query):
         repos = []
-        url = f"{self.base_url}/orgs/{self.helpers.quote(query)}/repos?per_page=100&page=" + "{page}"
+        limit = getattr(self, "max_org_repos", 100)
+        if not limit:
+            return repos
+        include_private = bool(getattr(self, "include_private_org_repos", False) and getattr(self, "api_key", ""))
+        repo_type = "all" if include_private else "public"
+        url = (
+            f"{self.base_url}/orgs/{self.helpers.quote(query)}/repos?type={repo_type}&sort=pushed&direction=desc&per_page=100&page="
+            + "{page}"
+        )
         agen = self.api_page_iter(url, _json=False)
         try:
             async for r in agen:
@@ -158,18 +185,29 @@ class github_org(github):
                 if not j:
                     break
                 for item in j:
-                    if not isinstance(item, dict) or (not self.include_forks and item.get("fork") is not False):
+                    if not isinstance(item, dict) or item.get("private") not in ({False, True} if include_private else {False}):
+                        continue
+                    if not self.include_forks and item.get("fork") is not False:
                         continue
                     html_url = item.get("html_url", "")
                     if html_url:
                         repos.append(html_url)
+                        if item["private"] and hasattr(self, "_private_org_repo_urls"):
+                            self._private_org_repo_urls.add(html_url)
+                    if len(repos) >= limit:
+                        break
+                if len(repos) >= limit:
+                    break
         finally:
             await agen.aclose()
         return repos
 
     async def query_org_members(self, query):
         members = []
-        url = f"{self.base_url}/orgs/{self.helpers.quote(query)}/members?per_page=100&page=" + "{page}"
+        limit = getattr(self, "max_org_members", 20)
+        if not limit:
+            return members
+        url = f"{self.base_url}/orgs/{self.helpers.quote(query)}/public_members?per_page=100&page=" + "{page}"
         agen = self.api_page_iter(url, _json=False)
         try:
             async for r in agen:
@@ -189,15 +227,26 @@ class github_org(github):
                 if not j:
                     break
                 for item in j:
-                    login = item.get("login", "")
-                    members.append(login)
+                    login = item.get("login", "") if isinstance(item, dict) else ""
+                    if login:
+                        members.append(login)
+                    if len(members) >= limit:
+                        break
+                if len(members) >= limit:
+                    break
         finally:
             await agen.aclose()
         return members
 
     async def query_user_repos(self, query):
         repos = []
-        url = f"{self.base_url}/users/{self.helpers.quote(query)}/repos?per_page=100&page=" + "{page}"
+        limit = getattr(self, "max_member_repos", 20)
+        if not limit:
+            return repos
+        url = (
+            f"{self.base_url}/users/{self.helpers.quote(query)}/repos?type=owner&sort=pushed&direction=desc&per_page=100&page="
+            + "{page}"
+        )
         agen = self.api_page_iter(url, _json=False)
         try:
             async for r in agen:
@@ -217,11 +266,17 @@ class github_org(github):
                 if not j:
                     break
                 for item in j:
-                    if not isinstance(item, dict) or (not self.include_forks and item.get("fork") is not False):
+                    if not isinstance(item, dict) or item.get("private") is not False:
+                        continue
+                    if not self.include_forks and item.get("fork") is not False:
                         continue
                     html_url = item.get("html_url", "")
                     if html_url:
                         repos.append(html_url)
+                    if len(repos) >= limit:
+                        break
+                if len(repos) >= limit:
+                    break
         finally:
             await agen.aclose()
         return repos

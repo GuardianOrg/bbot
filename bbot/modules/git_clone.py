@@ -12,10 +12,11 @@ class git_clone(github):
         "created_date": "2024-03-08",
         "author": "@domwhewell-sage",
     }
-    options = {"api_key": "", "output_folder": ""}
+    options = {"api_key": "", "output_folder": "", "private_only": False}
     options_desc = {
         "api_key": "Github token",
         "output_folder": "Folder to clone repositories to. If not specified, cloned repositories will be deleted when the scan completes, to minimize disk usage.",
+        "private_only": "Clone only repositories discovered as private by github_org",
     }
 
     deps_apt = ["git"]
@@ -31,6 +32,15 @@ class git_clone(github):
     async def filter_event(self, event):
         if event.type == "CODE_REPOSITORY" and "git" not in event.tags:
             return False, "event is not a git repository"
+        if self.config.get("private_only", False) and not (
+            "github-private-repo" in event.tags
+            and str(getattr(event, "module", "")) == "github_org"
+            and (
+                "github-org-scope" in event.tags
+                or getattr(event.get_parent(), "type", "") == "CODE_REPOSITORY_OWNER"
+            )
+        ):
+            return False, "repository is not a scoped private GitHub repository"
         return True
 
     async def handle_event(self, event):

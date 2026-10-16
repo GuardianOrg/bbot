@@ -50,7 +50,7 @@ class TestGithub_Org(ModuleTestBase):
             },
         )
         module_test.httpx_mock.add_response(
-            url="https://api.github.com/orgs/blacklanternsecurity/repos?per_page=100&page=1",
+            url="https://api.github.com/orgs/blacklanternsecurity/repos?type=public&sort=pushed&direction=desc&per_page=100&page=1",
             match_headers={"Authorization": "token asdf"},
             json=[
                 {
@@ -157,7 +157,7 @@ class TestGithub_Org(ModuleTestBase):
             ],
         )
         module_test.httpx_mock.add_response(
-            url="https://api.github.com/orgs/blacklanternsecurity/members?per_page=100&page=1",
+            url="https://api.github.com/orgs/blacklanternsecurity/public_members?per_page=100&page=1",
             match_headers={"Authorization": "token asdf"},
             json=[
                 {
@@ -183,7 +183,7 @@ class TestGithub_Org(ModuleTestBase):
             ],
         )
         module_test.httpx_mock.add_response(
-            url="https://api.github.com/users/TheTechromancer/repos?per_page=100&page=1",
+            url="https://api.github.com/users/TheTechromancer/repos?type=owner&sort=pushed&direction=desc&per_page=100&page=1",
             match_headers={"Authorization": "token asdf"},
             json=[
                 {
@@ -290,7 +290,7 @@ class TestGithub_Org(ModuleTestBase):
         )
 
     def check(self, module_test, events):
-        assert len(events) == 7
+        assert len(events) == 8
         assert 1 == len(
             [
                 e
@@ -322,7 +322,7 @@ class TestGithub_Org(ModuleTestBase):
                 and e.data["profile_name"] == "TheTechromancer"
                 and str(e.module) == "github_org"
                 and "github-org-member" in e.tags
-                and e.scope_distance == 2
+                and e.scope_distance == 1
             ]
         ), "Failed to find TheTechromancer github"
         assert 1 == len(
@@ -369,7 +369,7 @@ class TestGithub_Org_MemberRepos(TestGithub_Org):
     config_overrides = {"modules": {"github_org": {"include_member_repos": True}, "github": {"api_key": "asdf"}}}
 
     def check(self, module_test, events):
-        assert len(events) == 8
+        assert len(events) == 9
         assert 1 == len(
             [
                 e
@@ -377,7 +377,7 @@ class TestGithub_Org_MemberRepos(TestGithub_Org):
                 if e.type == "CODE_REPOSITORY"
                 and "git" in e.tags
                 and e.data["url"] == "https://github.com/TheTechromancer/websitedemo"
-                and e.scope_distance == 2
+                and e.scope_distance == 1
             ]
         ), "Failed to find TheTechromancer github repo"
 
@@ -392,7 +392,7 @@ class TestGithub_Org_Custom_Target(TestGithub_Org):
     }
 
     def check(self, module_test, events):
-        assert len(events) == 8
+        assert len(events) == 11
         assert 1 == len(
             [e for e in events if e.type == "ORG_STUB" and e.data == "blacklanternsecurity" and e.scope_distance == 0]
         )
@@ -436,6 +436,6 @@ class TestGithub_Org_Custom_Target(TestGithub_Org):
                 if e.type == "SOCIAL"
                 and e.data["platform"] == "github"
                 and e.data["profile_name"] == "TheTechromancer"
-                and e.scope_distance == 2
+                and e.scope_distance == 1
             ]
         )
