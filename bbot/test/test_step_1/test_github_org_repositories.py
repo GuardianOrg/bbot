@@ -91,6 +91,35 @@ async def test_repository_and_public_member_limits_stop_pagination():
 
 
 @pytest.mark.asyncio
+async def test_explicit_company_user_owner_gets_org_sized_repo_limit():
+    async def pages(url, _json=False):
+        if "/orgs/" in url:
+            yield Response([])
+        else:
+            yield Response([
+                {"html_url": f"https://github.com/guardianaudits/repo-{index}",
+                 "fork": False, "private": False}
+                for index in range(28)
+            ])
+
+    module = SimpleNamespace(
+        base_url="https://api.github.com",
+        helpers=SimpleNamespace(quote=lambda value: value),
+        api_page_iter=pages,
+        include_forks=False,
+        max_org_repos=100,
+        max_member_repos=20,
+        warning=lambda *_: None,
+    )
+    module.query_org_repos = lambda owner: github_org.query_org_repos(module, owner)
+    module.query_user_repos = lambda owner, limit=None: github_org.query_user_repos(module, owner, limit=limit)
+    repos = await github_org.query_owner_repos(module, "guardianaudits")
+    assert len(repos) == 28
+    assert repos[0] == "https://github.com/guardianaudits/repo-0"
+    assert len(await github_org.query_user_repos(module, "employee")) == 20
+
+
+@pytest.mark.asyncio
 async def test_private_org_repos_require_explicit_opt_in_and_user_token():
     requested = []
 

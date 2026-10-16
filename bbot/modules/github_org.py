@@ -238,9 +238,12 @@ class github_org(github):
             await agen.aclose()
         return members
 
-    async def query_user_repos(self, query):
+    async def query_user_repos(self, query, limit=None):
         repos = []
-        limit = getattr(self, "max_member_repos", 20)
+        # Public employees use the smaller member cap. An explicitly scoped
+        # company account can be a GitHub User rather than an Organization;
+        # give that owner the organization-sized cap instead.
+        limit = getattr(self, "max_member_repos", 20) if limit is None else limit
         if not limit:
             return repos
         url = (
@@ -305,7 +308,8 @@ class github_org(github):
     async def query_owner_repos(self, query):
         repos = []
         seen = set()
-        for repo_url in [*await self.query_org_repos(query), *await self.query_user_repos(query)]:
+        for repo_url in [*await self.query_org_repos(query),
+                         *await self.query_user_repos(query, limit=getattr(self, "max_org_repos", 100))]:
             normalized = repo_url.rstrip("/")
             if not normalized or normalized in seen:
                 continue
