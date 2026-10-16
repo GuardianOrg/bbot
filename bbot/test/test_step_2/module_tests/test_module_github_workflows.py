@@ -58,7 +58,7 @@ class TestGithub_Workflows(ModuleTestBase):
             },
         )
         module_test.httpx_mock.add_response(
-            url="https://api.github.com/orgs/blacklanternsecurity/repos?per_page=100&page=1",
+            url="https://api.github.com/orgs/blacklanternsecurity/repos?type=public&sort=pushed&direction=desc&per_page=100&page=1",
             match_headers={"Authorization": "token asdf"},
             json=[
                 {

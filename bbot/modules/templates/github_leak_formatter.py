@@ -32,6 +32,13 @@ class github_leak_formatter:
             repository_url = str(event.data.get("url", "")).strip()
             if repository_url:
                 return self.normalize_repository_url(repository_url)
+        # Authenticated clones have their git configuration stripped before
+        # scanning. Their parent event still carries the scoped repository URL.
+        parent = event.get_parent() if callable(getattr(event, "get_parent", None)) else getattr(event, "parent", None)
+        if getattr(parent, "type", "") == "CODE_REPOSITORY" and isinstance(getattr(parent, "data", None), dict):
+            repository_url = str(parent.data.get("url", "")).strip()
+            if repository_url:
+                return self.normalize_repository_url(repository_url)
 
         cache = getattr(self, "_github_repo_url_cache", None)
         if cache is None:

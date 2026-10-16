@@ -35,6 +35,7 @@ modules:
   - fingerprintx
   - gitdumper
   - github_org
+  - git_clone
   - github_workflows
   - gitlab_com
   - gitleaks
@@ -291,6 +292,7 @@ config:
       limit: 10
     git_clone:
       api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GIT_CLONE_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
+      private_only: true
     trufflehog:
       only_verified: true
       concurrency: 4
@@ -302,9 +304,13 @@ config:
     dehashed:
       api_key: ${env:DEHASHED_API_KEY,""}
     github_org:
+      include_private_org_repos: false
       include_members: true
       include_member_repos: true
       include_forks: false
+      max_org_repos: 100
+      max_org_members: 20
+      max_member_repos: 20
       api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_ORG_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
     github_workflows:
       api_key: ${env:BBOT_WORLD_GITHUB_TOKEN,${env:BBOT_GITHUB_TOKEN,${env:GH_TOKEN,${env:GITHUB_TOKEN,${env:GITHUB_WORKFLOWS_API_KEY,${env:GITHUB_API_KEY,""}}}}}}
