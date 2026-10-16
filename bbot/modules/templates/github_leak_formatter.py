@@ -1,6 +1,6 @@
 from pathlib import Path
 from hashlib import sha256
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 import base64
 import binascii
 import json
@@ -17,6 +17,16 @@ SECRET_ROTATION_GUIDANCE = (
 
 
 class github_leak_formatter:
+    @staticmethod
+    def secret_dedupe_key(repository_url, secret_fingerprint):
+        # One credential exposed repeatedly in a repository is one issue,
+        # regardless of scanner, file, or historical commit. Keep separate
+        # repositories separate so no affected codebase disappears.
+        repository_url = str(repository_url).rstrip("/")
+        if urlsplit(repository_url).hostname == "github.com":
+            repository_url = repository_url.lower()
+        return f"github-leak-secret:{repository_url}:{secret_fingerprint}"
+
     async def get_exposure_commit_date(self, scan_path, commit):
         # Never interpret an arbitrary scanner string as a git option/revision expression.
         if not re.fullmatch(r"[a-fA-F0-9]{7,40}", str(commit or "")):
@@ -175,9 +185,7 @@ class github_leak_formatter:
         leak_type = rule_name or "secret"
         secret_fingerprint = self.secret_fingerprint(leak_value)
         if secret_fingerprint:
-            dedupe_key = f"github-leak-secret:{secret_fingerprint}"
-            if commit_date:
-                dedupe_key += f":{commit_date}"
+            dedupe_key = self.secret_dedupe_key(repository_url, secret_fingerprint)
         else:
             dedupe_key = "github-leak:" + ":".join([repository_url, leak_type, relative_path, str(line or "")])
         source_location = self.source_location(relative_path, line)
