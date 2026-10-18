@@ -62,7 +62,9 @@ def _normalize_event_description(description: str) -> str:
         words = re.sub(r"[^a-z0-9 ]", "", sentence.lower()).split()
         return " ".join(words[:10])
 
-    def _is_redundant_signature(candidate_signature: str, seen_signatures: list[str], ratio_threshold: float = 0.86) -> bool:
+    def _is_redundant_signature(
+        candidate_signature: str, seen_signatures: list[str], ratio_threshold: float = 0.86
+    ) -> bool:
         candidate_words = candidate_signature.split()
         if not candidate_words:
             return True
@@ -1937,6 +1939,11 @@ class RAW_DNS_RECORD(DictHostEvent, DnsEvent):
 
 
 class DOMAIN_DNS_HISTORY(DictHostEvent):
+    _always_emit = True
+    _quick_emit = True
+
+
+class DOMAIN_CERTIFICATE_HISTORY(DictHostEvent):
     _always_emit = True
     _quick_emit = True
 

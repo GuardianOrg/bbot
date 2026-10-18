@@ -64,6 +64,34 @@ class TestUrlScan(ModuleTestBase):
                 ]
             },
         )
+        module_test.httpx_mock.add_response(
+            url="https://urlscan.io/api/v1/result/c558b3b3-b274-4339-99ef-301eb043741f/",
+            json={
+                "data": {
+                    "requests": [
+                        {
+                            "request": {"request": {"url": "https://asdf.blacklanternsecurity.com/cna.html"}},
+                            "response": {
+                                "response": {
+                                    "remoteIPAddress": "2606:50c0:8002::153",
+                                    "securityDetails": {
+                                        "subjectName": "asdf.blacklanternsecurity.com",
+                                        "issuer": "R3",
+                                        "sanList": ["asdf.blacklanternsecurity.com"],
+                                        "validFrom": 1682100000,
+                                        "validTo": 1689876000,
+                                    },
+                                }
+                            },
+                        },
+                        {
+                            "request": {"request": {"url": "https://third-party.example/script.js"}},
+                            "response": {"response": {"securityDetails": {"subjectName": "third-party.example"}}},
+                        },
+                    ]
+                }
+            },
+        )
         await module_test.mock_dns(
             {
                 "blacklanternsecurity.com": {"A": ["127.0.0.88"]},
@@ -89,6 +117,14 @@ class TestUrlScan(ModuleTestBase):
                 ],
             }
         ]
+        certs = [e.data for e in events if e.type == "DOMAIN_CERTIFICATE_HISTORY"]
+        assert len(certs) == 1
+        assert certs[0]["host"] == "asdf.blacklanternsecurity.com"
+        assert certs[0]["subject_name"] == "asdf.blacklanternsecurity.com"
+        assert certs[0]["issuer"] == "R3"
+        assert certs[0]["san_domains"] == ["asdf.blacklanternsecurity.com"]
+        assert certs[0]["observed_ips"] == ["2606:50c0:8002::153"]
+        assert certs[0]["first_seen"].startswith("2023-05-17")
 
 
 class TestUrlScanPagination(ModuleTestBase):
@@ -125,3 +161,63 @@ class TestUrlScanPagination(ModuleTestBase):
         histories = [e.data for e in events if e.type == "DOMAIN_DNS_HISTORY"]
         assert len(histories) == 1
         assert {record["ip"] for record in histories[0]["records"]} == {"198.51.100.1", "2001:db8::1"}
+
+
+class TestUrlScanCertificatesFallback(ModuleTestBase):
+    module_name = "urlscan"
+    config_overrides = {"modules": {"urlscan": {"api_key": "test-urlscan-key"}}}
+
+    async def setup_after_prep(self, module_test):
+        scan_id = "c558b3b3-b274-4339-99ef-301eb043741f"
+        module_test.httpx_mock.add_response(
+            url="https://urlscan.io/api/v1/search/?q=page.domain%3Ablacklanternsecurity.com&size=100",
+            json={
+                "results": [
+                    {
+                        "task": {"uuid": scan_id, "time": "2023-05-17T01:45:11Z"},
+                        "page": {
+                            "domain": "blacklanternsecurity.com",
+                            "url": "https://blacklanternsecurity.com/",
+                            "tlsIssuer": "R3",
+                            "tlsValidFrom": "2023-04-21T00:00:00Z",
+                        },
+                    }
+                ]
+            },
+        )
+        module_test.httpx_mock.add_response(
+            url=f"https://urlscan.io/api/v1/result/{scan_id}/",
+            json={
+                "lists": {
+                    "certificates": [
+                        {
+                            "subjectName": "blacklanternsecurity.com",
+                            "issuer": "R3",
+                            "validFrom": 1682100000,
+                            "validTo": 1689876000,
+                        },
+                        {
+                            "subjectName": "third-party.example",
+                            "issuer": "R3",
+                            "validFrom": 1682100000,
+                            "validTo": 1689876000,
+                        },
+                    ]
+                },
+                "data": {"requests": []},
+            },
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.88"]}})
+
+    def check(self, module_test, events):
+        api_requests = [
+            request for request in module_test.httpx_mock.get_requests() if request.url.host == "urlscan.io"
+        ]
+        assert len(api_requests) == 2
+        assert all(request.headers.get("api-key") == "test-urlscan-key" for request in api_requests)
+        certificates = [e.data for e in events if e.type == "DOMAIN_CERTIFICATE_HISTORY"]
+        assert len(certificates) == 1
+        assert certificates[0]["subject_name"] == "blacklanternsecurity.com"
+        assert certificates[0]["result_urls"] == [
+            "https://urlscan.io/api/v1/result/c558b3b3-b274-4339-99ef-301eb043741f/"
+        ]
