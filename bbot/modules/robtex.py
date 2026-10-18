@@ -15,12 +15,12 @@ class robtex(BaseModule):
         "created_date": "2026-10-18",
         "author": "@carlospolop",
     }
-    options = {"max_queries": 8}
+    options = {"max_queries": 10}
     options_desc = {"max_queries": "Maximum Robtex lookups per scan (free API allows 10 per hour per egress IP)"}
     _qsize = 1
 
     async def setup(self):
-        self.max_queries = max(0, min(10, int(self.config.get("max_queries", 8))))
+        self.max_queries = max(0, min(10, int(self.config.get("max_queries", 10))))
         self.queries_done = set()
         self.quota_exhausted = False
         self.query_lock = asyncio.Lock()
