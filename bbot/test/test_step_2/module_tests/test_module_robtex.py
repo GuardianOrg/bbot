@@ -44,3 +44,10 @@ class TestRobtex(ModuleTestBase):
             )
             == []
         )
+
+
+class TestRobtexAfterTenQueries(TestRobtex):
+    module_name = "robtex"
+
+    async def setup_after_prep(self, module_test):
+        module_test.module.queries_done.update(f"previous-{index}.example" for index in range(10))

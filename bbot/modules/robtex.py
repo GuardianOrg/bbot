@@ -15,12 +15,9 @@ class robtex(BaseModule):
         "created_date": "2026-10-18",
         "author": "@carlospolop",
     }
-    options = {"max_queries": 10}
-    options_desc = {"max_queries": "Maximum Robtex lookups per scan (free API allows 10 per hour per egress IP)"}
     _qsize = 1
 
     async def setup(self):
-        self.max_queries = max(0, min(10, int(self.config.get("max_queries", 10))))
         self.queries_done = set()
         self.quota_exhausted = False
         self.query_lock = asyncio.Lock()
@@ -28,15 +25,15 @@ class robtex(BaseModule):
 
     async def filter_event(self, event):
         if event.scope_distance != 0:
-            return False, "Robtex budget is reserved for in-scope DNS names"
-        if self.quota_exhausted or len(self.queries_done) >= self.max_queries:
-            return False, "Robtex query budget exhausted"
+            return False, "Robtex lookups are reserved for in-scope DNS names"
+        if self.quota_exhausted:
+            return False, "Robtex rate limit reached"
         return True
 
     async def handle_event(self, event):
         host = str(event.data).lower().rstrip(".")
         async with self.query_lock:
-            if self.quota_exhausted or host in self.queries_done or len(self.queries_done) >= self.max_queries:
+            if self.quota_exhausted or host in self.queries_done:
                 return
             self.queries_done.add(host)
             try:

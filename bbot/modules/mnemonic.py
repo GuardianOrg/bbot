@@ -14,9 +14,8 @@ class mnemonic(BaseModule):
         "created_date": "2026-10-18",
         "author": "@carlospolop",
     }
-    options = {"max_queries": 300, "max_pages": 2}
+    options = {"max_pages": 2}
     options_desc = {
-        "max_queries": "Maximum public PassiveDNS requests per scan (shared free allowance: 1,000/day per IP)",
         "max_pages": "Maximum 1,000-record result pages per DNS name",
     }
     _qsize = 1
@@ -24,9 +23,7 @@ class mnemonic(BaseModule):
     request_interval = 6.1  # Unauthenticated API: 10 requests per minute per egress IP.
 
     async def setup(self):
-        self.max_queries = max(0, min(1000, int(self.config.get("max_queries", 300))))
         self.max_pages = max(1, int(self.config.get("max_pages", 2)))
-        self.request_count = 0
         self.queries_done = set()
         self.quota_exhausted = False
         self.next_request_at = 0.0
@@ -36,8 +33,8 @@ class mnemonic(BaseModule):
     async def filter_event(self, event):
         if event.scope_distance != 0:
             return False, "mnemonic lookups are reserved for in-scope DNS names"
-        if self.quota_exhausted or self.request_count >= self.max_queries:
-            return False, "mnemonic query budget exhausted"
+        if self.quota_exhausted:
+            return False, "mnemonic public API quota reached"
         return True
 
     async def handle_event(self, event):
@@ -76,13 +73,12 @@ class mnemonic(BaseModule):
             loop = asyncio.get_running_loop()
             url = f"{self.base_url}/{self.helpers.quote(host)}?rrType=a&rrType=aaaa&limit=1000&offset={page * 1000}"
             for attempt in range(2):
-                if self.quota_exhausted or self.request_count >= self.max_queries:
+                if self.quota_exhausted:
                     return None
                 delay = self.next_request_at - loop.time()
                 if delay > 0:
                     await asyncio.sleep(delay)
                 self.next_request_at = loop.time() + self.request_interval
-                self.request_count += 1
                 try:
                     response = await self.helpers.request(url)
                 except Exception as exc:
