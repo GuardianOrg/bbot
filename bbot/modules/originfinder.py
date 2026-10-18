@@ -111,12 +111,13 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4):
         if not status:
             return None
         cert = writer.get_extra_info("ssl_object")
-        fingerprint = hashlib.sha256(cert.getpeercert(binary_form=True)).hexdigest() if cert else None
+        cert_der = cert.getpeercert(binary_form=True) if cert else None
         return {
             "status": int(status.group(1)),
             "body": bytes(body),
             "headers": header.decode("latin-1"),
-            "cert_sha256": fingerprint,
+            "cert_sha256": hashlib.sha256(cert_der).hexdigest() if cert_der else None,
+            "cert_sha1": hashlib.sha1(cert_der).hexdigest() if cert_der else None,
         }
     except (
         OSError,
@@ -450,7 +451,12 @@ class originfinder(BaseModule):
 
     async def api_candidates(self, host, fingerprints, baseline):
         results = []
-        queries = [f"hostname:{host}"] + [f"ssl.cert.fingerprint:{fingerprint}" for fingerprint in fingerprints]
+        queries = [f"hostname:{host}"]
+        # Shodan's ssl.cert.fingerprint filter is SHA-1; Censys uses SHA-256.
+        # Historical BBOT events currently preserve SHA-256 only, so the
+        # Shodan certificate pivot uses the live certificate bytes instead.
+        if baseline.get("cert_sha1"):
+            queries.append(f"ssl.cert.fingerprint:{baseline['cert_sha1']}")
         censys_queries = [f'host.dns.names = "{host}"'] + [
             f'host.services.cert.fingerprint_sha256 = "{fingerprint}"' for fingerprint in fingerprints
         ]

@@ -3,6 +3,7 @@ import ssl
 from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -89,6 +90,8 @@ async def test_https_direct_probe_sends_hostname_as_tls_sni():
         server.close()
         await server.wait_closed()
     assert result["status"] == 200
+    assert len(result["cert_sha1"]) == 40
+    assert len(result["cert_sha256"]) == 64
     assert observed["sni"] == "app.example.com"
     assert f"Host: app.example.com:{port}\r\n".encode() in observed["request"]
 
@@ -254,6 +257,29 @@ async def test_censys_starter_results_supply_ip_and_observed_port(monkeypatch):
     assert ("8.8.8.8", 9443, "censys:dns-name") in results
     assert "organization_id=1988436e-c699-44e7-9873-e140f7a992dd" in calls[0][0]
     assert calls[0][1]["json"]["fields"] == ["host.ip", "host.services.port", "host.services.protocol"]
+
+
+@pytest.mark.asyncio
+async def test_shodan_certificate_pivot_uses_sha1_not_censys_sha256(monkeypatch):
+    module = object.__new__(originfinder)
+    queries = []
+
+    async def request(url, **_kwargs):
+        queries.append(parse_qs(urlparse(url).query)["query"][0])
+        return SimpleNamespace(status_code=200, json=lambda: {"matches": [], "total": 0})
+
+    async def no_favicon(*_args, **_kwargs):
+        return None
+
+    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    module.shodan_key = "fake-shodan-token"
+    module.censys_key = ""
+    module.censys_organization_id = ""
+    module.api_cache = {}
+    monkeypatch.setattr(originfinder_module, "fetch_website", no_favicon)
+    await module.api_candidates("audit.guardianaudits.com", {"a" * 64}, {**response(), "cert_sha1": "b" * 40})
+    assert f"ssl.cert.fingerprint:{'b' * 40}" in queries
+    assert not any("a" * 64 in query for query in queries)
 
 
 @pytest.mark.asyncio
