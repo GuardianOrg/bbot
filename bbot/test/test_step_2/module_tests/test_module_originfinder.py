@@ -1,5 +1,6 @@
 import asyncio
 import ssl
+import zlib
 from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,14 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from bbot.modules import originfinder as originfinder_module
-from bbot.modules.originfinder import HTTP_PORTS, fetch_website, originfinder, same_host_redirect_path, similarity
+from bbot.modules.originfinder import (
+    HTTP_PORTS,
+    decode_http_body,
+    fetch_website,
+    originfinder,
+    same_host_redirect_path,
+    similarity,
+)
 
 
 BODY = (
@@ -27,6 +35,33 @@ def test_similarity_rejects_shared_title_without_matching_content():
     assert similarity(response(), response()) == 1
     assert similarity(response(), response(CONTROL_BODY)) == 0
     assert similarity(response(), {"status": 302, "body": BODY}) == 0
+
+
+def test_chunked_and_gzip_http_bodies_match_the_same_page():
+    chunks = [BODY[:100], BODY[100:]]
+    wire = b"".join(f"{len(part):X}\r\n".encode() + part + b"\r\n" for part in chunks) + b"0\r\n\r\n"
+    assert decode_http_body("Transfer-Encoding: chunked\r\n", wire) == BODY
+    gzip_wire = zlib.compressobj(wbits=16 + zlib.MAX_WBITS)
+    compressed = gzip_wire.compress(BODY) + gzip_wire.flush()
+    assert decode_http_body("Content-Encoding: gzip\r\n", compressed) == BODY
+    assert similarity(response(), response(decode_http_body("Transfer-Encoding: chunked\r\n", wire))) == 1
+
+
+def test_single_page_app_matches_distinctive_static_resources_but_not_generic_title():
+    resources = [f"/assets/product-bundle-{index:02d}-abc12345.js" for index in range(12)]
+
+    def page(urls):
+        return (
+            "<html><title>Bakkt</title>"
+            + "".join(f'<script src="{url}"></script>' for url in urls)
+            + "<body>App</body></html>"
+        ).encode()
+
+    first = page(resources)
+    reordered = page(list(reversed(resources)))
+    unrelated = page([f"/assets/other-bundle-{index:02d}-xyz78900.js" for index in range(12)])
+    assert similarity(response(first), response(reordered)) == 1
+    assert similarity(response(first), response(unrelated)) == 0
 
 
 def test_only_same_host_redirects_can_supply_a_comparable_path():
