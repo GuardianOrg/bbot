@@ -20,6 +20,7 @@ FRONTEND_CNAME_SUFFIXES = {
     "impervadns.net": ("waf", "imperva"),
     "incapdns.net": ("waf", "imperva"),
     "ghs.googlehosted.com": ("proxy", "google"),
+    "github.io": ("proxy", "github"),
 }
 ELB_HOSTNAME = re.compile(r"(?:^|\.)elb\.[a-z0-9-]+\.amazonaws\.com$")
 
@@ -35,6 +36,43 @@ def frontend_cname_evidence(hosts):
                 matches.append(classification)
     priority = {"cdn": 3, "waf": 2, "load_balancer": 1, "proxy": 0}
     return max(matches, key=lambda match: priority[match[0]]) if matches else None
+
+
+def cloud_ip_metadata(host, provider_name, tags, cname_frontend=None):
+    provider_slug = str(provider_name or "").lower() or None
+    tag_set = {str(tag).lower() for tag in tags}
+    frontend_kind, frontend_provider = cname_frontend or (None, None)
+    # Cloudflare's published edge ranges are tagged "waf" by cloudcheck.
+    # Conversely, cloudcheck tags *all* GitHub ranges "cdn", including API
+    # and Git endpoints; that tag alone cannot prove a CDN edge.
+    is_cdn = (
+        ("cdn" in tag_set and provider_slug != "github") or provider_slug == "cloudflare" or frontend_kind == "cdn"
+    )
+    is_waf = "waf" in tag_set or frontend_kind == "waf"
+    is_load_balancer = frontend_kind == "load_balancer"
+    data = {"ip": str(host)}
+    if provider_slug or frontend_provider:
+        data["cloudProvider"] = provider_slug or frontend_provider
+    if is_cdn:
+        data["providerType"] = "cdn"
+        data["isCdn"] = True
+        data["cdnName"] = frontend_provider if frontend_kind == "cdn" else provider_slug
+    elif is_load_balancer:
+        data["providerType"] = "load_balancer"
+        data["isLoadBalancer"] = True
+    elif is_waf:
+        data["providerType"] = "waf"
+    elif frontend_kind == "proxy":
+        data["providerType"] = "proxy"
+    else:
+        data["providerType"] = "cloud"
+    if is_cdn or is_waf or is_load_balancer or frontend_kind == "proxy":
+        data["isFrontedProxy"] = True
+    if cname_frontend:
+        data["frontendEvidence"] = f"DNS CNAME: {frontend_kind} ({frontend_provider})"
+    elif is_cdn or is_waf:
+        data["frontendEvidence"] = f"cloudcheck provider range: {provider_slug}"
+    return data
 
 
 class CloudCheck(BaseInterceptModule):
@@ -78,9 +116,11 @@ class CloudCheck(BaseInterceptModule):
             hosts_to_check.remove(event.host_original)
         hosts_to_check = [str(event.host_original)] + list(hosts_to_check)
 
-        cname_frontend = frontend_cname_evidence(
+        cname_hosts = set(event.dns_children.get("CNAME", ()))
+        cname_hosts.update(
             host for host in hosts_to_check if not self.helpers.is_ip(host) and host != str(event.host_original)
         )
+        cname_frontend = frontend_cname_evidence(cname_hosts)
         ip_providers = {}
 
         for i, host in enumerate(hosts_to_check):
@@ -203,33 +243,7 @@ class CloudCheck(BaseInterceptModule):
         if not provider_name and not cname_frontend:
             return
         provider_slug = self._provider_slug(provider_name) if provider_name else None
-        tag_set = {str(tag).lower() for tag in tags}
-        frontend_kind, frontend_provider = cname_frontend or (None, None)
-        is_cdn = "cdn" in tag_set or frontend_kind == "cdn"
-        is_waf = "waf" in tag_set or frontend_kind == "waf"
-        is_load_balancer = frontend_kind == "load_balancer"
-        data = {"ip": str(host)}
-        if provider_slug or frontend_provider:
-            data["cloudProvider"] = provider_slug or frontend_provider
-        if is_cdn:
-            data["providerType"] = "cdn"
-            data["isCdn"] = True
-            data["cdnName"] = frontend_provider if frontend_kind == "cdn" else provider_slug
-        elif is_load_balancer:
-            data["providerType"] = "load_balancer"
-            data["isLoadBalancer"] = True
-        elif is_waf:
-            data["providerType"] = "waf"
-        elif frontend_kind == "proxy":
-            data["providerType"] = "proxy"
-        else:
-            data["providerType"] = "cloud"
-        if is_cdn or is_waf or is_load_balancer or frontend_kind == "proxy":
-            data["isFrontedProxy"] = True
-        if cname_frontend:
-            data["frontendEvidence"] = f"DNS CNAME: {frontend_kind} ({frontend_provider})"
-        elif is_cdn or is_waf:
-            data["frontendEvidence"] = f"cloudcheck provider range: {provider_slug}"
+        data = cloud_ip_metadata(host, provider_slug, tags, cname_frontend)
         await self.emit_event(
             data,
             "GEOLOCATION",
