@@ -12,5 +12,6 @@ def test_managed_frontend_cname_evidence():
 def test_provider_tags_are_interpreted_as_positive_evidence_only():
     assert cloud_ip_metadata("104.16.1.1", "cloudflare", ["waf"])["isCdn"] is True
     assert cloud_ip_metadata("185.199.108.153", "github", ["cdn"]).get("isCdn") is None
+    assert cloud_ip_metadata("192.0.2.5", "gcore", ["cdn"]).get("isCdn") is None
     assert cloud_ip_metadata("185.199.108.153", "github", ["cdn"], ("proxy", "github"))["isFrontedProxy"] is True
     assert cloud_ip_metadata("54.1.2.3", "amazon", ["cloud"]).get("isFrontedProxy") is None

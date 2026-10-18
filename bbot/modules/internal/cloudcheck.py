@@ -23,6 +23,7 @@ FRONTEND_CNAME_SUFFIXES = {
     "github.io": ("proxy", "github"),
 }
 ELB_HOSTNAME = re.compile(r"(?:^|\.)elb\.[a-z0-9-]+\.amazonaws\.com$")
+DEDICATED_CDN_EDGE_PROVIDERS = {"cloudfront", "cloudflare", "fastly", "cachefly", "quiccloud"}
 
 
 def frontend_cname_evidence(hosts):
@@ -43,11 +44,11 @@ def cloud_ip_metadata(host, provider_name, tags, cname_frontend=None):
     tag_set = {str(tag).lower() for tag in tags}
     frontend_kind, frontend_provider = cname_frontend or (None, None)
     # Cloudflare's published edge ranges are tagged "waf" by cloudcheck.
-    # Conversely, cloudcheck tags *all* GitHub ranges "cdn", including API
-    # and Git endpoints; that tag alone cannot prove a CDN edge.
+    # Other vendor tags can cover broad hosting ranges (GitHub, Gcore,
+    # KINX). A vendor label alone does not prove a CDN edge.
     is_cdn = (
-        ("cdn" in tag_set and provider_slug != "github") or provider_slug == "cloudflare" or frontend_kind == "cdn"
-    )
+        provider_slug in DEDICATED_CDN_EDGE_PROVIDERS and ("cdn" in tag_set or "waf" in tag_set)
+    ) or frontend_kind == "cdn"
     is_waf = "waf" in tag_set or frontend_kind == "waf"
     is_load_balancer = frontend_kind == "load_balancer"
     data = {"ip": str(host)}
