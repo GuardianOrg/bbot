@@ -52,6 +52,7 @@ modules:
   - leaklookup
   - leaklookup_hash
   - medusa
+  - mnemonic
   - naabu
   - naabu_fast
   - noseyparker
