@@ -272,6 +272,33 @@ async def test_offchain_scope_filter_allows_open_ports_by_netloc_for_seeded_ips(
 
 
 @pytest.mark.asyncio
+async def test_verified_origin_expands_only_its_public_ip_and_port():
+    module = await create_scope_filter(["domain:example.com"])
+    origin = make_event(
+        "WEB_ORIGIN",
+        data={
+            "host": "www.example.com",
+            "url": "https://www.example.com/",
+            "ip": "8.8.8.8",
+            "port": 8443,
+            "protocol": "https",
+            "confidence": 0.95,
+        },
+        host="www.example.com",
+        source_module="originfinder",
+    )
+    address = make_event("IP_ADDRESS", data="8.8.8.8", host="8.8.8.8", parent=origin)
+    port = make_event("OPEN_TCP_PORT", data="8.8.8.8:8443", host="8.8.8.8", parent=address)
+    unrelated = make_event("OPEN_TCP_PORT", data="8.8.4.4:8443", host="8.8.4.4", parent=address)
+    assert await module.handle_event(origin) is True
+    assert await module.handle_event(address) is True
+    assert await module.handle_event(port) is True
+    assert await module.handle_event(unrelated) == (False, "port/protocol event is not keyed to an allowed IP address")
+    origin.module = "untrusted_module"
+    assert await module.handle_event(origin) == (False, "origin event lacks an in-scope verified direct endpoint")
+
+
+@pytest.mark.asyncio
 async def test_offchain_scope_filter_allows_urls_for_scoped_domains_and_ip_ranges():
     module = await create_scope_filter(
         [

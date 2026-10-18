@@ -61,6 +61,23 @@ class offchain_scope_filter(BaseInterceptModule):
         return True
 
     async def handle_event(self, event, **kwargs):
+        if event.type == "WEB_FRONTEND":
+            data = self._event_data(event)
+            host = self._normalize_domain(data.get("host"))
+            if (
+                str(getattr(event, "module", "")) == "originfinder"
+                and host
+                and self._domain_allowed(host)
+                and self._extract_url_host(data.get("url")) == host
+            ):
+                return True
+            return False, "frontend event is not for an in-scope website"
+
+        if event.type == "WEB_ORIGIN":
+            if self._verified_origin_ip(event):
+                return True
+            return False, "origin event lacks an in-scope verified direct endpoint"
+
         if event.type in REPOSITORY_SCOPE_EVENT_TYPES:
             return self._handle_repository_event(event)
 
@@ -88,6 +105,10 @@ class offchain_scope_filter(BaseInterceptModule):
             return False, "web event is outside the seeded domain and IP scope"
 
         if event.type in IP_ANALYSIS_EVENT_TYPES:
+            origin_ip = self._verified_origin_ip(event)
+            if origin_ip:
+                self.allowed_ips.add(origin_ip)
+                return True
             if event.type in PORT_SERVICE_EVENT_TYPES:
                 if self._event_has_allowed_primary_ip(event):
                     self._remember_allowed_primary_ips(event)
@@ -307,6 +328,38 @@ class offchain_scope_filter(BaseInterceptModule):
                 return True
 
         return False
+
+    def _domain_allowed(self, host):
+        return any(host == root or host.endswith(f".{root}") for root in self.allowed_domain_roots)
+
+    def _verified_origin_ip(self, event):
+        for ancestor in [event, *self._parent_events(event)]:
+            if getattr(ancestor, "type", None) != "WEB_ORIGIN":
+                continue
+            if str(getattr(ancestor, "module", "")) != "originfinder":
+                continue
+            data = self._event_data(ancestor)
+            host = self._normalize_domain(data.get("host"))
+            ip = data.get("ip")
+            try:
+                confidence = float(data.get("confidence"))
+                port = int(data.get("port"))
+                is_global = ipaddress.ip_address(str(ip)).is_global
+            except (TypeError, ValueError):
+                continue
+            if (
+                not host
+                or not self._domain_allowed(host)
+                or self._extract_url_host(data.get("url")) != host
+                or not is_global
+                or confidence < 0.88
+                or not 1 <= port <= 65535
+                or data.get("protocol") not in {"http", "https"}
+            ):
+                continue
+            if event is ancestor or self._event_primary_ip(event) == ip:
+                return str(ip)
+        return None
 
     def _remember_allowed_analysis_ips(self, event):
         for candidate in self._event_ip_candidates(event):
