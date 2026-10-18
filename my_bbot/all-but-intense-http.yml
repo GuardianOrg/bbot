@@ -15,6 +15,7 @@ modules:
   - bucket_google
   - bucket_microsoft
   - certspotter
+  - censys_dns
   - chaos
   - code_repository
   - crt
@@ -354,6 +355,10 @@ config:
       full_host: true
     shodan_dns:
       api_key: ${env:SHODAN_API_KEY,${env:SHODAN_DNS_API_KEY,""}}
+      history: true
+      max_pages: 100
+    censys_dns:
+      api_key: ${env:CENSYS_API_KEY,""}
     subfinder:
       all: true
       recursive: false
