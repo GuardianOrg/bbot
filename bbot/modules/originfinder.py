@@ -309,6 +309,20 @@ class originfinder(BaseModule):
                         website["certs"].add(fingerprint)
 
     async def finish(self):
+        # Classify every known managed-frontend DNS answer before testing any
+        # candidate. A load balancer can use an ordinary cloud IP range, so a
+        # range lookup alone would not exclude its address as another origin.
+        for domain_event in self.host_events.values():
+            cname_frontend = frontend_cname_evidence(domain_event.dns_children.get("CNAME", ()))
+            if cname_frontend:
+                for raw_ip in (
+                    set(domain_event.resolved_hosts)
+                    | set(domain_event.dns_children.get("A", ()))
+                    | set(domain_event.dns_children.get("AAAA", ()))
+                ):
+                    ip = public_ip(raw_ip)
+                    if ip:
+                        self.ip_frontends.setdefault(ip, cloud_ip_metadata(ip, None, (), cname_frontend))
         for host, website in sorted(self.websites.items()):
             current = website["ips"]
             domain_event = self.host_events.get(host)
@@ -426,10 +440,15 @@ class originfinder(BaseModule):
             async with semaphore:
                 if (host, ip) in self.reported_origins or ip in website["ips"] or await self.is_frontend_ip(ip):
                     return
-                ports = list(HTTP_PORTS)
-                for port in sorted(evidence["ports"] | self.ports.get(ip, set())):
-                    if port not in {number for number, _ in ports}:
+                observed_ports = sorted(evidence["ports"] | self.ports.get(ip, set()))
+                usual_schemes = dict(HTTP_PORTS)
+                ports = []
+                for port in observed_ports:
+                    if port in usual_schemes:
+                        ports.append((port, usual_schemes[port]))
+                    else:
                         ports.extend(((port, False), (port, True)))
+                ports.extend(item for item in HTTP_PORTS if item not in ports)
 
                 async def probe(port, tls):
                     candidate = await fetch_website(ip, host, port, tls, probe_path)
