@@ -8,6 +8,7 @@ import ipaddress
 import re
 import socket
 import ssl
+import zlib
 from collections import defaultdict
 from difflib import SequenceMatcher
 from urllib.parse import urlencode, urlparse
@@ -25,6 +26,8 @@ FRONTEND_TAGS = {"cdn", "waf", "load-balancer", "fronted-proxy"}
 MAX_API_PAGES = 5
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 TEXT_RE = re.compile(r"<script\b.*?</script>|<style\b.*?</style>|<[^>]+>", re.I | re.S)
+RESOURCE_RE = re.compile(r"<(?:script|link|img)\b[^>]*?\b(?:src|href)\s*=\s*['\"]([^'\"]+)", re.I)
+MAX_BODY_BYTES = 65536
 
 
 def public_ip(value):
@@ -43,6 +46,48 @@ def website_text(body):
 def website_title(body):
     match = TITLE_RE.search(body.decode("utf-8", errors="replace"))
     return " ".join(html.unescape(match.group(1)).lower().split())[:250] if match else ""
+
+
+def website_resources(body):
+    page = body.decode("utf-8", errors="replace")
+    paths = set()
+    for value in RESOURCE_RE.findall(page):
+        path = urlparse(html.unescape(value)).path.lower().rstrip("/")
+        if len(path) >= 12:
+            paths.add(path)
+    return paths
+
+
+def decode_http_body(headers, body):
+    """Normalize wire framing and compression before comparing website content."""
+    if re.search(r"(?im)^transfer-encoding:\s*[^\r\n]*\bchunked\b", headers):
+        decoded = bytearray()
+        offset = 0
+        while offset < len(body) and len(decoded) < MAX_BODY_BYTES:
+            line_end = body.find(b"\r\n", offset)
+            if line_end < 0:
+                break
+            try:
+                chunk_size = int(body[offset:line_end].split(b";", 1)[0], 16)
+            except ValueError:
+                break
+            offset = line_end + 2
+            if chunk_size == 0 or offset + chunk_size + 2 > len(body):
+                break
+            decoded.extend(body[offset : offset + chunk_size])
+            offset += chunk_size
+            if body[offset : offset + 2] != b"\r\n":
+                break
+            offset += 2
+        body = bytes(decoded)
+    encoding = re.search(r"(?im)^content-encoding:\s*(gzip|deflate)\s*$", headers)
+    if encoding:
+        try:
+            wbits = 16 + zlib.MAX_WBITS if encoding.group(1).lower() == "gzip" else zlib.MAX_WBITS
+            body = zlib.decompressobj(wbits).decompress(body, MAX_BODY_BYTES)
+        except zlib.error:
+            return b""
+    return body[:MAX_BODY_BYTES]
 
 
 def same_host_redirect_path(response, host):
@@ -64,20 +109,27 @@ def similarity(reference, candidate):
     if reference["status"] != 200 or candidate["status"] != 200:
         return 0.0
     first, second = website_text(reference["body"]), website_text(candidate["body"])
-    if len(first) < 160 or len(second) < 160:
-        return 0.0
     if hashlib.sha256(reference["body"]).digest() == hashlib.sha256(candidate["body"]).digest():
         return 1.0
     reference_title, candidate_title = website_title(reference["body"]), website_title(candidate["body"])
     if not reference_title or reference_title != candidate_title:
         return 0.0
-    tokens_a, tokens_b = set(first.split()), set(second.split())
-    if len(tokens_a) < 20 or len(tokens_b) < 20:
+    if len(first) >= 160 and len(second) >= 160:
+        tokens_a, tokens_b = set(first.split()), set(second.split())
+        if len(tokens_a) >= 20 and len(tokens_b) >= 20:
+            overlap = len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+            if overlap >= 0.82:
+                text_score = min(overlap, SequenceMatcher(None, first, second, autojunk=True).ratio())
+                if text_score >= 0.88:
+                    return text_score
+    # Single-page apps can have almost no visible HTML text. Matching several
+    # distinctive asset paths plus the exact title is a stronger fallback than
+    # matching a short placeholder such as "Loading...".
+    resources_a, resources_b = website_resources(reference["body"]), website_resources(candidate["body"])
+    if min(len(resources_a), len(resources_b)) < 8:
         return 0.0
-    overlap = len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
-    if overlap < 0.82:
-        return 0.0
-    return min(overlap, SequenceMatcher(None, first, second, autojunk=True).ratio())
+    overlap = len(resources_a & resources_b) / len(resources_a | resources_b)
+    return overlap if overlap >= 0.90 else 0.0
 
 
 async def fetch_website(address, host, port, tls, path="/", timeout=4):
@@ -102,8 +154,8 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4):
         await asyncio.wait_for(writer.drain(), timeout)
         header = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout)
         body = bytearray()
-        while len(body) < 65536:
-            chunk = await asyncio.wait_for(reader.read(min(16384, 65536 - len(body))), timeout)
+        while len(body) < 131072:
+            chunk = await asyncio.wait_for(reader.read(min(16384, 131072 - len(body))), timeout)
             if not chunk:
                 break
             body.extend(chunk)
@@ -114,7 +166,7 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4):
         cert_der = cert.getpeercert(binary_form=True) if cert else None
         return {
             "status": int(status.group(1)),
-            "body": bytes(body),
+            "body": decode_http_body(header.decode("latin-1"), bytes(body)),
             "headers": header.decode("latin-1"),
             "cert_sha256": hashlib.sha256(cert_der).hexdigest() if cert_der else None,
             "cert_sha1": hashlib.sha1(cert_der).hexdigest() if cert_der else None,
