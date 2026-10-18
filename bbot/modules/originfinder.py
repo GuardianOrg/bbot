@@ -604,7 +604,7 @@ class originfinder(BaseModule):
         ip_event = self.make_event(
             ip,
             "IP_ADDRESS",
-            self.host_events.get(host) or origin or parent,
+            origin or parent,
             context=f"{{module}} added verified website origin {ip} to scope",
         )
         if ip_event is not None:
