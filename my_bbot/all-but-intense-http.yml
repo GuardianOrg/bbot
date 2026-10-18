@@ -357,6 +357,11 @@ config:
       api_key: ${env:SHODAN_API_KEY,${env:SHODAN_DNS_API_KEY,""}}
       history: true
       max_pages: 100
+    urlscan:
+      api_key: ${env:URLSCAN_API_KEY,""}
+      max_pages: 5
+      page_size: 100
+      max_certificate_results: 50
     subfinder:
       all: true
       recursive: false
