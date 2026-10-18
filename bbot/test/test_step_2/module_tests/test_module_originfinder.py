@@ -249,6 +249,49 @@ async def test_unrelated_candidate_tries_all_default_http_ports_without_promotin
 
 
 @pytest.mark.asyncio
+async def test_provider_observed_unusual_port_is_probed_first(monkeypatch):
+    module, events, calls = fake_module(monkeypatch, response())
+
+    async def api_candidates(*_args):
+        return [("8.8.8.8", 49152, "shodan:hostname")]
+
+    async def fetch(address, host_header, port, tls, path="/", timeout=4):
+        calls.append((address, host_header, port, tls))
+        if address == "www.guardianaudits.com":
+            return response()
+        if port == 49152 and host_header == "www.guardianaudits.com":
+            return response()
+        return response(CONTROL_BODY)
+
+    monkeypatch.setattr(module, "api_candidates", api_candidates)
+    monkeypatch.setattr(originfinder_module, "fetch_website", fetch)
+    await module.finish()
+    candidate_calls = [call for call in calls if call[0] == "8.8.8.8"]
+    assert candidate_calls[0][2] == 49152
+    assert next(data for kind, data, _ in events if kind == "FINDING")["affected_endpoints"] == ["8.8.8.8:49152/tcp"]
+
+
+@pytest.mark.asyncio
+async def test_other_website_load_balancer_ip_is_excluded_before_probing(monkeypatch):
+    module, events, calls = fake_module(monkeypatch, response())
+    module.host_events["other.example.com"] = SimpleNamespace(
+        resolved_hosts={"8.8.8.8"},
+        dns_children={"CNAME": {"app.other-123.eu-west-1.elb.amazonaws.com"}},
+    )
+    module.ip_classifications = {}
+
+    async def lookup(_ip):
+        return []
+
+    module.scan.helpers.cloudcheck = SimpleNamespace(lookup=lookup)
+    monkeypatch.setattr(module, "is_frontend_ip", originfinder.is_frontend_ip.__get__(module))
+    await module.finish()
+    assert module.ip_frontends["8.8.8.8"]["isLoadBalancer"] is True
+    assert not any(call[0] == "8.8.8.8" for call in calls)
+    assert [kind for kind, *_ in events] == ["WEB_FRONTEND"]
+
+
+@pytest.mark.asyncio
 async def test_default_virtual_host_does_not_confirm_origin(monkeypatch):
     module, events, _ = fake_module(monkeypatch, response())
 
