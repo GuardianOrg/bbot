@@ -1948,6 +1948,20 @@ class DOMAIN_CERTIFICATE_HISTORY(DictHostEvent):
     _quick_emit = True
 
 
+class WEB_FRONTEND(DictHostEvent):
+    """An in-scope website currently resolves through a managed frontend."""
+
+    _always_emit = True
+    _quick_emit = True
+
+
+class WEB_ORIGIN(DictHostEvent):
+    """A candidate IP directly served the same website with its Host/SNI."""
+
+    _always_emit = True
+    _quick_emit = True
+
+
 class MOBILE_APP(DictEvent):
     _always_emit = True
 

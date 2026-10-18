@@ -21,8 +21,15 @@ FRONTEND_CNAME_SUFFIXES = {
     "incapdns.net": ("waf", "imperva"),
     "ghs.googlehosted.com": ("proxy", "google"),
     "github.io": ("proxy", "github"),
+    "wpenginepowered.com": ("proxy", "wpengine"),
+    "hosting.gitbook.io": ("proxy", "gitbook"),
+    "vercel-dns.com": ("proxy", "vercel"),
+    "netlify.app": ("proxy", "netlify"),
 }
-ELB_HOSTNAME = re.compile(r"(?:^|\.)elb\.[a-z0-9-]+\.amazonaws\.com$")
+# Application, network and classic load balancers use names like
+# app.example-123.eu-west-1.elb.amazonaws.com. Older aliases may place elb
+# before the region instead.
+ELB_HOSTNAME = re.compile(r"(?:^|\.)(?:[a-z0-9-]+\.elb\.amazonaws\.com|elb\.[a-z0-9-]+\.amazonaws\.com)$")
 
 
 def frontend_cname_evidence(hosts):

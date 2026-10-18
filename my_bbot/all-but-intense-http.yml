@@ -59,6 +59,7 @@ modules:
   - nuclei
   - nuclei_takeover
   - otx
+  - originfinder
   - rapiddns
   - robtex
   - securitytrails
@@ -105,6 +106,10 @@ config:
   modules:
     stdout:
       accept_dupes: true
+    originfinder:
+      shodan_api_key: ${env:SHODAN_API_KEY,""}
+      censys_api_key: ${env:CENSYS_ORIGIN_API_KEY,""}
+      censys_organization_id: ${env:CENSYS_ORGANIZATION_ID,""}
     apkeep:
       download_source: google-play
       google_email: ${env:APKEEP_GOOGLE_EMAIL,""}
