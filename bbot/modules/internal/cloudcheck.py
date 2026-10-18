@@ -6,6 +6,37 @@ from urllib.parse import urlparse
 from bbot.modules.base import BaseInterceptModule
 
 
+# DNS names are evidence for managed frontends whose IPs can share a provider's
+# general cloud range. Never infer an origin from the absence of these suffixes.
+FRONTEND_CNAME_SUFFIXES = {
+    "cloudfront.net": ("cdn", "cloudfront"),
+    "akamaiedge.net": ("cdn", "akamai"),
+    "edgekey.net": ("cdn", "akamai"),
+    "edgesuite.net": ("cdn", "akamai"),
+    "fastly.net": ("cdn", "fastly"),
+    "fastlylb.net": ("cdn", "fastly"),
+    "azureedge.net": ("cdn", "azure"),
+    "azurefd.net": ("cdn", "azure"),
+    "impervadns.net": ("waf", "imperva"),
+    "incapdns.net": ("waf", "imperva"),
+    "ghs.googlehosted.com": ("proxy", "google"),
+}
+ELB_HOSTNAME = re.compile(r"(?:^|\.)elb\.[a-z0-9-]+\.amazonaws\.com$")
+
+
+def frontend_cname_evidence(hosts):
+    matches = []
+    for raw_host in hosts:
+        host = str(raw_host).lower().rstrip(".")
+        if ELB_HOSTNAME.search(host):
+            matches.append(("load_balancer", "aws"))
+        for suffix, classification in FRONTEND_CNAME_SUFFIXES.items():
+            if host == suffix or host.endswith(f".{suffix}"):
+                matches.append(classification)
+    priority = {"cdn": 3, "waf": 2, "load_balancer": 1, "proxy": 0}
+    return max(matches, key=lambda match: priority[match[0]]) if matches else None
+
+
 class CloudCheck(BaseInterceptModule):
     watched_events = ["*"]
     produced_events = ["GEOLOCATION", "STORAGE_BUCKET"]
@@ -47,6 +78,11 @@ class CloudCheck(BaseInterceptModule):
             hosts_to_check.remove(event.host_original)
         hosts_to_check = [str(event.host_original)] + list(hosts_to_check)
 
+        cname_frontend = frontend_cname_evidence(
+            host for host in hosts_to_check if not self.helpers.is_ip(host) and host != str(event.host_original)
+        )
+        ip_providers = {}
+
         for i, host in enumerate(hosts_to_check):
             host_is_ip = self.helpers.is_ip(host)
             try:
@@ -58,7 +94,7 @@ class CloudCheck(BaseInterceptModule):
                 provider_name = provider["name"].lower()
                 tags = provider.get("tags", [])
                 if host_is_ip:
-                    await self.emit_cloud_ip_metadata(event, host, provider_name, tags)
+                    ip_providers.setdefault(host, []).append((provider_name, tags))
                 for tag in tags:
                     event.add_tag(tag)
                     event.add_tag(f"{tag}-{provider_name}")
@@ -71,6 +107,10 @@ class CloudCheck(BaseInterceptModule):
                         # any children are tagged as CNAMEs
                         else:
                             event.add_tag(f"{provider_name}-cname")
+
+        for host in hosts_to_check:
+            if self.helpers.is_ip(host):
+                await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), cname_frontend)
 
         # we only generate storage buckets off of in-scope or distance-1 events
         if event.scope_distance >= self.max_scope_distance:
@@ -153,18 +193,43 @@ class CloudCheck(BaseInterceptModule):
                 return match.group(1)
         return None
 
-    async def emit_cloud_ip_metadata(self, event, host, provider_name, tags):
-        provider_slug = self._provider_slug(provider_name)
+    async def emit_cloud_ip_metadata(self, event, host, providers, cname_frontend=None):
+        ranked = sorted(
+            providers,
+            key=lambda item: ("cdn" in item[1], "waf" in item[1], "cloud" in item[1]),
+            reverse=True,
+        )
+        provider_name, tags = ranked[0] if ranked else (None, [])
+        if not provider_name and not cname_frontend:
+            return
+        provider_slug = self._provider_slug(provider_name) if provider_name else None
         tag_set = {str(tag).lower() for tag in tags}
-        is_cdn = "cdn" in tag_set
-        data = {
-            "ip": str(host),
-            "cloudProvider": provider_slug,
-            "providerType": "cdn" if is_cdn else "cloud",
-        }
+        frontend_kind, frontend_provider = cname_frontend or (None, None)
+        is_cdn = "cdn" in tag_set or frontend_kind == "cdn"
+        is_waf = "waf" in tag_set or frontend_kind == "waf"
+        is_load_balancer = frontend_kind == "load_balancer"
+        data = {"ip": str(host)}
+        if provider_slug or frontend_provider:
+            data["cloudProvider"] = provider_slug or frontend_provider
         if is_cdn:
+            data["providerType"] = "cdn"
             data["isCdn"] = True
-            data["cdnName"] = provider_slug
+            data["cdnName"] = frontend_provider if frontend_kind == "cdn" else provider_slug
+        elif is_load_balancer:
+            data["providerType"] = "load_balancer"
+            data["isLoadBalancer"] = True
+        elif is_waf:
+            data["providerType"] = "waf"
+        elif frontend_kind == "proxy":
+            data["providerType"] = "proxy"
+        else:
+            data["providerType"] = "cloud"
+        if is_cdn or is_waf or is_load_balancer or frontend_kind == "proxy":
+            data["isFrontedProxy"] = True
+        if cname_frontend:
+            data["frontendEvidence"] = f"DNS CNAME: {frontend_kind} ({frontend_provider})"
+        elif is_cdn or is_waf:
+            data["frontendEvidence"] = f"cloudcheck provider range: {provider_slug}"
         await self.emit_event(
             data,
             "GEOLOCATION",

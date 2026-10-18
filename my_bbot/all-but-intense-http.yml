@@ -59,6 +59,7 @@ modules:
   - nuclei_takeover
   - otx
   - rapiddns
+  - robtex
   - securitytrails
   - shodan_dns
   - shodan_idb
