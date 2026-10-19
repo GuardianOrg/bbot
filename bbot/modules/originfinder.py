@@ -347,6 +347,9 @@ class originfinder(BaseModule):
                 if cname_frontend
                 else "Current IPs belong to managed frontend ranges"
             )
+            external_service = self.external_service_cname(website["cnames"])
+            if external_service:
+                frontend_evidence += f"; origin search skipped: CNAME to out-of-scope service {external_service}"
             frontend = await self.emit_event(
                 {
                     "host": host,
@@ -359,10 +362,25 @@ class originfinder(BaseModule):
                 parent,
                 context=f"{{module}} confirmed that {host} resolves through a managed frontend",
             )
-            await self.find_origins(host, url, website, frontend or parent)
+            if not external_service:
+                await self.find_origins(host, url, website, frontend or parent)
             # Other modules can emit more passive evidence in later BBOT
             # finishing rounds. Only rerun this website if that input changes.
             self.processed_hosts[host] = self.evidence_signature(host, website)
+
+    def external_service_cname(self, cnames):
+        for raw_name in sorted(cnames):
+            name = str(raw_name).lower().rstrip(".")
+            if not name or self.scan.in_scope(name):
+                continue
+            # A CDN/WAF/LB hostname is delivery infrastructure; the site's
+            # origin may still be controlled by the scoped organization. An
+            # unrelated SaaS/platform CNAME does not authorize probing its
+            # private backend, even if it ultimately resolves to a CDN IP.
+            frontend = frontend_cname_evidence((name,))
+            if frontend is None or frontend[0] == "proxy":
+                return name
+        return None
 
     def evidence_signature(self, host, website):
         domain = self.helpers.parent_domain(host)

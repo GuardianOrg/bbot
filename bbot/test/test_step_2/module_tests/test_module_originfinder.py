@@ -136,13 +136,13 @@ def fake_module(monkeypatch, origin_response):
     host = "www.guardianaudits.com"
     ip = "8.8.8.8"
     parent = SimpleNamespace(
-        data=host, resolved_hosts={"104.16.1.1"}, dns_children={"CNAME": {"example.cloudflare.net"}}
+        data=host, resolved_hosts={"104.16.1.1"}, dns_children={"CNAME": {"example.cloudfront.net"}}
     )
     module.websites = {
         host: {
             "urls": {f"https://{host}/": parent},
             "ips": {"104.16.1.1"},
-            "cnames": {"example.cloudflare.net"},
+            "cnames": {"example.cloudfront.net"},
             "certs": set(),
         }
     }
@@ -153,7 +153,10 @@ def fake_module(monkeypatch, origin_response):
     module.certificates = defaultdict(set)
     module.processed_hosts = {}
     module.reported_origins = set()
-    module.scan = SimpleNamespace(helpers=SimpleNamespace(parent_domain=lambda _: "guardianaudits.com"))
+    module.scan = SimpleNamespace(
+        helpers=SimpleNamespace(parent_domain=lambda _: "guardianaudits.com"),
+        in_scope=lambda name: name == "guardianaudits.com" or name.endswith(".guardianaudits.com"),
+    )
     events = []
     calls = []
 
@@ -208,6 +211,29 @@ async def test_verified_origin_emits_frontend_relation_ip_and_finding(monkeypatc
     assert events[1][1]["sources"] == ["historical-dns:robtex"]
     assert events[4][1]["affected_endpoints"] == ["8.8.8.8:80/tcp"]
     assert calls[1] == ("8.8.8.8", "www.guardianaudits.com", 80, False)
+
+
+@pytest.mark.asyncio
+async def test_out_of_scope_service_cname_skips_origin_probes(monkeypatch):
+    module, events, calls = fake_module(monkeypatch, response())
+    cname = "bakkt-api-a864616d.readmessl.com"
+    module.websites["www.guardianaudits.com"]["cnames"] = {cname}
+    module.host_events["www.guardianaudits.com"].dns_children["CNAME"] = {cname}
+    await module.finish()
+    assert [kind for kind, *_ in events] == ["WEB_FRONTEND"]
+    assert f"out-of-scope service {cname}" in events[0][1]["evidence"]
+    assert not any(address == "8.8.8.8" for address, *_ in calls)
+
+
+@pytest.mark.asyncio
+async def test_explicitly_scoped_service_cname_can_be_checked(monkeypatch):
+    module, events, _ = fake_module(monkeypatch, response())
+    cname = "docs.other-authorized.com"
+    module.websites["www.guardianaudits.com"]["cnames"] = {cname}
+    module.host_events["www.guardianaudits.com"].dns_children["CNAME"] = {cname}
+    module.scan.in_scope = lambda name: name == cname or name.endswith(".guardianaudits.com")
+    await module.finish()
+    assert any(kind == "WEB_ORIGIN" for kind, *_ in events)
 
 
 @pytest.mark.asyncio
