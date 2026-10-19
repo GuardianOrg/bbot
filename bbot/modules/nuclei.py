@@ -5,11 +5,27 @@ import hashlib
 import asyncio
 import os
 import shutil
+import time
 from pathlib import Path
 from contextlib import suppress
 from itertools import islice
 from urllib.parse import urlparse
 from bbot.modules.base import BaseModule
+
+
+def nuclei_runtime_limits(inputs, ratelimit, concurrency, bulk_size, per_host_rate=0, max_ratelimit=0):
+    """Scale one Nuclei process for independent web hosts without raising single-host traffic."""
+    base = (int(ratelimit), int(concurrency), int(bulk_size))
+    if int(per_host_rate) <= 0 or int(max_ratelimit) <= base[0]:
+        return base
+    hosts = {
+        parsed.hostname.lower()
+        for value in inputs
+        if (parsed := urlparse(str(value))).scheme in ("http", "https") and parsed.hostname
+    }
+    rate = max(base[0], min(int(max_ratelimit), len(hosts) * int(per_host_rate)))
+    factor = rate / base[0]
+    return rate, min(100, max(base[1], int(base[1] * factor))), min(50, max(base[2], int(base[2] * factor)))
 
 
 class nuclei(BaseModule):
@@ -33,11 +49,15 @@ class nuclei(BaseModule):
         "mobile_download_enabled": True,
         "severity": "",
         "ratelimit": 150,
+        "adaptive_ratelimit_per_host": 0,
+        "adaptive_ratelimit_max": 0,
         "concurrency": 25,
         "mode": "manual",
         "etags": "",
         "budget": 1,
         "silent": False,
+        "progress_stats": False,
+        "stats_interval": 60,
         "directory_only": True,
         "retries": 0,
         "timeout": 10,
@@ -58,11 +78,15 @@ class nuclei(BaseModule):
         "templates": "template or template directory paths to include in the scan",
         "severity": "Filter based on severity field available in the template.",
         "ratelimit": "maximum number of requests to send per second (default 150)",
+        "adaptive_ratelimit_per_host": "When set, raise the global rate only as the number of distinct web hosts grows",
+        "adaptive_ratelimit_max": "Maximum global requests per second when adaptive scaling is enabled",
         "concurrency": "maximum number of templates to be executed in parallel (default 25)",
         "mode": "manual | technology | severe | budget. Technology: Only activate based on technology events that match nuclei tags (nuclei -as mode). Manual (DEFAULT): Fully manual settings. Severe: Only critical and high severity templates without intrusive. Budget: Limit Nuclei to a specified number of HTTP requests",
         "etags": "tags to exclude from the scan",
         "budget": "Used in budget mode to set the number of allowed requests per host",
         "silent": "Don't display nuclei's banner or status messages",
+        "progress_stats": "Log compact Nuclei request progress even when silent is enabled",
+        "stats_interval": "Seconds between Nuclei statistics updates",
         "directory_only": "Filter out 'file' URL event (default True)",
         "retries": "number of times to retry a failed request (default 0)",
         "timeout": "time to wait in seconds before timeout for each request (default 10)",
@@ -146,9 +170,13 @@ class nuclei(BaseModule):
         self.proxy = self.scan.web_config.get("http_proxy", "")
         self.mode = self.config.get("mode", "severe").lower()
         self.ratelimit = int(self.config.get("ratelimit", 150))
+        self.adaptive_ratelimit_per_host = int(self.config.get("adaptive_ratelimit_per_host", 0))
+        self.adaptive_ratelimit_max = int(self.config.get("adaptive_ratelimit_max", 0))
         self.concurrency = int(self.config.get("concurrency", 25))
         self.budget = int(self.config.get("budget", 1))
         self.silent = self.config.get("silent", False)
+        self.progress_stats = bool(self.config.get("progress_stats", False))
+        self.stats_interval = max(5, int(self.config.get("stats_interval", 60)))
         self.templates = self.config.get("templates")
         has_web_templates = self.nuclei_templates_dir.is_dir() and any(
             path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
@@ -501,6 +529,10 @@ class nuclei(BaseModule):
         if not nuclei_input:
             return
 
+        # BBOT may deliver the same root URL through several discovery paths. One Nuclei
+        # input per URL avoids paying for the same full template run more than once.
+        nuclei_input = list(dict.fromkeys(nuclei_input))
+
         async for result in self.execute_nuclei(
             nuclei_input, include_mobile_templates=self.mobile_app_discovered or batch_has_mobile_artifact
         ):
@@ -653,23 +685,37 @@ class nuclei(BaseModule):
         return description
 
     async def execute_nuclei(self, nuclei_input, include_mobile_templates=False):
+        ratelimit, concurrency, bulk_size = nuclei_runtime_limits(
+            nuclei_input,
+            self.ratelimit,
+            self.concurrency,
+            self.bulk_size,
+            getattr(self, "adaptive_ratelimit_per_host", 0),
+            getattr(self, "adaptive_ratelimit_max", 0),
+        )
+        self.info(
+            f"Nuclei batch: {len(nuclei_input)} targets, global rate {ratelimit}/s, "
+            f"concurrency {concurrency}, bulk size {bulk_size}"
+        )
         command = [
             "nuclei",
             "-jsonl",
             "-update-template-dir",
             self.nuclei_templates_dir,
             "-rate-limit",
-            self.ratelimit,
+            ratelimit,
             "-concurrency",
-            self.concurrency,
+            concurrency,
             "-disable-update-check",
             "-stats-json",
+            "-stats-interval",
+            getattr(self, "stats_interval", 60),
             "-retries",
             self.retries,
             "-timeout",
             self.timeout,
             "-bulk-size",
-            self.bulk_size,
+            bulk_size,
         ]
 
         if self.helpers.system_resolvers:
@@ -820,12 +866,13 @@ class nuclei(BaseModule):
             stats_file.unlink(missing_ok=True)
 
     def log_nuclei_status(self, line):
-        if self.silent:
-            return
         try:
             line = json.loads(line)
         except Exception:
-            self.info(str(line))
+            if not self.silent:
+                self.info(str(line))
+            return
+        if self.silent and not getattr(self, "progress_stats", False):
             return
         duration = line.get("duration", "")
         errors = line.get("errors", "")
@@ -836,7 +883,19 @@ class nuclei(BaseModule):
         rps = line.get("rps", "")
         templates = line.get("templates", "")
         total = line.get("total", "")
-        status = f"[{duration}] | Templates: {templates} | Hosts: {hosts} | RPS: {rps} | Matched: {matched} | Errors: {errors} | Requests: {requests}/{total} ({percent}%)"
+        if getattr(self, "progress_stats", False):
+            now = time.monotonic()
+            started_at = line.get("startedAt")
+            marker = (started_at, requests)
+            if marker == getattr(self, "_last_nuclei_progress_marker", None):
+                return
+            last_at = getattr(self, "_last_nuclei_progress_at", 0)
+            if started_at == getattr(self, "_last_nuclei_progress_started_at", None) and now - last_at < 60 and str(percent) != "100":
+                return
+            self._last_nuclei_progress_marker = marker
+            self._last_nuclei_progress_started_at = started_at
+            self._last_nuclei_progress_at = now
+        status = f"Nuclei progress: [{duration}] | Templates: {templates} | Hosts: {hosts} | RPS: {rps} | Matched: {matched} | Errors: {errors} | Requests: {requests}/{total} ({percent}%)"
         self.info(status)
 
     async def cleanup(self):
