@@ -52,7 +52,7 @@ async def test_nuclei_waf_matches_are_assets_not_findings():
 
     event = UrlEvent()
 
-    async def execute_nuclei(inputs, include_mobile_templates=False):
+    async def execute_nuclei(inputs, include_mobile_templates=False, resolved_hosts_by_input=None):
         assert inputs == [url]
         for name in ("cloudfront", "cloudflare"):
             yield {

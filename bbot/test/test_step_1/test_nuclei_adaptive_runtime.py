@@ -31,6 +31,26 @@ def test_nuclei_does_not_multiply_rate_for_paths_or_ports_on_one_host():
         urls, ratelimit=120, concurrency=20, bulk_size=10,
         per_host_rate=30, max_ratelimit=600,
     ) == (120, 20, 10)
+
+
+def test_nuclei_does_not_multiply_rate_for_hostnames_sharing_a_resolved_ip():
+    urls = [f"https://host-{i}.example/" for i in range(30)]
+    resolved = {url: {"203.0.113.5"} for url in urls}
+    assert nuclei_runtime_limits(
+        urls, ratelimit=120, concurrency=20, bulk_size=10,
+        per_host_rate=30, max_ratelimit=600,
+        resolved_hosts_by_input=resolved,
+    ) == (120, 20, 10)
+
+
+def test_nuclei_scales_for_separate_resolved_ips():
+    urls = [f"https://host-{i}.example/" for i in range(30)]
+    resolved = {url: {f"203.0.113.{i + 1}"} for i, url in enumerate(urls)}
+    assert nuclei_runtime_limits(
+        urls, ratelimit=120, concurrency=20, bulk_size=10,
+        per_host_rate=30, max_ratelimit=600,
+        resolved_hosts_by_input=resolved,
+    ) == (600, 100, 50)
     assert nuclei_runtime_limits(
         [f"https://host-{i}.example/" for i in range(30)],
         ratelimit=120, concurrency=20, bulk_size=10,

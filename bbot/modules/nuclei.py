@@ -13,17 +13,49 @@ from urllib.parse import urlparse
 from bbot.modules.base import BaseModule
 
 
-def nuclei_runtime_limits(inputs, ratelimit, concurrency, bulk_size, per_host_rate=0, max_ratelimit=0):
-    """Scale one Nuclei process for independent web hosts without raising single-host traffic."""
+def nuclei_runtime_limits(
+    inputs, ratelimit, concurrency, bulk_size, per_host_rate=0, max_ratelimit=0, resolved_hosts_by_input=None
+):
+    """Scale by independently resolved endpoints, grouping names that share an IP."""
     base = (int(ratelimit), int(concurrency), int(bulk_size))
     if int(per_host_rate) <= 0 or int(max_ratelimit) <= base[0]:
         return base
-    hosts = {
-        parsed.hostname.lower()
-        for value in inputs
-        if (parsed := urlparse(str(value))).scheme in ("http", "https") and parsed.hostname
-    }
-    rate = max(base[0], min(int(max_ratelimit), len(hosts) * int(per_host_rate)))
+    groups = []
+    for value in inputs:
+        parsed = urlparse(str(value))
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            continue
+        hostname = parsed.hostname.lower()
+        if resolved_hosts_by_input is None:
+            identities = {f"host:{hostname}"}
+        else:
+            resolved = resolved_hosts_by_input.get(str(value), set())
+            identities = {f"host:{hostname}"}
+            identities.update(f"ip:{ip}" for ip in resolved)
+            if not resolved:
+                identities.add("unresolved")
+        groups.append(identities)
+
+    # A host may have several A/AAAA records. Any overlap means that those names
+    # can reach the same physical endpoint and must share one rate allowance.
+    independent = 0
+    while groups:
+        merged = groups.pop()
+        for other in groups[:]:
+            if merged.isdisjoint(other):
+                continue
+            merged.update(other)
+            groups.remove(other)
+        # A newly merged group can now overlap an earlier one; close transitively.
+        while True:
+            overlapping = [other for other in groups if not merged.isdisjoint(other)]
+            if not overlapping:
+                break
+            for other in overlapping:
+                merged.update(other)
+                groups.remove(other)
+        independent += 1
+    rate = max(base[0], min(int(max_ratelimit), independent * int(per_host_rate)))
     factor = rate / base[0]
     return rate, min(100, max(base[1], int(base[1] * factor))), min(50, max(base[2], int(base[2] * factor)))
 
@@ -510,6 +542,7 @@ class nuclei(BaseModule):
         temp_target = self.helpers.make_target()
         parent_by_key = {}
         nuclei_input = []
+        resolved_hosts_by_input = {}
         for e in scan_events:
             event_data = str(mobile_paths_by_event.get(e) or e.data or "").strip()
             if not event_data:
@@ -517,6 +550,9 @@ class nuclei(BaseModule):
             nuclei_input.append(event_data)
             if e.type == "URL":
                 temp_target.add(e.data, e)
+                resolved_hosts_by_input.setdefault(event_data, set()).update({
+                    str(host) for host in getattr(e, "resolved_hosts", set()) if self.helpers.is_ip(host)
+                })
             if event_data:
                 parent_by_key[event_data.lower()] = e
                 parsed_data = urlparse(event_data)
@@ -534,7 +570,9 @@ class nuclei(BaseModule):
         nuclei_input = list(dict.fromkeys(nuclei_input))
 
         async for result in self.execute_nuclei(
-            nuclei_input, include_mobile_templates=self.mobile_app_discovered or batch_has_mobile_artifact
+            nuclei_input,
+            include_mobile_templates=self.mobile_app_discovered or batch_has_mobile_artifact,
+            resolved_hosts_by_input=resolved_hosts_by_input,
         ):
             severity = result.get("severity", "")
             template = result.get("template", "")
@@ -684,7 +722,7 @@ class nuclei(BaseModule):
             description += f" Evidence extracted from the response: [{extracted}]."
         return description
 
-    async def execute_nuclei(self, nuclei_input, include_mobile_templates=False):
+    async def execute_nuclei(self, nuclei_input, include_mobile_templates=False, resolved_hosts_by_input=None):
         ratelimit, concurrency, bulk_size = nuclei_runtime_limits(
             nuclei_input,
             self.ratelimit,
@@ -692,6 +730,7 @@ class nuclei(BaseModule):
             self.bulk_size,
             getattr(self, "adaptive_ratelimit_per_host", 0),
             getattr(self, "adaptive_ratelimit_max", 0),
+            resolved_hosts_by_input,
         )
         self.info(
             f"Nuclei batch: {len(nuclei_input)} targets, global rate {ratelimit}/s, "
