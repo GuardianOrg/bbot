@@ -127,17 +127,23 @@ config:
       etags: "dos,destructive"
       exclude_types: "code"
       ratelimit: 120
+      # Keep the current rate for small scopes; use the worker's spare capacity
+      # when the batch contains many independent hosts.
+      adaptive_ratelimit_per_host: 30
+      adaptive_ratelimit_max: 600
       concurrency: 20
       bulk_size: 10
       retries: 0
       timeout: 10
-      batch_size: 20
-      # Full-template scans can keep producing findings beyond one hour. The
-      # Sentry scan deadline is four hours; do not cancel a healthy batch first.
-      module_timeout: 21600
+      batch_size: 200
+      # The outer worker cancels scans that stop making progress. Do not cancel
+      # a large full-template batch while its request counter is still moving.
+      module_timeout: 86400
       verbose_templates: false
       directory_only: true
       silent: true
+      progress_stats: true
+      stats_interval: 60
     wafw00f:
       find_all: true
     fingerprintx:
