@@ -1,4 +1,7 @@
+import asyncio
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from enum import IntEnum
 from bbot.modules.base import BaseModule
 
@@ -31,11 +34,15 @@ class retirejs(BaseModule):
         "version": "5.3.0",
         "node_version": "18.19.1",
         "severity": "medium",
+        "max_js_size": 5242880,
+        "timeout": 30,
     }
     options_desc = {
         "version": "retire.js version",
         "node_version": "Node.js version to install locally",
         "severity": "Minimum severity level to report (none, low, medium, high, critical)",
+        "max_js_size": "Maximum complete JavaScript bytes to analyze (oversized scripts are reported as skipped)",
+        "timeout": "Maximum seconds per script download or RetireJS analysis",
     }
 
     deps_ansible = [
@@ -141,80 +148,121 @@ class retirejs(BaseModule):
         return True
 
     async def handle_event(self, event):
-        js_file = await self.helpers.request(event.data)
-        if js_file:
-            js_file_body = js_file.text
-            if js_file_body:
-                js_file_body_saved = self.helpers.tempfile(js_file_body, pipe=False, extension="js")
-                results = await self.execute_retirejs(js_file_body_saved)
-                if not results:
-                    self.warning("no output from retire.js")
-                    return
-                results_json = json.loads(results)
-                if results_json.get("data"):
-                    for file_result in results_json["data"]:
-                        for component_result in file_result.get("results", []):
-                            component = component_result.get("component", "unknown")
-                            version = component_result.get("version", "unknown")
-                            vulnerabilities = component_result.get("vulnerabilities", [])
-                            for vuln in vulnerabilities:
-                                severity = vuln.get("severity", "unknown")
+        max_size = max(1, int(self.config.get("max_js_size", 5242880)))
+        timeout = max(1, int(self.config.get("timeout", 30)))
+        with TemporaryDirectory(prefix="bbot-retirejs-") as directory:
+            filename = Path(directory) / "library.js"
+            try:
+                downloaded = await asyncio.wait_for(
+                    self.helpers.download(
+                        event.data,
+                        filename=filename,
+                        max_size=max_size + 8192,
+                        follow_redirects=False,
+                        timeout=timeout,
+                        warn=False,
+                    ),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                self.warning(f"JavaScript download exceeded {timeout}s: {event.data}")
+                return
+            if not downloaded:
+                return
+            if filename.stat().st_size > max_size:
+                self.warning(f"Skipping JavaScript larger than {max_size} bytes: {event.data}")
+                return
+            if not filename.stat().st_size:
+                return
+            results = await self.execute_retirejs(str(filename))
+            await self.report_results(event, results)
 
-                                # Filter by minimum severity level
-                                min_severity = RetireJSSeverity.from_string(self.config.get("severity", "medium"))
-                                vuln_severity = RetireJSSeverity.from_string(severity)
-                                if vuln_severity < min_severity:
-                                    self.debug(
-                                        f"Skipping vulnerability with severity '{severity}' (below minimum '{min_severity.name.lower()}')"
-                                    )
-                                    continue
+    async def report_results(self, event, results):
+        if not results:
+            self.warning("no output from retire.js")
+            return
+        results_json = json.loads(results)
+        if results_json.get("data"):
+            for file_result in results_json["data"]:
+                for component_result in file_result.get("results", []):
+                    component = component_result.get("component", "unknown")
+                    version = component_result.get("version", "unknown")
+                    vulnerabilities = component_result.get("vulnerabilities", [])
+                    for vuln in vulnerabilities:
+                        severity = vuln.get("severity", "unknown")
 
-                                identifiers = vuln.get("identifiers", {})
-                                summary = identifiers.get("summary", "Unknown vulnerability")
-                                cves = identifiers.get("CVE", [])
-                                description_parts = [
-                                    f"Vulnerable JavaScript library detected: {component} v{version}",
-                                    f"Severity: {severity.upper()}",
-                                    f"Summary: {summary}",
-                                    f"JavaScript URL: {event.data}",
-                                ]
-                                if cves:
-                                    description_parts.append(f"CVE(s): {', '.join(cves)}")
+                        # Filter by minimum severity level
+                        min_severity = RetireJSSeverity.from_string(self.config.get("severity", "medium"))
+                        vuln_severity = RetireJSSeverity.from_string(severity)
+                        if vuln_severity < min_severity:
+                            self.debug(
+                                f"Skipping vulnerability with severity '{severity}' (below minimum '{min_severity.name.lower()}')"
+                            )
+                            continue
 
-                                below_version = vuln.get("below", "")
-                                at_or_above = vuln.get("atOrAbove", "")
-                                if at_or_above and below_version:
-                                    description_parts.append(f"Affected versions: [{at_or_above} to {below_version})")
-                                elif below_version:
-                                    description_parts.append(f"Affected versions: [< {below_version}]")
-                                elif at_or_above:
-                                    description_parts.append(f"Affected versions: [>= {at_or_above}]")
-                                description = (
-                                    f"{' '.join(description_parts)} "
-                                    "A JavaScript library served by the application is known to be affected by one or more public vulnerabilities. "
-                                    "Attackers may exploit the vulnerable library in users' browsers if the affected code path is reachable. "
-                                    "Depending on the CVE, this can lead to cross-site scripting, account actions performed in a victim browser, data theft, or client-side compromise. "
-                                    "JavaScript libraries run inside the user's browser, so the impact is often tied to what the vulnerable page can access, such as session cookies, page content, forms, tokens, or privileged application actions. "
-                                    "The component should be upgraded to a fixed version, removed if unused, or isolated so vulnerable code paths are not reachable by untrusted input."
-                                )
-                                data = {
-                                    "description": description,
-                                    "severity": severity,
-                                    "component": component,
-                                    "url": event.parent.data["url"],
-                                }
-                                await self.emit_event(
-                                    data,
-                                    "FINDING",
-                                    parent=event,
-                                    context=f"{{module}} identified vulnerable JavaScript library {component} v{version} ({severity} severity)",
-                                )
+                        identifiers = vuln.get("identifiers", {})
+                        summary = identifiers.get("summary", "Unknown vulnerability")
+                        cves = identifiers.get("CVE", [])
+                        if isinstance(cves, str):
+                            cves = [cves]
+                        description_parts = [
+                            f"Vulnerable JavaScript library detected: {component} v{version}",
+                            f"Severity: {severity.upper()}",
+                            f"Summary: {summary}",
+                            f"JavaScript URL: {event.data}",
+                        ]
+                        if cves:
+                            description_parts.append(f"CVE(s): {', '.join(cves)}")
+
+                        below_version = vuln.get("below", "")
+                        at_or_above = vuln.get("atOrAbove", "")
+                        if at_or_above and below_version:
+                            description_parts.append(f"Affected versions: [{at_or_above} to {below_version})")
+                        elif below_version:
+                            description_parts.append(f"Affected versions: [< {below_version}]")
+                        elif at_or_above:
+                            description_parts.append(f"Affected versions: [>= {at_or_above}]")
+                        description = (
+                            " ".join(description_parts)
+                            + " Version matched to a public advisory; application exploitability has not been verified."
+                        )
+                        data = {
+                            "description": description,
+                            "severity": severity,
+                            "component": component,
+                            "version": version,
+                            "cves": cves,
+                            "javascript_url": event.data,
+                            "url": self.page_url(event),
+                        }
+                        if vuln.get("info"):
+                            data["advisory_urls"] = vuln["info"]
+                        await self.emit_event(
+                            data,
+                            "FINDING",
+                            parent=event,
+                            context=f"{{module}} identified vulnerable JavaScript library {component} v{version} ({severity} severity)",
+                        )
 
     async def filter_event(self, event):
+        if not self.scan.in_scope(event):
+            return False, "script is outside scan scope"
         url_extension = getattr(event, "url_extension", "")
         if url_extension != "js":
             return False, f"it is a {url_extension} URL but retirejs only accepts js URLs"
         return True
+
+    @staticmethod
+    def page_url(event):
+        parent = event.parent
+        # BBOT's SCAN root deliberately points to itself.
+        while parent is not None and parent.type != "SCAN":
+            if parent.type == "HTTP_RESPONSE" and isinstance(parent.data, dict):
+                return parent.data.get("url") or event.data
+            if parent.type == "URL" and isinstance(parent.data, str):
+                return parent.data
+            parent = parent.parent
+        return event.data
 
     async def execute_retirejs(self, js_file):
         cache_dir = self.helpers.cache_dir / "retire_cache"
@@ -243,5 +291,8 @@ class retirejs(BaseModule):
         self.verbose(f"Running retire.js on {js_file}")
         self.verbose(f"retire.js command: {command}")
 
-        result = await self.run_process(command)
+        result = await self.run_process(command, idle_timeout=max(1, int(self.config.get("timeout", 30))))
+        # RetireJS uses 13 to report successfully identified vulnerable libraries.
+        if result is None or result.returncode not in (0, 13):
+            raise RuntimeError("RetireJS analysis failed")
         return result.stdout

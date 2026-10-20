@@ -62,6 +62,7 @@ modules:
   - originfinder
   - rapiddns
   - robtex
+  - retirejs
   - securitytrails
   - shodan_dns
   - shodan_idb
@@ -76,6 +77,7 @@ modules:
   - urlscan
   - virustotal
   - wafw00f
+  - whatweb
   - wayback
   - dnsreaper
 
@@ -146,6 +148,8 @@ config:
       stats_interval: 60
     wafw00f:
       find_all: true
+    retirejs:
+      severity: low
     fingerprintx:
       batch_size: 1
       module_threads: 64

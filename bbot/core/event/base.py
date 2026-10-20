@@ -1743,13 +1743,17 @@ class TECHNOLOGY(DictHostEvent):
         host: str
         technology: str
         url: Optional[str] = None
+        version: Optional[str] = None
+        evidence: Optional[str] = None
         _validate_url = field_validator("url")(validators.validate_url)
         _validate_host = field_validator("host")(validators.validate_host)
 
     def _data_id(self):
         # dedupe by host+port+tech
         tech = self.data.get("technology", "")
-        return f"{self.host}:{self.port}:{tech}"
+        version = self.data.get("version")
+        suffix = f":{version}" if version else ""
+        return f"{self.host}:{self.port}:{tech}{suffix}"
 
     def _pretty_string(self):
         return self.data["technology"]
