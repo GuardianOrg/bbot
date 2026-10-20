@@ -43,6 +43,8 @@ Provider references: [Cloudflare Challenge Pages](https://developers.cloudflare.
 
 RetireJS scans discovered, in-scope `.js` URLs without following redirects. The preset includes low and higher severities. Each existing `FINDING` includes `component`, `version`, `cves`, `javascript_url`, associated page `url`, description, severity, and advisory URLs when supplied. Some advisories have no CVE. Matching an advisory is not proof of application exploitability. Undiscovered, bundled/obfuscated, inline and out-of-scope scripts are not guaranteed coverage.
 
+Script downloads are limited to 5 MiB by default (`max_js_size`), with a 30-second download/analysis budget (`timeout`). Oversized and timed-out scripts produce a warning and are not analyzed as complete files. Tool failures remain errors; RetireJS exit code 13 denotes successful advisory detection.
+
 ## Consumer requirements
 
 - Naxus installs the selected remote BBOT revision and downloads the preset from that same revision. Updating only its fallback preset does not change the deployed image. New metadata is kept in large-event previews as well as the full S3 record.

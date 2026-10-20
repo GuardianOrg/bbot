@@ -103,7 +103,7 @@ class IconLinks(HTMLParser):
         attrs = dict(attrs)
         if tag == "base" and self.base is None:
             self.base = attrs.get("href")
-        if tag == "link" and "icon" in attrs.get("rel", "").lower().split() and attrs.get("href"):
+        if tag == "link" and "icon" in (attrs.get("rel") or "").lower().split() and attrs.get("href"):
             self.links.append(attrs["href"])
 
 
@@ -111,11 +111,17 @@ def icon_urls(url, body):
     parser = IconLinks()
     parser.feed(body)
     origin = urlsplit(url)
-    base = urljoin(url, parser.base) if parser.base else url
-    candidates = [urljoin(base, href) for href in parser.links] + [urljoin(url, "/favicon.ico")]
+    try:
+        base = urljoin(url, parser.base) if parser.base else url
+    except ValueError:
+        base = url
     result = []
-    for candidate in candidates:
-        parsed = urlsplit(candidate)
+    for href in [*parser.links, "/favicon.ico"]:
+        try:
+            candidate = urljoin(url if href == "/favicon.ico" else base, href)
+            parsed = urlsplit(candidate)
+        except ValueError:
+            continue
         if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.username or parsed.password:
             continue
         candidate = parsed._replace(fragment="").geturl()
@@ -223,11 +229,11 @@ class whatweb(BaseInterceptModule):
             output = Path(directory) / "result.json"
             raw = data.get("raw_header", "")
             # WhatWeb accepts a saved HTTP packet, preserving header signatures without another target request.
-            raw = raw.replace("\r\n", "\n").strip().split("\n")
-            if not raw or not raw[0].startswith("HTTP/"):
-                raw.insert(0, f"HTTP/1.1 {data.get('status_code', 200)} Response")
-            else:
-                raw[0] = re.sub(r"^HTTP/\S+", "HTTP/1.1", raw[0])
+            raw = raw.strip().splitlines()
+            if raw and raw[0].startswith("HTTP/"):
+                raw.pop(0)
+            # Saved-packet detection in WhatWeb requires an HTTP/1.x reason phrase.
+            raw.insert(0, f"HTTP/1.1 {data.get('status_code', 200)} Response")
             packet.write_text("\r\n".join(raw) + "\r\n\r\n" + data.get("body", ""), encoding="utf-8")
             command = [
                 self.binary,

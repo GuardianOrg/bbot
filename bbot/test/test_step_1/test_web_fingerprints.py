@@ -59,6 +59,12 @@ def test_icon_scope_base_url_and_html_negative_control():
     assert isinstance(result["mmh3"], int)
 
 
+def test_malformed_icon_markup_cannot_abort_response_enrichment():
+    assert icon_urls("https://example.com/", '<link rel="icon" href="http://["><link rel icon href="/ok.png">') == [
+        "https://example.com/favicon.ico"
+    ]
+
+
 def test_existing_technology_schema_retains_normalized_fields():
     event = make_event(
         {
@@ -153,8 +159,12 @@ async def test_challenged_response_is_forwarded_without_fetching_icons():
 @pytest.mark.asyncio
 async def test_retirejs_cves_are_structured_and_string_url_parent_is_supported():
     module = make_module(retirejs, {"severity": "low"})
-    module.scan.helpers.request = AsyncMock(return_value=SimpleNamespace(status_code=200, text="jQuery v3.4.1"))
-    module.scan.helpers.tempfile = lambda *args, **kwargs: "/tmp/library.js"
+
+    async def download(url, **kwargs):
+        Path(kwargs["filename"]).write_text("jQuery v3.4.1")
+        return kwargs["filename"]
+
+    module.scan.helpers.download = AsyncMock(side_effect=download)
     module.execute_retirejs = AsyncMock(
         return_value=json.dumps(
             {
@@ -189,11 +199,31 @@ async def test_retirejs_cves_are_structured_and_string_url_parent_is_supported()
     assert finding["javascript_url"] == event.data
     assert finding["version"] == "3.4.1" and finding["cves"] == ["CVE-2020-11022"]
     assert "has not been verified" in finding["description"]
-    module.scan.helpers.request.assert_awaited_once_with(event.data, follow_redirects=False)
+    module.scan.helpers.download.assert_awaited_once()
+    assert module.scan.helpers.download.call_args.kwargs["follow_redirects"] is False
 
 
 @pytest.mark.asyncio
-async def test_real_whatweb_offline_packet(tmp_path):
+async def test_retirejs_does_not_scan_truncated_or_oversized_scripts():
+    module = make_module(retirejs, {"max_js_size": 8})
+    module.scan.helpers.request = AsyncMock(side_effect=AssertionError("unbounded script request"))
+
+    async def download(url, **kwargs):
+        Path(kwargs["filename"]).write_bytes(b"x" * 20)
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["max_size"] == 8 + 8192
+        return kwargs["filename"]
+
+    module.scan.helpers.download = download
+    module.warning = lambda *args: None
+    module.execute_retirejs = AsyncMock()
+    await module.handle_event(SimpleNamespace(data="https://example.com/large.js"))
+    module.execute_retirejs.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_line", ["HTTP/2 200 OK", "HTTP/2 200"])
+async def test_real_whatweb_offline_packet(tmp_path, status_line):
     binary = os.getenv("BBOT_TEST_WHATWEB_BINARY")
     if not binary:
         pytest.skip("Set BBOT_TEST_WHATWEB_BINARY to exercise installed WhatWeb")
@@ -207,7 +237,7 @@ async def test_real_whatweb_offline_packet(tmp_path):
     plugins = await module.fingerprint(
         {
             "status_code": 200,
-            "raw_header": "HTTP/2 200 OK\r\nServer: nginx/1.24.0",
+            "raw_header": status_line + "\r\nServer: nginx/1.24.0",
             "body": '<html><head><meta name="generator" content="WordPress 6.6.2" /></head><body></body></html>',
         }
     )
