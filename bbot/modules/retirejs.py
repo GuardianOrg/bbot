@@ -224,7 +224,8 @@ class retirejs(BaseModule):
     @staticmethod
     def page_url(event):
         parent = event.parent
-        while parent is not None:
+        # BBOT's SCAN root deliberately points to itself.
+        while parent is not None and parent.type != "SCAN":
             if parent.type == "HTTP_RESPONSE" and isinstance(parent.data, dict):
                 return parent.data.get("url") or event.data
             if parent.type == "URL" and isinstance(parent.data, str):

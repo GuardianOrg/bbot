@@ -86,6 +86,19 @@ def make_module(cls, config=None):
     return module
 
 
+def test_retirejs_page_lookup_stops_at_self_parenting_scan_root():
+    class ScanRoot:
+        type = "SCAN"
+        data = {}
+
+        @property
+        def parent(self):
+            raise AssertionError("Following a SCAN root parent would loop back to the same root")
+
+    event = SimpleNamespace(data="https://example.com/jquery.js", parent=ScanRoot())
+    assert retirejs.page_url(event) == event.data
+
+
 @pytest.mark.asyncio
 async def test_response_enrichment_reaches_the_original_event_and_keeps_identity():
     module = make_module(whatweb)
