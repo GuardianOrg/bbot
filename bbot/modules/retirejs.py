@@ -141,8 +141,11 @@ class retirejs(BaseModule):
         return True
 
     async def handle_event(self, event):
-        js_file = await self.helpers.request(event.data)
+        # Do not follow an in-scope script URL to an unapproved third-party host.
+        js_file = await self.helpers.request(event.data, follow_redirects=False)
         if js_file:
+            if js_file.status_code != 200:
+                return
             js_file_body = js_file.text
             if js_file_body:
                 js_file_body_saved = self.helpers.tempfile(js_file_body, pipe=False, extension="js")
@@ -172,6 +175,8 @@ class retirejs(BaseModule):
                                 identifiers = vuln.get("identifiers", {})
                                 summary = identifiers.get("summary", "Unknown vulnerability")
                                 cves = identifiers.get("CVE", [])
+                                if isinstance(cves, str):
+                                    cves = [cves]
                                 description_parts = [
                                     f"Vulnerable JavaScript library detected: {component} v{version}",
                                     f"Severity: {severity.upper()}",
@@ -189,20 +194,18 @@ class retirejs(BaseModule):
                                     description_parts.append(f"Affected versions: [< {below_version}]")
                                 elif at_or_above:
                                     description_parts.append(f"Affected versions: [>= {at_or_above}]")
-                                description = (
-                                    f"{' '.join(description_parts)} "
-                                    "A JavaScript library served by the application is known to be affected by one or more public vulnerabilities. "
-                                    "Attackers may exploit the vulnerable library in users' browsers if the affected code path is reachable. "
-                                    "Depending on the CVE, this can lead to cross-site scripting, account actions performed in a victim browser, data theft, or client-side compromise. "
-                                    "JavaScript libraries run inside the user's browser, so the impact is often tied to what the vulnerable page can access, such as session cookies, page content, forms, tokens, or privileged application actions. "
-                                    "The component should be upgraded to a fixed version, removed if unused, or isolated so vulnerable code paths are not reachable by untrusted input."
-                                )
+                                description = " ".join(description_parts) + " Version matched to a public advisory; application exploitability has not been verified."
                                 data = {
                                     "description": description,
                                     "severity": severity,
                                     "component": component,
-                                    "url": event.parent.data["url"],
+                                    "version": version,
+                                    "cves": cves,
+                                    "javascript_url": event.data,
+                                    "url": self.page_url(event),
                                 }
+                                if vuln.get("info"):
+                                    data["advisory_urls"] = vuln["info"]
                                 await self.emit_event(
                                     data,
                                     "FINDING",
@@ -211,10 +214,23 @@ class retirejs(BaseModule):
                                 )
 
     async def filter_event(self, event):
+        if not self.scan.in_scope(event):
+            return False, "script is outside scan scope"
         url_extension = getattr(event, "url_extension", "")
         if url_extension != "js":
             return False, f"it is a {url_extension} URL but retirejs only accepts js URLs"
         return True
+
+    @staticmethod
+    def page_url(event):
+        parent = event.parent
+        while parent is not None:
+            if parent.type == "HTTP_RESPONSE" and isinstance(parent.data, dict):
+                return parent.data.get("url") or event.data
+            if parent.type == "URL" and isinstance(parent.data, str):
+                return parent.data
+            parent = parent.parent
+        return event.data
 
     async def execute_retirejs(self, js_file):
         cache_dir = self.helpers.cache_dir / "retire_cache"
