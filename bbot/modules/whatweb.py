@@ -201,9 +201,17 @@ class whatweb(BaseInterceptModule):
         plugins = {}
         if is_html and not challenge and self.pages.get(origin, 0) < self.max_pages:
             self.pages[origin] = self.pages.get(origin, 0) + 1
-            plugins = await self.fingerprint(data)
+            try:
+                plugins = await self.fingerprint(data)
+            except (TimeoutError, OSError, RuntimeError, ValueError) as error:
+                # A single slow or malformed response must not abort discovery.
+                # The required module's setup failure remains fatal.
+                self.warning(f"WhatWeb fingerprint skipped on {origin}: {type(error).__name__}")
             if origin not in self.icons:
-                self.icons[origin] = await self.find_favicon(url, body)
+                try:
+                    self.icons[origin] = await self.find_favicon(url, body)
+                except (TimeoutError, OSError, RuntimeError, ValueError) as error:
+                    self.warning(f"Favicon fingerprint skipped on {origin}: {type(error).__name__}")
         technologies = normalized_technologies(data.get("tech", []), plugins)
         if technologies:
             data["technologies"] = technologies

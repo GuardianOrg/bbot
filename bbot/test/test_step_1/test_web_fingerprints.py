@@ -5,7 +5,7 @@ import subprocess
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -154,6 +154,34 @@ async def test_challenged_response_is_forwarded_without_fetching_icons():
     assert event.data["access_challenge"]["provider"] == "Cloudflare"
     module.fingerprint.assert_not_awaited()
     module.find_favicon.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_whatweb_response_timeout_keeps_discovery_and_httpx_evidence():
+    module = make_module(whatweb)
+    module.pages, module.icons, module.max_pages = {}, {}, 3
+    module.fingerprint = AsyncMock(side_effect=TimeoutError)
+    module.find_favicon = AsyncMock(side_effect=TimeoutError)
+    module.emit_event = AsyncMock()
+    module.warning = Mock()
+    event = make_event(
+        {
+            "url": "https://example.com/",
+            "method": "GET",
+            "status_code": 200,
+            "raw_header": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n",
+            "body": "<html></html>",
+            "tech": ["Next.js"],
+        },
+        "HTTP_RESPONSE",
+        dummy=True,
+    )
+
+    assert await module.handle_event(event) is True
+    assert event.data["technologies"][0]["name"] == "Next.js"
+    module.emit_event.assert_awaited_once()
+    assert module.warning.call_count == 2
+    assert all("TimeoutError" in call.args[0] for call in module.warning.call_args_list)
 
 
 @pytest.mark.asyncio
