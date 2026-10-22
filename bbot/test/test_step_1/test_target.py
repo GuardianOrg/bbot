@@ -346,6 +346,20 @@ async def test_target_basic(bbot_scanner):
     assert {e.data for e in events} == {"http://evilcorp.com/", "evilcorp.com:443"}
 
 
+def test_blacklist_scope_accepts_url_events_and_preserves_regex_matching():
+    from bbot.core.event.base import make_event
+    from bbot.scanner.target import BBOTTarget
+
+    script = make_event("https://app.raac.io/assets/app.js", "URL_UNVERIFIED", dummy=True)
+    private_script = make_event("https://app.raac.io/private/app.js", "URL_UNVERIFIED", dummy=True)
+    outside_script = make_event("https://elsewhere.example/assets/app.js", "URL_UNVERIFIED", dummy=True)
+
+    target = BBOTTarget("raac.io", blacklist=[r"RE:/private/"])
+    assert target.in_scope(script)
+    assert not target.in_scope(private_script)
+    assert not target.in_scope(outside_script)
+
+
 @pytest.mark.asyncio
 async def test_blacklist_regex(bbot_scanner, bbot_httpserver):
     from bbot.scanner.target import ScanBlacklist
