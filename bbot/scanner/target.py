@@ -161,8 +161,11 @@ class ScanBlacklist(ACLTarget):
 
     def get(self, host, **kwargs):
         """
-        Blacklists only accept IPs or strings. This is cleaner since we need to search for regex patterns.
+        Search an event's full string data so URL regexes can match paths, while
+        the base target lookup still matches its host.
         """
+        if is_event(host) or isinstance(host, BaseEventSeed):
+            host = host.data if isinstance(host.data, str) else host.host
         if not (is_ip_type(host) or isinstance(host, str)):
             raise ValueError(f"Invalid target type for {self.__class__.__name__}: {type(host)}")
         raise_error = kwargs.get("raise_error", False)
