@@ -288,6 +288,9 @@ class leaklookup(subdomain_enum):
         json_result = self._safe_json(response)
         if str(json_result.get("error", "")).lower() == "true":
             message = json_result.get("message", "")
+            if self._quota_exhausted(message):
+                self.set_error_state("Leak-Lookup request limit reached; skipping remaining lookups")
+                return
             raise RuntimeError(f'Leak-Lookup hash lookup failed for "{hash_value}": {message}')
 
         message = self._result_message(json_result)
@@ -331,11 +334,23 @@ class leaklookup(subdomain_enum):
         )
         json_result = self._safe_json(response)
         if str(json_result.get("error", "")).lower() == "true":
-            raise RuntimeError(f'Leak-Lookup search failed for "{query}": {json_result.get("message", "")}')
+            message = json_result.get("message", "")
+            if self._quota_exhausted(message):
+                self.set_error_state("Leak-Lookup request limit reached; skipping remaining lookups")
+                return {}
+            raise RuntimeError(f'Leak-Lookup search failed for "{query}": {message}')
         message = self._result_message(json_result)
         if message is None:
             raise RuntimeError(f'Leak-Lookup search returned malformed data for "{query}"')
         return message
+
+    @staticmethod
+    def _quota_exhausted(message):
+        if not isinstance(message, str):
+            return False
+        return any(label in message.upper() for label in (
+            "REQUEST LIMIT REACHED", "DAILY LIMIT REACHED", "MONTHLY LIMIT REACHED",
+        ))
 
     @staticmethod
     def _result_message(json_result):
