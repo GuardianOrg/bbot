@@ -91,14 +91,31 @@ class TestLeaklookupNonEmptyListMessage(_LeaklookupSearchFailure):
         await super().setup_before_prep(module_test)
 
 
-class TestLeaklookupDailyLimit(_LeaklookupSearchFailure):
+class _LeaklookupQuota(ModuleTestBase):
+    module_name = "leaklookup"
+    config_overrides = {"modules": {"leaklookup": {"public_api_key": "pub"}}}
+    limit_message = "REQUEST LIMIT REACHED"
+
     async def setup_before_prep(self, module_test):
-        await super().setup_before_prep(module_test)
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
         module_test.httpx_mock.add_response(
             url="https://leak-lookup.com/api/search",
             method="POST",
-            json={"error": "true", "message": "Daily limit reached"},
+            json={"error": "true", "message": self.limit_message},
         )
+
+    def check(self, module_test, events):
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+        assert module_test.module.errored
+        assert not any(e.type in ("PASSWORD", "HASHED_PASSWORD", "FINDING") for e in events)
+
+
+class TestLeaklookupRequestLimit(_LeaklookupQuota):
+    pass
+
+
+class TestLeaklookupDailyLimit(_LeaklookupQuota):
+    limit_message = "Daily limit reached"
 
 
 class TestLeaklookupHttpFailure(_LeaklookupSearchFailure):
