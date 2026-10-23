@@ -148,6 +148,50 @@ def test_expired_jwt_artifacts_are_not_reported_as_secrets(tmp_path):
         assert formatter.format_artifact_leak(event, artifact, future, detector=detector)["category"] == "secret"
 
 
+def test_public_gitbook_content_token_does_not_hide_user_jwts(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    def token(claims):
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+        payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+        return f"{header}.{payload}.fixturesignature"
+
+    public_claims = {
+        "sub": "content_fixture", "target": "content", "kind": "site", "visitorType": "human",
+        "draft": False, "organization": "org_fixture", "site": "site_fixture",
+        "siteSpace": "sitesp_fixture", "space": "space_fixture", "spaces": ["space_fixture"],
+        "iat": 4102444800, "exp": 4103049600,
+    }
+    public_token = token(public_claims)
+    user_token = token({**public_claims, "sub": "user_fixture", "role": "admin"})
+    artifact = tmp_path / "public-site.html"
+    artifact.write_text(f'0:{{"c":["sites","static","siteData","(apiToken%3A{public_token}%2CsiteSpace%3Asitesp_fixture)"]}}\n')
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/learn/", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    assert formatter.format_artifact_leak(
+        event, artifact, public_token, detector="JSON Web Token (base64url-encoded)",
+        file_path=str(artifact), line=1,
+    ) is None
+    assert formatter.format_artifact_leak(
+        event, artifact, public_token, detector="JSON Web Token (base64url-encoded)",
+        file_path=str(artifact), line=1, verified=True,
+    )["category"] == "secret"
+    artifact.write_text(f'Authorization: Bearer {public_token}\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, public_token, detector="JSON Web Token (base64url-encoded)",
+        file_path=str(artifact), line=1,
+    )["category"] == "secret"
+    artifact.write_text(f'0:{{"c":["sites","static","siteData","(apiToken%3A{user_token}%2CsiteSpace%3Asitesp_fixture)"]}}\n')
+    assert formatter.format_artifact_leak(
+        event, artifact, user_token, detector="JSON Web Token (base64url-encoded)",
+        file_path=str(artifact), line=1,
+    )["category"] == "secret"
+
+
 @pytest.fixture
 def mock_kingfisher(monkeypatch):
     kingfisher_calls.clear()

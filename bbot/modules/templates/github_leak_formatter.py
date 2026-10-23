@@ -260,6 +260,7 @@ class github_leak_formatter:
             or self.is_public_amplitude_api_key(scan_path, file_path, line, leak, detector)
             or self.is_documentation_placeholder(leak, detector, verified)
             or self.is_expired_jwt(leak, detector, verified)
+            or self.is_public_gitbook_content_token(scan_path, file_path, line, leak, detector, verified)
         ):
             return None
         source_url = self.get_artifact_source_url(event)
@@ -429,6 +430,47 @@ class github_leak_formatter:
             and not isinstance(expires_at, bool)
             and expires_at <= time.time() - 300
         )
+
+    @staticmethod
+    def is_public_gitbook_content_token(scan_path, file_path, line, leak, detector, verified):
+        """GitBook embeds its read-only site content token in every public page's route data."""
+        if verified or str(detector or "").strip().lower() not in {"jwt", "json web token (base64url-encoded)"}:
+            return False
+        value = str(leak or "").strip()
+        if not re.fullmatch(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", value):
+            return False
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+            claims_part = value.split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(claims_part + "=" * (-len(claims_part) % 4)))
+        except (OSError, TypeError, ValueError, binascii.Error):
+            return False
+        if not isinstance(claims, dict) or source != reported or line_number < 1 or not source.is_file():
+            return False
+        if not (
+            claims.get("kind") == "site"
+            and claims.get("target") == "content"
+            and claims.get("visitorType") == "human"
+            and claims.get("draft") is False
+            and str(claims.get("sub", "")).startswith("content_")
+            and all(isinstance(claims.get(key), str) and claims[key] for key in ("organization", "site", "siteSpace"))
+            and isinstance(claims.get("spaces"), list)
+            and not any(key in claims for key in ("email", "role", "permissions"))
+        ):
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                source_line = next((text for index, text in enumerate(stream, 1) if index == line_number), "")
+        except OSError:
+            return False
+        marker = f"apiToken%3A{value}%2C"
+        token_at = source_line.find(marker)
+        if token_at < 0:
+            return False
+        context = source_line[max(0, token_at - 500) : token_at + len(marker) + 500]
+        return "siteData" in context and "siteSpace%3A" in context
 
     def get_artifact_source_url(self, event):
         current = event
