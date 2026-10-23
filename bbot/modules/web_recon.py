@@ -134,8 +134,8 @@ class web_recon(BaseModule):
         for key, value in self.scan.custom_http_headers.items():
             katana += ["-H", f"{key}: {value}"]
         # Archived response files are useful evidence, but never count as live validation.
-        waymore = [self.waymore, "-i", origin, "-n", "-mode", "B", "-l", "20", "-lr", "3",
-                   "-p", "2", "-r", "0", "-ow", "-oU", str(waymore_out), "-oR", str(archive_dir)]
+        waymore = [self.waymore, "-i", origin, "-n", "-mode", "B", "-l", "20",
+                   "-p", "4", "-r", "0", "-ow", "-oU", str(waymore_out), "-oR", str(archive_dir)]
         states = await asyncio.gather(self._run(katana, crawl_seconds + 30), self._run(waymore, archive_seconds))
         records = list(self.live[origin].values())
         packets = dict(self.packet_paths[origin])
