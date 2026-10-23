@@ -264,17 +264,20 @@ class web_recon(BaseModule):
                 content_type = result.get("content_type")
                 if isinstance(content_type, str):
                     record["content_type"] = content_type.split(";", 1)[0][:80]
-                response = result.get("response")
-                if isinstance(response, str) and response:
-                    parts = re.split(r"\r?\n\r?\n", response, maxsplit=1)
-                    if len(parts) != 2:
-                        continue
-                    body = parts[1][:262_144]
+                body = result.get("body")
+                raw_headers = result.get("raw_header")
+                if not isinstance(body, str):
+                    response = result.get("response")
+                    parts = re.split(r"\r?\n\r?\n", response, maxsplit=1) if isinstance(response, str) else []
+                    if len(parts) == 2:
+                        raw_headers, body = parts
+                if isinstance(body, str) and body:
+                    body = body[:262_144]
                     record["body_sha256"] = body_digest(body)
                     if "html" not in record.get("content_type", "").lower() or not isinstance(status, int):
                         continue
                     headers = {}
-                    for header in parts[0].splitlines()[1:]:
+                    for header in (raw_headers or "").splitlines()[1:] if isinstance(raw_headers, str) else []:
                         key, separator, value = header.partition(":")
                         if separator and key:
                             headers[key] = value.strip()
