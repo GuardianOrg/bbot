@@ -1585,6 +1585,14 @@ class EMAIL_ADDRESS(BaseEvent):
         return extract_words(self.host_stem)
 
 
+class WEB_URL_BATCH(DictHostEvent):
+    """A bounded set of URL observations from one exact web origin.
+
+    It deliberately does not inherit URL_UNVERIFIED, so HTTP probing and
+    spidering modules do not fan out over each entry in the batch.
+    """
+
+
 class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

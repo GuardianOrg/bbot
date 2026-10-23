@@ -78,6 +78,7 @@ modules:
   - virustotal
   - wafw00f
   - whatweb
+  - web_recon
   - wayback
   - dnsreaper
 
@@ -106,6 +107,8 @@ config:
     brute_wildcard_max_runtime: 60
   interactsh_disable: true
   modules:
+    wayback:
+      urls: false
     stdout:
       accept_dupes: true
     originfinder:
@@ -374,6 +377,7 @@ config:
       history: true
       max_pages: 100
     urlscan:
+      urls: false
       api_key: ${env:URLSCAN_API_KEY,""}
       max_pages: 5
       page_size: 100

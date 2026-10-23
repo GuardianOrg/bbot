@@ -201,6 +201,7 @@ class whatweb(BaseInterceptModule):
         plugins = {}
         if is_html and not challenge and self.pages.get(origin, 0) < self.max_pages:
             self.pages[origin] = self.pages.get(origin, 0) + 1
+            data["whatweb_checked"] = True
             try:
                 plugins = await self.fingerprint(data)
             except (TimeoutError, OSError, RuntimeError, ValueError) as error:

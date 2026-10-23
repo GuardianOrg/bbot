@@ -9,6 +9,7 @@ from bbot.modules.base import BaseInterceptModule
 DNS_SCOPE_EVENT_TYPES = {"DNS_NAME", "DNS_NAME_UNRESOLVED", "RAW_DNS_RECORD"}
 IP_RANGE_SCOPE_EVENT_TYPES = {"IP_RANGE"}
 WEB_SCOPE_EVENT_TYPES = {
+    "WEB_URL_BATCH",
     "URL",
     "URL_UNVERIFIED",
     "URL_HINT",
