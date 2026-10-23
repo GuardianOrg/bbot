@@ -122,7 +122,6 @@ class web_recon(BaseModule):
         folder.mkdir(parents=True, exist_ok=True)
         katana_out, waymore_out = folder / "katana.jsonl", folder / "waymore.txt"
         response_dir = folder / "katana_responses"
-        archive_dir = folder / "archive_responses"
         crawl_seconds = max(30, min(900, int(self.config.get("crawl_seconds", 180))))
         archive_seconds = max(30, min(900, int(self.config.get("archive_seconds", 180))))
         max_pages = max(10, min(2000, int(self.config.get("max_pages", 500))))
@@ -133,9 +132,10 @@ class web_recon(BaseModule):
                   "-jsonl", "-sr", "-srd", str(response_dir), "-o", str(katana_out), "-silent"]
         for key, value in self.scan.custom_http_headers.items():
             katana += ["-H", f"{key}: {value}"]
-        # Archived response files are useful evidence, but never count as live validation.
-        waymore = [self.waymore, "-i", origin, "-n", "-mode", "B", "-l", "20",
-                   "-p", "4", "-r", "0", "-ow", "-oU", str(waymore_out), "-oR", str(archive_dir)]
+        # Historical URLs are leads, not current responses; fetching archive
+        # bodies would add disk I/O without a reliable WhatWeb observation.
+        waymore = [self.waymore, "-i", origin, "-n", "-mode", "U",
+                   "-p", "4", "-r", "0", "-ow", "-oU", str(waymore_out)]
         states = await asyncio.gather(self._run(katana, crawl_seconds + 30), self._run(waymore, archive_seconds))
         records = list(self.live[origin].values())
         packets = dict(self.packet_paths[origin])
@@ -234,7 +234,8 @@ class web_recon(BaseModule):
         target_file, output_file = folder / "httpx_targets.txt", folder / "httpx.jsonl"
         target_file.write_text("\n".join(record["url"] for record in missing) + "\n")
         command = [self.httpx, "-l", str(target_file), "-json", "-include-response", "-silent",
-                   "-threads", "15", "-retries", "0", "-timeout", "10", "-o", str(output_file)]
+                   "-threads", "15", "-retries", "0", "-timeout", "10",
+                   "-rstr", "262144", "-rsts", "262144", "-o", str(output_file)]
         for key, value in self.scan.custom_http_headers.items():
             command += ["-H", f"{key}: {value}"]
         await self._run(command, 180)
