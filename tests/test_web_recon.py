@@ -1,4 +1,5 @@
 import json
+import asyncio
 
 from bbot.web_recon import batches, merge_observations, normalize_url, observation, select_urls, choose_whatweb
 from bbot.modules.web_recon import web_recon
@@ -74,3 +75,25 @@ def test_katana_response_is_reused_and_waymore_is_historical(tmp_path):
     assert current[0]["body_length"] == 18
     assert current[0]["url"] in packets
     assert historical == [{"url": ORIGIN + "/old", "folder": "/", "sources": ["waymore"], "live": False}]
+
+
+def test_httpx_body_and_raw_header_are_saved_for_offline_whatweb(tmp_path):
+    module = object.__new__(web_recon)
+    module.httpx = "httpx"
+    module.scan = type("Scan", (), {"custom_http_headers": {}})()
+
+    async def write_httpx_output(_command, _timeout):
+        (tmp_path / "httpx.jsonl").write_text(json.dumps({
+            "url": ORIGIN + "/login", "status_code": 200, "content_length": 17,
+            "content_type": "text/html", "raw_header": "HTTP/1.1 200 OK\r\nServer: nginx\r\n",
+            "body": "<html>Hi</html>",
+        }) + "\n")
+        return "ok"
+
+    module._run = write_httpx_output
+    record = observation(ORIGIN + "/login", ORIGIN, "waymore")
+    packets = {}
+    asyncio.run(module._probe_missing([record], tmp_path, ORIGIN, packets))
+    assert record["live"] is True
+    assert len(record["body_sha256"]) == 64
+    assert "Server: nginx" in packets[record["url"]].read_text()
