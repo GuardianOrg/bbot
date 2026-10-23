@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from bbot.modules.base import BaseModule
-from bbot.modules.templates.takeover import takeover_finding_title
+from bbot.modules.templates.takeover import is_aws_elb_cname, takeover_finding_title
 
 
 # A Vercel rewrite can proxy an external upstream, passing its body and status through, so a live
@@ -11,7 +11,12 @@ from bbot.modules.templates.takeover import takeover_finding_title
 # - Gemfury: its fingerprint is Next.js's not-found text, which every Next.js page embeds, while the
 #   unclaimed Gemfury page is that same Next.js 404 and is never served with a 200.
 VERCEL_DISPROVED_ENGINES = frozenset({"vercel", "gemfury"})
-NON_CARGO_CNAME_SUFFIXES = ("sendgrid.net", "readmessl.com")
+NON_CARGO_CNAME_SUFFIXES = ("sendgrid.net", "readmessl.com", "ghost.io")
+NON_INTERCOM_CNAME_SUFFIXES = ("ghost.io",)
+
+
+def cname_has_suffix(target, suffixes):
+    return any(target == suffix or target.endswith(f".{suffix}") for suffix in suffixes)
 
 
 class subzy(BaseModule):
@@ -90,12 +95,12 @@ class subzy(BaseModule):
         # A CNAME to a known other provider likewise disproves the Cargo match.
         # Unknown DNS state and Cargo's own CNAME retain the alert.
         dns_records = raw_dns_records or {}
-        if str(engine).lower() == "cargo collective":
-            cname_targets = {str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ())}
-            if any(
-                target == suffix or target.endswith(f".{suffix}")
+        engine = str(engine).lower()
+        cname_targets = {str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ())}
+        if engine == "cargo collective":
+            if cname_targets and all(
+                is_aws_elb_cname(target) or cname_has_suffix(target, NON_CARGO_CNAME_SUFFIXES)
                 for target in cname_targets
-                for suffix in NON_CARGO_CNAME_SUFFIXES
             ):
                 return True
             # A host that CNAMEs to its own parent domain and receives that
@@ -124,7 +129,11 @@ class subzy(BaseModule):
         # Subzy's Uptimerobot fingerprint is the generic "page not found".
         # Cloudflare's own default 404 includes that phrase on directly
         # addressed hosts, but is not an Uptimerobot unclaimed-site response.
-        if str(engine).lower() == "uptimerobot" and response.status_code == 404:
+        if engine == "intercom" and cname_targets and all(
+            cname_has_suffix(target, NON_INTERCOM_CNAME_SUFFIXES) for target in cname_targets
+        ):
+            return True
+        if engine == "uptimerobot" and response.status_code == 404:
             server = str(next((value for key, value in response.headers.items() if str(key).lower() == "server"), ""))
             if (
                 server.lower() == "cloudflare"
@@ -139,13 +148,13 @@ class subzy(BaseModule):
         # served by a provider other than Vercel. Gemfury's unclaimed response is an error,
         # so an HTTP 200 containing that generic fingerprint is not a Gemfury takeover.
         body = str(getattr(response, "text", "") or "").lower()
-        if str(engine).lower() == "gemfury" and "404: this page could not be found." in body:
+        if engine == "gemfury" and "404: this page could not be found." in body:
             return True
         headers = {str(key).lower() for key in response.headers.keys()}
         if "x-gitbook-route-site" in headers or "x-gitbook-target" in headers:
             return True
         vercel_deployment = "x-vercel-id" in headers and "x-vercel-error" not in headers
-        return vercel_deployment and str(engine).lower() in VERCEL_DISPROVED_ENGINES
+        return vercel_deployment and engine in VERCEL_DISPROVED_ENGINES
 
     async def is_claimed_provider_host(self, host, engine, raw_dns_records=None):
         for scheme in ("https", "http"):

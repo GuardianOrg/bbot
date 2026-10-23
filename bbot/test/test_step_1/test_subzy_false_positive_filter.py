@@ -79,6 +79,25 @@ def test_subzy_ignores_cargo_match_on_other_provider_or_generic_openresty():
     assert subzy.is_claimed_provider_response(openresty_404, "Cargo Collective", {"CNAME": {"site.cargo.site."}}) is False
 
 
+def test_subzy_ignores_predict_provider_mismatches_without_hiding_provider_matches():
+    # The Predict hosts resolve to AWS ELB and Ghost, not Cargo Collective or Intercom.
+    # Keep a genuine provider CNAME eligible for the same detector.
+    generic_404 = response(404, {"Server": "nginx"}, "404 Not Found")
+    alb = "ae546f541b7b945d9abba99dfcfce8b3-381839622.ap-northeast-1.elb.amazonaws.com."
+    assert subzy.is_claimed_provider_response(
+        generic_404, "Cargo Collective", {"CNAME": {alb}}, host="graphql.apne1.predict.fun"
+    ) is True
+    assert subzy.is_claimed_provider_response(
+        generic_404, "Intercom", {"CNAME": {"predict-fun.ghost.io."}}, host="news.predict.fun"
+    ) is True
+    assert subzy.is_claimed_provider_response(
+        generic_404, "Cargo Collective", {"CNAME": {"site.cargo.site."}}, host="site.example.com"
+    ) is False
+    assert subzy.is_claimed_provider_response(
+        generic_404, "Intercom", {"CNAME": {"custom.intercom.help."}}, host="help.example.com"
+    ) is False
+
+
 def test_subzy_ignores_uptimerobot_match_on_cloudflare_default_404():
     # Fifteen Coinbase hosts with direct Cloudflare A records served the same
     # generic 404, which contains Subzy's broad "page not found" fingerprint.
