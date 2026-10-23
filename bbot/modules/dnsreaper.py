@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from bbot.modules.base import BaseModule
-from bbot.modules.templates.takeover import takeover_finding_title
+from bbot.modules.templates.takeover import is_aws_elb_cname, takeover_finding_title
 
 
 class dnsreaper(BaseModule):
@@ -180,6 +180,11 @@ class dnsreaper(BaseModule):
                     continue
 
                 signature = finding.get("signature", "unknown")
+                if signature == "_generic_cname_found_doesnt_resolve":
+                    cname_targets = getattr(parent_event, "raw_dns_records", {}).get("CNAME", ())
+                    if cname_targets and all(is_aws_elb_cname(target) for target in cname_targets):
+                        self.debug(f"Ignoring generic takeover result for {host}: CNAME points to AWS ELB")
+                        continue
                 generic_reference = str(signature).startswith("_generic_")
                 confidence = str(finding.get("confidence", "UNKNOWN")).upper()
                 info = finding.get("info", "")
