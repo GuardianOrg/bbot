@@ -47,7 +47,7 @@ class dnsgen(BaseModule):
     }
     common_words = (
         "dev test stg staging stage prod production uat qa preprod sandbox beta alpha demo "
-        "api auth app admin www mail vpn sso portal backend internal tools jenkins gitlab grafana "
+        "api auth app admin cms websocket www mail vpn sso portal backend internal tools jenkins gitlab grafana "
         "kibana monitoring ci cd cdn static assets secure cloud aws azure gcp k8s svc service "
         "eu us uk apac us-east us-west eu-west eu-central v1 v2 db storage"
     ).split()
