@@ -119,6 +119,21 @@ async def test_dnsgen_shared_dedup_and_scope_filter(bbot_scanner):
     assert module.emit_event.await_count == 1
 
 
+async def test_dnsgen_reaches_priority_services_beneath_deep_parents(bbot_scanner):
+    module = await make_module(bbot_scanner, {"max_candidates_per_seed": 300})
+    await add_seed(module, "mainframe.staging.example.com")
+    queried = set()
+
+    async def brute(module, root, prefixes, type=None, timeout=None):
+        queried.update(f"{prefix}.{root}" for prefix in prefixes)
+        return []
+
+    module.brute.dnsbrute = brute
+    await module.finish()
+    assert {"bastion.mainframe.staging.example.com", "pgadmin.mainframe.staging.example.com"} <= queried
+    assert len(module.candidates_tried) <= 300
+
+
 @pytest.mark.parametrize("option", ["max_candidates", "max_seeds", "max_words", "max_rounds", "max_runtime"])
 async def test_dnsgen_rejects_unlimited_budgets(bbot_scanner, option):
     with pytest.raises(ValueError, match=option):

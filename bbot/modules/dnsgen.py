@@ -2,7 +2,7 @@ import asyncio
 import re
 import time
 from collections import Counter, defaultdict, deque
-from itertools import islice
+from itertools import chain, islice
 
 from bbot.core.helpers.dns.permutations import iter_dnsgen_candidates
 from bbot.modules.base import BaseModule
@@ -47,10 +47,11 @@ class dnsgen(BaseModule):
     }
     common_words = (
         "dev test stg staging stage prod production uat qa preprod sandbox beta alpha demo "
-        "api auth app admin cms websocket www mail vpn sso portal backend internal tools jenkins gitlab grafana "
+        "api auth app admin cms websocket bastion pgadmin www mail vpn sso portal backend internal tools jenkins gitlab grafana "
         "kibana monitoring ci cd cdn static assets secure cloud aws azure gcp k8s svc service "
         "eu us uk apac us-east us-west eu-west eu-central v1 v2 db storage"
     ).split()
+    priority_children = ("api", "auth", "cms", "websocket", "bastion", "pgadmin")
 
     async def setup(self):
         for option in self.options:
@@ -120,7 +121,10 @@ class dnsgen(BaseModule):
                 continue
             observed = [word for word, _ in word_counts.get(root, Counter()).most_common(self.max_words // 2)]
             words = list(dict.fromkeys([*observed, *self.common_words]))[: self.max_words]
-            stream = iter_dnsgen_candidates(host, root, words)
+            stream = chain(
+                (f"{word}.{host}" for word in self.priority_children if word in words),
+                iter_dnsgen_candidates(host, root, words),
+            )
             # Bound work even if most generated names are duplicates, invalid, or out of scope.
             for candidate in islice(stream, self.max_candidates_per_seed * 20):
                 if self._seed_budget_exhausted(host, root) or time.monotonic() >= self.deadline:
