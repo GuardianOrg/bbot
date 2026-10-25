@@ -96,7 +96,7 @@ config:
     emit_unresolved: false
     max_unresolved_subdomains_per_module: 50
     threads: 150
-    brute_max_candidates: 400000
+    brute_max_candidates: 600000
     brute_max_runtime: 7200
     brute_parallel_batches: 2
     brute_threads_per_resolver: 50
@@ -247,10 +247,10 @@ config:
       expand_found_buckets: false
     dnsbrute:
       wordlist: ''
-      max_words: 10000
-      child_words: 1000
+      max_words: 23592
+      child_words: 2000
       dns_batch_size: 1000
-      max_depth: 5
+      max_depth: 6
     dnsdepth:
       incremental: true
       survey_parents: 25

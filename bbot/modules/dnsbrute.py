@@ -24,7 +24,7 @@ class dnsbrute(subdomain_enum):
         "dns_batch_size": 1000,
     }
     options_desc = {
-        "wordlist": "Wordlist path/URL; empty uses the bundled ranked 10,000-label list without HTTP",
+        "wordlist": "Wordlist path/URL; empty uses the bundled ranked list without HTTP",
         "wordlists": "Additional wordlist paths/URLs merged in order with exact deduplication",
         "max_words": "Maximum unique words retained across all lists",
         "child_words": "Maximum highest-ranked words tried beneath each non-apex parent",
