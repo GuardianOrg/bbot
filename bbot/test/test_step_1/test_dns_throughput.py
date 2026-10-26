@@ -304,9 +304,26 @@ async def test_transport_failures_retry_every_failed_name_in_large_batch(bbot_sc
     assert set(results) == set(failed)
     assert helper.per_resolver_threads == 25
     assert helper.transport_failures == helper.transport_retries == 150
+    assert helper.transport_retry_failures == 0
+    assert helper.transport_unretried == 0
     assert run.await_count == 2
     assert run.await_args_list[1].kwargs["input"] == failed
     assert len(helper.queries_tried) == 150
+
+
+async def test_transport_metrics_separate_initial_and_retry_errors(bbot_scanner):
+    scan = bbot_scanner("example.com")
+    helper = scan.helpers.dns.brute
+    helper.resolver_file = AsyncMock(return_value="fixture.txt")
+    helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
+    first = json.dumps({"name": "api.example.com.", "error": "TIMEOUT"})
+    retry = json.dumps({"name": "api.example.com.", "error": "TIMEOUT"})
+    run = AsyncMock(side_effect=[SimpleNamespace(stdout=first), SimpleNamespace(stdout=retry)])
+    await helper(SimpleNamespace(name="dnsbrute", run_process=run), "example.com", ["api"], type="A")
+    assert helper.transport_failures == 1
+    assert helper.transport_retries == 1
+    assert helper.transport_retry_failures == 1
+    assert helper.transport_unretried == 0
 
 
 async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_work(bbot_scanner, tmp_path):
