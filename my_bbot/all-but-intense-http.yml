@@ -63,7 +63,6 @@ modules:
   - rapiddns
   - robtex
   - retirejs
-  - securitytrails
   - shodan_dns
   - shodan_idb
   - social
@@ -369,8 +368,6 @@ config:
       api_key: ${env:OTX_API_KEY,${env:OTX_KEY,""}}
       query_ips: true
       query_cloud_ips: false
-    securitytrails:
-      api_key: ${env:SECURITYTRAILS_API_KEY,""}
     shodan_idb:
       api_key: ${env:SHODAN_API_KEY,${env:SHODAN_DNS_API_KEY,""}}
       full_host: true
