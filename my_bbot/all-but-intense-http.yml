@@ -262,14 +262,14 @@ config:
     dnsgen:
       incremental: true
       incremental_seeds: 25
-      max_candidates: 200000
-      max_candidates_per_domain: 50000
-      max_candidates_per_seed: 500
+      max_candidates: 300000
+      max_candidates_per_domain: 150000
+      max_candidates_per_seed: 2000
       max_seeds: 10000
       max_words: 64
       max_rounds: 3
       dns_batch_size: 1000
-      max_runtime: 900
+      max_runtime: 1800
       record_types: [A, AAAA]
     speculate:
       unresolved_parent_domains: false
