@@ -615,12 +615,26 @@ class domain_config_dns_audit(BaseModule):
                     results.add(value)
         return sorted(results)
 
+    async def query_dnssec_record(self, domain, rdtype):
+        # A failed or empty local lookup may reflect a resolver problem. Prefer
+        # a positive DNSSEC record from an independent resolver before claiming
+        # that the record is absent; all failed lookups remain inconclusive.
+        saw_empty_answer = False
+        for nameserver in (None, "1.1.1.1", "8.8.8.8"):
+            success, answers = await self.query_dns(domain, rdtype, nameserver=nameserver)
+            if success and answers:
+                return True, answers
+            saw_empty_answer |= success
+        return saw_empty_answer, []
+
     async def check_dnssec(self, domain, records, findings):
         if not self.is_apex_domain(domain):
             return
         tld = self.get_tld(domain)
-        success, dnskey_records = await self.query_dns(domain, "DNSKEY")
-        if not success or not dnskey_records:
+        success, dnskey_records = await self.query_dnssec_record(domain, "DNSKEY")
+        if not success:
+            return
+        if not dnskey_records:
             findings.append(AuditFinding(
                 "DNSSEC Not Enabled",
                 "MEDIUM",
@@ -662,7 +676,7 @@ class domain_config_dns_audit(BaseModule):
                     "Migrate to a modern DNSSEC algorithm such as ECDSAP256SHA256 or ED25519.",
                     f"dig {domain} DNSKEY +short",
                 ))
-        success, ds_records = await self.query_dns(domain, "DS")
+        success, ds_records = await self.query_dnssec_record(domain, "DS")
         if success and ds_records:
             records["DS"] = ds_records
             if any(len(ds.split()) >= 3 and ds.split()[2] == "1" for ds in ds_records) and not any(
@@ -685,7 +699,7 @@ class domain_config_dns_audit(BaseModule):
                     "Publish a SHA-256 DS record at the parent zone.",
                     f"dig {domain} DS +short",
                 ))
-        else:
+        elif success:
             findings.append(AuditFinding(
                 "Missing DS Record at Parent",
                 "HIGH",
@@ -854,7 +868,9 @@ class domain_config_dns_audit(BaseModule):
                     ))
 
     async def check_dnssec_validation(self, domain, records, findings):
-        if not records.get("DNSKEY"):
+        # Without a parent DS, an answer without AD is expected: the zone is
+        # insecure from the validator's perspective, not validation-failing.
+        if not records.get("DNSKEY") or not records.get("DS"):
             return
         success, response = await self.query_dns_full(domain, "A", nameserver="8.8.8.8")
         if success and response and not (response.flags & dns.flags.AD):
@@ -906,7 +922,7 @@ class domain_config_dns_audit(BaseModule):
                 ))
 
     async def check_dnssec_negative_validation(self, domain, records, findings):
-        if not self.is_apex_domain(domain) or not records.get("DNSKEY"):
+        if not self.is_apex_domain(domain) or not records.get("DNSKEY") or not records.get("DS"):
             return
         random_label = f"_dnssec-negative-{uuid.uuid4().hex[:8]}.{domain}"
         try:
