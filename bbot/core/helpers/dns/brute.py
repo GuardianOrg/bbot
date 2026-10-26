@@ -349,7 +349,9 @@ class DNSBrute:
                 self.log.info(
                     f"DNS transport failures: {len(failures)}; reducing per-resolver concurrency to {self.per_resolver_threads}"
                 )
-            retry_names = list(dict.fromkeys(failures))[:100]
+            # Retry every failed candidate once. Truncating this list silently
+            # left later names unchecked in large batches.
+            retry_names = list(dict.fromkeys(failures))
             remaining = None if timeout is None else timeout - (time.monotonic() - started)
             if retry_names and (remaining is None or remaining > 0):
                 retry_command = list(command)

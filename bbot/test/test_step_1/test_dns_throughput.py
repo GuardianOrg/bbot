@@ -280,12 +280,12 @@ async def test_native_massdns_discovers_ipv6_and_reconfirms_results(bbot_scanner
     assert {kind for host, kind in server.queries if host == "v6.example.com"} == {"A", "AAAA"}
 
 
-async def test_terminal_transport_failures_reduce_concurrency_and_retry_only_failed_names(bbot_scanner):
+async def test_transport_failures_retry_every_failed_name_in_large_batch(bbot_scanner):
     scan = bbot_scanner("example.com")
     helper = scan.helpers.dns.brute
     helper.resolver_file = AsyncMock(return_value="fixture.txt")
     helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
-    failed = [f"n{i}.example.com" for i in range(6)]
+    failed = [f"n{i}.example.com" for i in range(150)]
     errors = "\n".join(json.dumps({"name": host + ".", "type": "A", "error": "TIMEOUT"}) for host in failed)
     answers = "\n".join(
         json.dumps(
@@ -299,14 +299,14 @@ async def test_terminal_transport_failures_reduce_concurrency_and_retry_only_fai
     )
     run = AsyncMock(side_effect=[SimpleNamespace(stdout=errors), SimpleNamespace(stdout=answers)])
     results = await helper(
-        SimpleNamespace(name="dnsbrute", run_process=run), "example.com", [f"n{i}" for i in range(6)]
+        SimpleNamespace(name="dnsbrute", run_process=run), "example.com", [f"n{i}" for i in range(150)]
     )
     assert set(results) == set(failed)
     assert helper.per_resolver_threads == 25
-    assert helper.transport_failures == helper.transport_retries == 6
+    assert helper.transport_failures == helper.transport_retries == 150
     assert run.await_count == 2
     assert run.await_args_list[1].kwargs["input"] == failed
-    assert len(helper.queries_tried) == 6
+    assert len(helper.queries_tried) == 150
 
 
 async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_work(bbot_scanner, tmp_path):
