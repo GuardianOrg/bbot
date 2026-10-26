@@ -299,6 +299,7 @@ config:
       max_response_size: 1048576
       store_responses: false
       probe_all_ips: false
+      probe_dns_names: true
     host_reputation:
       abuseipdb_api_key: ${env:ABUSEIPDB_KEY,${env:ABUSEIPDB_API_KEY,""}}
       virustotal_api_keys: ${env:VT_KEY_1,${env:VT_API_KEY,${env:VIRUSTOTAL_API_KEY,${env:VT_KEY,""}}}},${env:VT_KEY_2,""},${env:VT_KEY_3,""},${env:VT_KEY_4,""}

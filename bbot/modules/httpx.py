@@ -3,6 +3,7 @@ import orjson
 from hashlib import sha256
 import os
 import subprocess
+from ipaddress import ip_address
 from http.cookies import SimpleCookie
 from urllib.parse import unquote
 
@@ -10,7 +11,7 @@ from bbot.modules.base import BaseModule
 
 
 class httpx(BaseModule):
-    watched_events = ["OPEN_TCP_PORT", "URL_UNVERIFIED", "URL"]
+    watched_events = ["DNS_NAME", "OPEN_TCP_PORT", "URL_UNVERIFIED", "URL"]
     produced_events = ["URL", "HTTP_RESPONSE"]
     flags = ["active", "safe", "web-basic", "service-web", "social-enum", "subdomain-enum", "cloud-enum"]
     meta = {
@@ -26,6 +27,7 @@ class httpx(BaseModule):
         "max_response_size": 5242880,
         "store_responses": False,
         "probe_all_ips": False,
+        "probe_dns_names": False,
     }
     options_desc = {
         "threads": "Number of httpx threads to use",
@@ -34,6 +36,7 @@ class httpx(BaseModule):
         "max_response_size": "Max response size in bytes",
         "store_responses": "Save raw HTTP responses to scan folder",
         "probe_all_ips": "Probe all the ips associated with same host",
+        "probe_dns_names": "Probe the web root of each resolved, in-scope DNS name",
     }
     deps_ansible = [
         {
@@ -68,6 +71,16 @@ class httpx(BaseModule):
         return True
 
     async def filter_event(self, event):
+        if event.type == "DNS_NAME":
+            if not self.config.get("probe_dns_names", False):
+                return False, "DNS name probing is disabled"
+            if not any(
+                ip_address(str(host)).is_global
+                for host in event.resolved_hosts
+                if self.helpers.is_ip(host)
+            ):
+                return False, "DNS name has no public address"
+
         if "_wildcard" in str(event.host).split("."):
             return False, "event is wildcard"
 
