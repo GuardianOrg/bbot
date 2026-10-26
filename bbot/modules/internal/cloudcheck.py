@@ -57,7 +57,9 @@ def cloud_ip_metadata(host, provider_name, tags, cname_frontend=None):
     )
     is_waf = "waf" in tag_set or frontend_kind == "waf"
     is_load_balancer = frontend_kind == "load_balancer"
-    data = {"ip": str(host)}
+    data = {"ip": str(host), "isCdn": bool(is_cdn),
+            "isLoadBalancer": bool(is_load_balancer),
+            "isFrontedProxy": bool(is_cdn or is_waf or is_load_balancer or frontend_kind == "proxy")}
     if provider_slug or frontend_provider:
         data["cloudProvider"] = provider_slug or frontend_provider
     if is_cdn:
@@ -72,9 +74,7 @@ def cloud_ip_metadata(host, provider_name, tags, cname_frontend=None):
     elif frontend_kind == "proxy":
         data["providerType"] = "proxy"
     else:
-        data["providerType"] = "cloud"
-    if is_cdn or is_waf or is_load_balancer or frontend_kind == "proxy":
-        data["isFrontedProxy"] = True
+        data["providerType"] = "cloud" if provider_slug else "unknown"
     if cname_frontend:
         data["frontendEvidence"] = f"DNS CNAME: {frontend_kind} ({frontend_provider})"
     elif is_cdn or is_waf:
@@ -127,6 +127,11 @@ class CloudCheck(BaseInterceptModule):
         cname_hosts.update(
             host for host in hosts_to_check if not self.helpers.is_ip(host) and host != str(event.host_original)
         )
+        if event.type == "IP_ADDRESS":
+            for parent in event.get_parents():
+                if parent.type == "DNS_NAME":
+                    cname_hosts.update(parent.dns_children.get("CNAME", ()))
+                    break
         cname_frontend = frontend_cname_evidence(cname_hosts)
         ip_providers = {}
 
@@ -247,7 +252,7 @@ class CloudCheck(BaseInterceptModule):
             reverse=True,
         )
         provider_name, tags = ranked[0] if ranked else (None, [])
-        if not provider_name and not cname_frontend:
+        if not provider_name and not cname_frontend and event.type != "IP_ADDRESS":
             return
         provider_slug = self._provider_slug(provider_name) if provider_name else None
         data = cloud_ip_metadata(host, provider_slug, tags, cname_frontend)

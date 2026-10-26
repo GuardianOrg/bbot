@@ -12,8 +12,10 @@ def test_managed_frontend_cname_evidence():
     assert frontend_cname_evidence(["instance.eu-west-1.compute.amazonaws.com"]) is None
 
 
-def test_provider_tags_are_interpreted_as_positive_evidence_only():
+def test_provider_tags_preserve_frontend_classification():
     assert cloud_ip_metadata("104.16.1.1", "cloudflare", ["waf"])["isCdn"] is True
-    assert cloud_ip_metadata("185.199.108.153", "github", ["cdn"]).get("isCdn") is None
+    assert cloud_ip_metadata("185.199.108.153", "github", ["cdn"])["isCdn"] is False
     assert cloud_ip_metadata("185.199.108.153", "github", ["cdn"], ("proxy", "github"))["isFrontedProxy"] is True
-    assert cloud_ip_metadata("54.1.2.3", "amazon", ["cloud"]).get("isFrontedProxy") is None
+    assert cloud_ip_metadata("54.1.2.3", "amazon", ["cloud"])["isFrontedProxy"] is False
+    assert cloud_ip_metadata("54.1.2.3", "amazon", ["cloud"])["isLoadBalancer"] is False
+    assert cloud_ip_metadata("54.1.2.3", "amazon", ["cloud"])["isCdn"] is False
