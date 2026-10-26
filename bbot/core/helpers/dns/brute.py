@@ -44,6 +44,8 @@ class DNSBrute:
         self.resolver_pool = ResolverPool()
         self.transport_failures = 0
         self.transport_retries = 0
+        self.transport_retry_failures = 0
+        self.transport_unretried = 0
         self._resolver_lock = asyncio.Lock()
         self.max_candidates = int(self.dns_config.get("brute_max_candidates", 400000))
         if self.max_candidates <= 0:
@@ -343,15 +345,15 @@ class DNSBrute:
                     name = record.get("name", "").lower().rstrip(".")
                     if name in requested:
                         failures.append(name)
-            self.transport_failures += len(failures)
-            if len(failures) > max(5, len(subdomains) // 100):
+            retry_names = list(dict.fromkeys(failures))
+            self.transport_failures += len(retry_names)
+            if len(retry_names) > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
                 self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
                 self.log.info(
-                    f"DNS transport failures: {len(failures)}; reducing per-resolver concurrency to {self.per_resolver_threads}"
+                    f"DNS initial transport errors: {len(retry_names)}; reducing per-resolver concurrency to {self.per_resolver_threads}"
                 )
             # Retry every failed candidate once. Truncating this list silently
             # left later names unchecked in large batches.
-            retry_names = list(dict.fromkeys(failures))
             remaining = None if timeout is None else timeout - (time.monotonic() - started)
             if retry_names and (remaining is None or remaining > 0):
                 retry_command = list(command)
@@ -364,7 +366,16 @@ class DNSBrute:
                 self.transport_retries += len(retry_names)
                 if retry is None or getattr(retry, "returncode", 0) != 0:
                     raise DNSError("massdns transport retry failed to execute")
+                retry_set = set(retry_names)
+                self.transport_retry_failures += len({
+                    record.get("name", "").lower().rstrip(".")
+                    for line in retry.stdout.splitlines()
+                    for record in (self._parse_massdns_line(line),)
+                    if record.get("error") and record.get("name", "").lower().rstrip(".") in retry_set
+                })
                 output.extend(retry.stdout.splitlines())
+            else:
+                self.transport_unretried += len(retry_names)
             for line in output:
                 try:
                     j = json.loads(line)
@@ -386,6 +397,14 @@ class DNSBrute:
                             if hostname_hash not in hosts_yielded:
                                 hosts_yielded.add(hostname_hash)
                                 yield hostname, data, answer_type
+
+    @staticmethod
+    def _parse_massdns_line(line):
+        try:
+            record = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return record if isinstance(record, dict) else {}
 
     async def resolver_file(self):
         async with self._resolver_lock:

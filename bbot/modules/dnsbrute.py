@@ -232,5 +232,5 @@ class dnsbrute(subdomain_enum):
                       f"wildcard-limited parents {len(self.queue.limited)}")
         helper = self.helpers.dns.brute
         self.info(
-            f"DNS resolver metrics: {len(helper.resolver_pool.selected)} validated, {helper.resolver_pool.confirmations} confirmations, {helper.resolver_pool.rejected} rejected names, {helper.transport_failures} terminal transport failures, {helper.transport_retries} bounded retries, {helper.per_resolver_threads} slots/resolver/process"
+            f"DNS resolver metrics: {len(helper.resolver_pool.selected)} validated, {helper.resolver_pool.confirmations} confirmations, {helper.resolver_pool.rejected} rejected names, {helper.transport_failures} initial transport errors, {helper.transport_retries} bounded retries, {helper.transport_retry_failures} errors after retry, {helper.transport_unretried} not retried before deadline, {helper.per_resolver_threads} slots/resolver/process"
         )
