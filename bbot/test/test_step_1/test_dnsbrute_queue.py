@@ -53,3 +53,53 @@ def test_late_parent_preempts_partly_completed_round():
         queue.complete(item)
     queue.add("late.example.com", object())
     assert queue.reserve(5000, 5)[0][:3] == ("late.example.com", 0, 1000)
+
+
+def test_few_parents_use_full_vocabulary_without_rechecking_words():
+    queue = DNSBruteQueue(107178)
+    for parent in ("halborn.com", "guardian.security"):
+        queue.add(parent, object())
+    seen = {parent: set() for parent in queue.events}
+    rounds = 0
+    while queue:
+        rounds += 1
+        for reservation in queue.reserve(5000, 5):
+            parent, start, end, *_ = reservation
+            assert not seen[parent].intersection(range(start, end))
+            seen[parent].update(range(start, end))
+            queue.complete(reservation)
+    assert rounds < 100
+    assert all(len(words) == 107178 for words in seen.values())
+
+
+def test_many_parents_share_rounds_and_new_parent_catches_up():
+    queue = DNSBruteQueue(107178)
+    for index in range(200):
+        queue.add(f"host{index}.halborn.com", object())
+    for _ in range(40):
+        batch = queue.reserve(5000, 5)
+        assert len(batch) == 5
+        assert sum(end - start for _, start, end, *_ in batch) <= 5000
+        for reservation in batch:
+            queue.complete(reservation)
+    assert set(queue.positions.values()) == {1000}
+    queue.add("late.hacktricks-training.com", object())
+    late = queue.reserve(5000, 5)
+    assert [entry[:3] for entry in late] == [("late.hacktricks-training.com", 0, 1000)]
+    queue.complete(late[0])
+    next_round = queue.reserve(5000, 5)
+    assert len(next_round) == 5
+    assert all(start == 1000 for _, start, *_ in next_round)
+
+
+def test_large_parent_count_still_fits_the_round_budget():
+    queue = DNSBruteQueue(107178)
+    for index in range(1000):
+        queue.add(f"host{index}.guardian.security", object())
+    for _ in range(200):
+        batch = queue.reserve(5000, 5)
+        assert len(batch) == 5
+        assert sum(end - start for _, start, end, *_ in batch) == 5000
+        for reservation in batch:
+            queue.complete(reservation)
+    assert set(queue.positions.values()) == {1000}
