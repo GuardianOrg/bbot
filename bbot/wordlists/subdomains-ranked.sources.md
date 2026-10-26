@@ -1,1 +1,3 @@
 The first 10,000 labels retain their original BBOT order. The remaining labels are valid, exact-unique additions from SecLists `Discovery/DNS/subdomains-top1million-20000.txt` (downloaded 2026-10-25, SHA-256 `685fad386d19c3b7ecbcd18645606bc5c47a3b2339fa3d79f44c46bd9e79c1ef`). Source: https://github.com/danielmiessler/SecLists. License: MIT, see `SecLists-LICENSE`.
+
+The first 23,592 labels also retain their order. The next 83,586 valid, exact-unique labels come from SecLists `Discovery/DNS/subdomains-top1million-110000.txt` (downloaded 2026-10-25, SHA-256 `7b8359732bdee838ecdb9ef2cd3bb9a792347dab0457fd9b33a9b152d8dc238d`). Total: 107,178 labels.

@@ -175,15 +175,36 @@ async def test_static_brute_batches_query_both_types_and_emit_each_name_once(bbo
 
     async def brute(module, domain, words, type=None, **kwargs):
         seen.append((list(words), type))
+        for word in words:
+            scan.helpers.dns.brute.claim(module, (f"{word}.{domain}", type))
         return [f"{word}.{domain}" for word in words if word == "both" or (word == "v6" and type == "AAAA")]
 
     scan.helpers.dns.brute.dnsbrute = brute
     await module.handle_event(scan.make_event("example.com", "DNS_NAME", parent=scan.root_event))
+    await module.worker_task
     assert {call.args[0] for call in module.emit_event.await_args_list} == {"both.example.com", "v6.example.com"}
     assert module.emit_event.await_count == 2
     assert len(seen) == 4
     assert {kind for _, kind in seen} == {"A", "AAAA"}
     assert all(len(words) <= 2 for words, _ in seen)
+
+
+async def test_dnsbrute_enqueues_validated_hosts_without_rechecking_wildcards(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com", modules=["dnsbrute"])
+    module = dnsbrute(scan)
+    module._name = "dnsbrute"
+    module.subdomain_file = tmp_path / "words.txt"
+    module.subdomain_file.write_text("api\n")
+    await module.setup()
+    module._is_wildcard = AsyncMock(side_effect=AssertionError("redundant wildcard query"))
+    valid = scan.make_event("api.example.com", "DNS_NAME", parent=scan.root_event)
+    valid.scope_distance = 0
+    assert (await module.filter_event(valid))[0]
+    invalid = scan.make_event("missing.example.com", "DNS_NAME", parent=scan.root_event)
+    invalid.scope_distance = 0
+    invalid.tags.add("unresolved")
+    assert not (await module.filter_event(invalid))[0]
+    module._is_wildcard.assert_not_awaited()
 
 
 async def test_dnsgen_runs_before_finish_and_idle_time_does_not_consume_active_budget(bbot_scanner):
@@ -259,12 +280,12 @@ async def test_native_massdns_discovers_ipv6_and_reconfirms_results(bbot_scanner
     assert {kind for host, kind in server.queries if host == "v6.example.com"} == {"A", "AAAA"}
 
 
-async def test_terminal_transport_failures_reduce_concurrency_and_retry_only_failed_names(bbot_scanner):
+async def test_transport_failures_retry_every_failed_name_in_large_batch(bbot_scanner):
     scan = bbot_scanner("example.com")
     helper = scan.helpers.dns.brute
     helper.resolver_file = AsyncMock(return_value="fixture.txt")
     helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
-    failed = [f"n{i}.example.com" for i in range(6)]
+    failed = [f"n{i}.example.com" for i in range(150)]
     errors = "\n".join(json.dumps({"name": host + ".", "type": "A", "error": "TIMEOUT"}) for host in failed)
     answers = "\n".join(
         json.dumps(
@@ -278,14 +299,14 @@ async def test_terminal_transport_failures_reduce_concurrency_and_retry_only_fai
     )
     run = AsyncMock(side_effect=[SimpleNamespace(stdout=errors), SimpleNamespace(stdout=answers)])
     results = await helper(
-        SimpleNamespace(name="dnsbrute", run_process=run), "example.com", [f"n{i}" for i in range(6)]
+        SimpleNamespace(name="dnsbrute", run_process=run), "example.com", [f"n{i}" for i in range(150)]
     )
     assert set(results) == set(failed)
     assert helper.per_resolver_threads == 25
-    assert helper.transport_failures == helper.transport_retries == 6
+    assert helper.transport_failures == helper.transport_retries == 150
     assert run.await_count == 2
     assert run.await_args_list[1].kwargs["input"] == failed
-    assert len(helper.queries_tried) == 6
+    assert len(helper.queries_tried) == 150
 
 
 async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_work(bbot_scanner, tmp_path):
@@ -327,6 +348,7 @@ async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_wo
 
     events = await asyncio.wait_for(run(), 10)
     assert {"both.example.com", "v6.example.com"} <= {event.data for event in events if event.type == "DNS_NAME"}
+    assert {"both.example.com", "v6.example.com"} <= set(scan.modules["dnsbrute"].queue.events)
     assert len(helper.queries_tried) == 40
     assert not helper.reservations
     assert (
