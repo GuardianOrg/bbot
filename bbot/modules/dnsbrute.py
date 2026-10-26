@@ -153,8 +153,8 @@ class dnsbrute(subdomain_enum):
         if limited:
             checked = brute.wildcard_candidates[query] - wildcard_before
         else:
-            # Other DNS modules can claim the shared budget while massdns is
-            # running. Count only the consecutive names actually submitted.
+            # Other DNS modules may claim names while massdns is running.
+            # Count only the consecutive names actually submitted.
             checked = 0
             for word in words:
                 hostname = f"{word}.{query}"
@@ -168,14 +168,15 @@ class dnsbrute(subdomain_enum):
         if brute.deadline is None:
             brute.deadline = time.monotonic() + brute.max_runtime
         while self.queue and time.monotonic() < brute.deadline:
-            if not brute.remaining_candidates(self):
+            remaining = brute.remaining_candidates(self)
+            if remaining == 0:
                 if len(brute.queries_tried) >= brute.max_candidates:
                     break
                 await brute.reservations_released.wait()
                 continue
-            # The shared budget counts A and AAAA separately. Never reserve
-            # words that cannot be sent for both record types.
-            batch_size = min(self.dns_batch_size, brute.remaining_candidates(self) // 2)
+            # When a query count limit is configured, A and AAAA count
+            # separately. Never reserve words that cannot be sent as both.
+            batch_size = self.dns_batch_size if remaining is None else min(self.dns_batch_size, remaining // 2)
             if batch_size <= 0:
                 if len(brute.queries_tried) >= brute.max_candidates - 1:
                     break

@@ -371,3 +371,33 @@ async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_wo
     assert (
         len([event for event in events if event.data == "both.example.com" and str(event.module) == "dnsbrute"]) == 1
     )
+
+
+async def test_real_scan_unlimited_budget_drains_ranked_words(bbot_scanner, tmp_path):
+    words = tmp_path / "words.txt"
+    words.write_text("\n".join(f"name{i}" for i in range(35)))
+    scan = bbot_scanner(
+        "example.com",
+        modules=["dnsbrute"],
+        config={
+            "deps": {"behavior": "disable"},
+            "dns": {"brute_max_candidates": 0, "brute_max_runtime": 60},
+            "modules": {"dnsbrute": {"wordlist": str(words), "dns_batch_size": 10}},
+        },
+    )
+    await scan.helpers._mock_dns({"example.com": {"A": ["192.0.2.10"]}})
+    helper = scan.helpers.dns.brute
+    helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
+
+    async def massdns(module, domain, prefixes, rdtype, timeout=None):
+        if False:
+            yield None
+
+    helper._massdns = massdns
+    await asyncio.wait_for(_collect_scan(scan), 10)
+    assert len(helper.queries_tried) == 70
+    assert scan.modules["dnsbrute"].queue.positions["example.com"] == 35
+
+
+async def _collect_scan(scan):
+    return [event async for event in scan.async_start()]

@@ -39,8 +39,8 @@ dns:
   # How many concurrent DNS resolvers to use when brute-forcing
   # (under the hood this is passed through directly to massdns -s)
   brute_threads: 1000
-  # Hard scan-wide budget shared by all brute-force/permutation modules; A/AAAA count separately.
-  # Exact full-name/type deduplication applies across modules and finish rounds. Must be positive.
+  # Optional scan-wide query count limit shared by brute-force/permutation modules.
+  # 0 disables the count limit and uses disk-backed exact deduplication.
   brute_max_candidates: 400000
   # One hard deadline for all brute-force modules and depths; seconds from first brute batch.
   brute_max_runtime: 7200

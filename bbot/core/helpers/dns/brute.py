@@ -2,12 +2,57 @@ import json
 import random
 import asyncio
 import logging
+import sqlite3
 import subprocess
+import threading
 import time
 from collections import Counter
 from itertools import islice
 from .resolvers import ResolverPool
 from bbot.errors import DNSError
+
+
+class DNSQueryLedger:
+    """Exact, disk-backed deduplication for scans without a query count limit."""
+
+    def __init__(self):
+        # An empty filename creates a temporary on-disk database, deleted on close.
+        self.connection = sqlite3.connect("", check_same_thread=False, isolation_level=None)
+        self.connection.execute("PRAGMA cache_size=-8192")
+        self.connection.execute("PRAGMA journal_mode=OFF")
+        self.connection.execute("PRAGMA synchronous=OFF")
+        self.connection.execute(
+            "CREATE TABLE queries (hostname TEXT NOT NULL, rdtype TEXT NOT NULL, "
+            "PRIMARY KEY (hostname, rdtype)) WITHOUT ROWID"
+        )
+        self.lock = threading.Lock()
+        self.count = 0
+
+    def __contains__(self, key):
+        with self.lock:
+            return self.connection.execute(
+                "SELECT 1 FROM queries WHERE hostname=? AND rdtype=?", key
+            ).fetchone() is not None
+
+    def add(self, key):
+        with self.lock:
+            cursor = self.connection.execute(
+                "INSERT OR IGNORE INTO queries (hostname, rdtype) VALUES (?, ?)", key
+            )
+            self.count += cursor.rowcount
+            return cursor.rowcount == 1
+
+    def update(self, keys):
+        for key in keys:
+            self.add(key)
+
+    def __len__(self):
+        return self.count
+
+    def __del__(self):
+        connection = getattr(self, "connection", None)
+        if connection is not None:
+            connection.close()
 
 
 class DNSBrute:
@@ -48,10 +93,10 @@ class DNSBrute:
         self.transport_unretried = 0
         self._resolver_lock = asyncio.Lock()
         self.max_candidates = int(self.dns_config.get("brute_max_candidates", 400000))
-        if self.max_candidates <= 0:
-            raise ValueError("dns.brute_max_candidates must be positive")
+        if self.max_candidates < 0:
+            raise ValueError("dns.brute_max_candidates must be nonnegative (0 means unlimited)")
         # Exact keys are shared by every brute/permutation module in this scan.
-        self.queries_tried = set()
+        self.queries_tried = DNSQueryLedger() if self.max_candidates == 0 else set()
         self._budget_reported = False
         self.max_runtime = float(self.dns_config.get("brute_max_runtime", 7200))
         if not 0 < self.max_runtime < float("inf"):
@@ -61,7 +106,7 @@ class DNSBrute:
         self.strategy_results = {}
         self.strategy_seconds = Counter()
         active = set(self.parent_helper.preset.scan_modules)
-        self.reservations = {
+        self.reservations = {} if self.max_candidates == 0 else {
             name: min(amount, self.max_candidates // 4)
             for name, amount in (("dnsgen", 40000), ("dnsdepth", 4000))
             if name in active
@@ -90,6 +135,8 @@ class DNSBrute:
         return self._dnsbrute_lock
 
     def remaining_candidates(self, module):
+        if self.max_candidates == 0:
+            return None
         name = getattr(module, "name", str(module))
         held = sum(
             max(0, amount - self.strategy_queries[strategy])
@@ -99,9 +146,14 @@ class DNSBrute:
         return max(0, self.max_candidates - len(self.queries_tried) - held)
 
     def claim(self, module, key):
-        if key in self.queries_tried or not self.remaining_candidates(module):
+        if self.max_candidates and not self.remaining_candidates(module):
             return False
-        self.queries_tried.add(key)
+        if self.max_candidates:
+            if key in self.queries_tried:
+                return False
+            self.queries_tried.add(key)
+        elif not self.queries_tried.add(key):
+            return False
         self.strategy_queries[getattr(module, "name", str(module))] += 1
         return True
 
@@ -148,7 +200,7 @@ class DNSBrute:
             type = "A"
         type = str(type).strip().upper()
 
-        if not self.remaining_candidates(module):
+        if self.remaining_candidates(module) == 0:
             if not self._budget_reported:
                 self.log.info(
                     f"DNS brute-force stopped at its scan-wide budget of {self.max_candidates:,} candidate queries"
