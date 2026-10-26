@@ -189,6 +189,24 @@ async def test_static_brute_batches_query_both_types_and_emit_each_name_once(bbo
     assert all(len(words) <= 2 for words, _ in seen)
 
 
+async def test_dnsbrute_enqueues_validated_hosts_without_rechecking_wildcards(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com", modules=["dnsbrute"])
+    module = dnsbrute(scan)
+    module._name = "dnsbrute"
+    module.subdomain_file = tmp_path / "words.txt"
+    module.subdomain_file.write_text("api\n")
+    await module.setup()
+    module._is_wildcard = AsyncMock(side_effect=AssertionError("redundant wildcard query"))
+    valid = scan.make_event("api.example.com", "DNS_NAME", parent=scan.root_event)
+    valid.scope_distance = 0
+    assert (await module.filter_event(valid))[0]
+    invalid = scan.make_event("missing.example.com", "DNS_NAME", parent=scan.root_event)
+    invalid.scope_distance = 0
+    invalid.tags.add("unresolved")
+    assert not (await module.filter_event(invalid))[0]
+    module._is_wildcard.assert_not_awaited()
+
+
 async def test_dnsgen_runs_before_finish_and_idle_time_does_not_consume_active_budget(bbot_scanner):
     scan = bbot_scanner(
         "example.com",
