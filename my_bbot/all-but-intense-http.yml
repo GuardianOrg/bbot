@@ -177,6 +177,7 @@ config:
       process_timeout_multiplier: 3
       process_timeout_grace: 30
       exclude_cdn: false
+      skip_shared_frontends: true
       scan_all_ips: false
       verify: false
       max_expanded_ip_range_hosts: 4096
@@ -196,6 +197,7 @@ config:
       process_timeout_multiplier: 2
       process_timeout_grace: 30
       exclude_cdn: false
+      skip_shared_frontends: true
       scan_all_ips: false
       verify: false
       port_chunk_size: 0
