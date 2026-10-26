@@ -96,9 +96,9 @@ config:
     emit_unresolved: false
     max_unresolved_subdomains_per_module: 50
     threads: 150
-    brute_max_candidates: 600000
-    brute_max_runtime: 7200
-    brute_parallel_batches: 2
+    brute_max_candidates: 5000000
+    brute_max_runtime: 14400
+    brute_parallel_batches: 3
     brute_threads_per_resolver: 50
     brute_nameservers: ''
     brute_wildcard_max_candidates: 100
@@ -247,9 +247,10 @@ config:
       expand_found_buckets: false
     dnsbrute:
       wordlist: ''
-      max_words: 23592
-      child_words: 2000
-      dns_batch_size: 1000
+      max_words: 107178
+      child_words: 107178
+      dns_batch_size: 5000
+      max_batch_parents: 5
       max_depth: 6
     dnsdepth:
       incremental: true
@@ -261,14 +262,14 @@ config:
     dnsgen:
       incremental: true
       incremental_seeds: 25
-      max_candidates: 50000
-      max_candidates_per_domain: 10000
-      max_candidates_per_seed: 300
-      max_seeds: 5000
+      max_candidates: 200000
+      max_candidates_per_domain: 50000
+      max_candidates_per_seed: 500
+      max_seeds: 10000
       max_words: 64
-      max_rounds: 2
+      max_rounds: 3
       dns_batch_size: 1000
-      max_runtime: 180
+      max_runtime: 900
       record_types: [A, AAAA]
     speculate:
       unresolved_parent_domains: false

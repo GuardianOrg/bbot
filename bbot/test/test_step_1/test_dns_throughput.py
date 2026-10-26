@@ -175,10 +175,13 @@ async def test_static_brute_batches_query_both_types_and_emit_each_name_once(bbo
 
     async def brute(module, domain, words, type=None, **kwargs):
         seen.append((list(words), type))
+        for word in words:
+            scan.helpers.dns.brute.claim(module, (f"{word}.{domain}", type))
         return [f"{word}.{domain}" for word in words if word == "both" or (word == "v6" and type == "AAAA")]
 
     scan.helpers.dns.brute.dnsbrute = brute
     await module.handle_event(scan.make_event("example.com", "DNS_NAME", parent=scan.root_event))
+    await module.worker_task
     assert {call.args[0] for call in module.emit_event.await_args_list} == {"both.example.com", "v6.example.com"}
     assert module.emit_event.await_count == 2
     assert len(seen) == 4
@@ -327,6 +330,7 @@ async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_wo
 
     events = await asyncio.wait_for(run(), 10)
     assert {"both.example.com", "v6.example.com"} <= {event.data for event in events if event.type == "DNS_NAME"}
+    assert {"both.example.com", "v6.example.com"} <= set(scan.modules["dnsbrute"].queue.events)
     assert len(helper.queries_tried) == 40
     assert not helper.reservations
     assert (
