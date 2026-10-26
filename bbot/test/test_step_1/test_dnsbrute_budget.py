@@ -57,8 +57,21 @@ async def test_brute_keeps_ipv6_queries_distinct_and_normalizes_case(bbot_scanne
     assert helper.queries_tried == {("api.example.com", "A"), ("api.example.com", "AAAA")}
 
 
-async def test_brute_rejects_unlimited_budget(bbot_scanner):
+async def test_brute_unlimited_budget_deduplicates_without_count_limit(bbot_scanner):
     scan = bbot_scanner("example.com", config={"dns": {"brute_max_candidates": 0}})
+    helper = scan.helpers.dns.brute
+    assert helper.remaining_candidates(scan.helpers) is None
+    for index in range(1000):
+        key = (f"host{index}.example.com", "A")
+        assert helper.claim(scan.helpers, key)
+        assert not helper.claim(scan.helpers, key)
+    assert helper.claim(scan.helpers, ("host0.example.com", "AAAA"))
+    assert len(helper.queries_tried) == 1001
+    assert not helper.reservations
+
+
+async def test_brute_rejects_negative_budget(bbot_scanner):
+    scan = bbot_scanner("example.com", config={"dns": {"brute_max_candidates": -1}})
     with pytest.raises(ValueError, match="brute_max_candidates"):
         scan.helpers.dns.brute
 

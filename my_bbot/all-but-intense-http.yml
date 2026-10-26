@@ -96,7 +96,7 @@ config:
     emit_unresolved: false
     max_unresolved_subdomains_per_module: 50
     threads: 150
-    brute_max_candidates: 5000000
+    brute_max_candidates: 0
     brute_max_runtime: 14400
     brute_parallel_batches: 3
     brute_threads_per_resolver: 50

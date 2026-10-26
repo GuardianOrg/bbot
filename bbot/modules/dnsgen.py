@@ -167,7 +167,7 @@ class dnsgen(BaseModule):
             remaining = self.max_runtime - self.runtime_used
             if self.brute.deadline is not None:
                 remaining = min(remaining, self.brute.deadline - time.monotonic())
-            if remaining <= 0 or not self.brute.remaining_candidates(self):
+            if remaining <= 0 or self.brute.remaining_candidates(self) == 0:
                 return
             if finish:
                 self.rounds += 1
