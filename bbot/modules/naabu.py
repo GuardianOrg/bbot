@@ -140,6 +140,8 @@ class naabu(BaseModule):
             if parent.type == "DNS_NAME" and frontend_cname_evidence(parent.dns_children.get("CNAME", ())):
                 return False, "IP belongs to a managed frontend"
         tags = {str(tag).lower() for tag in event.tags}
+        if "shared-frontend" in tags:
+            return False, "IP belongs to a CDN, WAF, load balancer, API gateway or shared platform"
         if any(tag.startswith(("cdn-", "waf-")) and not tag.endswith("-github") for tag in tags):
             return False, "IP belongs to a CDN or WAF range"
         return True
