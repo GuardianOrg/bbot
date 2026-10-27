@@ -3,52 +3,31 @@ import regex as re
 from contextlib import suppress
 from urllib.parse import urlparse
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseInterceptModule
 
 
-# DNS names are evidence for managed frontends whose IPs can share a provider's
-# general cloud range. Never infer an origin from the absence of these suffixes.
-FRONTEND_CNAME_SUFFIXES = {
-    "cloudfront.net": ("cdn", "cloudfront"),
-    "akamaiedge.net": ("cdn", "akamai"),
-    "edgekey.net": ("cdn", "akamai"),
-    "edgesuite.net": ("cdn", "akamai"),
-    "fastly.net": ("cdn", "fastly"),
-    "fastlylb.net": ("cdn", "fastly"),
-    "azureedge.net": ("cdn", "azure"),
-    "azurefd.net": ("cdn", "azure"),
-    "impervadns.net": ("waf", "imperva"),
-    "incapdns.net": ("waf", "imperva"),
-    "ghs.googlehosted.com": ("proxy", "google"),
-    "github.io": ("proxy", "github"),
-    "wpenginepowered.com": ("proxy", "wpengine"),
-    "hosting.gitbook.io": ("proxy", "gitbook"),
-    "vercel-dns.com": ("proxy", "vercel"),
-    "netlify.app": ("proxy", "netlify"),
-}
-# Application, network and classic load balancers use names like
-# app.example-123.eu-west-1.elb.amazonaws.com. Older aliases may place elb
-# before the region instead.
-ELB_HOSTNAME = re.compile(r"(?:^|\.)(?:[a-z0-9-]+\.elb\.amazonaws\.com|elb\.[a-z0-9-]+\.amazonaws\.com)$")
+# Providers whose whole published range is a shared SaaS or platform edge, though cloudcheck tags it "cloud".
+# Akamai's "cloud" range also holds Linode instances, so it is not listed.
+SHARED_CLOUD_PROVIDERS = {"heroku", "salesforce", "microsoft365", "zscaler"}
+# Event types checked for shared frontends even when full cloud tagging is limited to the scan input.
+FRONTEND_EVENT_TYPES = {"IP_ADDRESS", "DNS_NAME", "HTTP_RESPONSE"}
 
 
 def frontend_cname_evidence(hosts):
-    matches = []
-    for raw_host in hosts:
-        host = str(raw_host).lower().rstrip(".")
-        if ELB_HOSTNAME.search(host):
-            matches.append(("load_balancer", "aws"))
-        for suffix, classification in FRONTEND_CNAME_SUFFIXES.items():
-            if host == suffix or host.endswith(f".{suffix}"):
-                matches.append(classification)
-    priority = {"cdn": 3, "waf": 2, "load_balancer": 1, "proxy": 0}
-    return max(matches, key=lambda match: priority[match[0]]) if matches else None
+    """(kind, provider, evidence) when a DNS alias names a CDN, WAF, load balancer, API gateway or shared platform."""
+    return shared_infra.classify_hostnames(hosts)
 
 
 def cloud_ip_metadata(host, provider_name, tags, cname_frontend=None):
+    """GEOLOCATION data for an address. ``cname_frontend`` is (kind, provider[, evidence]) from any frontend check."""
     provider_slug = str(provider_name or "").lower() or None
     tag_set = {str(tag).lower() for tag in tags}
-    frontend_kind, frontend_provider = cname_frontend or (None, None)
+    frontend_kind, frontend_provider = (cname_frontend or (None, None))[:2]
+    frontend_detail = cname_frontend[2] if cname_frontend and len(cname_frontend) > 2 else None
+    if not frontend_kind and provider_slug in SHARED_CLOUD_PROVIDERS:
+        frontend_kind, frontend_provider = "proxy", provider_slug
+        frontend_detail = f"cloudcheck provider range: {provider_slug}"
     # Cloudflare's published edge ranges are tagged "waf" by cloudcheck.
     # Conversely, cloudcheck tags *all* GitHub ranges "cdn", including API
     # and Git endpoints; that tag alone cannot prove a CDN edge.
@@ -57,26 +36,31 @@ def cloud_ip_metadata(host, provider_name, tags, cname_frontend=None):
     )
     is_waf = "waf" in tag_set or frontend_kind == "waf"
     is_load_balancer = frontend_kind == "load_balancer"
+    is_api_gateway = frontend_kind == "api_gateway"
     data = {"ip": str(host), "isCdn": bool(is_cdn),
             "isLoadBalancer": bool(is_load_balancer),
-            "isFrontedProxy": bool(is_cdn or is_waf or is_load_balancer or frontend_kind == "proxy")}
+            "isApiGateway": bool(is_api_gateway),
+            "isFrontedProxy": bool(is_cdn or is_waf or is_load_balancer or is_api_gateway or frontend_kind == "proxy")}
     if provider_slug or frontend_provider:
         data["cloudProvider"] = provider_slug or frontend_provider
+    if frontend_provider:
+        data["frontendProvider"] = frontend_provider
     if is_cdn:
         data["providerType"] = "cdn"
-        data["isCdn"] = True
         data["cdnName"] = frontend_provider if frontend_kind == "cdn" else provider_slug
-    elif is_load_balancer:
-        data["providerType"] = "load_balancer"
-        data["isLoadBalancer"] = True
     elif is_waf:
         data["providerType"] = "waf"
+    elif is_api_gateway:
+        data["providerType"] = "api_gateway"
+    elif is_load_balancer:
+        data["providerType"] = "load_balancer"
     elif frontend_kind == "proxy":
         data["providerType"] = "proxy"
     else:
         data["providerType"] = "cloud" if provider_slug else "unknown"
-    if cname_frontend:
-        data["frontendEvidence"] = f"DNS CNAME: {frontend_kind} ({frontend_provider})"
+    if frontend_kind:
+        detail = frontend_detail or "DNS CNAME"
+        data["frontendEvidence"] = f"{detail}: {frontend_kind} ({frontend_provider})"[:250]
     elif is_cdn or is_waf:
         data["frontendEvidence"] = f"cloudcheck provider range: {provider_slug}"
     return data
@@ -98,6 +82,12 @@ class CloudCheck(BaseInterceptModule):
         self._cloud_hostname_regexes = None
         self._cloud_hostname_regexes_lock = asyncio.Lock()
         self.scope_input_only = bool(self.config.get("scope_input_only", False))
+        # AWS and Google publish which of their blocks are CloudFront, API Gateway, S3, Google front ends...
+        try:
+            self.service_ranges = await self.helpers.run_in_executor(shared_infra.load_service_ranges)
+        except Exception as e:
+            self.warning(f"Failed to load provider service ranges ({e}); shared frontend detection degraded")
+            self.service_ranges = None
         # Perform a test lookup during setup to force a signature update.
         # Signature-fetch failures should degrade cloud tagging, not abort
         # an otherwise valid scan.
@@ -112,11 +102,60 @@ class CloudCheck(BaseInterceptModule):
     async def filter_event(self, event):
         if (not event.host) or (event.type in ("IP_RANGE",)):
             return False, "event does not have host attribute"
-        if self.scope_input_only and "target" not in event.tags:
+        if self.scope_input_only and "target" not in event.tags and event.type not in FRONTEND_EVENT_TYPES:
             return False, "cloudcheck is limited to explicit scan input events"
         return True
 
+    def frontend_evidence(self, event, ip, cname_frontend):
+        """Strongest shared-frontend evidence for one address of an event: alias, published range or HTTP answer."""
+        response = event.data if event.type == "HTTP_RESPONSE" and isinstance(event.data, dict) else None
+        found = [cname_frontend, shared_infra.classify_ip(ip, self.service_ranges)]
+        if response:
+            answer = shared_infra.classify_response(response)
+            found.append((answer[0], answer[1], f"HTTP answer {answer[2]}") if answer else None)
+        found = [match for match in found if match]
+        return max(found, key=lambda match: shared_infra.KIND_PRIORITY[match[0]]) if found else None
+
+    async def handle_frontends_only(self, event):
+        """Flag shared frontends on discovered events without the full cloud tagging of scan input."""
+        hosts = [str(event.host_original)] + [str(host) for host in event.resolved_hosts]
+        cname_hosts = set(event.dns_children.get("CNAME", ()))
+        if event.type == "IP_ADDRESS":
+            for parent in event.get_parents():
+                if parent.type == "DNS_NAME":
+                    cname_hosts.update(parent.dns_children.get("CNAME", ()))
+                    break
+        cname_frontend = frontend_cname_evidence(cname_hosts)
+        for host in dict.fromkeys(hosts):
+            if not self.helpers.is_ip(host):
+                continue
+            frontend = self.frontend_evidence(event, host, cname_frontend)
+            # cloudcheck's own CDN/WAF ranges (Fastly, Imperva, Sucuri...) and shared SaaS ranges, without tagging.
+            providers = []
+            try:
+                providers = [(provider["name"].lower(), provider.get("tags", []))
+                             for provider in await self.helpers.cloudcheck.lookup(host)]
+            except Exception as e:
+                self.debug(f"Error running cloudcheck against {host}: {e}")
+            shared = [(name, tags) for name, tags in providers
+                      if {"cdn", "waf"} & {str(tag).lower() for tag in tags} or name in SHARED_CLOUD_PROVIDERS]
+            if frontend or shared:
+                data = cloud_ip_metadata(host, self._provider_slug(shared[0][0]) if shared else None,
+                                         shared[0][1] if shared else (), frontend)
+                if not data["isFrontedProxy"] and not data["isCdn"]:
+                    continue
+                self.tag_frontend(event, (data["providerType"], data.get("cloudProvider") or "unknown"))
+                await self.emit_event(data, "GEOLOCATION", parent=event,
+                                      context=f"{{module}} classified {host} as a shared frontend")
+
+    def tag_frontend(self, event, frontend):
+        event.add_tag("shared-frontend")
+        event.add_tag(f"shared-{frontend[0].replace('_', '-')}-{frontend[1]}")
+
     async def handle_event(self, event, **kwargs):
+        if self.scope_input_only and "target" not in event.tags:
+            await self.handle_frontends_only(event)
+            return
         # cloud tagging by hosts
         hosts_to_check = set(event.resolved_hosts)
         with suppress(KeyError):
@@ -162,7 +201,10 @@ class CloudCheck(BaseInterceptModule):
 
         for host in hosts_to_check:
             if self.helpers.is_ip(host):
-                await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), cname_frontend)
+                frontend = self.frontend_evidence(event, host, cname_frontend)
+                if frontend:
+                    self.tag_frontend(event, frontend)
+                await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), frontend)
 
         # we only generate storage buckets off of in-scope or distance-1 events
         if event.scope_distance >= self.max_scope_distance:

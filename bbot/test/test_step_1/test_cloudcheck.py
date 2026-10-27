@@ -15,7 +15,10 @@ async def test_cloudcheck_scope_input_only_filter():
     module.scope_input_only = True
 
     assert await module.filter_event(make_event("example.com", tags=["target"])) is True
-    assert await module.filter_event(make_event("api.example.com")) == (
+    # Shared frontend evidence is still checked on discovered addresses, names and HTTP answers.
+    assert await module.filter_event(make_event("api.example.com")) is True
+    assert await module.filter_event(make_event("1.2.3.4", event_type="IP_ADDRESS")) is True
+    assert await module.filter_event(make_event("https://api.example.com/", event_type="URL")) == (
         False,
         "cloudcheck is limited to explicit scan input events",
     )
