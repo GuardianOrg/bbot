@@ -101,7 +101,7 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         assert "Insufficient Nameservers" in vulnerability_titles
         assert "SPF Allows All Senders" in vulnerability_titles
         assert "Missing DMARC Record" in vulnerability_titles
-        assert "Missing CAA Records" in vulnerability_titles
+        assert "Missing CAA Records" in finding_titles
         assert all("testssl" not in str(e.data).lower() for e in findings + vulnerabilities)
 
 

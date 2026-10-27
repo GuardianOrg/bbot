@@ -41,6 +41,7 @@ def test_successful_empty_dnskey_answer_reports_absence():
     asyncio.run(audit.check_dnssec("example.com", {}, findings))
 
     assert [finding.title for finding in findings] == ["DNSSEC Not Enabled"]
+    assert findings[0].severity == "INFO"
 
 
 def test_dnskey_lookup_recovers_real_absence_from_alternate_resolver():
@@ -69,6 +70,18 @@ def test_existing_dnskey_overrides_empty_local_answer():
     assert not any(finding.title == "DNSSEC Not Enabled" for finding in findings)
 
 
+def test_rsasha512_dnskey_is_not_reported_as_weak():
+    audit = audit_with_dns_answers({
+        ("example.com", "DNSKEY"): (True, ["257 3 10 AAAA"]),
+        ("example.com", "DS"): (True, ["12345 10 2 ABCD"]),
+    })
+    findings = []
+
+    asyncio.run(audit.check_dnssec("example.com", {}, findings))
+
+    assert not any(finding.title == "Weak DNSSEC Algorithm" for finding in findings)
+
+
 def test_ds_lookup_failure_does_not_claim_parent_ds_is_missing():
     audit = audit_with_dns_answers({("example.com", "DNSKEY"): (True, ["257 3 13 AAAA"])})
     findings = []
@@ -88,6 +101,7 @@ def test_ds_lookup_recovers_real_absence_from_alternate_resolver():
     asyncio.run(audit.check_dnssec("example.com", {}, findings))
 
     assert [finding.title for finding in findings] == ["Missing DS Record at Parent"]
+    assert findings[0].severity == "INFO"
 
 
 def test_ds_lookup_recovers_existing_parent_ds_from_alternate_resolver():

@@ -637,7 +637,7 @@ class domain_config_dns_audit(BaseModule):
         if not dnskey_records:
             findings.append(AuditFinding(
                 "DNSSEC Not Enabled",
-                "MEDIUM",
+                "INFO",
                 "DNSSEC",
                 (
                     "Domain does not publish DNSKEY records, so DNSSEC is not enabled."
@@ -656,11 +656,11 @@ class domain_config_dns_audit(BaseModule):
             return
         records["DNSKEY"] = dnskey_records
         dnskey_text = " ".join(dnskey_records)
-        for weak_alg, name in {"5": "RSASHA1", "7": "RSASHA1-NSEC3-SHA1", "10": "RSASHA512"}.items():
+        for weak_alg, name in {"5": "RSASHA1", "7": "RSASHA1-NSEC3-SHA1"}.items():
             if re.search(rf"\s{weak_alg}\s", dnskey_text):
                 findings.append(AuditFinding(
                     "Weak DNSSEC Algorithm",
-                    "MEDIUM",
+                    "LOW",
                     "DNSSEC",
                     (
                         f"DNSSEC uses weak or deprecated algorithm {name}."
@@ -684,7 +684,7 @@ class domain_config_dns_audit(BaseModule):
             ):
                 findings.append(AuditFinding(
                     "DS Record Uses Only SHA-1",
-                    "MEDIUM",
+                    "LOW",
                     "DNSSEC",
                     (
                         "The parent zone publishes only a SHA-1 DS digest for this DNSSEC delegation. SHA-1 is deprecated, and relying on it weakens the integrity guarantees DNSSEC is meant to provide."
@@ -702,7 +702,7 @@ class domain_config_dns_audit(BaseModule):
         elif success:
             findings.append(AuditFinding(
                 "Missing DS Record at Parent",
-                "HIGH",
+                "INFO",
                 "DNSSEC",
                 (
                     "The zone publishes DNSSEC keys but the parent zone has no matching DS record. Resolvers cannot build a chain of trust, so clients receive little to no DNSSEC protection despite the zone being signed."
@@ -722,7 +722,7 @@ class domain_config_dns_audit(BaseModule):
             if success and not tld_ds:
                 findings.append(AuditFinding(
                     "TLD Does Not Support DNSSEC",
-                    "HIGH",
+                    "INFO",
                     "DNSSEC",
                     (
                         f"The .{tld} TLD has no DS record in the root zone. DNSSEC validation cannot establish a chain of trust for this domain, so DNS spoofing protection cannot work end to end."
@@ -832,7 +832,7 @@ class domain_config_dns_audit(BaseModule):
             if first and second:
                 findings.append(AuditFinding(
                     "NSEC Allows Zone Walking",
-                    "MEDIUM",
+                    "INFO",
                     "DNSSEC",
                     (
                         "The zone exposes a repeatable NSEC chain, allowing zone walking to enumerate valid hostnames for reconnaissance and targeted attacks."
@@ -856,7 +856,7 @@ class domain_config_dns_audit(BaseModule):
                 if iterations > 0:
                     findings.append(AuditFinding(
                         "NSEC3 Uses Extra Iterations",
-                        "HIGH" if iterations > 150 else "MEDIUM",
+                        "MEDIUM" if iterations > 150 else "LOW",
                         "DNSSEC",
                         (
                             f"NSEC3 uses {iterations} additional hash iterations. RFC 9276 requires zero extra iterations because more hashing increases resolver CPU cost and denial-of-service or interoperability risk without materially preventing dictionary attacks on guessable names."
@@ -905,10 +905,10 @@ class domain_config_dns_audit(BaseModule):
             if ds_keytags and cds_keytags and ds_keytags.isdisjoint(cds_keytags):
                 findings.append(AuditFinding(
                     "DNSSEC Parent/Child Key Tag Mismatch",
-                    "HIGH",
+                    "INFO",
                     "DNSSEC",
                 (
-                    "The child zone's CDS key tags do not match the DS key tags currently published at the parent. This indicates a DNSSEC rollover or delegation mismatch that can break validation if old keys are retired."
+                    "The child zone's CDS key tags differ from the DS key tags currently published at the parent. This can be expected while requesting a DNSSEC rollover, but should be monitored until the parent updates its DS records."
                     ' DNSSEC depends on the parent zone and child zone agreeing about which key should be'
                     ' trusted. A key tag mismatch means the child is advertising rollover information that does not line up with the'
                     ' DS records currently published by the parent. In plain language, the parent may be pointing resolvers to one'
@@ -952,7 +952,7 @@ class domain_config_dns_audit(BaseModule):
         if response.rcode() == dns.rcode.NXDOMAIN and not has_nsec_proof:
             findings.append(AuditFinding(
                 "DNSSEC Denial-of-Existence Proof Not Observed",
-                "LOW",
+                "INFO",
                 "DNSSEC",
                 (
                     "An NXDOMAIN response did not include visible NSEC or NSEC3 proof records in the authority section. This may indicate incomplete denial-of-existence handling or signer behavior that should be verified."
@@ -1532,7 +1532,7 @@ class domain_config_dns_audit(BaseModule):
         if not caa_records:
             findings.append(AuditFinding(
                 "Missing CAA Records",
-                "MEDIUM",
+                "INFO",
                 "Certificate",
                 (
                     "The domain has no CAA records. CAA is the DNS policy that tells publicly trusted certificate authorities which companies may issue TLS certificates for the domain."
@@ -1583,7 +1583,7 @@ class domain_config_dns_audit(BaseModule):
         if len(allowed) > 3:
             findings.append(AuditFinding(
                 "CAA Authorizes Many Certificate Authorities",
-                "LOW",
+                "INFO",
                 "Certificate",
                 (
                     f"The CAA policy authorizes {len(allowed)} different certificate authorities. A large issuer allow-list weakens the control CAA provides and makes certificate governance harder to audit."

@@ -50,6 +50,7 @@ class TestDomainPhishing(ModuleTestBase):
                             "dns-mx": ["mx1.example.com"],
                             "dns-ns": ["ns1.example.com"],
                             "created": "2026-05-01",
+                            "lsh": 80,
                         },
                         {
                             "domain": "black-lanternsecurity.com",
@@ -117,7 +118,8 @@ class TestDomainPhishing(ModuleTestBase):
         assert len(phishing_events) == 2
 
         event = next(e for e in phishing_events if e.data["host"] == "blacklanternsecur1ty.com")
-        assert event.type == "VULNERABILITY"
+        assert event.type == "FINDING"
+        assert event.data["severity"] == "LOW"
         assert event.data["host"] == "blacklanternsecur1ty.com"
         assert event.data["category"] == "phishing-lookalike-domain"
         assert event.data["source-domain"] == "blacklanternsecurity.com"
@@ -136,7 +138,7 @@ class TestDomainPhishing(ModuleTestBase):
 
         low = next(e for e in phishing_events if e.data["host"] == "blacklanternsecuritys.com")
         assert low.type == "FINDING"
-        assert low.data["severity"] == "LOW"
+        assert low.data["severity"] == "INFO"
 
 
 class TestDomainPhishingFailedProcess(ModuleTestBase):
@@ -279,7 +281,7 @@ def test_domain_phishing_does_not_score_dnstwist_dns_errors_as_live_records():
     score, severity, reasons = mod._score_candidate(candidate)
 
     assert score == 2
-    assert severity == "LOW"
+    assert severity == "INFO"
     assert reasons == ["visually deceptive permutation (homoglyph)"]
     assert "!ServFail" not in mod._build_evidence(candidate, "homoglyph", score, reasons)
 
@@ -303,7 +305,7 @@ def test_domain_phishing_null_mx_does_not_score_mail_service(null_mx):
     score, severity, reasons = mod._score_candidate(candidate)
 
     assert score == 4
-    assert severity == "MEDIUM"
+    assert severity == "INFO"
     assert not any("MX" in reason or "mail" in reason for reason in reasons)
 
 
@@ -399,8 +401,8 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
     asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
 
     assert set(emitted) == {
-        ("coinba5e.com", "VULNERABILITY", "MEDIUM"),
-        ("coinbasre.com", "FINDING", "LOW"),
+        ("coinba5e.com", "FINDING", "INFO"),
+        ("coinbasre.com", "FINDING", "INFO"),
     }
 
 
