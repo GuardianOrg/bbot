@@ -1527,7 +1527,9 @@ class domain_config_dns_audit(BaseModule):
 
     async def check_caa(self, domain, records, findings):
         success, caa_records = await self.query_dns(domain, "CAA")
-        if not success or not caa_records:
+        if not success:
+            return
+        if not caa_records:
             findings.append(AuditFinding(
                 "Missing CAA Records",
                 "MEDIUM",
@@ -1565,23 +1567,19 @@ class domain_config_dns_audit(BaseModule):
         allowed = {value for value in issue_values + issuewild_values if value and value != ";"}
         if "*" in allowed:
             findings.append(AuditFinding(
-                "CAA Wildcard Authorization Is Overly Broad",
-                "HIGH",
+                "CAA Issuer Value Is Malformed",
+                "INFO",
                 "Certificate",
                 (
-                    "The CAA policy authorizes wildcard certificate issuance too broadly. Overly broad CA authorization increases the chance that unexpected providers can issue certificates for subdomains."
-                    ' Wildcard certificates can cover many subdomains at once, such as every name under a'
-                    ' domain. If CAA authorizes wildcard issuance too broadly, a mistake or compromise at an allowed certificate'
-                    ' authority can have a larger impact because one certificate may be valid for many hosts. This does not prove'
-                    ' that a bad certificate has been issued, but it weakens the guardrails around certificate governance. Wildcard'
-                    ' issuance should be limited to the providers that truly need it, and some domains may choose to deny wildcard'
-                    ' certificates entirely. A tighter issuewild policy reduces the chance of unexpected certificates being issued'
-                    ' for sensitive subdomains.'
+                    'A CAA issue or issuewild value contains "*" as an issuer. This is not a valid issuer domain name.'
+                    ' Under RFC 8659, a malformed issuer value is treated as empty and does not authorize that issuer.'
+                    ' Check whether denying issuance was intended; if not, replace it with the actual CA domain.'
                 ),
                 f"CAA records: {caa_records}",
-                "Replace wildcard CA authorization with a tight allow-list.",
+                "Use a valid CA domain, or an empty issuer value to deny issuance explicitly.",
                 f"dig CAA {domain}",
             ))
+            allowed.discard("*")
         if len(allowed) > 3:
             findings.append(AuditFinding(
                 "CAA Authorizes Many Certificate Authorities",
@@ -1603,21 +1601,16 @@ class domain_config_dns_audit(BaseModule):
             ))
         if issue_values and not issuewild_values:
             findings.append(AuditFinding(
-                "CAA Missing Explicit issuewild Policy",
+                "CAA Uses issue Policy for Wildcards",
                 "INFO",
                 "Certificate",
                 (
-                    "The CAA policy restricts normal certificate issuance but does not explicitly define wildcard issuance. Wildcard certificate behavior may not match the intended policy."
-                    ' The CAA issue tag controls normal certificate issuance, while issuewild controls'
-                    ' wildcard certificates specifically. If normal issuance is restricted but wildcard issuance is not explicitly'
-                    ' defined, the resulting behavior can be misunderstood by operators and auditors. Wildcard certificates are'
-                    ' powerful because one certificate can authenticate many subdomains, so their policy should be intentional.'
-                    ' Adding issuewild either allows only approved wildcard issuers or denies wildcard issuance entirely. This makes'
-                    " the domain's certificate governance easier to reason about and reduces surprises when a provider or automation"
-                    ' system tries to request a wildcard certificate.'
+                    'The CAA policy has no separate issuewild value. Under RFC 8659, the issue values also govern'
+                    ' wildcard certificates in this case. An explicit issuewild value is optional and is useful only when'
+                    ' wildcard certificates need a different issuer policy.'
                 ),
                 f"CAA records: {caa_records}",
-                "Add explicit issuewild policy or issuewild \";\" to deny wildcard issuance.",
+                'Add issuewild only if wildcard certificates need a different issuer policy.',
                 f"dig CAA {domain}",
             ))
 
