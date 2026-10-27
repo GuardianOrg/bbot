@@ -81,6 +81,24 @@ class subzy(BaseModule):
         return True
 
     @staticmethod
+    def is_provider_mismatch(engine, raw_dns_records=None):
+        """A direct CNAME to another provider cannot be claimed through this engine."""
+        cname_targets = {
+            str(target).lower().rstrip(".") for target in (raw_dns_records or {}).get("CNAME", ())
+        }
+        if not cname_targets:
+            return False
+        engine = str(engine).lower()
+        if engine == "cargo collective":
+            return all(
+                is_aws_elb_cname(target) or cname_has_suffix(target, NON_CARGO_CNAME_SUFFIXES)
+                for target in cname_targets
+            )
+        if engine == "intercom":
+            return all(cname_has_suffix(target, NON_INTERCOM_CNAME_SUFFIXES) for target in cname_targets)
+        return False
+
+    @staticmethod
     def is_claimed_provider_response(response, engine, raw_dns_records=None, host=None):
         """
         subzy matches response bodies only, so generic text matches live sites. A 200 carrying a
@@ -88,6 +106,8 @@ class subzy(BaseModule):
         - GitBook (X-GitBook-Route-Site / X-GitBook-Target), which serves only its own sites;
         - Vercel (x-vercel-id without x-vercel-error), for the engines in VERCEL_DISPROVED_ENGINES.
         """
+        if subzy.is_provider_mismatch(engine, raw_dns_records):
+            return True
         if response is None:
             return False
         # Subzy's Cargo fingerprint also matches stock nginx/openresty ingress 404s.
@@ -98,11 +118,6 @@ class subzy(BaseModule):
         engine = str(engine).lower()
         cname_targets = {str(target).lower().rstrip(".") for target in dns_records.get("CNAME", ())}
         if engine == "cargo collective":
-            if cname_targets and all(
-                is_aws_elb_cname(target) or cname_has_suffix(target, NON_CARGO_CNAME_SUFFIXES)
-                for target in cname_targets
-            ):
-                return True
             # A host that CNAMEs to its own parent domain and receives that
             # domain's stock Varnish 404 is not routed through Cargo.
             parent_domain = str(host or "").lower().partition(".")[2]
@@ -129,10 +144,6 @@ class subzy(BaseModule):
         # Subzy's Uptimerobot fingerprint is the generic "page not found".
         # Cloudflare's own default 404 includes that phrase on directly
         # addressed hosts, but is not an Uptimerobot unclaimed-site response.
-        if engine == "intercom" and cname_targets and all(
-            cname_has_suffix(target, NON_INTERCOM_CNAME_SUFFIXES) for target in cname_targets
-        ):
-            return True
         if engine == "uptimerobot" and response.status_code == 404:
             server = str(next((value for key, value in response.headers.items() if str(key).lower() == "server"), ""))
             if (
@@ -157,12 +168,25 @@ class subzy(BaseModule):
         return vercel_deployment and engine in VERCEL_DISPROVED_ENGINES
 
     async def is_claimed_provider_host(self, host, engine, raw_dns_records=None):
+        dns_records = dict(raw_dns_records or {})
+        if str(engine).lower() in {"cargo collective", "intercom"} and not dns_records.get("CNAME"):
+            # DNS metadata can be absent from a replayed event. Recheck only the
+            # hostname's direct CNAME; an inconclusive lookup keeps the alert.
+            try:
+                answers, _errors = await self.helpers.resolve_raw(host, type="CNAME")
+                cname_targets = {answer for rdtype, answer in answers if str(rdtype).upper() == "CNAME"}
+                if cname_targets:
+                    dns_records["CNAME"] = cname_targets
+            except Exception:
+                pass
+        if self.is_provider_mismatch(engine, dns_records):
+            return True
         for scheme in ("https", "http"):
             try:
                 response = await self.helpers.request(f"{scheme}://{host}")
             except Exception:
                 continue
-            if self.is_claimed_provider_response(response, engine, raw_dns_records, host=host):
+            if self.is_claimed_provider_response(response, engine, dns_records, host=host):
                 return True
         return False
 
