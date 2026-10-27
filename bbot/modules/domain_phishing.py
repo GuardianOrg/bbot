@@ -252,11 +252,9 @@ class domain_phishing(BaseModule):
             score += 3
             reasons.append(f"high page similarity (LSH {lsh_value}%)")
 
-        severity = "LOW"
-        if score >= 6:
-            severity = "HIGH"
-        elif score >= 4:
-            severity = "MEDIUM"
+        # Domain similarity, DNS records, and registration age establish a
+        # candidate for review, not malicious ownership or phishing activity.
+        severity = "LOW" if score >= 6 else "INFO"
 
         return score, severity, reasons
 
@@ -585,13 +583,9 @@ class domain_phishing(BaseModule):
             # look-alike from one whose ownership is unchanged.
             payload.update(fingerprint)
 
-            event_type = "FINDING"
-            if severity in ("HIGH", "MEDIUM"):
-                event_type = "VULNERABILITY"
-
             emitted_event = await self.emit_event(
                 payload,
-                event_type,
+                "FINDING",
                 parent=event,
                 tags=tags,
                 context=f'{{module}} analyzed "{root_domain}" permutations and found {{event.type}} on look-alike domain "{candidate_domain}"',

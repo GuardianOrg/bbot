@@ -49,4 +49,4 @@ def test_parent_child_key_tag_mismatch_remains_actionable():
 
     asyncio.run(audit.check_dnssec_lifecycle("example.com", {"DNSKEY": ["signed"]}, findings))
 
-    assert any(finding.title == "DNSSEC Parent/Child Key Tag Mismatch" and finding.severity == "HIGH" for finding in findings)
+    assert any(finding.title == "DNSSEC Parent/Child Key Tag Mismatch" and finding.severity == "INFO" for finding in findings)

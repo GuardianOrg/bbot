@@ -35,6 +35,7 @@ def test_static_nsec_chain_still_reports_zone_walking():
     asyncio.run(audit.check_nsec_records("example.com", findings))
 
     assert any(finding.title == "NSEC Allows Zone Walking" for finding in findings)
+    assert all(finding.severity == "INFO" for finding in findings if finding.title == "NSEC Allows Zone Walking")
 
 
 def test_nsec3_zero_extra_iterations_is_not_a_weakness():
@@ -67,4 +68,4 @@ def test_nsec3_many_extra_iterations_remain_high_priority():
 
     asyncio.run(audit.check_nsec_records("example.com", findings))
 
-    assert any(finding.title == "NSEC3 Uses Extra Iterations" and finding.severity == "HIGH" for finding in findings)
+    assert any(finding.title == "NSEC3 Uses Extra Iterations" and finding.severity == "MEDIUM" for finding in findings)

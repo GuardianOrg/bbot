@@ -25,6 +25,7 @@ def test_empty_successful_caa_answer_still_reports_missing_policy():
     findings = []
     asyncio.run(audit.check_caa("example.com", {}, findings))
     assert [finding.title for finding in findings] == ["Missing CAA Records"]
+    assert findings[0].severity == "INFO"
 
 
 def test_wildcard_issuer_is_malformed_not_broad_authorization():
