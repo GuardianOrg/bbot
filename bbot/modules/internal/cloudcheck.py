@@ -77,11 +77,18 @@ class CloudCheck(BaseInterceptModule):
     # tag events up to and including distance-2
     scope_distance_modifier = 2
     _priority = 3
+    # Frontend probes wait on the network; several workers keep one slow address from holding up the scan.
+    _module_threads = 10
 
     async def setup(self):
         self._cloud_hostname_regexes = None
         self._cloud_hostname_regexes_lock = asyncio.Lock()
         self.scope_input_only = bool(self.config.get("scope_input_only", False))
+        # One request to a bare cloud address before port scanning, to recognise load balancers and API gateways.
+        self.probe_cloud_frontends = bool(self.config.get("probe_cloud_frontends", False))
+        self.probe_timeout = float(self.config.get("probe_timeout", 5))
+        self._probe_verdicts = {}
+        self._probe_tasks = {}
         # AWS and Google publish which of their blocks are CloudFront, API Gateway, S3, Google front ends...
         try:
             self.service_ranges = await self.helpers.run_in_executor(shared_infra.load_service_ranges)
@@ -99,12 +106,83 @@ class CloudCheck(BaseInterceptModule):
             self.warning(f"Failed to load cloud provider signatures ({e}); continuing with cloud detection degraded")
         return True
 
+    def trusted_providers(self, host, providers):
+        """cloudcheck's CDN lists also cover customer EC2 blocks (dedicated instances come back as Cloudfront,
+        Quiccloud or GitHub). Inside AWS, AWS's own ip-ranges.json decides: a CDN or WAF provider is kept only
+        where AWS publishes the block as CloudFront. Anything dropped is still probed as a general cloud address."""
+        if "aws" not in getattr(self.service_ranges, "sources", ()) or not any(name == "amazon" for name, _ in providers):
+            return providers
+        published = shared_infra.classify_ip(host, self.service_ranges)
+        is_cloudfront = bool(published and published[:2] == ("cdn", "cloudfront"))
+        return [(name, tags) for name, tags in providers
+                if not {"cdn", "waf"} & {str(tag).lower() for tag in tags} or (name == "cloudfront" and is_cloudfront)]
+
     async def filter_event(self, event):
         if (not event.host) or (event.type in ("IP_RANGE",)):
             return False, "event does not have host attribute"
         if self.scope_input_only and "target" not in event.tags and event.type not in FRONTEND_EVENT_TYPES:
             return False, "cloudcheck is limited to explicit scan input events"
         return True
+
+    def alias_evidence(self, event):
+        """Frontend named by the event's DNS aliases (CNAME) or, for an address, its provider-owned PTR name."""
+        cname_hosts = set(event.dns_children.get("CNAME", ()))
+        if event.type == "IP_ADDRESS":
+            for parent in event.get_parents():
+                if parent.type == "DNS_NAME":
+                    cname_hosts.update(parent.dns_children.get("CNAME", ()))
+                    break
+        found = [frontend_cname_evidence(cname_hosts)]
+        # Edge PTRs such as *.r.cloudfront.net or *.akamaitechnologies.com name their provider. Cloud instances
+        # (ec2-*.compute.amazonaws.com, *.bc.googleusercontent.com) and customer-chosen names never match a suffix.
+        ptr = shared_infra.classify_hostnames(event.dns_children.get("PTR", ()))
+        found.append((ptr[0], ptr[1], ptr[2].replace("DNS alias", "PTR", 1)) if ptr else None)
+        found = [match for match in found if match]
+        return max(found, key=lambda match: shared_infra.KIND_PRIORITY[match[0]]) if found else None
+
+    async def probe_frontend(self, ip):
+        """Ask the bare address what it is. Without a matching Host or SNI, a load balancer or API gateway answers
+        with its own default response (``Server: awselb/2.0``, ``x-amzn-ErrorType``), while a dedicated server
+        answers as itself. Both schemes are requested at once; the verdict is cached per address."""
+        if ip in self._probe_verdicts:
+            return self._probe_verdicts[ip]
+        task = self._probe_tasks.get(ip)
+        if task is None:
+            task = self._probe_tasks[ip] = asyncio.create_task(self._probe_frontend(ip))
+        try:
+            verdict = await asyncio.shield(task)
+        finally:
+            self._probe_tasks.pop(ip, None)
+        self._probe_verdicts[ip] = verdict
+        return verdict
+
+    async def _probe_frontend(self, ip):
+        host = f"[{ip}]" if ":" in ip else ip
+        urls = [f"https://{host}/", f"http://{host}/"]
+        responses = await asyncio.gather(*(self.helpers.request(url, timeout=self.probe_timeout,
+                                                                follow_redirects=False) for url in urls),
+                                         return_exceptions=True)
+        found = []
+        for url, response in zip(urls, responses):
+            if response is None or isinstance(response, BaseException) or not hasattr(response, "headers"):
+                continue
+            headers = {}
+            for name, value in response.headers.multi_items():
+                headers.setdefault(name, []).append(value)
+            answer = shared_infra.classify_response(
+                {"status_code": response.status_code, "header": headers,
+                 "body": response.content[:20000].decode("utf-8", "ignore")})
+            if answer:
+                found.append((answer[0], answer[1], f"HTTP probe of {url}: {answer[2]}"))
+        return max(found, key=lambda match: shared_infra.KIND_PRIORITY[match[0]]) if found else None
+
+    async def probed_evidence(self, event, ip, frontend, providers):
+        """Probe an IP_ADDRESS (what port scanners consume) in a general cloud range that nothing else classified."""
+        if frontend or not self.probe_cloud_frontends or event.type != "IP_ADDRESS":
+            return frontend
+        if not any("cloud" in {str(tag).lower() for tag in tags} for _, tags in providers):
+            return None
+        return await self.probe_frontend(ip)
 
     def frontend_evidence(self, event, ip, cname_frontend):
         """Strongest shared-frontend evidence for one address of an event: alias, published range or HTTP answer."""
@@ -119,13 +197,7 @@ class CloudCheck(BaseInterceptModule):
     async def handle_frontends_only(self, event):
         """Flag shared frontends on discovered events without the full cloud tagging of scan input."""
         hosts = [str(event.host_original)] + [str(host) for host in event.resolved_hosts]
-        cname_hosts = set(event.dns_children.get("CNAME", ()))
-        if event.type == "IP_ADDRESS":
-            for parent in event.get_parents():
-                if parent.type == "DNS_NAME":
-                    cname_hosts.update(parent.dns_children.get("CNAME", ()))
-                    break
-        cname_frontend = frontend_cname_evidence(cname_hosts)
+        cname_frontend = self.alias_evidence(event)
         for host in dict.fromkeys(hosts):
             if not self.helpers.is_ip(host):
                 continue
@@ -137,8 +209,11 @@ class CloudCheck(BaseInterceptModule):
                              for provider in await self.helpers.cloudcheck.lookup(host)]
             except Exception as e:
                 self.debug(f"Error running cloudcheck against {host}: {e}")
+            providers = self.trusted_providers(host, providers)
             shared = [(name, tags) for name, tags in providers
                       if {"cdn", "waf"} & {str(tag).lower() for tag in tags} or name in SHARED_CLOUD_PROVIDERS]
+            if not shared:
+                frontend = await self.probed_evidence(event, host, frontend, providers)
             if frontend or shared:
                 data = cloud_ip_metadata(host, self._provider_slug(shared[0][0]) if shared else None,
                                          shared[0][1] if shared else (), frontend)
@@ -162,16 +237,10 @@ class CloudCheck(BaseInterceptModule):
             hosts_to_check.remove(event.host_original)
         hosts_to_check = [str(event.host_original)] + list(hosts_to_check)
 
-        cname_hosts = set(event.dns_children.get("CNAME", ()))
-        cname_hosts.update(
-            host for host in hosts_to_check if not self.helpers.is_ip(host) and host != str(event.host_original)
-        )
-        if event.type == "IP_ADDRESS":
-            for parent in event.get_parents():
-                if parent.type == "DNS_NAME":
-                    cname_hosts.update(parent.dns_children.get("CNAME", ()))
-                    break
-        cname_frontend = frontend_cname_evidence(cname_hosts)
+        cname_hosts = {host for host in hosts_to_check if not self.helpers.is_ip(host) and host != str(event.host_original)}
+        found = [self.alias_evidence(event), frontend_cname_evidence(cname_hosts)]
+        found = [match for match in found if match]
+        cname_frontend = max(found, key=lambda match: shared_infra.KIND_PRIORITY[match[0]]) if found else None
         ip_providers = {}
 
         for i, host in enumerate(hosts_to_check):
@@ -181,9 +250,10 @@ class CloudCheck(BaseInterceptModule):
             except Exception as e:
                 self.warning(f"Error running cloudcheck against {event} (host: {host}): {e}")
                 continue
-            for provider in cloudcheck_results:
-                provider_name = provider["name"].lower()
-                tags = provider.get("tags", [])
+            found = [(provider["name"].lower(), provider.get("tags", [])) for provider in cloudcheck_results]
+            if host_is_ip:
+                found = self.trusted_providers(host, found)
+            for provider_name, tags in found:
                 if host_is_ip:
                     ip_providers.setdefault(host, []).append((provider_name, tags))
                 for tag in tags:
@@ -202,6 +272,10 @@ class CloudCheck(BaseInterceptModule):
         for host in hosts_to_check:
             if self.helpers.is_ip(host):
                 frontend = self.frontend_evidence(event, host, cname_frontend)
+                providers = ip_providers.get(host, [])
+                if not any({"cdn", "waf"} & {str(tag).lower() for tag in tags} or name in SHARED_CLOUD_PROVIDERS
+                           for name, tags in providers):
+                    frontend = await self.probed_evidence(event, host, frontend, providers)
                 if frontend:
                     self.tag_frontend(event, frontend)
                 await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), frontend)

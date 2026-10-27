@@ -10,6 +10,10 @@ Three independent kinds of evidence are checked, because none of them is enough 
   and API Gateway, Google front ends...). General cloud ranges never count, since customer instances share them.
 * HTTP answers: AWS load balancers and regional API gateways use ordinary EC2 addresses, so only their own
   answer (``Server: awselb/2.0``, ``x-amzn-ErrorType``...) or their default TLS certificate tells them apart.
+  cloudcheck can request a bare cloud address before port scanning (``probe_cloud_frontends``): with no
+  matching Host or SNI, these services answer with their own default response. Reverse DNS does not help
+  here, because their PTR is the same ``ec2-*.compute.amazonaws.com`` name as a dedicated instance's; it only
+  names edge providers such as CloudFront or Akamai, and is checked as an alias.
 
 BBOT is the only place that decides this. Consumers (naxus, Sentry) trust the flags BBOT emits on GEOLOCATION.
 """
@@ -38,6 +42,7 @@ CNAME_SUFFIXES = {
     "akamaized.net": ("cdn", "akamai"),
     "akamaihd.net": ("cdn", "akamai"),
     "akamai.net": ("cdn", "akamai"),
+    "akamaitechnologies.com": ("cdn", "akamai"),
     "akadns.net": ("cdn", "akamai"),
     "fastly.net": ("cdn", "fastly"),
     "fastlylb.net": ("cdn", "fastly"),
@@ -444,6 +449,7 @@ def _as_triple(match):
 def load_service_ranges(timeout=15, opener=urllib.request.urlopen):
     """Index of the shared-edge blocks that AWS and Google publish. A failed download leaves its blocks out."""
     networks = {}
+    loaded = set()
     try:
         with opener(AWS_RANGES_URL, timeout=timeout) as response:
             data = json.load(response)
@@ -452,6 +458,7 @@ def load_service_ranges(timeout=15, opener=urllib.request.urlopen):
                 label = AWS_SHARED_SERVICES.get(prefix.get("service"))
                 if label and prefix.get(field):
                     networks[ipaddress.ip_network(prefix[field])] = label
+        loaded.add("aws")
     except Exception:
         pass
     try:
@@ -466,15 +473,18 @@ def load_service_ranges(timeout=15, opener=urllib.request.urlopen):
             # Skip any block that contains or overlaps a Cloud customer block.
             if not any(network.version == leased.version and network.overlaps(leased) for leased in cloud):
                 networks[network] = ("proxy", "google")
+        loaded.add("google")
     except Exception:
         pass
-    return NetworkIndex(networks)
+    return NetworkIndex(networks, loaded)
 
 
 class NetworkIndex:
     """Longest-prefix lookup over many blocks, by masking the address once per distinct prefix length."""
 
-    def __init__(self, networks):
+    def __init__(self, networks, sources=()):
+        # Providers whose published list made it into the index, so a miss there is authoritative.
+        self.sources = frozenset(sources)
         self.tables = {}
         for network, label in networks.items():
             table = self.tables.setdefault((network.version, network.prefixlen), {})
