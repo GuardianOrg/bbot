@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 from bbot.modules.subzy import subzy
@@ -96,6 +97,64 @@ def test_subzy_ignores_predict_provider_mismatches_without_hiding_provider_match
     assert subzy.is_claimed_provider_response(
         generic_404, "Intercom", {"CNAME": {"custom.intercom.help."}}, host="help.example.com"
     ) is False
+
+
+def test_subzy_rejects_ghost_intercom_mismatch_even_when_http_is_unavailable():
+    mod = object.__new__(subzy)
+    requests = []
+
+    async def request(url):
+        requests.append(url)
+        return None
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+
+    assert asyncio.run(mod.is_claimed_provider_host(
+        "news.predict.fun", "Intercom", {"CNAME": {"predict-fun.ghost.io."}}
+    )) is True
+    assert requests == []
+
+
+def test_subzy_recovers_missing_cname_metadata_before_intercom_alert():
+    mod = object.__new__(subzy)
+    requests = []
+
+    async def resolve_raw(host, type):
+        assert (host, type) == ("news.predict.fun", "CNAME")
+        return [("CNAME", "predict-fun.ghost.io.")], []
+
+    async def request(url):
+        requests.append(url)
+        return None
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(resolve_raw=resolve_raw, request=request))
+
+    assert asyncio.run(mod.is_claimed_provider_host("news.predict.fun", "Intercom")) is True
+    assert requests == []
+
+
+def test_subzy_keeps_intercom_cname_and_unknown_dns_results_eligible():
+    mod = object.__new__(subzy)
+    requests = []
+
+    async def resolve_raw(_host, type):
+        assert type == "CNAME"
+        return [], [("CNAME", "timeout")]
+
+    async def request(url):
+        requests.append(url)
+        return None
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(resolve_raw=resolve_raw, request=request))
+
+    assert asyncio.run(mod.is_claimed_provider_host(
+        "help.example.com", "Intercom", {"CNAME": {"custom.intercom.help."}}
+    )) is False
+    assert asyncio.run(mod.is_claimed_provider_host("unknown.example.com", "Intercom")) is False
+    assert requests == [
+        "https://help.example.com", "http://help.example.com",
+        "https://unknown.example.com", "http://unknown.example.com",
+    ]
 
 
 def test_subzy_ignores_uptimerobot_match_on_cloudflare_default_404():
