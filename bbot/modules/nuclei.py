@@ -603,14 +603,11 @@ class nuclei(BaseModule):
             if url == "" and not matched_at:
                 url = str(parent_event.data)
 
-            # The official waf-detect template reports the WAF vendor in its
-            # matcher name. Keep it on the website as a WAF attribute instead
-            # of turning it into a generic technology or a vulnerability.
-            if template == "waf-detect":
+            if self.is_waf_detection_result(result):
                 if name != "WAF Detection":
                     await self.emit_event(
                         {"waf": name, "url": url or str(parent_event.data), "host": str(parent_event.host),
-                         "info": "Nuclei waf-detect template"},
+                         "info": f"Nuclei {template} template"},
                         "WAF",
                         parent_event,
                         context=f"{{module}} scanned {url} and identified {{event.type}}: {name}",
@@ -675,6 +672,19 @@ class nuclei(BaseModule):
                     parent_event,
                     context=f"{{module}} scanned {url} and identified {severity.lower()} {{event.type}}: {description_string}",
                 )
+
+    @staticmethod
+    def is_waf_detection_result(result):
+        if result.get("template") == "waf-detect":
+            return True
+        tags = result.get("tags", [])
+        if isinstance(tags, str):
+            tags = tags.split(",")
+        return (
+            result.get("severity") == "INFO"
+            and any(str(tag).strip().lower() == "waf" for tag in tags)
+            and str(result.get("description") or "").strip().lower().startswith("a web application firewall was detected.")
+        )
 
     def correlate_event(self, events, host):
         host = str(host or "").strip().lower()
