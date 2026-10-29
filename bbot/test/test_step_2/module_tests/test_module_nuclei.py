@@ -72,13 +72,26 @@ class TestNucleiWafDetection(TestNucleiManual):
                     "severity": "INFO", "template": "waf-detect", "tags": ["waf", "tech"],
                     "host": inputs[0], "url": inputs[0], "matched_at": inputs[0], "name": name,
                 }
+            yield {
+                "severity": "INFO", "template": "cloudflare", "tags": ["waf", "fuzz", "fuzzing", "vuln"],
+                "description": "A web application firewall was detected.",
+                "host": inputs[0], "url": inputs[0], "matched_at": inputs[0], "name": "cloudflare",
+            }
+            yield {
+                "severity": "HIGH", "template": "cloudflare-waf-bypass", "tags": ["waf", "fuzz", "vuln"],
+                "description": "A WAF bypass was confirmed.",
+                "host": inputs[0], "url": inputs[0], "matched_at": inputs[0], "name": "Cloudflare WAF bypass",
+            }
 
         module_test.monkeypatch.setattr(module_test.module, "execute_nuclei", fake_nuclei)
 
     def check(self, module_test, events):
+        assert [e.data["waf"] for e in events if e.type == "WAF"].count("cloudflare") == 2
         assert {e.data["waf"] for e in events if e.type == "WAF"} == {"cloudfront", "cloudflare"}
         assert not any(e.type == "FINDING" and e.data.get("title") in {"cloudfront", "cloudflare"}
                        for e in events)
+        assert any(e.type == "VULNERABILITY" and e.data.get("title") == "Cloudflare WAF bypass"
+                   for e in events)
 
 
 class TestNucleiSevere(TestNucleiManual):
