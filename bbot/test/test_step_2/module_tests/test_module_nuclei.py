@@ -60,6 +60,7 @@ class TestNucleiManual(ModuleTestBase):
 
 
 class TestNucleiWafDetection(TestNucleiManual):
+    module_name = "nuclei"
     modules_overrides = ["httpx", "nuclei"]
 
     async def setup_after_prep(self, module_test):
