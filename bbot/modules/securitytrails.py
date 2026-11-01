@@ -1,4 +1,5 @@
-from bbot.modules.templates.subdomain_enum import subdomain_enum_apikey
+from bbot.modules.templates.osintverse import OSINTverseClient
+from bbot.modules.templates.subdomain_enum import subdomain_enum, subdomain_enum_apikey
 
 
 class securitytrails(subdomain_enum_apikey):
@@ -6,14 +7,15 @@ class securitytrails(subdomain_enum_apikey):
     produced_events = ["DNS_NAME", "DOMAIN_DNS_HISTORY"]
     flags = ["subdomain-enum", "passive", "safe"]
     meta = {
-        "description": "Query the SecurityTrails API for subdomains",
+        "description": "Query the SecurityTrails API (directly or through OSINTverse) for subdomains",
         "created_date": "2022-07-03",
         "author": "@TheTechromancer",
         "auth_required": True,
     }
-    options = {"api_key": "", "max_history_pages": 1}
+    options = {"api_key": "", "osintverse_api_key": "", "max_history_pages": 1}
     options_desc = {
-        "api_key": "SecurityTrails API key",
+        "api_key": "SecurityTrails API key (takes precedence over osintverse_api_key)",
+        "osintverse_api_key": "OSINTverse API key, used when no SecurityTrails API key is set ($0.50 per domain). OSINTverse runs on the free SecurityTrails tier: current DNS and the first page of subdomains only, no DNS history",
         "max_history_pages": "Maximum DNS history pages to fetch per DNS name",
     }
 
@@ -25,6 +27,11 @@ class securitytrails(subdomain_enum_apikey):
         self.max_history_pages = max(0, int(self.config.get("max_history_pages", 1)))
         self.subdomain_queries_done = set()
         self.history_queries_done = set()
+        self.osintverse = OSINTverseClient(self, self.config.get("osintverse_api_key", ""))
+        self.use_osintverse = not self.config.get("api_key", "") and bool(self.osintverse.api_key)
+        if self.use_osintverse:
+            await subdomain_enum.setup(self)
+            return await self.osintverse.check("securitytrails", "domain")
         return await super().setup()
 
     def _incoming_dedup_hash(self, event):
@@ -37,9 +44,32 @@ class securitytrails(subdomain_enum_apikey):
             await super().handle_event(event)
 
         host = str(event.data).strip().lower()
+        if self.use_osintverse:
+            # DNS history is not available through OSINTverse
+            return
         if host and host not in self.history_queries_done:
             self.history_queries_done.add(host)
             await self.emit_dns_history(host, event)
+
+    async def query(self, query, request_fn=None, parse_fn=None):
+        if self.use_osintverse:
+            return await self.query_osintverse(query)
+        return await super().query(query, request_fn=request_fn, parse_fn=parse_fn)
+
+    async def query_osintverse(self, query):
+        search = await self.osintverse.search("securitytrails", "domain", query)
+        _, matches = self.osintverse.results(search)
+        results = set()
+        for match in matches:
+            if match.get("type") != "subdomain":
+                continue
+            hostname = str(match.get("hostname") or "").strip().lower()
+            label = str(match.get("label") or "").strip().lower()
+            if not hostname and label:
+                hostname = f"{label}.{query}"
+            if hostname:
+                results.add(hostname)
+        return results
 
     async def request_url(self, query):
         url = f"{self.base_url}/domain/{query}/subdomains?apikey={{api_key}}"

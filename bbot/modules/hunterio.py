@@ -14,16 +14,20 @@ class hunterio(subdomain_enum_apikey):
     options = {"api_key": "", "max_pages": 10}
     options_desc = {
         "api_key": "Hunter.IO API key",
-        "max_pages": "Maximum Domain Search pages per registrable domain (10 emails per page, 1 search credit each)",
+        "max_pages": "Maximum Domain Search pages per registrable domain (10 emails per page, 1 search credit each, capped at 10)",
     }
 
     base_url = "https://api.hunter.io/v2"
     ping_url = f"{base_url}/account?api_key={{api_key}}"
     # Hunter bills one search per 10 returned emails, so small pages cap spend precisely
     page_size = 10
+    # never more than 10 searches (100 emails) per domain, whatever the config says
+    max_pages_limit = 10
+    # wildcard DNS says nothing about which mailboxes exist
+    reject_wildcards = False
 
     async def setup(self):
-        self.max_pages = max(0, int(self.config.get("max_pages", 10)))
+        self.max_pages = min(self.max_pages_limit, max(0, int(self.config.get("max_pages", 10))))
         return await super().setup()
 
     async def filter_event(self, event):

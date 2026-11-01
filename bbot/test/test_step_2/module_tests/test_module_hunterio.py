@@ -102,3 +102,12 @@ class TestHunterioSkipsSubdomainTargets(TestHunterio):
     def check(self, module_test, events):
         assert not hunter_requests(module_test)
         assert not [e for e in events if e.type == "EMAIL_ADDRESS"]
+
+
+class TestHunterioMaxPagesCap(TestHunterio):
+    config_overrides = {"modules": {"hunterio": {"api_key": ["asdf", "1234", "4321", "fdsa"], "max_pages": 50}}}
+
+    def check(self, module_test, events):
+        # no config can raise spend above 10 searches per domain
+        assert module_test.scan.modules["hunterio"].max_pages == 10
+        super().check(module_test, events)

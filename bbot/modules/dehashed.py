@@ -1,114 +1,61 @@
-import asyncio
 from contextlib import suppress
 
-from bbot.core.helpers.leak_history import LeakHistory, record_fingerprint
-from bbot.core.helpers.observation_dates import indexed_date_tags
-from bbot.modules.templates.subdomain_enum import subdomain_enum
+from bbot.modules.templates.osintverse import osintverse_leak
 
 
-class dehashed(subdomain_enum):
+class dehashed(osintverse_leak):
     watched_events = ["DNS_NAME"]
-    produced_events = ["PASSWORD", "HASHED_PASSWORD", "USERNAME", "EMAIL_ADDRESS"]
+    produced_events = [
+        "LEAKED_CREDENTIAL",
+        "EMAIL_PROFILE",
+        "PASSWORD",
+        "HASHED_PASSWORD",
+        "USERNAME",
+        "EMAIL_ADDRESS",
+        "DNS_NAME",
+    ]
     flags = ["passive", "safe", "email-enum"]
     meta = {
-        "description": "Execute queries against dehashed.com for exposed credentials",
+        "description": "Execute queries against dehashed.com (directly or through OSINTverse) for exposed credentials",
         "created_date": "2023-10-12",
         "author": "@SpamFaux",
         "auth_required": True,
     }
-    options = {"api_key": "", "history_file": ""}
+    options = {"api_key": "", "osintverse_api_key": "", "history_file": "", "legacy_events": True}
     options_desc = {
-        "api_key": "DeHashed API Key",
+        "api_key": "DeHashed API Key (takes precedence over osintverse_api_key)",
+        "osintverse_api_key": "OSINTverse API key, used when no DeHashed API key is set ($0.30 per domain search)",
         "history_file": "Optional JSON path to persist already-reported leak fingerprints so repeats are not re-emitted on later scans. Leave empty to disable.",
+        "legacy_events": "Also emit the flat USERNAME, PASSWORD and HASHED_PASSWORD events next to LEAKED_CREDENTIAL",
     }
     target_only = True
 
     SOURCE = "dehashed"
+    source_name = "dehashed.com"
+    osintverse_provider = "dehashed"
     base_url = "https://api.dehashed.com/v2/search"
 
-    async def setup(self):
+    async def setup_api(self):
         self.api_key = self.config.get("api_key", "")
         self.headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
             "Dehashed-Api-Key": self.api_key,
         }
-        self.history = LeakHistory(str(self.config.get("history_file", "")).strip(), warn=self.warning)
-        self._state_lock = asyncio.Lock()
-
+        if self.api_key:
+            return True, ""
+        if self.osintverse.api_key:
+            return await super().setup_api()
         # soft-fail if we don't have the necessary information to make queries
+        return None, "No API key set (api_key or osintverse_api_key)"
+
+    async def fetch_records(self, query, event):
         if not self.api_key:
-            return None, "No API key set"
-
-        return await super().setup()
-
-    async def handle_event(self, event):
-        query = self.make_query(event)
-        async for entries in self.query(query):
-            for entry in entries:
-                # we have to clean up the email field because dehashed does a poor job of it
-                emails = []
-                for email in entry.get("email", []):
-                    email_str = email.replace("\\", "")
-                    found_emails = list(await self.helpers.re.extract_emails(email_str))
-                    if not found_emails:
-                        self.debug(f"Invalid email from dehashed.com: {email_str}")
-                        continue
-                    emails += found_emails
-
-                users = entry.get("username", [])
-                pws = entry.get("password", [])
-                h_pws = entry.get("hashed_password", [])
-                db_name = entry.get("database_name", "")
-
-                # Skip records already reported on a previous scan (when history_file is set).
-                record_fp = record_fingerprint(self.SOURCE, db_name, emails, users, pws, h_pws)
-                date_tags = indexed_date_tags(entry)
-                if date_tags:
-                    record_fp += ":" + ":".join(date_tags)
-                if self.history.contains(record_fp):
-                    continue
-                self.history.add(record_fp)
-
-                tags = list(date_tags)
-                if db_name:
-                    tags.append(f"db-{db_name}")
-                for email in emails:
-                    email_event = self.make_event(email, "EMAIL_ADDRESS", parent=event, tags=tags)
-                    if email_event is not None:
-                        await self.emit_event(
-                            email_event,
-                            context=f'{{module}} searched API for "{query}" and found {{event.type}}: {{event.data}}',
-                        )
-                        for user in users:
-                            await self.emit_event(
-                                f"{email}:{user}",
-                                "USERNAME",
-                                parent=email_event,
-                                tags=tags,
-                                context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
-                            )
-                        for pw in pws:
-                            await self.emit_event(
-                                f"{email}:{pw}",
-                                "PASSWORD",
-                                parent=email_event,
-                                tags=tags,
-                                context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
-                            )
-                        for h_pw in h_pws:
-                            await self.emit_event(
-                                f"{email}:{h_pw}",
-                                "HASHED_PASSWORD",
-                                parent=email_event,
-                                tags=tags,
-                                context=f"{{module}} found {email} with {{event.type}}: {{event.data}}",
-                            )
-        await self._save_history()
-
-    async def _save_history(self):
-        async with self._state_lock:
-            self.history.save()
+            return await super().fetch_records(query, event)
+        entries = []
+        async for batch in self.query(query):
+            entries += batch
+        return entries
 
     async def query(self, domain):
         url = self.base_url
