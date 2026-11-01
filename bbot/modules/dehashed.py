@@ -51,7 +51,16 @@ class dehashed(osintverse_leak):
 
     async def fetch_records(self, query, event):
         if not self.api_key:
-            return await super().fetch_records(query, event)
+            search = await self.osintverse.search(self.osintverse_provider, "domain", query)
+            sources, matches = self.osintverse.results(search)
+            self.log_truncation(sources, query)
+            # OSINTverse also passes DeHashed's own entries through. Unlike the flattened matches they keep
+            # every field: the leaked login URLs and each hash separately.
+            raw = ((search or {}).get("result") or {}).get("raw")
+            entries = raw.get("entries") if isinstance(raw, dict) else None
+            if isinstance(entries, list) and entries:
+                return [e for e in entries if isinstance(e, dict)]
+            return [self.normalize_breach_record(m) for m in matches if m.get("type") == "breach_record"]
         entries = []
         async for batch in self.query(query):
             entries += batch
