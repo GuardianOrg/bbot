@@ -1866,6 +1866,32 @@ class DOMAIN_WHOIS(DictHostEvent):
         _validate_host = field_validator("host")(validators.validate_host)
 
 
+class EMAIL_PROFILE(DictHostEvent):
+    """Personal details a provider associates with one email address."""
+
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        email: str
+        provider: str
+        first_name: Optional[str] = None
+        last_name: Optional[str] = None
+        position: Optional[str] = None
+        seniority: Optional[str] = None
+        department: Optional[str] = None
+        linkedin: Optional[str] = None
+        twitter: Optional[str] = None
+        phone_number: Optional[str] = None
+        email_type: Optional[str] = None
+        confidence: Optional[int] = None
+        verification_status: Optional[str] = None
+        sources: Optional[list[str]] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+        _validate_email = field_validator("email")(validators.validate_email)
+
+
 class DOMAIN_DNS_CONFIG(DictHostEvent):
     _always_emit = True
     _quick_emit = True
