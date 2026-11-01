@@ -245,6 +245,13 @@ class osintverse_leak(subdomain_enum):
             "database_name": match.get("database_name") or "",
             "leaked_at": match.get("leaked_at") or "",
         }
+        # the site the credential was used on: a login URL, or the host a stealer log names
+        url = str(match.get("url") or match.get("host") or "").strip()
+        if url:
+            entry["url"] = url if "://" in url else f"https://{url}"
+        for field in ("hash_type", "salt"):
+            if match.get(field) not in (None, ""):
+                entry[field] = str(match[field])
         for aliases in cls.profile_fields.values():
             for field in aliases:
                 if match.get(field) not in (None, ""):
@@ -282,7 +289,10 @@ class osintverse_leak(subdomain_enum):
         tags = list(date_tags) + list(entry.get("tags", []))
         if db_name:
             tags.append(f"db-{db_name}")
-        leak_url = entry.get("url", "")
+        # DeHashed entries carry a list of URLs
+        urls = entry.get("url")
+        leak_url = next((str(u).strip() for u in urls if u), "") if isinstance(urls, list) else str(urls or "").strip()
+        entry = dict(entry, url=leak_url)
         found_at = f" leaked for {leak_url}" if leak_url else ""
 
         if emails:
@@ -309,6 +319,11 @@ class osintverse_leak(subdomain_enum):
                         context=f'{{module}} searched {self.source_name} for "{query}" and found {{event.type}}{found_at}: {{event.data}}',
                     )
                     await self._emit_secrets(user, user_event, [], pws, h_pws, tags, found_at)
+        else:
+            # nothing ties the record to an account (e.g. a stealer-log URL and password): it belongs to the domain
+            await self._emit_leaks(entry, event, event, query, tags)
+            if self.legacy_events:
+                await self._emit_secrets(leak_url or query, event, [], pws, h_pws, tags, found_at)
 
     async def _email_event(self, email, event, query, tags, email_events):
         if email in email_events:
@@ -323,7 +338,10 @@ class osintverse_leak(subdomain_enum):
         return email_event
 
     async def _emit_leaks(self, entry, event, parent, query, tags, email=None, username=None):
-        """One LEAKED_CREDENTIAL per secret on the record (or one without a secret for exposure-only rows)."""
+        """
+        One LEAKED_CREDENTIAL per secret on the record (or one without a secret for exposure-only rows).
+        Records with no email, username or phone are kept too: they belong to the searched domain.
+        """
         secrets = [{"password": p} for p in entry.get("password", []) if p]
         secrets += [{"hashed_password": h} for h in entry.get("hashed_password", []) if h]
         leak_host = await self._leak_host(email, entry.get("url"), event, query)
@@ -350,9 +368,7 @@ class osintverse_leak(subdomain_enum):
                 if isinstance(value, bool) or value in (None, ""):
                     continue
                 data[key] = value if isinstance(value, int) else str(value).strip()[: self.max_field_length]
-            if not any(data.get(k) for k in ("email", "username", "phone")):
-                continue
-            identity = data.get("email") or data.get("username") or data.get("phone")
+            identity = data.get("email") or data.get("username") or data.get("phone") or data.get("login_url") or query
             kind = "password" if "password" in data else "password hash" if "hashed_password" in data else "record"
             leak_event = self.make_event(data, "LEAKED_CREDENTIAL", parent=parent, tags=tags)
             if leak_event is None:

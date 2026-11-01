@@ -58,9 +58,7 @@ class leakosintbot(osintverse_leak):
                     continue
                 entry = self.normalize_row(row, db_name)
                 entry["database_description"] = str(database.get("info_leak") or "")
-                if not (entry["email"] or entry["username"] or entry["phone"]):
-                    # e.g. RockYou-style password lists with nothing tying them to an account
-                    continue
+                # rows with nothing tying them to an account (e.g. password lists) still belong to the domain
                 url = entry["url"]
                 if url and url not in emitted_urls and self.url_in_domain(url, query):
                     emitted_urls.add(url)

@@ -58,15 +58,14 @@ class leakradar(osintverse_leak):
                         context=f'{{module}} searched {self.source_name} for "{query}" and found leaked credentials for {{event.type}}: {{event.data}}',
                     )
 
+            # rows without a username still belong to the domain
             username = str(match.get("username") or "").strip()
-            if not username:
-                continue
             is_email = bool(match.get("is_email")) or "@" in username
             password = match.get("password") if match.get("unlocked") else None
             entries.append(
                 {
-                    "email": [username] if is_email else [],
-                    "username": [] if is_email else [username],
+                    "email": [username] if username and is_email else [],
+                    "username": [username] if username and not is_email else [],
                     "password": [password] if password else [],
                     "hashed_password": [],
                     "database_name": "",

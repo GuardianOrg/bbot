@@ -301,6 +301,83 @@ class TestDehashedOSINTverse(ModuleTestBase):
         assert tim.data["leaked_at"] == "2021-06-15"
 
 
+class TestDehashedOSINTverseRawEntries(ModuleTestBase):
+    """OSINTverse passes DeHashed's own entries through: they keep the login URLs and every hash."""
+
+    module_name = "dehashed"
+    modules_overrides = ["dehashed", "speculate"]
+    config_overrides = {
+        "scope": {"report_distance": 2},
+        "modules": {"dehashed": {"osintverse_api_key": "ov_test"}},
+    }
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://apiv1.osintverse.com/v1/search/quote", method="POST", json=osintverse_quote
+        )
+        module_test.httpx_mock.add_response(
+            url="https://apiv1.osintverse.com/v1/search",
+            method="POST",
+            json={
+                "id": "550e8400-e29b-41d4-a716-446655440001",
+                "status": "completed",
+                "result": {
+                    "sources": [{"name": "dehashed", "type": "email", "returned": 2, "total": 2}],
+                    "matches": [
+                        {"type": "breach_record", "id": "1", "email": "tim@blacklanternsecurity.com"},
+                        {"type": "breach_record", "id": "2", "password": "x", "hashed_password": "a, b"},
+                    ],
+                    "raw": {
+                        "entries": [
+                            {
+                                "id": "1",
+                                "email": ["tim@blacklanternsecurity.com"],
+                                "password": ["TimTamSlam69"],
+                                "database_name": "eatstreet",
+                            },
+                            {
+                                "id": "2",
+                                "password": ["StealerPass1"],
+                                "hashed_password": ["5f4dcc3b5aa765d61d8327deb882cf99", "$2a$12$deadbeef"],
+                                "url": ["https://vpn.blacklanternsecurity.com/login"],
+                                "database_name": "ALIEN TXTBASE",
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+        await module_test.mock_dns(
+            {
+                "blacklanternsecurity.com": {"A": ["127.0.0.1"]},
+                "vpn.blacklanternsecurity.com": {"A": ["127.0.0.1"]},
+            }
+        )
+
+    def check(self, module_test, events):
+        leaks = [e for e in events if e.type == "LEAKED_CREDENTIAL"]
+        tim = next(e for e in leaks if e.data.get("email") == "tim@blacklanternsecurity.com")
+        assert tim.data["password"] == "TimTamSlam69"
+        # a record with no email, username or phone is kept and tied to the domain, one leak per secret
+        stealer = [e for e in leaks if e.data.get("database_name") == "ALIEN TXTBASE"]
+        assert {e.data.get("password") or e.data.get("hashed_password") for e in stealer} == {
+            "StealerPass1",
+            "5f4dcc3b5aa765d61d8327deb882cf99",
+            "$2a$12$deadbeef",
+        }
+        for leak in stealer:
+            assert leak.data["login_url"] == "https://vpn.blacklanternsecurity.com/login"
+            assert leak.data["host"] == "vpn.blacklanternsecurity.com"
+            assert leak.data["domain"] == "blacklanternsecurity.com"
+            assert not any(leak.data.get(k) for k in ("email", "username", "phone"))
+            assert leak.parent.type == "DNS_NAME" and leak.parent.data == "blacklanternsecurity.com"
+        assert any(e.type == "DNS_NAME" and e.data == "vpn.blacklanternsecurity.com" for e in events)
+        assert any(
+            e.type == "PASSWORD" and e.data == "https://vpn.blacklanternsecurity.com/login:StealerPass1"
+            for e in events
+        )
+
+
 class TestDehashedOSINTverseInsufficientBalance(TestDehashedOSINTverse):
     async def setup_before_prep(self, module_test):
         module_test.httpx_mock.add_response(

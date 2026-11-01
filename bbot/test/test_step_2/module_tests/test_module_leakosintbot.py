@@ -109,8 +109,8 @@ class TestLeakosintbot(ModuleTestBase):
         )
         # leaked URLs outside the searched domain are not emitted
         assert not any(e.type == "URL_UNVERIFIED" and "evil.example.com" in e.data for e in events)
-        # password-only rows (e.g. RockYou) have no account to tie them to
-        assert not any(e.type == "PASSWORD" and e.data.endswith(":Blacklantern1") for e in events)
+        # password-only rows (e.g. RockYou) have no account: they are tied to the searched domain
+        assert any(e.type == "PASSWORD" and e.data == "blacklanternsecurity.com:Blacklantern1" for e in events)
         assert any("db-alien-txtbase" in e.tags for e in events if e.type == "EMAIL_ADDRESS")
 
         leaks = [e for e in events if e.type == "LEAKED_CREDENTIAL"]
@@ -127,4 +127,9 @@ class TestLeakosintbot(ModuleTestBase):
         gmail = next(e for e in leaks if e.data.get("email") == "bob@gmail.com")
         assert gmail.data["domain"] == "blacklanternsecurity.com"
         assert gmail.parent.type == "DNS_NAME"
-        assert not any(e.data.get("password") == "Blacklantern1" for e in leaks)
+        rockyou = next(e for e in leaks if e.data.get("password") == "Blacklantern1")
+        assert rockyou.data["host"] == "blacklanternsecurity.com"
+        assert rockyou.data["domain"] == "blacklanternsecurity.com"
+        assert rockyou.data["database_name"] == "RockYou 2024"
+        assert not any(rockyou.data.get(k) for k in ("email", "username", "phone"))
+        assert rockyou.parent.type == "DNS_NAME" and rockyou.parent.data == "blacklanternsecurity.com"
