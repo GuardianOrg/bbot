@@ -16,6 +16,10 @@ class TestGoogle_Playstore(ModuleTestBase):
             <body>
             <a href="/store/apps/details?id=com.bbot.test&pcampaignid=dontmatchme&pli=1"/>
             <a href="/store/apps/details?id=com.bbot.other"/>
+            <a href="/store/apps/details?id=com.lookalike.blacklanternsecurity"/>
+            <a href="/store/apps/details?id=io.blacklanternsecurity.offline"/>
+            <a href="/store/apps/details?id=com.unrelated.game"/>
+            <a href="/store/apps/details?id=net.prefix.lookalike"/>
             </body>
             </html>""",
         )
@@ -49,8 +53,49 @@ class TestGoogle_Playstore(ModuleTestBase):
             </html>""",
         )
 
+        # Same package name, but the listing names someone else: optional only.
+        module_test.httpx_mock.add_response(
+            url="https://play.google.com/store/apps/details?id=com.lookalike.blacklanternsecurity",
+            text="""<!DOCTYPE html>
+            <html>
+            <body>
+            <meta name="appstore:developer_url" content="https://lookalike.example">
+            <a href="mailto:support@lookalike.example"></a>
+            </body>
+            </html>""",
+        )
+        # Listing could not be read: a name match alone never makes it in scope.
+        module_test.httpx_mock.add_response(
+            url="https://play.google.com/store/apps/details?id=io.blacklanternsecurity.offline",
+            status_code=404,
+        )
+        # Neither the name nor the listing ties it to the target: dropped.
+        module_test.httpx_mock.add_response(
+            url="https://play.google.com/store/apps/details?id=com.unrelated.game",
+            text="""<html><body><a href="mailto:dev@unrelated.example"></a></body></html>""",
+        )
+
+        # Names a host that only starts with the target domain: not the target.
+        module_test.httpx_mock.add_response(
+            url="https://play.google.com/store/apps/details?id=net.prefix.lookalike",
+            text="""<html><body><meta name="appstore:developer_url" content="https://blacklanternsecurity.community">
+            <a href="mailto:dev@blacklanternsecurity.com.evil.example"></a></body></html>""",
+        )
+
     def check(self, module_test, events):
-        assert len(events) == 6
+        optional = {e.data["id"]: e for e in events if e.type == "OPTIONAL_MOBILE_APP"}
+        assert set(optional) == {"com.lookalike.blacklanternsecurity", "io.blacklanternsecurity.offline"}
+        for app_id, e in optional.items():
+            assert e.data["url"] == f"https://play.google.com/store/apps/details?id={app_id}"
+            assert {"android", "optional"} <= set(e.tags)
+            assert "blacklanternsecurity" in e.data["reason"]
+        mobile = {e.data["id"] for e in events if e.type == "MOBILE_APP"}
+        assert mobile == {"com.bbot.test", "com.bbot.other"}, "only listings naming the target are in-scope apps"
+        dropped = {"com.unrelated.game", "net.prefix.lookalike"}
+        assert not any(e.data.get("id") in dropped for e in events if isinstance(e.data, dict))
+        optional_ids = {e.id for e in optional.values()}
+        assert not [e for e in events if e.parent_id in optional_ids], "no module may act on an optional app"
+        assert len(events) == 8
         assert 1 == len(
             [
                 e

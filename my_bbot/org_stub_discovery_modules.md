@@ -22,7 +22,7 @@ Put keys in your config (or pass via `-c`):
 ## What these modules do
 - Grouped by emitted event type:
 - Emit `CODE_REPOSITORY`: `dockerhub`, `github_org`, `postman`.
-- Emit `MOBILE_APP`: `google_playstore`.
+- Emit `MOBILE_APP`: `google_playstore` (listing names an in-scope domain or email). Name-only matches are emitted as `OPTIONAL_MOBILE_APP`, which no module consumes.
 - Emit `SOCIAL`: `dockerhub`.
 - Emit `URL_UNVERIFIED`: `dockerhub`.
 

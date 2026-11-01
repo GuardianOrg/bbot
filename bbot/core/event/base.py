@@ -2074,6 +2074,10 @@ class MOBILE_APP(DictEvent):
         return self.data["url"]
 
 
+class OPTIONAL_MOBILE_APP(MOBILE_APP):
+    """A store app matched only by name. Reported for the user to review; no module scans it."""
+
+
 def update_event(
     event,
     parent=None,
