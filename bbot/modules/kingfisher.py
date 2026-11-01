@@ -57,9 +57,14 @@ class kingfisher(code_secret_scanner):
         self.jobs = max(1, int(self.config.get("jobs", 1) or 1))
         return await super().setup()
 
+    scans_commit_ranges = True
+
     async def iter_findings(self, scan_path, event):
+        since_commit = self.fork_scan_range(event)
+        # A fork's own changes after its last upstream sync, not the history it inherited.
+        extra_args = ["--since-commit", since_commit, "--branch", "HEAD"] if since_commit else []
         try:
-            records = await self.run_kingfisher([scan_path])
+            records = await self.run_kingfisher([scan_path], extra_args)
         except _IncompleteKingfisherReport as error:
             for record in error.findings:
                 yield await self.format_record(event, scan_path, record)
@@ -79,7 +84,7 @@ class kingfisher(code_secret_scanner):
             return None
         return [(record.get("finding", {}).get("path", ""), record) for record in records]
 
-    async def run_kingfisher(self, paths):
+    async def run_kingfisher(self, paths, extra_args=()):
         """Run one Kingfisher scan over `paths` and return its finding records, or None if it failed.
 
         Kingfisher spends seconds compiling its rules on every start, regardless of input size, so
@@ -98,6 +103,7 @@ class kingfisher(code_secret_scanner):
             "--no-dedup",
             "--jobs",
             str(self.jobs),
+            *extra_args,
         ]
         result = await self.run_process(command, _log_stderr=False)
         returncode = getattr(result, "returncode", None)

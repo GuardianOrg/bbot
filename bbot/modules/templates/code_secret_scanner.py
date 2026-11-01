@@ -22,6 +22,9 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
     }
 
     scope_distance_modifier = 2
+    # Scanners that can limit a Git scan to the changes after a commit set this, and must honour
+    # `fork_scan_range(event)` in `iter_findings`; the others skip forks.
+    scans_commit_ranges = False
     # Events in the running batch that get their own scan (repositories, folders); see event_handler_timeout.
     _batch_scans = 0
 
@@ -57,6 +60,10 @@ class code_secret_scanner(code_repository_scope, github_leak_formatter, BaseModu
         return False, "event type is not supported"
 
     async def handle_event(self, event):
+        since_commit = self.fork_scan_range(event)
+        if since_commit == "" or (since_commit and not self.scans_commit_ranges):
+            self.verbose(f"Skipping fork {event.data.get('url')}: no commits of its own this scanner can isolate")
+            return
         scan_path, cleanup = await self.prepare_scan_path(event)
         if scan_path is None:
             return

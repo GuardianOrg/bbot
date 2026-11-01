@@ -97,8 +97,13 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
         if isinstance(event.data, dict):
             description = event.data.get("description", "")
 
+        since_commit = None
         if event.type == "CODE_REPOSITORY":
             cleanup_path = None
+            since_commit = self.fork_scan_range(event)
+            if since_commit == "":
+                self.verbose(f"Skipping fork {event.data.get('url')}: no commits of its own to scan")
+                return
             if self.deleted_forks:
                 path = event.data["url"]
                 module = "github-experimental"
@@ -139,7 +144,13 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             rawv2_result,
             verified,
             source_metadata,
-        ) in self.execute_trufflehog(module, path):
+        ) in self.execute_trufflehog(
+            module,
+            path,
+            # A fork's own commits after its last upstream sync, not the history it inherited.
+            since_commit=since_commit if module == "git" else None,
+            branch=event.data.get("fork_branch") if since_commit else None,
+        ):
             metadata_items = source_metadata if isinstance(source_metadata, list) else [source_metadata]
             git_meta = {}
             for metadata_item in metadata_items:
@@ -204,7 +215,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
         elif cleanup_path is not None and cleanup_path.exists():
             self.helpers.rm_rf(cleanup_path, ignore_errors=True)
 
-    async def execute_trufflehog(self, module, path=None, string=None):
+    async def execute_trufflehog(self, module, path=None, string=None, since_commit=None, branch=None):
         command = [
             str(self.helpers.tools_dir / "trufflehog"),
             "--json",
@@ -222,6 +233,8 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                 command.append(path)
             else:
                 command.append("file://" + path)
+            if since_commit:
+                command.extend(["--since-commit=" + since_commit, "--branch=" + branch])
         elif module == "docker":
             command.append("docker")
             command.append("--image=file://" + path)

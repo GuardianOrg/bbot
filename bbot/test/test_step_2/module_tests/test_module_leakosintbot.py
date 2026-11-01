@@ -78,6 +78,23 @@ class TestLeakosintbot(ModuleTestBase):
                                     "Password(MD5)": "5f4dcc3b5aa765d61d8327deb882cf99",
                                 },
                                 {"Login": "jdoe", "Hash": "$2y$10$example"},
+                                {"Email": "ops@mail.blacklanternsecurity.com", "Password": "Autumn2024!"},
+                            ],
+                        },
+                        {
+                            # The domain search is full-text: these only contain the domain as a substring.
+                            "type": "breach_database",
+                            "name": "Fuzzy Matches",
+                            "num_of_results": 4,
+                            "data": [
+                                {"Email": "blacklanternsecurity.com@hotmail.com", "Password": "Lookalike1"},
+                                {"Url": "https://blacklanternsecurity.com.br"},
+                                {
+                                    "NickName": "blacklanternsecurity.com.cn",
+                                    "Url": "https://steamcommunity.com/profiles/1",
+                                    "Password": "Lookalike2",
+                                },
+                                {"Email": "1234@qq.com", "NickName": "blacklanternsecurity.com", "Hash": "abcdef"},
                             ],
                         },
                     ],
@@ -103,14 +120,12 @@ class TestLeakosintbot(ModuleTestBase):
             e.type == "HASHED_PASSWORD" and e.data == "jane@blacklanternsecurity.com:5f4dcc3b5aa765d61d8327deb882cf99"
             for e in events
         )
-        assert any(e.type == "HASHED_PASSWORD" and e.data == "jdoe:$2y$10$example" for e in events)
+        assert any(e.type == "PASSWORD" and e.data == "ops@mail.blacklanternsecurity.com:Autumn2024!" for e in events)
         assert any(
             e.type == "URL_UNVERIFIED" and e.data == "https://portal.blacklanternsecurity.com/login/" for e in events
         )
         # leaked URLs outside the searched domain are not emitted
         assert not any(e.type == "URL_UNVERIFIED" and "evil.example.com" in e.data for e in events)
-        # password-only rows (e.g. RockYou) have no account: they are tied to the searched domain
-        assert any(e.type == "PASSWORD" and e.data == "blacklanternsecurity.com:Blacklantern1" for e in events)
         assert any("db-alien-txtbase" in e.tags for e in events if e.type == "EMAIL_ADDRESS")
 
         leaks = [e for e in events if e.type == "LEAKED_CREDENTIAL"]
@@ -123,13 +138,8 @@ class TestLeakosintbot(ModuleTestBase):
         assert jane.data["hash_type"] == "md5"
         assert jane.data["database_name"] == "Collection #1"
         assert jane.parent.type == "EMAIL_ADDRESS"
-        # leaks for addresses at other domains stay attached to the searched domain, not the foreign address
-        gmail = next(e for e in leaks if e.data.get("email") == "bob@gmail.com")
-        assert gmail.data["domain"] == "blacklanternsecurity.com"
-        assert gmail.parent.type == "DNS_NAME"
-        rockyou = next(e for e in leaks if e.data.get("password") == "Blacklantern1")
-        assert rockyou.data["host"] == "blacklanternsecurity.com"
-        assert rockyou.data["domain"] == "blacklanternsecurity.com"
-        assert rockyou.data["database_name"] == "RockYou 2024"
-        assert not any(rockyou.data.get(k) for k in ("email", "username", "phone"))
-        assert rockyou.parent.type == "DNS_NAME" and rockyou.parent.data == "blacklanternsecurity.com"
+        # rows with no account or URL in the searched domain are someone else's
+        for secret in ("hunter2", "Blacklantern1", "$2y$10$example", "Lookalike1", "Lookalike2", "abcdef"):
+            assert not any(secret in str(e.data) for e in events), secret
+        assert not any(e.data.get("login_url") == "https://blacklanternsecurity.com.br" for e in leaks)
+        assert len(leaks) == 5, [leak.data for leak in leaks]

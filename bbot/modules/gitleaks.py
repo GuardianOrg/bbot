@@ -60,9 +60,14 @@ class gitleaks(code_secret_scanner):
         self.disabled_rules = self.parse_disabled_rules(self.config.get("disabled_rules", ["generic-api-key"]))
         return await super().setup()
 
+    scans_commit_ranges = True
+
     async def iter_findings(self, scan_path, event):
         if event.type == "CODE_REPOSITORY":
-            count_result = await self.run_process(["git", "-C", str(scan_path), "rev-list", "--count", "--all"])
+            since_commit = self.fork_scan_range(event)
+            # A fork's own commits after its last upstream sync, not the history it inherited.
+            revisions = [f"{since_commit}..HEAD"] if since_commit else ["--all"]
+            count_result = await self.run_process(["git", "-C", str(scan_path), "rev-list", "--count", *revisions])
             if getattr(count_result, "returncode", 1) != 0:
                 raise RuntimeError("Could not count Git commits before Gitleaks scan")
             try:
@@ -71,27 +76,29 @@ class gitleaks(code_secret_scanner):
                 raise RuntimeError("Could not parse Git commit count before Gitleaks scan") from error
             batch_size = max(1, int(self.config.get("git_commits_per_batch", 100)))
             for offset in range(0, commit_count, batch_size):
-                async for finding in self.scan_git_batch(scan_path, event, offset, min(batch_size, commit_count - offset)):
+                async for finding in self.scan_git_batch(
+                    scan_path, event, offset, min(batch_size, commit_count - offset), revisions[0]
+                ):
                     yield finding
         else:
             async for finding in self.scan_batch(scan_path, event):
                 yield finding
 
-    async def scan_git_batch(self, scan_path, event, offset, size):
+    async def scan_git_batch(self, scan_path, event, offset, size, revisions="--all"):
         try:
-            async for finding in self.scan_batch(scan_path, event, offset=offset, size=size):
+            async for finding in self.scan_batch(scan_path, event, offset=offset, size=size, revisions=revisions):
                 yield finding
         except GitleaksKilled:
             if size <= 1:
                 raise RuntimeError(f"Gitleaks was killed while scanning commit at offset {offset}")
             midpoint = size // 2
             self.warning(f"Gitleaks was killed scanning {size} commits; retrying two smaller batches")
-            async for finding in self.scan_git_batch(scan_path, event, offset, midpoint):
+            async for finding in self.scan_git_batch(scan_path, event, offset, midpoint, revisions):
                 yield finding
-            async for finding in self.scan_git_batch(scan_path, event, offset + midpoint, size - midpoint):
+            async for finding in self.scan_git_batch(scan_path, event, offset + midpoint, size - midpoint, revisions):
                 yield finding
 
-    async def scan_batch(self, scan_path, event, offset=None, size=None):
+    async def scan_batch(self, scan_path, event, offset=None, size=None, revisions="--all"):
         report_file = self.helpers.temp_filename(extension="json")
         use_git_mode = event.type == "CODE_REPOSITORY"
 
@@ -116,7 +123,7 @@ class gitleaks(code_secret_scanner):
             if use_git_mode and size is not None:
                 # Gitleaks otherwise feeds the complete git log into one process.
                 # These stable, disjoint Git-log windows cover every reachable commit.
-                log_options = f"--full-history --all --diff-filter=tuxdb --max-count={size} --skip={offset}"
+                log_options = f"--full-history {revisions} --diff-filter=tuxdb --max-count={size} --skip={offset}"
                 command.extend(["--log-opts", log_options])
 
             scanner_env = {**os.environ, "GOMEMLIMIT": "1024MiB", "GOGC": "50"}

@@ -46,6 +46,8 @@ class github_org(github):
         self.max_member_repos = max(0, min(int(self.config.get("max_member_repos", 20)), 20))
         self.max_fork_checks = max(0, min(int(self.config.get("max_fork_checks", 5)), 50))
         self._fork_checks = 0
+        # html_url -> what fork_details found (None when GitHub could not tell)
+        self._fork_info = {}
         # Only GitHub logins naming a seed domain (e.g. "acmesec" -> AcmeSecurity) cost a profile lookup.
         self._company_stubs = set()
         for seed in getattr(self.scan.target.seeds, "event_seeds", ()):
@@ -84,10 +86,13 @@ class github_org(github):
             self.verbose(f"Searching for repos belonging to explicit GitHub owner {user}")
             for repo_url in await self.query_owner_repos(user):
                 repo_name = repo_url.rstrip("/").split("/")[-1]
+                data, fork_tags = self.fork_event_fields(repo_url)
                 repo_event = self.make_event(
-                    {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
+                    {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name, **data},
                     "CODE_REPOSITORY",
-                    tags=["git", "github"] + (["github-private-repo"] if repo_url in self._private_org_repo_urls else []),
+                    tags=["git", "github"]
+                    + fork_tags
+                    + (["github-private-repo"] if repo_url in self._private_org_repo_urls else []),
                     parent=event,
                 )
                 if not repo_event:
@@ -127,10 +132,12 @@ class github_org(github):
                 repos = await self.query_user_repos(user)
             for repo_url in repos:
                 repo_name = repo_url.rstrip("/").split("/")[-1]
+                data, fork_tags = self.fork_event_fields(repo_url)
                 repo_event = self.make_event(
-                    {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name},
+                    {"url": repo_url, "platform": "github", "owner": user, "repo_name": repo_name, **data},
                     "CODE_REPOSITORY",
                     tags=["git", "github", "github-org-scope"]
+                    + fork_tags
                     + (["github-private-repo"] if repo_url in self._private_org_repo_urls else []),
                     parent=event,
                 )
@@ -305,33 +312,102 @@ class github_org(github):
         return repos
 
     async def keep_fork(self, item):
-        """Without include_forks, a fork is kept only when it carries commits of its own: an untouched copy
-        is the upstream project's code, not the owner's."""
-        if self.include_forks:
-            return True
-        checked = getattr(self, "_fork_checks", 0)
-        if checked >= self.max_fork_checks or not isinstance(item.get("full_name"), str):
-            return False
-        self._fork_checks = checked + 1
+        """Works out which commits of a fork are its own (see fork_details). Without include_forks, a fork is
+        kept only when it has some: an untouched copy is the upstream project's code, not the owner's."""
+        if not self.include_forks:
+            checked = getattr(self, "_fork_checks", 0)
+            if checked >= self.max_fork_checks:
+                return False
+            self._fork_checks = checked + 1
+        details = await self.fork_details(item)
+        if isinstance(item.get("html_url"), str):
+            self._fork_info[item["html_url"]] = details
+        return self.include_forks or bool(details and details["ahead"])
+
+    def fork_event_fields(self, repo_url):
+        """CODE_REPOSITORY data and tags telling secret scanners which commits of a fork are the owner's."""
+        if repo_url not in getattr(self, "_fork_info", {}):
+            return {}, []
+        details = self._fork_info[repo_url]
+        if details and details["ahead"] and not details["since"]:
+            # Its history shares nothing with the parent: all of it is the owner's.
+            return {}, []
+        if not details:
+            return {}, ["fork"]
+        if not details["ahead"]:
+            return {"fork_branch": details["branch"]}, ["fork", "fork-unmodified"]
+        return {"fork_branch": details["branch"], "fork_since_commit": details["since"]}, ["fork"]
+
+    async def fork_details(self, item, max_pages=5):
+        """The fork's default branch, its commit count ahead of its parent, and the commit it last synced
+        with the parent ("since"): only changes after it are the owner's.
+
+        Following the branch's first parents back from its head, the last sync is a merge that brought in a
+        parent commit, or else the parent commit the branch was forked or fast-forwarded from. Commits the
+        fork made before a sync are left out, so a sync that drags in a large upstream history cannot make
+        its secrets look like the owner's. None when GitHub does not answer.
+        """
+        if not isinstance(item.get("full_name"), str) or "/" not in item["full_name"]:
+            return None
         r = await self.api_request(f"{self.base_url}/repos/{item['full_name']}")
         try:
             repo = r.json() if getattr(r, "status_code", 0) == 200 else {}
         except Exception:
-            return False
+            return None
         parent = repo.get("parent") if isinstance(repo, dict) else None
         branch = repo.get("default_branch") if isinstance(repo, dict) else None
         if not isinstance(parent, dict) or not parent.get("full_name") or not parent.get("default_branch") or not branch:
-            return False
+            return None
         owner, name = item["full_name"].split("/", 1)
-        r = await self.api_request(
+        compare_url = (
             f"{self.base_url}/repos/{parent['full_name']}/compare/"
             f"{self.helpers.quote(parent['default_branch'])}...{owner}:{name}:{self.helpers.quote(branch)}"
         )
+        first = await self._compare_page(compare_url, 1)
+        if first is None:
+            return None
+        ahead = first.get("ahead_by", 0)
+        merge_base = (first.get("merge_base_commit") or {}).get("sha")
+        if not isinstance(ahead, int) or not merge_base:
+            return None
+        if not ahead:
+            return {"branch": branch, "ahead": 0, "since": merge_base}
+        # Commits come oldest first; the newest pages hold the branch head and its latest sync.
+        last_page = -(-ahead // 100)
+        pages = {1: first}
+        for page in range(last_page, max(1, last_page - max_pages + 1) - 1, -1):
+            if page not in pages:
+                pages[page] = await self._compare_page(compare_url, page)
+                if pages[page] is None:
+                    return None
+        parents = {}
+        for page in pages.values():
+            for commit in page.get("commits") or []:
+                if isinstance(commit, dict) and isinstance(commit.get("sha"), str):
+                    parents[commit["sha"]] = [p.get("sha") for p in commit.get("parents") or [] if isinstance(p, dict)]
+        head = str(first.get("permalink_url") or "").rsplit(":", 1)[-1]
+        if head not in parents:
+            return {"branch": branch, "ahead": ahead, "since": merge_base}
+        complete = len(parents) >= ahead
+        commit = head
+        while True:
+            commit_parents = parents.get(commit)
+            if commit_parents is None or not commit_parents:
+                # Unrelated history (a root commit of its own), or older commits than the pages fetched.
+                return {"branch": branch, "ahead": ahead, "since": None if complete else merge_base}
+            if any(p not in parents for p in commit_parents[1:]):
+                synced = commit if complete else merge_base
+                return {"branch": branch, "ahead": ahead, "since": synced}
+            if commit_parents[0] not in parents:
+                return {"branch": branch, "ahead": ahead, "since": commit_parents[0] if complete else merge_base}
+            commit = commit_parents[0]
+
+    async def _compare_page(self, compare_url, page):
+        r = await self.api_request(f"{compare_url}?per_page=100&page={page}")
         try:
-            ahead = r.json().get("ahead_by", 0) if getattr(r, "status_code", 0) == 200 else 0
+            return r.json() if getattr(r, "status_code", 0) == 200 else None
         except Exception:
-            return False
-        return isinstance(ahead, int) and ahead > 0
+            return None
 
     async def validate_company_user(self, user):
         """A GitHub User (not an Organization) whose own profile names an in-scope hostname."""

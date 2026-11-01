@@ -49,6 +49,7 @@ class leakosintbot(osintverse_leak):
 
         entries = []
         emitted_urls = set()
+        unrelated = 0
         for database in matches:
             if database.get("type") != "breach_database":
                 continue
@@ -58,7 +59,11 @@ class leakosintbot(osintverse_leak):
                     continue
                 entry = self.normalize_row(row, db_name)
                 entry["database_description"] = str(database.get("info_leak") or "")
-                # rows with nothing tying them to an account (e.g. password lists) still belong to the domain
+                # The "domain" search is a full-text match: "seraph.co" also returns seraph.com@hotmail.com,
+                # seraph.co.in or bare passwords. Keep only rows whose account or URL is in the domain.
+                if not self.row_in_domain(entry, query):
+                    unrelated += 1
+                    continue
                 url = entry["url"]
                 if url and url not in emitted_urls and self.url_in_domain(url, query):
                     emitted_urls.add(url)
@@ -69,7 +74,16 @@ class leakosintbot(osintverse_leak):
                             context=f'{{module}} searched {self.source_name} for "{query}" and found leaked credentials for {{event.type}}: {{event.data}}',
                         )
                 entries.append(entry)
+        if unrelated:
+            self.verbose(f'Skipped {unrelated:,} {self.source_name} rows for "{query}" with no email or URL in the domain')
         return entries
+
+    def row_in_domain(self, entry, domain):
+        for value in entry["email"] + entry["username"]:
+            local, at, host = str(value).strip().lower().rpartition("@")
+            if at and local and self.in_domain(host, domain):
+                return True
+        return bool(entry["url"]) and self.url_in_domain(entry["url"], domain)
 
     def normalize_row(self, row, db_name):
         entry = {

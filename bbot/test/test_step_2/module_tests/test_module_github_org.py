@@ -500,13 +500,28 @@ class TestGithub_Org_Company_User(ModuleTestBase):
                 json={"full_name": f"AcmeSec/{name}", "default_branch": "main",
                       "parent": {"full_name": f"upstream/{name}", "default_branch": "master"}},
             )
+            # Three commits of its own on top of upstream commit "1" * 40.
+            own = [str(i) * 40 for i in range(2, 2 + ahead)]
             module_test.httpx_mock.add_response(
-                url=f"{api}/repos/upstream/{name}/compare/master...AcmeSec:{name}:main",
-                json={"status": "diverged" if ahead else "behind", "ahead_by": ahead, "behind_by": 7},
+                url=f"{api}/repos/upstream/{name}/compare/master...AcmeSec:{name}:main?per_page=100&page=1",
+                json={
+                    "status": "diverged" if ahead else "behind",
+                    "ahead_by": ahead,
+                    "behind_by": 7,
+                    "merge_base_commit": {"sha": "1" * 40},
+                    "permalink_url": f"https://github.com/upstream/{name}/compare/upstream:{'1' * 40}...AcmeSec:{(own or ['1' * 40])[-1]}",
+                    "commits": [{"sha": c, "parents": [{"sha": p}]} for c, p in zip(own, ["1" * 40] + own)],
+                },
             )
 
     def check(self, module_test, events):
         repos = {e.data["url"] for e in events if e.type == "CODE_REPOSITORY"}
         assert repos == {"https://github.com/AcmeSec/reports", "https://github.com/AcmeSec/patched-tool"}, repos
+        # Secret scanners get the fork's own commits, not the upstream history it carries.
+        patched = next(e for e in events if e.type == "CODE_REPOSITORY" and e.data["url"].endswith("patched-tool"))
+        assert "fork" in patched.tags
+        assert patched.data["fork_since_commit"] == "1" * 40 and patched.data["fork_branch"] == "main"
+        reports = next(e for e in events if e.type == "CODE_REPOSITORY" and e.data["url"].endswith("reports"))
+        assert "fork" not in reports.tags and "fork_since_commit" not in reports.data
         requested = {str(request.url) for request in module_test.httpx_mock.get_requests()}
         assert "https://api.github.com/users/otherdev" not in requested

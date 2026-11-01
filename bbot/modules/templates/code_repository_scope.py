@@ -43,6 +43,19 @@ class code_repository_scope:
                 if owner:
                     self.allowed_code_repository_owners.add(owner)
 
+    @staticmethod
+    def fork_scan_range(event):
+        """The commit after which a forked repository's changes are its owner's (github_org works it out).
+
+        None means the repository is not a known fork and is scanned whole. An empty string means there is
+        nothing of the owner's to scan: the fork has no commits of its own, or GitHub could not tell which they
+        are. Scanning a fork whole would report the upstream project's history as the owner's secrets.
+        """
+        if getattr(event, "type", "") != "CODE_REPOSITORY" or "fork" not in getattr(event, "tags", ()):
+            return None
+        data = event.data if isinstance(event.data, dict) else {}
+        return data.get("fork_since_commit") or ""
+
     def has_code_repository_scope(self):
         return bool(self.allowed_code_repositories or self.allowed_code_repository_owners)
 

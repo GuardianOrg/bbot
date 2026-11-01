@@ -1206,11 +1206,29 @@ class CODE_REPOSITORY(DictHostEvent):
 
     class _data_validator(BaseModel):
         url: str
+        # A fork's own changes: everything on fork_branch after the commit it last synced with its upstream.
+        fork_since_commit: Optional[str] = None
+        fork_branch: Optional[str] = None
 
         @field_validator("url")
         @classmethod
         def _validate_url(cls, url):
             return validators.clean_url(url, url_querystring_remove=False).geturl()
+
+        @field_validator("fork_since_commit")
+        @classmethod
+        def _validate_commit(cls, commit):
+            if commit is not None and not re.fullmatch(r"[0-9a-f]{40}", commit):
+                raise ValueError("fork_since_commit must be a full commit hash")
+            return commit
+
+        @field_validator("fork_branch")
+        @classmethod
+        def _validate_branch(cls, branch):
+            # Scanners pass it as a command-line value.
+            if branch is not None and not re.fullmatch(r"[A-Za-z0-9_.][A-Za-z0-9_./-]{0,254}", branch):
+                raise ValueError("fork_branch is not a plain branch name")
+            return branch
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
