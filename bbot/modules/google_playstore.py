@@ -5,7 +5,9 @@ from bbot.modules.base import BaseModule
 
 class google_playstore(BaseModule):
     watched_events = ["ORG_STUB", "CODE_REPOSITORY"]
-    produced_events = ["MOBILE_APP"]
+    # OPTIONAL_MOBILE_APP: a same-named app whose listing names no in-scope domain or email.
+    # No module watches it, so it is only reported for the user to add to scope later.
+    produced_events = ["MOBILE_APP", "OPTIONAL_MOBILE_APP"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
         "description": "Search for android applications on play.google.com",
@@ -37,7 +39,10 @@ class google_playstore(BaseModule):
                 "CODE_REPOSITORY",
                 "MOBILE_APP",
             }:
-                return False, f"org stub came from {root_seed_type or 'unknown'} seed, not an explicit org/domain/mobile/code target"
+                return (
+                    False,
+                    f"org stub came from {root_seed_type or 'unknown'} seed, not an explicit org/domain/mobile/code target",
+                )
         return True
 
     async def handle_event(self, event):
@@ -61,15 +66,29 @@ class google_playstore(BaseModule):
         org_name = event.data
         self.verbose(f"Searching for any android applications for {org_name}")
         for apk_name in await self.query(org_name):
-            valid_apk = await self.validate_apk(apk_name, org_name)
-            if valid_apk:
+            data = {"id": apk_name, "url": f"{self.base_url}/store/apps/details?id={apk_name}", "platform": "android"}
+            if await self.validate_apk(apk_name):
                 self.verbose(f"Got {apk_name} from playstore")
                 await self.emit_event(
-                    {"id": apk_name, "url": f"{self.base_url}/store/apps/details?id={apk_name}", "platform": "android"},
+                    data,
                     "MOBILE_APP",
                     tags="android",
                     parent=event,
                     context=f'{{module}} searched play.google.com for apps belonging to "{org_name}" and found "{apk_name}" to be in scope',
+                )
+            elif self._package_matches_org_stub(apk_name, org_name):
+                self.verbose(
+                    f"Got {apk_name} from playstore as an optional app: only its package name matches {org_name}"
+                )
+                await self.emit_event(
+                    {
+                        **data,
+                        "reason": f'Package name matches "{org_name}", but the store listing names no in-scope domain or email',
+                    },
+                    "OPTIONAL_MOBILE_APP",
+                    tags=["android", "optional"],
+                    parent=event,
+                    context=f'{{module}} searched play.google.com for apps belonging to "{org_name}" and found "{apk_name}", whose listing does not tie it to the target',
                 )
             else:
                 self.debug(f"Got {apk_name} from playstore app details does not contain any in-scope URLs or Emails")
@@ -90,14 +109,11 @@ class google_playstore(BaseModule):
             return app_links
         return app_links
 
-    async def validate_apk(self, apk_name, org_name=""):
+    async def validate_apk(self, apk_name):
         """
         Check the app details page the "App support" section will include URLs or Emails to the app developer
         """
         in_scope = False
-        if self._package_matches_org_stub(apk_name, org_name):
-            return True
-
         url = f"{self.base_url}/store/apps/details?id={apk_name}"
         r = await self.helpers.request(url, headers=self._request_headers())
         if r is None:
