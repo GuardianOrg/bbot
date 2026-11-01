@@ -5,14 +5,16 @@ import os
 import subprocess
 from ipaddress import ip_address
 from http.cookies import SimpleCookie
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseModule
+from bbot.modules.internal.cloudcheck import cloud_ip_metadata
 
 
 class httpx(BaseModule):
     watched_events = ["DNS_NAME", "OPEN_TCP_PORT", "URL_UNVERIFIED", "URL"]
-    produced_events = ["URL", "HTTP_RESPONSE"]
+    produced_events = ["URL", "HTTP_RESPONSE", "GEOLOCATION"]
     flags = ["active", "safe", "web-basic", "service-web", "social-enum", "subdomain-enum", "cloud-enum"]
     meta = {
         "description": "Visit webpages. Many other modules rely on httpx",
@@ -28,6 +30,7 @@ class httpx(BaseModule):
         "store_responses": False,
         "probe_all_ips": False,
         "probe_dns_names": False,
+        "skip_shared_frontends": False,
     }
     options_desc = {
         "threads": "Number of httpx threads to use",
@@ -37,6 +40,7 @@ class httpx(BaseModule):
         "store_responses": "Save raw HTTP responses to scan folder",
         "probe_all_ips": "Probe all the ips associated with same host",
         "probe_dns_names": "Probe the web root of each resolved, in-scope DNS name",
+        "skip_shared_frontends": "Do not turn a bare IP of a CDN, WAF, load balancer, API gateway or shared platform into a URL",
     }
     deps_ansible = [
         {
@@ -90,6 +94,9 @@ class httpx(BaseModule):
         if event.module == self:
             return False, "event is from self"
 
+        if self.is_shared_frontend_address(event):
+            return False, "bare address of a shared frontend (CDN, WAF, load balancer, API gateway or platform)"
+
         if "spider-max" in event.tags:
             return False, "event exceeds spidering limits"
 
@@ -100,6 +107,39 @@ class httpx(BaseModule):
         max_scope_distance = 0 if in_scope_only else (self.scan.scope_search_distance + 1)
         if event.scope_distance > max_scope_distance:
             return False, "event is not in scope"
+        return True
+
+    def is_shared_frontend_address(self, event):
+        """A bare address that serves every customer of a provider is not a website of the scanned organisation.
+        A DNS name behind the same frontend still is. Explicit scan targets are always visited."""
+        if not self.config.get("skip_shared_frontends", False) or "target" in event.tags or not self.helpers.is_ip(event.host):
+            return False
+        return "shared-frontend" in event.tags or bool(shared_infra.known_frontend(self.scan, event.host))
+
+    async def handle_shared_frontend_answer(self, parent_event, url, response):
+        """When the answer itself shows that a bare address is a shared frontend, record the address
+        (GEOLOCATION, like cloudcheck) and do not emit it as a URL. Returns True when the answer was withheld."""
+        if not self.config.get("skip_shared_frontends", False) or "target" in parent_event.tags:
+            return False
+        host = (urlparse(url).hostname or "").strip("[]")
+        if not self.helpers.is_ip(host):
+            return False
+        known = shared_infra.known_frontend(self.scan, host)
+        answer = shared_infra.classify_response(response)
+        if not answer and not known:
+            return False
+        if answer:
+            kind, provider, evidence = answer
+            shared_infra.remember_frontend(self.scan, host, kind, provider)
+            data = cloud_ip_metadata(host, None, (), (kind, provider, f"HTTP answer {evidence}"))
+            await self.emit_event(
+                data,
+                "GEOLOCATION",
+                parent_event,
+                tags=["shared-frontend", f"shared-{data['providerType'].replace('_', '-')}-{provider}"],
+                context=f"{{module}} visited {url} and the answer came from a shared frontend ({kind}, {provider})",
+            )
+        self.debug(f"Not emitting {url}: bare address of a shared frontend")
         return True
 
     def make_url_metadata(self, event):
@@ -202,6 +242,9 @@ class httpx(BaseModule):
             path = j.get("path", "/")
             if parent_event.type == "URL_UNVERIFIED" and status_code in (404,) and path != "/":
                 self.debug(f'Discarding 404 from "{url}"')
+                continue
+
+            if await self.handle_shared_frontend_answer(parent_event, url, j):
                 continue
 
             # main URL

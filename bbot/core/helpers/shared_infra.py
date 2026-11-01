@@ -585,3 +585,31 @@ def classify(hostnames=(), ip=None, response=None, service_ranges=None):
              classify_response(response) if response else None]
     found = [match for match in found if match]
     return max(found, key=lambda match: KIND_PRIORITY[match[0]]) if found else None
+
+
+def _address(host):
+    try:
+        return str(ipaddress.ip_address(str(host).strip("[]")))
+    except ValueError:
+        return None
+
+
+def remember_frontend(scan, host, kind, provider):
+    """Record for the rest of the scan that ``host`` (an address) is a shared frontend of ``kind``.
+
+    The same decision then holds for every later event on that address: port scanners skip it and httpx
+    does not turn it into a website, whichever module reported the address first.
+    """
+    address = _address(host)
+    if scan is None or address is None or kind not in KIND_PRIORITY:
+        return
+    known = scan.__dict__.setdefault("_shared_frontend_ips", {})
+    previous = known.get(address)
+    if previous is None or KIND_PRIORITY[kind] > KIND_PRIORITY[previous[0]]:
+        known[address] = (kind, str(provider or "unknown"))
+
+
+def known_frontend(scan, host):
+    """(kind, provider) when this scan already classified ``host`` (an address) as a shared frontend, else None."""
+    address = _address(host)
+    return getattr(scan, "__dict__", {}).get("_shared_frontend_ips", {}).get(address) if address else None

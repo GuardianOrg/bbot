@@ -120,6 +120,8 @@ class CloudCheck(BaseInterceptModule):
     async def filter_event(self, event):
         if (not event.host) or (event.type in ("IP_RANGE",)):
             return False, "event does not have host attribute"
+        if shared_infra.known_frontend(getattr(self, "scan", None), event.host):
+            return True
         if self.scope_input_only and "target" not in event.tags and event.type not in FRONTEND_EVENT_TYPES:
             return False, "cloudcheck is limited to explicit scan input events"
         return True
@@ -219,7 +221,7 @@ class CloudCheck(BaseInterceptModule):
                                          shared[0][1] if shared else (), frontend)
                 if not data["isFrontedProxy"] and not data["isCdn"]:
                     continue
-                self.tag_frontend(event, (data["providerType"], data.get("cloudProvider") or "unknown"))
+                self.remember_frontend(event, host, data)
                 await self.emit_event(data, "GEOLOCATION", parent=event,
                                       context=f"{{module}} classified {host} as a shared frontend")
 
@@ -227,9 +229,31 @@ class CloudCheck(BaseInterceptModule):
         event.add_tag("shared-frontend")
         event.add_tag(f"shared-{frontend[0].replace('_', '-')}-{frontend[1]}")
 
+    def remember_frontend(self, event, host, data):
+        """Tag the event and keep the verdict for every later event on this address."""
+        kind = "cdn" if data["isCdn"] else data["providerType"]
+        if kind not in shared_infra.KIND_PRIORITY:
+            kind = "proxy"
+        provider = data.get("cdnName") or data.get("frontendProvider") or data.get("cloudProvider") or "unknown"
+        shared_infra.remember_frontend(getattr(self, "scan", None), host, kind, provider)
+        self.tag_frontend(event, (data["providerType"], data.get("cloudProvider") or "unknown"))
+
+    def tag_known_frontend(self, event):
+        """An open port, URL or HTTP answer on an address already classified inherits its verdict."""
+        host = getattr(event, "host", None)
+        if host and self.helpers.is_ip(host):
+            known = shared_infra.known_frontend(getattr(self, "scan", None), host)
+            if known:
+                self.tag_frontend(event, known)
+                return True
+        return False
+
     async def handle_event(self, event, **kwargs):
+        if self.tag_known_frontend(event) and event.type not in FRONTEND_EVENT_TYPES:
+            return
         if self.scope_input_only and "target" not in event.tags:
-            await self.handle_frontends_only(event)
+            if event.type in FRONTEND_EVENT_TYPES:
+                await self.handle_frontends_only(event)
             return
         # cloud tagging by hosts
         hosts_to_check = set(event.resolved_hosts)
@@ -276,9 +300,9 @@ class CloudCheck(BaseInterceptModule):
                 if not any({"cdn", "waf"} & {str(tag).lower() for tag in tags} or name in SHARED_CLOUD_PROVIDERS
                            for name, tags in providers):
                     frontend = await self.probed_evidence(event, host, frontend, providers)
-                if frontend:
-                    self.tag_frontend(event, frontend)
-                await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), frontend)
+                data = await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), frontend)
+                if data and (data["isFrontedProxy"] or data["isCdn"]):
+                    self.remember_frontend(event, host, data)
 
         # we only generate storage buckets off of in-scope or distance-1 events
         if event.scope_distance >= self.max_scope_distance:
@@ -369,7 +393,7 @@ class CloudCheck(BaseInterceptModule):
         )
         provider_name, tags = ranked[0] if ranked else (None, [])
         if not provider_name and not cname_frontend and event.type != "IP_ADDRESS":
-            return
+            return None
         provider_slug = self._provider_slug(provider_name) if provider_name else None
         data = cloud_ip_metadata(host, provider_slug, tags, cname_frontend)
         await self.emit_event(
@@ -378,3 +402,4 @@ class CloudCheck(BaseInterceptModule):
             parent=event,
             context=f"{{module}} classified {host} as {{event.type}} cloud metadata",
         )
+        return data
