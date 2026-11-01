@@ -1888,7 +1888,47 @@ class EMAIL_PROFILE(DictHostEvent):
         confidence: Optional[int] = None
         verification_status: Optional[str] = None
         sources: Optional[list[str]] = None
+        full_name: Optional[str] = None
+        company: Optional[str] = None
+        address: Optional[str] = None
+        city: Optional[str] = None
+        state: Optional[str] = None
+        country: Optional[str] = None
+        birthdate: Optional[str] = None
+        ip_address: Optional[str] = None
         _validate_host = field_validator("host")(validators.validate_host)
+        _validate_email = field_validator("email")(validators.validate_email)
+
+
+class LEAKED_CREDENTIAL(DictHostEvent):
+    """
+    One leaked record found while searching a domain: the identity (email, username or phone), the secret
+    (password or hash) and where it leaked. ``host``/``domain`` is always the searched domain.
+    """
+
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        domain: str
+        provider: str
+        email: Optional[str] = None
+        username: Optional[str] = None
+        phone: Optional[str] = None
+        password: Optional[str] = None
+        hashed_password: Optional[str] = None
+        hash_type: Optional[str] = None
+        salt: Optional[str] = None
+        database_name: Optional[str] = None
+        database_description: Optional[str] = None
+        login_url: Optional[str] = None
+        category: Optional[str] = None
+        password_strength: Optional[int] = None
+        leaked_at: Optional[str] = None
+        indexed_at: Optional[str] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+        _validate_domain = field_validator("domain")(validators.validate_host)
         _validate_email = field_validator("email")(validators.validate_email)
 
 

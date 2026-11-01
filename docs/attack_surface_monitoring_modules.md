@@ -66,7 +66,7 @@ Use outputs to persist state (DB/NDJSON) and to send alerts (Slack/Teams/HTTP/Sp
 | otx | Query otx.alienvault.com for subdomains | Yes | Yes: AlienVault OTX API key is typically free (community, rate-limited). | Low (passive) |  |
 | passivetotal | Query the PassiveTotal API for subdomains | Yes | Usually paid (enterprise); check vendor for evaluation. | Low (passive) |  |
 | rapiddns | Query rapiddns.io for subdomains | No | N/A | Low (passive) |  |
-| securitytrails | Query the SecurityTrails API for subdomains | Yes | Usually paid; check if trial is available. | Low (passive) |  |
+| securitytrails | Query the SecurityTrails API (directly or through OSINTverse) for subdomains | Yes | Usually paid; check if trial is available. OSINTverse alternative: $0.50/domain, current DNS + first page of subdomains only (no DNS history). | Low (passive) |  |
 | shodan_dns | Query Shodan for subdomains | Yes | Usually paid for full API access; check Shodan plans/trial credits. | Low (passive) |  |
 | sitedossier | Query sitedossier.com for subdomains | No | N/A | Low (passive) |  |
 | subdomaincenter | Query subdomain.center's API for subdomains | No | N/A | Low (passive) |  |
@@ -83,15 +83,20 @@ Use outputs to persist state (DB/NDJSON) and to send alerts (Slack/Teams/HTTP/Sp
 ## Email / identity discovery
 | Module | What it does | Needs API key | Free/limited test option? | Intensity | Safer settings (if intense) |
 |---|---|---:|---|---|---|
-| dehashed | Execute queries against dehashed.com for exposed credentials | Yes | Usually paid; check vendor for trial. | Low (passive) |  |
+| dehashed | Execute queries against dehashed.com (directly or through OSINTverse) for exposed credentials | Yes | Usually paid; check vendor for trial. OSINTverse alternative: prepaid, $0.30/domain. | Low (passive) |  |
 | dnscaa | Check for CAA records | No | N/A | Low (passive) |  |
 | emailformat | Query email-format.com for email addresses | No | N/A | Low (passive) |  |
 | hunterio | Query hunter.io for emails | Yes | Often yes: free plan/trial usually available with small quotas (verify). | Low (passive) |  |
+| leakosintbot | Query LeakOSINTbot through OSINTverse for credentials in breach databases and stealer logs | Yes (OSINTverse) | Prepaid OSINTverse wallet (min $10 top-up): $0.20/domain. | Low (passive) |  |
 | leaklookup | Query leak-lookup.com for leaked credentials and crack hashes | Yes | Usually paid; check vendor for trial. | Low (passive) |  |
+| leakradar | Query LeakRadar through OSINTverse for credentials leaked in stealer logs, combolists and dumps | Yes (OSINTverse) | Prepaid OSINTverse wallet (min $10 top-up): $1.00/domain incl. 1,000 credentials. | Low (passive) |  |
 | pgp | Query common PGP servers for email addresses | No | N/A | Low (passive) |  |
 | skymem | Query skymem.info for email addresses | No | N/A | Low (passive) |  |
 | snovio | Query Snov.io Domain Search v2 for company email addresses | Yes | Often yes: free/limited tier usually available (verify current quotas). | Low (passive) |  |
+| snusbase | Query Snusbase through OSINTverse for exposed credentials | Yes (OSINTverse) | Prepaid OSINTverse wallet (min $10 top-up): $0.30/domain. | Low (passive) |  |
 | sslcert | Visit open ports and retrieve SSL certificates | No | N/A | Medium (active) |  |
+
+dehashed, leakosintbot, leakradar and snusbase emit one `LEAKED_CREDENTIAL` event per leaked record: the searched `domain`, the `email`/`username`/`phone`, the `password` or `hashed_password` (+ `hash_type`, `salt`), the leak (`database_name`, `database_description`, `login_url`, `category`) and its dates. It is parented by the leaked `EMAIL_ADDRESS` when the address belongs to the searched domain, otherwise by the domain. Personal details on the records (name, phone, company, address, ...) are merged per address into one `EMAIL_PROFILE` (first non-empty value wins). The flat `USERNAME`/`PASSWORD`/`HASHED_PASSWORD` events are still emitted unless `legacy_events: false`.
 
 ## Social discovery
 | Module | What it does | Needs API key | Free/limited test option? | Intensity | Safer settings (if intense) |

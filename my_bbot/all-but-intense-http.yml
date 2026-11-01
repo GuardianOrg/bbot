@@ -49,8 +49,10 @@ modules:
   - jadx
   - kingfisher
   - leakix
+  - leakosintbot
   - leaklookup
   - leaklookup_hash
+  - leakradar
   - medusa
   - mnemonic
   - naabu
@@ -63,6 +65,7 @@ modules:
   - rapiddns
   - robtex
   - retirejs
+  - securitytrails
   - shodan_dns
   - shodan_idb
   - social
@@ -328,6 +331,7 @@ config:
       probe_cloud_frontends: true
     dehashed:
       api_key: ${env:DEHASHED_API_KEY,""}
+      osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     github_org:
       include_private_org_repos: false
       include_members: true
@@ -364,14 +368,22 @@ config:
       cache_for: 86400
     leakix:
       api_key: ${env:LEAKIX_API_KEY,""}
+    leakosintbot:
+      osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     leaklookup:
       api_key: ${env:LEAKLOOKUP_API_KEY,""}
     leaklookup_hash:
       api_key: ${env:LEAKLOOKUP_API_KEY,""}
+    leakradar:
+      osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     otx:
       api_key: ${env:OTX_API_KEY,${env:OTX_KEY,""}}
       query_ips: true
       query_cloud_ips: false
+    securitytrails:
+      # without a native key the OSINTverse key is used ($0.50 per registrable domain, no DNS history)
+      api_key: ${env:SECURITYTRAILS_API_KEY,""}
+      osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     shodan_idb:
       api_key: ${env:SHODAN_API_KEY,${env:SHODAN_DNS_API_KEY,""}}
       full_host: true
