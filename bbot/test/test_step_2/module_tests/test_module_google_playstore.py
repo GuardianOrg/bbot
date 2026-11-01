@@ -19,6 +19,7 @@ class TestGoogle_Playstore(ModuleTestBase):
             <a href="/store/apps/details?id=com.lookalike.blacklanternsecurity"/>
             <a href="/store/apps/details?id=io.blacklanternsecurity.offline"/>
             <a href="/store/apps/details?id=com.unrelated.game"/>
+            <a href="/store/apps/details?id=net.prefix.lookalike"/>
             </body>
             </html>""",
         )
@@ -74,6 +75,13 @@ class TestGoogle_Playstore(ModuleTestBase):
             text="""<html><body><a href="mailto:dev@unrelated.example"></a></body></html>""",
         )
 
+        # Names a host that only starts with the target domain: not the target.
+        module_test.httpx_mock.add_response(
+            url="https://play.google.com/store/apps/details?id=net.prefix.lookalike",
+            text="""<html><body><meta name="appstore:developer_url" content="https://blacklanternsecurity.community">
+            <a href="mailto:dev@blacklanternsecurity.com.evil.example"></a></body></html>""",
+        )
+
     def check(self, module_test, events):
         optional = {e.data["id"]: e for e in events if e.type == "OPTIONAL_MOBILE_APP"}
         assert set(optional) == {"com.lookalike.blacklanternsecurity", "io.blacklanternsecurity.offline"}
@@ -83,7 +91,8 @@ class TestGoogle_Playstore(ModuleTestBase):
             assert "blacklanternsecurity" in e.data["reason"]
         mobile = {e.data["id"] for e in events if e.type == "MOBILE_APP"}
         assert mobile == {"com.bbot.test", "com.bbot.other"}, "only listings naming the target are in-scope apps"
-        assert not any(e.data.get("id") == "com.unrelated.game" for e in events if isinstance(e.data, dict))
+        dropped = {"com.unrelated.game", "net.prefix.lookalike"}
+        assert not any(e.data.get("id") in dropped for e in events if isinstance(e.data, dict))
         optional_ids = {e.id for e in optional.values()}
         assert not [e for e in events if e.parent_id in optional_ids], "no module may act on an optional app"
         assert len(events) == 8

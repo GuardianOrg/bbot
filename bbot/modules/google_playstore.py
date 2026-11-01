@@ -120,10 +120,9 @@ class google_playstore(BaseModule):
             return in_scope
         status_code = getattr(r, "status_code", 0)
         if status_code == 200:
-            html = r.text
-            in_scope_hosts = await self.scan.extract_in_scope_hostnames(html)
-            if in_scope_hosts:
-                in_scope = True
+            # Whole hostnames only: the scan's prefix matcher would take "seraph.com" for "seraph.co".
+            hosts = await self.helpers.re.findall(self.helpers.regexes.dns_name_extraction_regex, r.text)
+            in_scope = any(self.scan.whitelisted(host.rstrip(".")) for host in set(hosts))
         else:
             self.warning(f"Failed to fetch {url} (HTTP status: {status_code})")
         return in_scope
