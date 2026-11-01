@@ -439,3 +439,65 @@ class TestGithub_Org_Custom_Target(TestGithub_Org):
                 and e.scope_distance == 1
             ]
         )
+
+
+class TestGithub_Org_Company_User(ModuleTestBase):
+    """A company can publish from a GitHub User account; a fork counts only when it has commits of its own."""
+
+    targets = ["http://127.0.0.1:8888", "acmesec.com"]
+    config_overrides = {"modules": {"github_org": {"api_key": "asdf", "include_forks": False}}}
+    modules_overrides = ["httpx", "excavate", "social", "github_org"]
+
+    async def setup_after_prep(self, module_test):
+        # The company site links its own account, a fan account named after it, and an unrelated developer.
+        module_test.set_expect_requests(
+            expect_args={"method": "GET", "uri": "/"},
+            respond_args={
+                "response_data": '<a href="https://github.com/AcmeSec"/><a href="https://github.com/acmesecfan"/>'
+                '<a href="https://github.com/otherdev"/>'
+            },
+        )
+
+    async def setup_before_prep(self, module_test):
+        await module_test.mock_dns({"acmesec.com": {"A": ["127.0.0.99"]}, "github.com": {"A": ["127.0.0.99"]}})
+        api = "https://api.github.com"
+        module_test.httpx_mock.add_response(url=f"{api}/zen")
+        for user in ("acmesec", "acmesecfan", "otherdev"):
+            module_test.httpx_mock.add_response(url=f"{api}/orgs/{user}", status_code=404, json={"message": "Not Found"})
+        # No /users/otherdev mock: a login that names no seed domain must not cost a profile lookup.
+        module_test.httpx_mock.add_response(
+            url=f"{api}/users/acmesec",
+            json={"login": "AcmeSec", "type": "User", "blog": "https://acmesec.com/", "company": "Acme"},
+        )
+        # A fan account named after the company but whose profile points elsewhere is not the company.
+        module_test.httpx_mock.add_response(
+            url=f"{api}/users/acmesecfan",
+            json={"login": "acmesecfan", "type": "User", "blog": "https://acmefan.dev", "bio": "I love Acme"},
+        )
+        module_test.httpx_mock.add_response(
+            url=f"{api}/users/acmesec/repos?type=owner&sort=pushed&direction=desc&per_page=100&page=1",
+            json=[
+                {"html_url": "https://github.com/AcmeSec/reports", "full_name": "AcmeSec/reports", "fork": False, "private": False},
+                {"html_url": "https://github.com/AcmeSec/patched-tool", "full_name": "AcmeSec/patched-tool", "fork": True, "private": False},
+                {"html_url": "https://github.com/AcmeSec/copied-tool", "full_name": "AcmeSec/copied-tool", "fork": True, "private": False},
+            ],
+        )
+        module_test.httpx_mock.add_response(
+            url=f"{api}/users/acmesec/repos?type=owner&sort=pushed&direction=desc&per_page=100&page=2", json=[]
+        )
+        for name, ahead in (("patched-tool", 3), ("copied-tool", 0)):
+            module_test.httpx_mock.add_response(
+                url=f"{api}/repos/AcmeSec/{name}",
+                json={"full_name": f"AcmeSec/{name}", "default_branch": "main",
+                      "parent": {"full_name": f"upstream/{name}", "default_branch": "master"}},
+            )
+            module_test.httpx_mock.add_response(
+                url=f"{api}/repos/upstream/{name}/compare/master...AcmeSec:{name}:main",
+                json={"status": "diverged" if ahead else "behind", "ahead_by": ahead, "behind_by": 7},
+            )
+
+    def check(self, module_test, events):
+        repos = {e.data["url"] for e in events if e.type == "CODE_REPOSITORY"}
+        assert repos == {"https://github.com/AcmeSec/reports", "https://github.com/AcmeSec/patched-tool"}, repos
+        requested = {str(request.url) for request in module_test.httpx_mock.get_requests()}
+        assert "https://api.github.com/users/otherdev" not in requested

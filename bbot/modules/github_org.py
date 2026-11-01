@@ -19,6 +19,7 @@ class github_org(github):
         "max_org_repos": 100,
         "max_org_members": 20,
         "max_member_repos": 20,
+        "max_fork_checks": 5,
     }
     options_desc = {
         "api_key": "Github token",
@@ -29,6 +30,7 @@ class github_org(github):
         "max_org_repos": "Maximum recent public repositories to list per organization (up to 100)",
         "max_org_members": "Maximum publicly listed members to enumerate per organization (up to 20)",
         "max_member_repos": "Maximum recent public repositories to list per member (up to 20)",
+        "max_fork_checks": "Without include_forks, forks checked per scan for commits of their own (two API calls each)",
     }
 
     scope_distance_modifier = 2
@@ -42,6 +44,19 @@ class github_org(github):
         self.max_org_repos = max(0, min(int(self.config.get("max_org_repos", 100)), 100))
         self.max_org_members = max(0, min(int(self.config.get("max_org_members", 20)), 20))
         self.max_member_repos = max(0, min(int(self.config.get("max_member_repos", 20)), 20))
+        self.max_fork_checks = max(0, min(int(self.config.get("max_fork_checks", 5)), 50))
+        self._fork_checks = 0
+        # Only GitHub logins naming a seed domain (e.g. "acmesec" -> AcmeSecurity) cost a profile lookup.
+        self._company_stubs = set()
+        for seed in getattr(self.scan.target.seeds, "event_seeds", ()):
+            if seed.type == "DNS_NAME":
+                stub = str(getattr(self.helpers.tldextract(seed.data), "domain", "") or "").lower()
+            elif seed.type == "ORG_STUB":
+                stub = str(seed.data).lower()
+            else:
+                continue
+            if len(stub) >= 4:
+                self._company_stubs.add(stub)
         return await super().setup()
 
     def _api_response_is_success(self, r):
@@ -93,6 +108,8 @@ class github_org(github):
                 in_scope = True
             else:
                 is_org, in_scope = await self.validate_org(user)
+            # A company can publish its code from a GitHub User account (its profile names the company's domain).
+            company_user = not is_org and "github-org-member" not in event.tags and await self.validate_company_user(user)
 
             # find repos from user/org (SOCIAL --> CODE_REPOSITORY)
             repos = []
@@ -102,6 +119,9 @@ class github_org(github):
                     repos = await self.query_org_repos(user)
                 else:
                     self.verbose(f"Organization {user} does not appear to be in-scope")
+            elif company_user:
+                self.verbose(f"Searching for repos belonging to in-scope company account {user}")
+                repos = await self.query_user_repos(user, limit=getattr(self, "max_org_repos", 100))
             elif "github-org-member" in event.tags:
                 self.verbose(f"Searching for repos belonging to user {user}")
                 repos = await self.query_user_repos(user)
@@ -187,7 +207,7 @@ class github_org(github):
                 for item in j:
                     if not isinstance(item, dict) or item.get("private") not in ({False, True} if include_private else {False}):
                         continue
-                    if not self.include_forks and item.get("fork") is not False:
+                    if item.get("fork") is not False and not await self.keep_fork(item):
                         continue
                     html_url = item.get("html_url", "")
                     if html_url:
@@ -271,7 +291,7 @@ class github_org(github):
                 for item in j:
                     if not isinstance(item, dict) or item.get("private") is not False:
                         continue
-                    if not self.include_forks and item.get("fork") is not False:
+                    if item.get("fork") is not False and not await self.keep_fork(item):
                         continue
                     html_url = item.get("html_url", "")
                     if html_url:
@@ -283,6 +303,51 @@ class github_org(github):
         finally:
             await agen.aclose()
         return repos
+
+    async def keep_fork(self, item):
+        """Without include_forks, a fork is kept only when it carries commits of its own: an untouched copy
+        is the upstream project's code, not the owner's."""
+        if self.include_forks:
+            return True
+        checked = getattr(self, "_fork_checks", 0)
+        if checked >= self.max_fork_checks or not isinstance(item.get("full_name"), str):
+            return False
+        self._fork_checks = checked + 1
+        r = await self.api_request(f"{self.base_url}/repos/{item['full_name']}")
+        try:
+            repo = r.json() if getattr(r, "status_code", 0) == 200 else {}
+        except Exception:
+            return False
+        parent = repo.get("parent") if isinstance(repo, dict) else None
+        branch = repo.get("default_branch") if isinstance(repo, dict) else None
+        if not isinstance(parent, dict) or not parent.get("full_name") or not parent.get("default_branch") or not branch:
+            return False
+        owner, name = item["full_name"].split("/", 1)
+        r = await self.api_request(
+            f"{self.base_url}/repos/{parent['full_name']}/compare/"
+            f"{self.helpers.quote(parent['default_branch'])}...{owner}:{name}:{self.helpers.quote(branch)}"
+        )
+        try:
+            ahead = r.json().get("ahead_by", 0) if getattr(r, "status_code", 0) == 200 else 0
+        except Exception:
+            return False
+        return isinstance(ahead, int) and ahead > 0
+
+    async def validate_company_user(self, user):
+        """A GitHub User (not an Organization) whose own profile names an in-scope hostname."""
+        if not any(stub in user.lower() for stub in getattr(self, "_company_stubs", ())):
+            return False
+        r = await self.api_request(f"{self.base_url}/users/{self.helpers.quote(user)}")
+        if getattr(r, "status_code", 0) != 200:
+            return False
+        try:
+            profile = r.json()
+        except Exception:
+            return False
+        if not isinstance(profile, dict) or profile.get("type") != "User":
+            return False
+        fields = " ".join(str(profile.get(key) or "") for key in ("blog", "email", "bio", "company"))
+        return bool(await self.scan.extract_in_scope_hostnames(fields))
 
     async def validate_org(self, org):
         is_org = False
