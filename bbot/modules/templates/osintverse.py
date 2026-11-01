@@ -367,7 +367,15 @@ class osintverse_leak(subdomain_enum):
             for key, value in dict(base, **secret).items():
                 if isinstance(value, bool) or value in (None, ""):
                     continue
-                data[key] = value if isinstance(value, int) else str(value).strip()[: self.max_field_length]
+                if key == "password_strength":
+                    # The only numeric field: a score that is not a whole number is dropped, never the leak.
+                    try:
+                        data[key] = int(str(value).strip())
+                    except ValueError:
+                        pass
+                    continue
+                # Every other field is text, even when a provider sends a phone or a date as a number.
+                data[key] = str(value).strip()[: self.max_field_length]
             identity = data.get("email") or data.get("username") or data.get("phone") or data.get("login_url") or query
             kind = "password" if "password" in data else "password hash" if "hashed_password" in data else "record"
             leak_event = self.make_event(data, "LEAKED_CREDENTIAL", parent=parent, tags=tags)

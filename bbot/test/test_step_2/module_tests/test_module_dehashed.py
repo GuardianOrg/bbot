@@ -32,7 +32,7 @@ class TestDehashed(ModuleTestBase):
                         "username": ["timmy"],
                         "password": ["TimTamSlam69"],
                         "name": "Tim Tam",
-                        "phone": ["+123455667"],
+                        "phone": [123455667],  # providers may send a phone as a JSON number
                         "database_name": "eatstreet",
                     },
                 ],
@@ -109,6 +109,8 @@ class TestDehashed(ModuleTestBase):
         profiles = {e.data["email"]: e for e in events if e.type == "EMAIL_PROFILE"}
         assert profiles["bob@blacklanternsecurity.com"].data["full_name"] == "Bob Smith"
         assert profiles["bob@blacklanternsecurity.com"].data["phone_number"] == "+91283423839"
+        tim = [e for e in events if e.type == "LEAKED_CREDENTIAL" and e.data.get("email") == "tim@blacklanternsecurity.com"]
+        assert [e.data["phone"] for e in tim] == ["123455667"]
         assert profiles["bob@blacklanternsecurity.com"].data["ip_address"] == "127.0.0.9"
         assert profiles["bob@blacklanternsecurity.com"].data["provider"] == "dehashed"
         assert profiles["bob@blacklanternsecurity.com"].data["sources"] == ["eatstreet"]

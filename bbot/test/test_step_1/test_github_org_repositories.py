@@ -38,16 +38,25 @@ async def test_github_org_repository_listing_excludes_forks_on_every_page():
         )
         yield Response([{"html_url": "https://github.com/company/second", "fork": False, "private": False}])
 
+    checked_forks = []
+
+    async def keep_fork(item):
+        # A fork without commits of its own (or with an unknown fork flag) is not listed.
+        checked_forks.append(item["html_url"])
+        return False
+
     module = SimpleNamespace(
         base_url="https://api.github.com",
         helpers=SimpleNamespace(quote=lambda value: value),
         api_page_iter=pages,
         include_forks=False,
+        keep_fork=keep_fork,
         warning=lambda *_: None,
     )
     expected = ["https://github.com/company/first", "https://github.com/company/second"]
     assert await github_org.query_org_repos(module, "company") == expected
     assert await github_org.query_user_repos(module, "employee") == expected
+    assert checked_forks == ["https://github.com/company/fork", "https://github.com/company/unknown"] * 2
     assert requested == [
         "https://api.github.com/orgs/company/repos?type=public&sort=pushed&direction=desc&per_page=100&page={page}",
         "https://api.github.com/users/employee/repos?type=owner&sort=pushed&direction=desc&per_page=100&page={page}",

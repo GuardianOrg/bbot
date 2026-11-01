@@ -454,7 +454,7 @@ class TestGithub_Org_Company_User(ModuleTestBase):
             expect_args={"method": "GET", "uri": "/"},
             respond_args={
                 "response_data": '<a href="https://github.com/AcmeSec"/><a href="https://github.com/acmesecfan"/>'
-                '<a href="https://github.com/otherdev"/>'
+                '<a href="https://github.com/otherdev"/><a href="https://github.com/acmesecdev"/>'
             },
         )
 
@@ -462,12 +462,21 @@ class TestGithub_Org_Company_User(ModuleTestBase):
         await module_test.mock_dns({"acmesec.com": {"A": ["127.0.0.99"]}, "github.com": {"A": ["127.0.0.99"]}})
         api = "https://api.github.com"
         module_test.httpx_mock.add_response(url=f"{api}/zen")
-        for user in ("acmesec", "acmesecfan", "otherdev"):
+        for user in ("acmesec", "acmesecfan", "otherdev", "acmesecdev"):
             module_test.httpx_mock.add_response(url=f"{api}/orgs/{user}", status_code=404, json={"message": "Not Found"})
         # No /users/otherdev mock: a login that names no seed domain must not cost a profile lookup.
         module_test.httpx_mock.add_response(
             url=f"{api}/users/acmesec",
             json={"login": "AcmeSec", "type": "User", "blog": "https://acmesec.com/", "company": "Acme"},
+        )
+        # A look-alike domain that merely starts with the target's name is not the target.
+        module_test.httpx_mock.add_response(
+            url=f"{api}/users/acmesecdev",
+            json={"login": "acmesecdev", "type": "User", "blog": "https://acmesec.company/", "email": "hi@acmesec.com.au"},
+        )
+        module_test.httpx_mock.add_response(
+            url=f"{api}/users/acmesecdev/repos?type=owner&sort=pushed&direction=desc&per_page=100&page=1",
+            json=[{"html_url": "https://github.com/acmesecdev/tool", "full_name": "acmesecdev/tool", "fork": False, "private": False}],
         )
         # A fan account named after the company but whose profile points elsewhere is not the company.
         module_test.httpx_mock.add_response(

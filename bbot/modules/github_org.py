@@ -347,7 +347,9 @@ class github_org(github):
         if not isinstance(profile, dict) or profile.get("type") != "User":
             return False
         fields = " ".join(str(profile.get(key) or "") for key in ("blog", "email", "bio", "company"))
-        return bool(await self.scan.extract_in_scope_hostnames(fields))
+        # Whole hostnames only: "seraph.com" or "seraph.company" does not name the target seraph.co.
+        hosts = await self.helpers.re.findall(self.helpers.regexes.dns_name_extraction_regex, fields)
+        return any(self.scan.whitelisted(host.rstrip(".")) for host in set(hosts))
 
     async def validate_org(self, org):
         is_org = False

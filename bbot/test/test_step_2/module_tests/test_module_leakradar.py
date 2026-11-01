@@ -46,6 +46,7 @@ leakradar_search = {
                 "unlocked": True,
                 "is_email": False,
                 "added_at": "2024-08-02T14:12:00Z",
+                "password_strength": "strong",
                 "category": "employees",
             },
             {
@@ -126,6 +127,8 @@ class TestLeakradar(ModuleTestBase):
         # a leak for a subdomain login is kept on that subdomain, which is reported too
         jdoe = next(e for e in leaks if e.data.get("username") == "jdoe")
         assert jdoe.data["host"] == "vpn.blacklanternsecurity.com"
+        # a score that is not a number is dropped, not the leak
+        assert "password_strength" not in jdoe.data
         assert jdoe.data["domain"] == "blacklanternsecurity.com"
         assert any(e.type == "DNS_NAME" and e.data == "vpn.blacklanternsecurity.com" for e in events)
         vendor = next(e for e in leaks if e.data.get("username") == "vendor.ops")

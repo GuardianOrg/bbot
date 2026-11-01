@@ -145,6 +145,15 @@ async def test_offchain_scope_filter_allows_emails_discovered_from_seeded_domain
         "email address is outside the seeded email or domain scope",
     )
 
+    # A person's details follow their address: none are kept for a third party's mailbox.
+    allowed_profile = make_event("EMAIL_PROFILE", data={"email": "jon@mail.example.com", "first_name": "Jon"})
+    blocked_profile = make_event("EMAIL_PROFILE", data={"email": "someone@gmail.com", "first_name": "Ann"})
+    assert await module.handle_event(allowed_profile) is True
+    assert await module.handle_event(blocked_profile) == (
+        False,
+        "email address is outside the seeded email or domain scope",
+    )
+
 
 @pytest.mark.asyncio
 async def test_offchain_scope_filter_exact_repository_seed_does_not_authorize_owner():
