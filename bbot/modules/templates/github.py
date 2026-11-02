@@ -10,6 +10,8 @@ class github(BaseModule):
     """
 
     _qsize = 1
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     base_url = "https://api.github.com"
     ping_url = f"{base_url}/zen"
 

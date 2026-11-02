@@ -2,6 +2,8 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum_apikey
 
 
 class otx(subdomain_enum_apikey):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     flags = ["subdomain-enum", "passive", "safe", "ip-enum"]
     watched_events = ["DNS_NAME", "IP_ADDRESS"]
     produced_events = ["DNS_NAME", "DOMAIN_DNS_HISTORY"]

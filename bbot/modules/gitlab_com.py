@@ -2,6 +2,8 @@ from bbot.modules.templates.gitlab import GitLabBaseModule
 
 
 class gitlab_com(GitLabBaseModule):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["SOCIAL", "CODE_REPOSITORY_OWNER"]
     produced_events = [
         "CODE_REPOSITORY",

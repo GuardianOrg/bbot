@@ -113,6 +113,11 @@ class BaseModule:
     _api_failure_abort_threshold = 3
     # whether to retry on 429s when first pinging the API at scan start
     _ping_retry_on_http_429 = False
+    # Set to True on modules whose API bills per query or has a quota. When BBOT_API_CACHE_BUCKET is set, their
+    # successful API responses are reused from S3 for up to 16 hours instead of being paid for again
+    # (see bbot/core/helpers/api_cache.py). Requests go through api_request(), api_page_iter() or
+    # cached_api_request(); multi-step flows can use api_cache_get()/api_cache_set() for their final result.
+    cache_api_responses = False
 
     default_discovery_context = "{module} discovered {event.type}: {event.data}"
 
@@ -1377,7 +1382,7 @@ class BaseModule:
             new_url, kwargs = self.prepare_api_request(url, kwargs)
             kwargs["url"] = new_url
 
-            r = await self.helpers.request(**kwargs)
+            r = await self.cached_api_request(**kwargs)
             success = r is not None and self._api_response_is_success(r)
 
             if success:
@@ -1412,6 +1417,98 @@ class BaseModule:
             break
 
         return r
+
+    @property
+    def _api_response_cache(self):
+        if not self.cache_api_responses:
+            return None
+        from bbot.core.helpers.api_cache import get_api_cache
+
+        return get_api_cache()
+
+    def api_cache_credential(self):
+        """
+        Hash of the credentials this module queries with, part of every cache key. Modules whose credential
+        lives somewhere other than their options or self.api_key override this.
+        """
+        from bbot.core.helpers.api_cache import credential_fingerprint, module_credentials
+
+        return credential_fingerprint(module_credentials(self))
+
+    def api_cache_response_ok(self, response):
+        """
+        Whether a live response is complete and successful enough to reuse. Override to reject API-specific
+        error bodies that arrive with a 2xx status.
+        """
+        from bbot.core.helpers.api_cache import response_is_cacheable
+
+        return response_is_cacheable(response)
+
+    def _api_cache_key(self, method, url, body=None, params=None):
+        from bbot.core.helpers.api_cache import request_key
+
+        return request_key(self.name, method, url, body, params, self.api_cache_credential())
+
+    async def cached_api_request(self, *args, **kwargs):
+        """
+        helpers.request() for paid APIs: answered from the API response cache when the module opted in
+        (cache_api_responses = True) and BBOT_API_CACHE_BUCKET is set; otherwise, and on any cache problem, a live request.
+        Each page of a paginated API is its own request, so it is cached separately.
+        """
+        cache = self._api_response_cache
+        if cache is None:
+            return await self.helpers.request(*args, **kwargs)
+        from bbot.core.helpers.api_cache import request_kwargs_key_material
+
+        key = None
+        try:
+            material = request_kwargs_key_material(args, kwargs)
+            if material is not None:
+                method, url, body, params = material
+                key = cache.object_key(self.name, self._api_cache_key(method, url, body, params))
+        except Exception as e:
+            self.debug(f"API cache key failed, querying live: {e}")
+        if key is not None:
+            entry = await cache.get(key)
+            if entry is not None and entry.get("kind") == "response":
+                try:
+                    response = cache.build_response(entry, method, url)
+                    self.debug(f"API cache hit for {self.name} {method} request")
+                    return response
+                except Exception as e:
+                    self.debug(f"API cache entry unusable, querying live: {e}")
+        response = await self.helpers.request(*args, **kwargs)
+        if key is not None and self.api_cache_response_ok(response):
+            await cache.put(key, cache.response_entry(response))
+        return response
+
+    async def api_cache_get(self, method, url, body=None):
+        """A JSON-serialisable result stored with api_cache_set() under 16 hours ago, else None."""
+        cache = self._api_response_cache
+        if cache is None:
+            return None
+        try:
+            key = cache.object_key(self.name, self._api_cache_key(method, url, body))
+        except Exception as e:
+            self.debug(f"API cache key failed: {e}")
+            return None
+        entry = await cache.get(key)
+        if entry is not None and entry.get("kind") == "result":
+            self.debug(f"API cache hit for {self.name} {method} result")
+            return entry.get("result")
+        return None
+
+    async def api_cache_set(self, method, url, body, result):
+        """Store the final, complete result of a multi-step API flow (a search that was polled until done)."""
+        cache = self._api_response_cache
+        if cache is None or result is None:
+            return False
+        try:
+            key = cache.object_key(self.name, self._api_cache_key(method, url, body))
+        except Exception as e:
+            self.debug(f"API cache key failed: {e}")
+            return False
+        return await cache.put(key, {"kind": "result", "result": result})
 
     async def api_download(self, url, **kwargs):
         """

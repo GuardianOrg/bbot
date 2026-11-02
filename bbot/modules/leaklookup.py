@@ -7,6 +7,8 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 class leaklookup(subdomain_enum):
     fatal_on_error = True
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME", "HASHED_PASSWORD"]
     produced_events = ["EMAIL_ADDRESS", "FINDING", "HASHED_PASSWORD", "PASSWORD", "USERNAME"]
     flags = ["passive", "safe", "email-enum"]
@@ -341,7 +343,7 @@ class leaklookup(subdomain_enum):
 
     async def _post(self, url, data):
         for wait in (*self.rate_limit_waits, None):
-            response = await self.helpers.request(url, method="POST", data=data)
+            response = await self.cached_api_request(url, method="POST", data=data)
             if wait is None or getattr(response, "status_code", 0) != 429:
                 return response
             try:

@@ -4,6 +4,8 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
 class shodan(subdomain_enum):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     options = {"api_key": ""}
     options_desc = {"api_key": "Shodan API key"}
 

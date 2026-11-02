@@ -6,6 +6,8 @@ class bevigil(subdomain_enum_apikey):
     Retrieve OSINT data from mobile applications using BeVigil
     """
 
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME"]
     produced_events = ["DNS_NAME", "URL_UNVERIFIED"]
     flags = ["subdomain-enum", "passive", "safe"]

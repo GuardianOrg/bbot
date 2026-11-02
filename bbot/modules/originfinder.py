@@ -190,6 +190,8 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4):
 
 
 class originfinder(BaseModule):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = [
         "DNS_NAME",
         "URL",
@@ -576,7 +578,7 @@ class originfinder(BaseModule):
                         {"key": self.shodan_key, "query": query, "page": page}
                     )
                     try:
-                        response = await self.helpers.request(url)
+                        response = await self.cached_api_request(url)
                         if response and response.status_code == 200:
                             body = response.json()
                             for hit in body.get("matches", []):
@@ -614,7 +616,7 @@ class originfinder(BaseModule):
                     if page_token:
                         payload["page_token"] = page_token
                     try:
-                        response = await self.helpers.request(
+                        response = await self.cached_api_request(
                             "https://api.platform.censys.io/v3/global/search/query?"
                             + urlencode({"organization_id": self.censys_organization_id}),
                             method="POST",

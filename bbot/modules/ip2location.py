@@ -6,6 +6,8 @@ class IP2Location(BaseModule):
     IP2Location.io Geolocation API.
     """
 
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["IP_ADDRESS"]
     produced_events = ["GEOLOCATION"]
     flags = ["passive", "safe"]

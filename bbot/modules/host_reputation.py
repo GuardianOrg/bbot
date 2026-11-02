@@ -22,6 +22,8 @@ MAX_MALWAREWORLD_PARALLEL_DOWNLOADS = 2
 
 
 class host_reputation(BaseModule):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = [
         "DNS_NAME",
         "DNS_NAME_UNRESOLVED",
@@ -403,7 +405,7 @@ class host_reputation(BaseModule):
 
     async def request_json(self, url, params=None, headers=None):
         try:
-            response = await self.helpers.request(url=url, params=params, headers=headers or {}, timeout=10)
+            response = await self.cached_api_request(url=url, params=params, headers=headers or {}, timeout=10)
             if response is None:
                 return {"error": "no response"}
             if response.status_code == 429:

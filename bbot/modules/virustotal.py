@@ -2,6 +2,8 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum_apikey
 
 
 class virustotal(subdomain_enum_apikey):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME"]
     produced_events = ["DNS_NAME", "DOMAIN_DNS_HISTORY"]
     flags = ["subdomain-enum", "passive", "safe"]

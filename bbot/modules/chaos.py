@@ -44,6 +44,8 @@ def _collapse(subdomains, domain, query):
 
 
 class chaos(subdomain_enum_apikey):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME"]
     produced_events = ["DNS_NAME"]
     flags = ["subdomain-enum", "passive", "safe"]

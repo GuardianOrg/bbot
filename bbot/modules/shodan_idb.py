@@ -39,6 +39,8 @@ class shodan_idb(BaseModule):
     }
     """
 
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME", "IP_ADDRESS", "IP_RANGE"]
     produced_events = [
         "IP_ADDRESS",
@@ -189,7 +191,7 @@ class shodan_idb(BaseModule):
                 f"https://api.shodan.io/shodan/host/search?key={self.api_key}"
                 f"&query={self.helpers.quote(f'net:{cidr}')}&page={page}&minify=false"
             )
-            r = await self.helpers.request(url)
+            r = await self.cached_api_request(url)
             if r is None:
                 self.cycle_api_key()
                 continue
@@ -242,7 +244,7 @@ class shodan_idb(BaseModule):
     async def query_full_host(self, event, ip):
         for _ in range(self.api_retries):
             url = f"https://api.shodan.io/shodan/host/{ip}?key={self.api_key}"
-            r = await self.helpers.request(url)
+            r = await self.cached_api_request(url)
             if r is None:
                 self.cycle_api_key()
                 continue

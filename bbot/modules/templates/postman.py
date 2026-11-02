@@ -7,6 +7,8 @@ class postman(BaseModule):
     Inherited by several other github modules.
     """
 
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     base_url = "https://www.postman.com/_api"
     api_url = "https://api.getpostman.com"
     html_url = "https://www.postman.com"

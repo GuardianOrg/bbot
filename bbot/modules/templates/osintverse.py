@@ -62,6 +62,11 @@ class OSINTverseClient:
         Run a billed search and wait for it to finish. Returns the completed search object, or None.
         """
         body = {"provider": provider, "input_type": input_type, "query": query}
+        search_url = f"{self.base_url}/v1/search"
+        cached = await self.module.api_cache_get("POST", search_url, body)
+        if isinstance(cached, dict) and cached.get("status") == "completed":
+            self.module.verbose(f'Reusing the OSINTverse {provider} search for "{query}" from the API cache')
+            return cached
         idempotency_key = hashlib.sha256(
             f"bbot|{self.module.scan.id}|{provider}|{input_type}|{query}".encode()
         ).hexdigest()
@@ -92,6 +97,7 @@ class OSINTverseClient:
         self.module.verbose(
             f"{description} cost ${search.get('cost_usd')} (balance after: ${search.get('balance_after')})"
         )
+        await self.module.api_cache_set("POST", search_url, body, search)
         return search
 
     async def unlock(self, search):
@@ -106,6 +112,17 @@ class OSINTverseClient:
             **{"Idempotency-Key": hashlib.sha256(f"bbot|{self.module.scan.id}|unlock|{search_id}".encode()).hexdigest()},
         )
         description = f'OSINTverse unlock of search "{search_id}" ({search.get("query")})'
+        # search ids differ per scan; the unlocked rows belong to the provider + query that was searched
+        cache_url = f"{self.base_url}/v1/search/unlock"
+        cache_body = {
+            "provider": search.get("provider"),
+            "input_type": search.get("input_type"),
+            "query": search.get("query"),
+        }
+        cached = await self.module.api_cache_get("POST", cache_url, cache_body)
+        if isinstance(cached, dict) and cached.get("status") == "completed":
+            self.module.verbose(f"Reusing the {description} from the API cache")
+            return cached
         r = None
         for attempt in range(self.max_attempts):
             r = await self.module.helpers.request(
@@ -130,6 +147,8 @@ class OSINTverseClient:
             self.module.warning(f"{description} did not complete (status: {unlocked.get('status')})")
             return None
         self.module.verbose(f"{description} done (balance after: ${unlocked.get('balance_after')})")
+        if cache_body["provider"] and cache_body["query"]:
+            await self.module.api_cache_set("POST", cache_url, cache_body, unlocked)
         return unlocked
 
     async def _wait(self, search):
@@ -177,6 +196,8 @@ class osintverse_leak(subdomain_enum):
     records for an email are merged into one EMAIL_PROFILE per address.
     """
 
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME"]
     produced_events = [
         "LEAKED_CREDENTIAL",

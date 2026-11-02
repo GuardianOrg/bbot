@@ -2,6 +2,8 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum_apikey
 
 
 class hunterio(subdomain_enum_apikey):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME"]
     produced_events = ["EMAIL_ADDRESS", "EMAIL_PROFILE", "DNS_NAME", "URL_UNVERIFIED"]
     flags = ["passive", "email-enum", "subdomain-enum", "safe"]

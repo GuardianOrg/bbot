@@ -9,6 +9,8 @@ class censys(subdomain_enum_apikey):
     Provides common authentication and API request handling.
     """
 
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     options = {"api_key": ""}
     options_desc = {"api_key": "Censys.io API Key in the format of 'key:secret'"}
 

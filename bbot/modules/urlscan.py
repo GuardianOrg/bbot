@@ -8,6 +8,8 @@ from bbot.modules.templates.subdomain_enum import subdomain_enum
 
 
 class urlscan(subdomain_enum):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     flags = ["subdomain-enum", "passive", "safe"]
     watched_events = ["DNS_NAME"]
     produced_events = ["DNS_NAME", "URL_UNVERIFIED", "DOMAIN_DNS_HISTORY", "DOMAIN_CERTIFICATE_HISTORY"]
@@ -97,7 +99,7 @@ class urlscan(subdomain_enum):
             url = f"{self.base_url}/search/?q={self.helpers.quote(f'page.domain:{query}')}&size={self.page_size}"
             if cursor:
                 url += f"&search_after={self.helpers.quote(cursor)}"
-            response = await self.helpers.request(url, headers=self.request_headers)
+            response = await self.cached_api_request(url, headers=self.request_headers)
             if response is None or response.status_code != 200:
                 break
             try:
@@ -189,7 +191,7 @@ class urlscan(subdomain_enum):
         for candidate in list(candidates.values())[: self.max_certificate_results]:
             scan_id = candidate["scan_id"]
             result_url = f"{self.base_url}/result/{scan_id}/"
-            response = await self.helpers.request(result_url, headers=self.request_headers)
+            response = await self.cached_api_request(result_url, headers=self.request_headers)
             if response is None or response.status_code != 200:
                 continue
             try:

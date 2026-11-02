@@ -4,6 +4,8 @@ from bbot.modules.base import BaseModule
 
 
 class snovio(BaseModule):
+    # paid or quota-limited API: reuse responses from the S3 API cache when it is configured
+    cache_api_responses = True
     watched_events = ["DNS_NAME"]
     produced_events = ["EMAIL_ADDRESS"]
     flags = ["passive", "safe", "email-enum"]
@@ -70,20 +72,7 @@ class snovio(BaseModule):
         next_token = ""
         pages = 0
         while pages < self.max_pages:
-            start_json = await self.start_domain_emails_task(query, next_token=next_token)
-            if not start_json:
-                break
-
-            links = start_json.get("links", {})
-            meta = start_json.get("meta", {})
-            task_hash = str(meta.get("task_hash", "")).strip()
-            result_url = str(links.get("result", "")).strip()
-            if not result_url and task_hash:
-                result_url = self.result_url_template.format(task_hash=task_hash)
-            if not result_url:
-                break
-
-            result_json = await self.poll_results(result_url)
+            result_json = await self.fetch_page(query, next_token)
             if not result_json:
                 break
 
@@ -105,6 +94,30 @@ class snovio(BaseModule):
             pages += 1
             if not next_token:
                 break
+
+    async def fetch_page(self, query, next_token=""):
+        """One finished page of domain emails; a page is a start task polled until done, cached as a whole."""
+        cache_body = {"domain": query, "next": next_token}
+        cached = await self.api_cache_get("POST", self.start_url, cache_body)
+        if isinstance(cached, dict) and cached:
+            return cached
+        start_json = await self.start_domain_emails_task(query, next_token=next_token)
+        if not start_json:
+            return {}
+        links = start_json.get("links", {})
+        meta = start_json.get("meta", {})
+        task_hash = str(meta.get("task_hash", "")).strip()
+        result_url = str(links.get("result", "")).strip()
+        if not result_url and task_hash:
+            result_url = self.result_url_template.format(task_hash=task_hash)
+        if not result_url:
+            return {}
+        result_json = await self.poll_results(result_url)
+        status = str(result_json.get("status", "")).strip().lower()
+        finished = status in ("completed", "success", "done", "")
+        if result_json and finished and isinstance(result_json.get("data"), list):
+            await self.api_cache_set("POST", self.start_url, cache_body, result_json)
+        return result_json
 
     async def start_domain_emails_task(self, domain, next_token=""):
         data = {"domain": domain}
