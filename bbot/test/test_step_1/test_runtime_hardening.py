@@ -31,6 +31,18 @@ def test_nuclei_environment_does_not_inherit_credentials(monkeypatch, tmp_path):
     assert env["NUCLEI_CONFIG_DIR"].startswith(str(module.nuclei_home))
 
 
+def test_nuclei_memory_limit_reaches_the_process_only_when_configured(monkeypatch, tmp_path):
+    module = nuclei.__new__(nuclei)
+    module.nuclei_home = tmp_path / "nuclei-home"
+    module.nuclei_config_dir = module.nuclei_home / ".config" / "nuclei"
+    monkeypatch.setenv("GOMEMLIMIT", "1KiB")
+
+    module.memory_limit = ""
+    assert "GOMEMLIMIT" not in module._nuclei_env()
+    module.memory_limit = "6GiB"
+    assert module._nuclei_env()["GOMEMLIMIT"] == "6GiB"
+
+
 @pytest.mark.parametrize("module_class", [apkpure, nuclei])
 def test_mobile_downloaders_reject_unsafe_app_ids(module_class):
     assert module_class._is_safe_app_id("com.example.safe-app")

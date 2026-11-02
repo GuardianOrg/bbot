@@ -25,6 +25,19 @@ def test_nuclei_scales_global_rate_with_distinct_hosts_and_caps_it():
     ) == (600, 100, 50)
 
 
+def test_nuclei_adaptive_scaling_stops_at_the_configured_parallelism_caps():
+    urls = [f"https://host-{i}.example/" for i in range(30)]
+    assert nuclei_runtime_limits(
+        urls, ratelimit=120, concurrency=20, bulk_size=10,
+        per_host_rate=30, max_ratelimit=600, max_concurrency=50, max_bulk_size=25,
+    ) == (600, 50, 25)
+    # A cap above the scaled value does not inflate it.
+    assert nuclei_runtime_limits(
+        urls[:8], ratelimit=120, concurrency=20, bulk_size=10,
+        per_host_rate=30, max_ratelimit=600, max_concurrency=50, max_bulk_size=25,
+    ) == (240, 40, 20)
+
+
 def test_nuclei_does_not_multiply_rate_for_paths_or_ports_on_one_host():
     urls = [f"https://one.example:{8000 + i}/path" for i in range(25)]
     assert nuclei_runtime_limits(

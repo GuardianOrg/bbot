@@ -14,7 +14,15 @@ from bbot.modules.base import BaseModule
 
 
 def nuclei_runtime_limits(
-    inputs, ratelimit, concurrency, bulk_size, per_host_rate=0, max_ratelimit=0, resolved_hosts_by_input=None
+    inputs,
+    ratelimit,
+    concurrency,
+    bulk_size,
+    per_host_rate=0,
+    max_ratelimit=0,
+    resolved_hosts_by_input=None,
+    max_concurrency=100,
+    max_bulk_size=50,
 ):
     """Scale by independently resolved endpoints, grouping names that share an IP."""
     base = (int(ratelimit), int(concurrency), int(bulk_size))
@@ -57,7 +65,10 @@ def nuclei_runtime_limits(
         independent += 1
     rate = max(base[0], min(int(max_ratelimit), independent * int(per_host_rate)))
     factor = rate / base[0]
-    return rate, min(100, max(base[1], int(base[1] * factor))), min(50, max(base[2], int(base[2] * factor)))
+    # Nuclei keeps concurrency x bulk size template/host pairs in flight, and its memory grows with that product.
+    concurrency = min(int(max_concurrency), max(base[1], int(base[1] * factor)))
+    bulk_size = min(int(max_bulk_size), max(base[2], int(base[2] * factor)))
+    return rate, concurrency, bulk_size
 
 
 class nuclei(BaseModule):
@@ -83,6 +94,9 @@ class nuclei(BaseModule):
         "ratelimit": 150,
         "adaptive_ratelimit_per_host": 0,
         "adaptive_ratelimit_max": 0,
+        "adaptive_max_concurrency": 100,
+        "adaptive_max_bulk_size": 50,
+        "memory_limit": "",
         "concurrency": 25,
         "mode": "manual",
         "etags": "",
@@ -112,6 +126,9 @@ class nuclei(BaseModule):
         "ratelimit": "maximum number of requests to send per second (default 150)",
         "adaptive_ratelimit_per_host": "When set, raise the global rate only as the number of distinct web hosts grows",
         "adaptive_ratelimit_max": "Maximum global requests per second when adaptive scaling is enabled",
+        "adaptive_max_concurrency": "Highest template concurrency adaptive scaling may reach",
+        "adaptive_max_bulk_size": "Highest bulk size adaptive scaling may reach",
+        "memory_limit": "Soft memory limit for the Nuclei process (Go GOMEMLIMIT syntax, e.g. 6GiB). Empty leaves it unlimited",
         "concurrency": "maximum number of templates to be executed in parallel (default 25)",
         "mode": "manual | technology | severe | budget. Technology: Only activate based on technology events that match nuclei tags (nuclei -as mode). Manual (DEFAULT): Fully manual settings. Severe: Only critical and high severity templates without intrusive. Budget: Limit Nuclei to a specified number of HTTP requests",
         "etags": "tags to exclude from the scan",
@@ -204,6 +221,9 @@ class nuclei(BaseModule):
         self.ratelimit = int(self.config.get("ratelimit", 150))
         self.adaptive_ratelimit_per_host = int(self.config.get("adaptive_ratelimit_per_host", 0))
         self.adaptive_ratelimit_max = int(self.config.get("adaptive_ratelimit_max", 0))
+        self.adaptive_max_concurrency = int(self.config.get("adaptive_max_concurrency", 100))
+        self.adaptive_max_bulk_size = int(self.config.get("adaptive_max_bulk_size", 50))
+        self.memory_limit = str(self.config.get("memory_limit") or "").strip()
         self.concurrency = int(self.config.get("concurrency", 25))
         self.budget = int(self.config.get("budget", 1))
         self.silent = self.config.get("silent", False)
@@ -317,6 +337,8 @@ class nuclei(BaseModule):
                 "NUCLEI_CONFIG_DIR": str(self.nuclei_config_dir),
             }
         )
+        if getattr(self, "memory_limit", ""):
+            env["GOMEMLIMIT"] = self.memory_limit
         return env
 
     def _get_template_sources(self, raw_template_sources=""):
@@ -741,6 +763,8 @@ class nuclei(BaseModule):
             getattr(self, "adaptive_ratelimit_per_host", 0),
             getattr(self, "adaptive_ratelimit_max", 0),
             resolved_hosts_by_input,
+            getattr(self, "adaptive_max_concurrency", 100),
+            getattr(self, "adaptive_max_bulk_size", 50),
         )
         self.info(
             f"Nuclei batch: {len(nuclei_input)} targets, global rate {ratelimit}/s, "

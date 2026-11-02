@@ -136,6 +136,10 @@ config:
       # when the batch contains many independent hosts.
       adaptive_ratelimit_per_host: 30
       adaptive_ratelimit_max: 600
+      # Nuclei memory follows concurrency x bulk size; 100 x 50 reached 11 GB and was OOM-killed.
+      adaptive_max_concurrency: 50
+      adaptive_max_bulk_size: 25
+      memory_limit: 6GiB
       concurrency: 20
       bulk_size: 10
       retries: 0
