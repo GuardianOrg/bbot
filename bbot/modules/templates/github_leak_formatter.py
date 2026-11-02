@@ -14,9 +14,66 @@ SECRET_ROTATION_GUIDANCE = (
     "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
     "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration."
 )
+# Directories that by convention hold other projects' code (package managers, vendoring, submodules).
+THIRD_PARTY_DIRS = {
+    "node_modules",
+    "bower_components",
+    "jspm_packages",
+    "vendor",
+    "third_party",
+    "third-party",
+    "thirdparty",
+    "3rdparty",
+    "site-packages",
+    "dist-packages",
+    "pods",
+    "carthage",
+}
+# A released library committed as a binary (e.g. jython-standalone-2.7.2.jar): its contents are the library's.
+VERSIONED_LIBRARY_ARCHIVE = re.compile(r"^[a-z][\w.+-]*?-\d+(\.\d+)+([.-][\w.]+)?\.(jar|aar|war|whl|egg|nupkg|gem)$", re.I)
 
 
 class github_leak_formatter:
+    def submodule_paths(self, scan_path):
+        """Paths, relative to the checkout, that any .gitmodules in it declares as another repository."""
+        cache = getattr(self, "_submodule_paths_cache", None)
+        if cache is None:
+            cache = self._submodule_paths_cache = {}
+        key = str(scan_path)
+        if key not in cache:
+            paths = set()
+            root = Path(scan_path)
+            if root.is_dir():
+                for gitmodules in root.rglob(".gitmodules"):
+                    if ".git" in gitmodules.relative_to(root).parts[:-1]:
+                        continue
+                    try:
+                        text = gitmodules.read_text(errors="replace")
+                    except OSError:
+                        continue
+                    base = gitmodules.parent.relative_to(root)
+                    for match in re.finditer(r"^\s*path\s*=\s*(.+?)\s*$", text, re.M):
+                        sub = (base / match.group(1).strip()).as_posix()
+                        if sub and sub != "." and not sub.startswith(".."):
+                            paths.add(sub)
+            cache[key] = paths
+        return cache[key]
+
+    def is_third_party_path(self, scan_path, relative_path):
+        """A secret inside another project's code (a dependency, vendored copy, submodule or released
+        library binary) belongs to that project, not to the scanned organization."""
+        relative_path = str(relative_path or "").strip().lstrip("/")
+        if not relative_path:
+            return False
+        archive = relative_path.partition("!")[0]
+        if VERSIONED_LIBRARY_ARCHIVE.match(Path(archive).name):
+            return True
+        parts = Path(archive).parts
+        if any(part.lower() in THIRD_PARTY_DIRS for part in parts[:-1]):
+            return True
+        path = Path(archive).as_posix()
+        return any(path.startswith(sub + "/") for sub in self.submodule_paths(scan_path))
+
     @staticmethod
     def secret_dedupe_key(repository_url, secret_fingerprint):
         # One credential exposed repeatedly in a repository is one issue,
@@ -176,6 +233,9 @@ class github_leak_formatter:
             commit = await self.get_repository_commit(scan_path)
 
         relative_path = self.relative_file_path(scan_path, file_path)
+        if self.is_third_party_path(scan_path, relative_path):
+            self.debug(f"Skipping a {detector or 'secret'} leak in third-party code: {repository_url} {relative_path}")
+            return None
         commit_url = self.build_commit_url(repository_url, commit)
         blob_url = self.build_blob_url(repository_url, relative_path, line=line, commit=commit)
         finding_url = blob_url or commit_url or repository_url

@@ -160,6 +160,9 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                 if isinstance(data_item, dict) and isinstance(data_item.get("Git"), dict):
                     git_meta = data_item["Git"]
                     break
+            if git_meta and self.is_third_party_path(path, git_meta.get("file")):
+                self.debug(f"Skipping a {detector_name} leak in third-party code: {git_meta.get('file')}")
+                continue
             data = None
             if host == "github.com" and git_meta:
                 leak_value = rawv2_result or raw_result
