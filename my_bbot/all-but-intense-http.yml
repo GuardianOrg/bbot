@@ -66,7 +66,6 @@ modules:
   - securitytrails
   - shodan_dns
   - shodan_idb
-  - snusbase
   - social
   - sslcert
   - subfinder
@@ -372,8 +371,6 @@ config:
     leakosintbot:
       osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     leakradar:
-      osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
-    snusbase:
       osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     otx:
       api_key: ${env:OTX_API_KEY,${env:OTX_KEY,""}}
