@@ -110,6 +110,8 @@ class nuclei(BaseModule):
         "bulk_size": 25,
         "exclude_types": "",
         "exclude_templates": "",
+        "exclude_ids": "",
+        "bundled_templates": False,
         "batch_size": 200,
         "module_timeout": 21600,  # 6 hours
         "verbose_templates": False,
@@ -141,7 +143,9 @@ class nuclei(BaseModule):
         "timeout": "time to wait in seconds before timeout for each request (default 10)",
         "bulk_size": "maximum number of hosts to analyze in parallel per template",
         "exclude_types": "template protocol types to exclude, comma-separated (maps to nuclei -ept)",
-        "exclude_templates": "template paths to exclude, comma-separated (maps to nuclei -et)",
+        "exclude_templates": "template paths to exclude, comma-separated (maps to nuclei -et); paths relative to the nuclei templates directory are resolved against it",
+        "exclude_ids": "template ids to exclude, comma-separated (maps to nuclei -eid)",
+        "bundled_templates": "Also run the templates shipped with this BBOT build in bbot/modules/nuclei_templates",
         "batch_size": "Number of targets to send to Nuclei per batch (default 200)",
         "module_timeout": "Max time in seconds to spend handling each batch of events",
         "verbose_templates": "Log templates loaded by nuclei for debugging slow scans",
@@ -161,6 +165,7 @@ class nuclei(BaseModule):
     deps_pip = ["pyyaml~=6.0"]
     in_scope_only = True
     _batch_size = 200
+    bundled_templates_dir = Path(__file__).parent / "nuclei_templates"
 
     async def setup(self):
         if not self.helpers.which("nuclei"):
@@ -210,6 +215,13 @@ class nuclei(BaseModule):
             else:
                 self.warning("Error running nuclei template update command")
         self.template_source_dirs = await self.resolve_template_sources(self.config.get("template_sources", ""))
+        # Kept apart from template_source_dirs: a mobile-only batch must not pick up web templates.
+        self.bundled_template_dirs = []
+        if self.config.get("bundled_templates", False):
+            if self.bundled_templates_dir.is_dir():
+                self.bundled_template_dirs.append(self.bundled_templates_dir.resolve())
+            else:
+                self.warning(f"Bundled nuclei templates directory is missing: [{self.bundled_templates_dir}]")
         mobile_template_sources = self.config.get("mobile_template_sources", "")
         if not mobile_template_sources:
             guardian_mobile_templates = Path("/workspace/bbot-guardian/my_bbot/mobile-nuclei-templates")
@@ -233,7 +245,12 @@ class nuclei(BaseModule):
         has_web_templates = self.nuclei_templates_dir.is_dir() and any(
             path.is_file() for pattern in ("*.yaml", "*.yml") for path in self.nuclei_templates_dir.rglob(pattern)
         )
-        if not has_web_templates and not self.templates and not self.template_source_dirs:
+        if (
+            not has_web_templates
+            and not self.templates
+            and not self.template_source_dirs
+            and not self.bundled_template_dirs
+        ):
             return False, "Nuclei has no installed or configured web templates"
         cache_dir = str(self.config.get("mobile_apk_cache_dir") or "").strip()
         self.mobile_apk_cache_dir = Path(cache_dir) if cache_dir else None
@@ -261,7 +278,8 @@ class nuclei(BaseModule):
         self.timeout = int(self.config.get("timeout", 10))
         self.bulk_size = int(self.config.get("bulk_size", 25))
         self.exclude_types = self.config.get("exclude_types", "")
-        self.exclude_templates = self.config.get("exclude_templates", "")
+        self.exclude_templates = self.resolve_exclude_templates(self.config.get("exclude_templates", ""))
+        self.exclude_ids = self._csv(self.config.get("exclude_ids", ""))
         self.verbose_templates = bool(self.config.get("verbose_templates", False))
         self.mobile_app_discovered = False
 
@@ -310,6 +328,28 @@ class nuclei(BaseModule):
                 )
 
         return True
+
+    @staticmethod
+    def _csv(value):
+        if isinstance(value, (list, tuple)):
+            items = [str(item).strip() for item in value]
+        else:
+            items = [item.strip() for item in str(value or "").split(",")]
+        return ",".join(dict.fromkeys(item for item in items if item))
+
+    def resolve_exclude_templates(self, value):
+        """Anchor relative exclusions to the templates directory, so they work from any working directory."""
+        resolved = []
+        for entry in self._csv(value).split(","):
+            if not entry:
+                continue
+            path = Path(entry).expanduser()
+            if not path.is_absolute():
+                candidate = Path(self.nuclei_templates_dir) / entry
+                if candidate.exists():
+                    entry = str(candidate)
+            resolved.append(entry)
+        return ",".join(resolved)
 
     def _nuclei_env(self):
         """Build a minimal environment so host credentials cannot alter Nuclei."""
@@ -628,8 +668,13 @@ class nuclei(BaseModule):
             if self.is_waf_detection_result(result):
                 if name != "WAF Detection":
                     await self.emit_event(
-                        {"waf": name, "url": url or str(parent_event.data), "host": str(parent_event.host),
-                         "info": f"Nuclei {template} template"},
+                        {
+                            "waf": name,
+                            "url": url or str(parent_event.data),
+                            "host": str(parent_event.host),
+                            "info": f"Nuclei {template} template",
+                            "template": template,
+                        },
                         "WAF",
                         parent_event,
                         context=f"{{module}} scanned {url} and identified {{event.type}}: {name}",
@@ -638,7 +683,12 @@ class nuclei(BaseModule):
 
             if severity == "INFO" and "tech" in tags:
                 await self.emit_event(
-                    {"technology": str(name).lower(), "url": url, "host": str(parent_event.host)},
+                    {
+                        "technology": str(name).lower(),
+                        "url": url,
+                        "host": str(parent_event.host),
+                        "template": template,
+                    },
                     "TECHNOLOGY",
                     parent_event,
                     context=f"{{module}} scanned {url} and identified {{event.type}}: {str(name).lower()}",
@@ -671,6 +721,7 @@ class nuclei(BaseModule):
                 "description": description,
                 "recommendation": recommendation,
                 "poc": result.get("poc"),
+                "template": template,
             }
             if parent_event.host:
                 payload["host"] = str(parent_event.host)
@@ -813,6 +864,12 @@ class nuclei(BaseModule):
         if self.exclude_templates:
             command.extend(["-et", self.exclude_templates])
 
+        if getattr(self, "exclude_ids", ""):
+            command.extend(["-eid", self.exclude_ids])
+
+        web_template_sources = [str(path) for path in self.template_source_dirs] + [
+            str(path) for path in getattr(self, "bundled_template_dirs", [])
+        ]
         if (
             include_mobile_templates
             and self.mobile_template_source_dirs
@@ -832,15 +889,14 @@ class nuclei(BaseModule):
             return
         elif self.templates:
             template_paths = [t.strip() for t in self.templates.split(",") if t.strip()]
-            if self.template_source_dirs:
-                template_paths += [str(path) for path in self.template_source_dirs]
+            template_paths += web_template_sources
             if include_mobile_templates:
                 template_paths += [str(path) for path in self.mobile_template_source_dirs]
             template_paths = list(dict.fromkeys(template_paths))
             if template_paths:
                 command.extend(["-t", ",".join(template_paths)])
-        elif self.template_source_dirs or (include_mobile_templates and self.mobile_template_source_dirs):
-            templates = [str(self.nuclei_templates_dir)] + [str(path) for path in self.template_source_dirs]
+        elif web_template_sources or (include_mobile_templates and self.mobile_template_source_dirs):
+            templates = [str(self.nuclei_templates_dir)] + web_template_sources
             if include_mobile_templates:
                 templates += [str(path) for path in self.mobile_template_source_dirs]
             command.extend(["-t", ",".join(templates)])

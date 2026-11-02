@@ -1,0 +1,110 @@
+id: naxus-missing-security-headers
+
+info:
+  name: HTTP Missing Security Headers
+  author: socketz,geeknik,G4L1T0,convisoappsec,kurohost,dawid-czarnecki,forgedhallpass,jub0bs,userdehghani,celbahraoui,safejulian,naxus
+  severity: info
+  description: |
+    Reports browser security headers missing from an HTML page. Corrected copy of the upstream
+    http-missing-security-headers template: redirects (any 3xx) and non-HTML responses never match,
+    header names must be real response headers (Content-Security-Policy-Report-Only is not CSP),
+    Strict-Transport-Security is only expected over HTTPS, and a CSP frame-ancestors directive
+    satisfies the X-Frame-Options check.
+  remediation: |
+    Send the missing headers on every HTML response of the website.
+  classification:
+    cwe-id: CWE-693
+  metadata:
+    max-request: 1
+  tags: misconfig,headers,generic,vuln
+
+# The response of the scanned URL itself is evaluated. Redirects are not followed: the
+# redirect target is a URL of its own and gets its own result.
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+
+    matchers-condition: or
+    matchers:
+      - type: dsl
+        name: strict-transport-security
+        dsl:
+          - "!regex('(?im)^strict-transport-security *:', header)"
+          - "startswith(to_lower(BaseURL), 'https://')"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: content-security-policy
+        dsl:
+          - "!regex('(?im)^content-security-policy *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: permissions-policy
+        dsl:
+          - "!regex('(?im)^permissions-policy *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: x-frame-options
+        dsl:
+          - "!regex('(?im)^x-frame-options *:', header)"
+          - "!regex('(?im)^content-security-policy *:.*frame-ancestors', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: x-content-type-options
+        dsl:
+          - "!regex('(?im)^x-content-type-options *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: x-permitted-cross-domain-policies
+        dsl:
+          - "!regex('(?im)^x-permitted-cross-domain-policies *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: referrer-policy
+        dsl:
+          - "!regex('(?im)^referrer-policy *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: cross-origin-embedder-policy
+        dsl:
+          - "!regex('(?im)^cross-origin-embedder-policy *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: cross-origin-opener-policy
+        dsl:
+          - "!regex('(?im)^cross-origin-opener-policy *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and
+
+      - type: dsl
+        name: cross-origin-resource-policy
+        dsl:
+          - "!regex('(?im)^cross-origin-resource-policy *:', header)"
+          - "status_code < 300 || status_code >= 400"
+          - "regex('(?im)^content-type *: *text/html', header)"
+        condition: and

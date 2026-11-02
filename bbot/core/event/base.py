@@ -1771,6 +1771,8 @@ class TECHNOLOGY(DictHostEvent):
         url: Optional[str] = None
         version: Optional[str] = None
         evidence: Optional[str] = None
+        # id of the detection rule (e.g. a nuclei template) that identified the technology
+        template: Optional[str] = None
         _validate_url = field_validator("url")(validators.validate_url)
         _validate_host = field_validator("host")(validators.validate_host)
 
@@ -1994,6 +1996,8 @@ class WAF(DictHostEvent):
         host: str
         waf: str
         info: Optional[str] = None
+        # id of the detection rule (e.g. a nuclei template) that identified the WAF
+        template: Optional[str] = None
         _validate_url = field_validator("url")(validators.validate_url)
         _validate_host = field_validator("host")(validators.validate_host)
 

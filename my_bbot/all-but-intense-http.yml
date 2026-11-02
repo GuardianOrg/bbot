@@ -131,6 +131,28 @@ config:
       severity: ""
       etags: "dos,destructive"
       exclude_types: "code"
+      # Relative to the nuclei templates directory. OSINT username lookups and token
+      # spraying probe third-party services, not the target.
+      exclude_templates: "http/osint/,http/token-spray/"
+      # Inventory/fingerprint templates that report what exists rather than a weakness, DNS
+      # checks that domain_config_dns_audit already covers (DMARC, DNSSEC, wildcard DNS), and
+      # header checks with known false positives. http-missing-security-headers is replaced
+      # by the bundled naxus-missing-security-headers template.
+      exclude_ids: >-
+        aaaa-fingerprint,acme-challenge-detect,bimi-record-detect,caa-fingerprint,dkim-record-detect,
+        dmarc-detect,dnssec-detection,dns-saas-service-detection,ec2-detection,mx-fingerprint,
+        mx-service-detector,nameserver-fingerprint,ptr-fingerprint,soa-detect,spf-record-detect,
+        srv-service-detect,tlsa-record-detect,txt-fingerprint,txt-service-detect,wildcard-dns-detect,
+        detect-worksites,form-detection,firebase-database-extractor,old-copyright,robots-txt,
+        robots-txt-endpoint,sitemap-detect,security-txt,email-extractor,x-recruiting-header,
+        trust-center-detect,google-floc-disabled,gpc-json,dnt-policy-detect,xml-schema-detect,
+        apple-app-site-association,assetlinks-detect,rdap-whois,keybase-domain-owwnership-verification,
+        atproto-did-exposure,nostr-json-exposure,discord-invite-detect,crypto-address-detect,
+        torrent-magnet-detect,onion-website-supported,detect-dns-over-https,ssl-issuer,ssl-dns-names,
+        tls-version,wildcard-tls,missing-cookie-samesite-strict,missing-sri,xss-deprecated-header,
+        http-missing-security-headers
+      # Runs the corrected templates shipped in bbot/modules/nuclei_templates.
+      bundled_templates: true
       ratelimit: 120
       # Keep the current rate for small scopes; use the worker's spare capacity
       # when the batch contains many independent hosts.

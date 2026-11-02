@@ -500,6 +500,7 @@ def test_preset_module_resolution(clean_default_config):
         "speculate",
         "cloudcheck",
         "dnsresolve",
+        "hardening_aggregate",
     }
     assert preset.modules == set(preset.output_modules).union(set(preset.internal_modules))
 
@@ -561,6 +562,7 @@ def test_preset_module_resolution(clean_default_config):
         "aggregate",
         "excavate",
         "unarchive",
+        "hardening_aggregate",
         "txt",
         "httpx",
         "csv",

@@ -175,6 +175,9 @@ aggregate: True
 dnsresolve: True
 # Cloud provider tagging
 cloudcheck: True
+# Fold low-risk hardening findings (security headers, cookie flags, weak CSP, DNS/email policy,
+# outdated JavaScript libraries) into one summary VULNERABILITY per category
+hardening_aggregate: True
 
 # Strip querystring from URLs by default
 url_querystring_remove: True

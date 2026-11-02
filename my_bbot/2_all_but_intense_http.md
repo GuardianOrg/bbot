@@ -94,6 +94,10 @@ config:
       templates: ""
       severity: ""
       etags: ""
+      exclude_templates: "http/osint/,http/token-spray/"
+      # all-but-intense-http.yml carries the full exclude_ids list and why
+      exclude_ids: "http-missing-security-headers"
+      bundled_templates: true
       ratelimit: 200
       concurrency: 25
       retries: 1
