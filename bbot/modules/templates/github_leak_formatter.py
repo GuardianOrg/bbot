@@ -4,7 +4,10 @@ from urllib.parse import urlparse, urlsplit
 import base64
 import binascii
 import json
+import os
 import re
+import shutil
+import tempfile
 import time
 from bbot.core.helpers.observation_dates import indexed_date
 
@@ -30,7 +33,9 @@ THIRD_PARTY_DIRS = {
     "carthage",
 }
 # A released library committed as a binary (e.g. jython-standalone-2.7.2.jar): its contents are the library's.
-VERSIONED_LIBRARY_ARCHIVE = re.compile(r"^[a-z][\w.+-]*?-\d+(\.\d+)+([.-][\w.]+)?\.(jar|aar|war|whl|egg|nupkg|gem)$", re.I)
+VERSIONED_LIBRARY_ARCHIVE = re.compile(
+    r"^[a-z][\w.+-]*?-\d+(\.\d+)+([.-][\w.]+)?\.(jar|aar|war|whl|egg|nupkg|gem)$", re.I
+)
 
 
 class github_leak_formatter:
@@ -51,17 +56,71 @@ class github_leak_formatter:
                         text = gitmodules.read_text(errors="replace")
                     except OSError:
                         continue
-                    base = gitmodules.parent.relative_to(root)
-                    for match in re.finditer(r"^\s*path\s*=\s*(.+?)\s*$", text, re.M):
-                        sub = (base / match.group(1).strip()).as_posix()
-                        if sub and sub != "." and not sub.startswith(".."):
-                            paths.add(sub)
+                    paths |= self.gitmodules_paths(text, gitmodules.parent.relative_to(root).as_posix())
             cache[key] = paths
         return cache[key]
 
-    def is_third_party_path(self, scan_path, relative_path):
+    @staticmethod
+    def gitmodules_paths(text, base=""):
+        """The submodule paths a .gitmodules declares, relative to the repository root (`base` is its directory)."""
+        paths = set()
+        for match in re.finditer(r"^\s*path\s*=\s*(.+?)\s*$", text, re.M):
+            sub = (Path(base) / match.group(1).strip()).as_posix()
+            if sub and sub != "." and not sub.startswith(".."):
+                paths.add(sub)
+        return paths
+
+    async def remote_submodule_paths(self, url, commit, relative_path):
+        """Submodule paths declared by the .gitmodules in the directories above `relative_path` at `commit`,
+        for a repository scanned by URL (no local checkout). Uses one blobless bare clone per URL, fetched
+        only when a finding needs it; `cleanup_remote_clones()` removes them."""
+        relative_path = str(relative_path or "").strip().lstrip("/")
+        commit = str(commit or "").strip()
+        if not relative_path or not commit:
+            return set()
+        clones = getattr(self, "_remote_clones", None)
+        if clones is None:
+            clones = self._remote_clones = {}
+        cache = getattr(self, "_remote_gitmodules_cache", None)
+        if cache is None:
+            cache = self._remote_gitmodules_cache = {}
+        if url not in clones:
+            clone = Path(tempfile.mkdtemp(prefix="bbot-gitmodules-"))
+            result = await self.run_process(
+                ["git", "clone", "--bare", "--filter=blob:none", "--quiet", url, str(clone)],
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            )
+            if getattr(result, "returncode", 1) != 0:
+                self.debug(f"Could not clone {url} to read its .gitmodules")
+                shutil.rmtree(clone, ignore_errors=True)
+                clone = None
+            clones[url] = clone
+        clone = clones[url]
+        if clone is None:
+            return set()
+        paths = set()
+        parents = Path(relative_path).parents
+        for directory in [p.as_posix() for p in reversed(parents)]:
+            directory = "" if directory == "." else directory
+            key = (url, commit, directory)
+            if key not in cache:
+                spec = f"{commit}:{directory + '/' if directory else ''}.gitmodules"
+                result = await self.run_process(["git", "-C", str(clone), "show", spec])
+                text = result.stdout if getattr(result, "returncode", 1) == 0 else ""
+                cache[key] = self.gitmodules_paths(text or "", directory)
+            paths |= cache[key]
+        return paths
+
+    def cleanup_remote_clones(self):
+        for clone in (getattr(self, "_remote_clones", None) or {}).values():
+            if clone is not None:
+                shutil.rmtree(clone, ignore_errors=True)
+        self._remote_clones = {}
+
+    def is_third_party_path(self, scan_path, relative_path, submodules=None):
         """A secret inside another project's code (a dependency, vendored copy, submodule or released
-        library binary) belongs to that project, not to the scanned organization."""
+        library binary) belongs to that project, not to the scanned organization. `submodules` overrides
+        the paths read from a local checkout at `scan_path` (e.g. for a repository scanned by URL)."""
         relative_path = str(relative_path or "").strip().lstrip("/")
         if not relative_path:
             return False
@@ -72,7 +131,9 @@ class github_leak_formatter:
         if any(part.lower() in THIRD_PARTY_DIRS for part in parts[:-1]):
             return True
         path = Path(archive).as_posix()
-        return any(path.startswith(sub + "/") for sub in self.submodule_paths(scan_path))
+        if submodules is None:
+            submodules = self.submodule_paths(scan_path)
+        return any(path.startswith(sub + "/") for sub in submodules)
 
     @staticmethod
     def secret_dedupe_key(repository_url, secret_fingerprint):
@@ -396,7 +457,9 @@ class github_leak_formatter:
         except OSError:
             return False
         site_key_label = r"(?:data-sitekey|recaptcha[_-]?site[_-]?key|site[_-]?key)"
-        return bool(re.search(rf"{site_key_label}\s*[=:]\s*[\"']?{re.escape(key)}(?=[\"'\s<]|$)", source_line, re.IGNORECASE))
+        return bool(
+            re.search(rf"{site_key_label}\s*[=:]\s*[\"']?{re.escape(key)}(?=[\"'\s<]|$)", source_line, re.IGNORECASE)
+        )
 
     @staticmethod
     def is_public_amplitude_api_key(scan_path, file_path, line, leak, detector):
@@ -460,13 +523,15 @@ class github_leak_formatter:
             # Documentation can show an escaped PEM skeleton followed by sample code.
             # Require the literal placeholder as the complete PEM body.
             normalized = value.replace(r"\n", "\n")
-            return bool(re.match(
-                r"^-----BEGIN (?P<kind>(?:EC |RSA )?)PRIVATE KEY-----\n"
-                r"YOUR PRIVATE KEY\n"
-                r"-----END (?P=kind)PRIVATE KEY-----",
-                normalized,
-                re.IGNORECASE,
-            ))
+            return bool(
+                re.match(
+                    r"^-----BEGIN (?P<kind>(?:EC |RSA )?)PRIVATE KEY-----\n"
+                    r"YOUR PRIVATE KEY\n"
+                    r"-----END (?P=kind)PRIVATE KEY-----",
+                    normalized,
+                    re.IGNORECASE,
+                )
+            )
         return False
 
     @staticmethod

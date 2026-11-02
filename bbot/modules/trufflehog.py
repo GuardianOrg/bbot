@@ -160,7 +160,10 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                 if isinstance(data_item, dict) and isinstance(data_item.get("Git"), dict):
                     git_meta = data_item["Git"]
                     break
-            if git_meta and self.is_third_party_path(path, git_meta.get("file")):
+            submodules = None
+            if git_meta and isinstance(path, str) and path.startswith(("http://", "https://", "ssh://", "git@")):
+                submodules = await self.remote_submodule_paths(path, git_meta.get("commit"), git_meta.get("file"))
+            if git_meta and self.is_third_party_path(path, git_meta.get("file"), submodules):
                 self.debug(f"Skipping a {detector_name} leak in third-party code: {git_meta.get('file')}")
                 continue
             data = None
@@ -212,6 +215,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                 context=f'{{module}} searched {event.type} using "{module}" method and found secret ({{event.type}})',
             )
 
+        self.cleanup_remote_clones()
         # clean up the tempfile when we're done with it
         if event.type in ("HTTP_RESPONSE", "RAW_TEXT"):
             path.unlink(missing_ok=True)
