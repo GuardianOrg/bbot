@@ -14,12 +14,14 @@ class leakradar(osintverse_leak):
     options = {
         "osintverse_api_key": "",
         "categories": ["employees", "third_parties", "customers"],
+        "max_credentials": 5000,
         "history_file": "",
         "legacy_events": True,
     }
     options_desc = {
         "osintverse_api_key": "OSINTverse API key ($1.00 per domain search, includes the first 1,000 credentials)",
         "categories": "LeakRadar credential categories to report (employees, third_parties, customers)",
+        "max_credentials": "Unlock the credentials past the first 1,000 ($0.50 per 1,000) only when the domain has at most this many in total. 0 disables unlocking",
         "history_file": "Optional JSON path to persist already-reported leak fingerprints so repeats are not re-emitted on later scans. Leave empty to disable.",
         "legacy_events": "Also emit the flat USERNAME and PASSWORD events next to LEAKED_CREDENTIAL",
     }
@@ -31,11 +33,16 @@ class leakradar(osintverse_leak):
 
     async def setup(self):
         self.categories = {str(c).strip().lower() for c in self.config.get("categories", []) or [] if str(c).strip()}
+        try:
+            self.max_credentials = max(0, int(self.config.get("max_credentials", 5000) or 0))
+        except (TypeError, ValueError):
+            self.max_credentials = 0
         return await super().setup()
 
     async def fetch_records(self, query, event):
         search = await self.osintverse.search(self.osintverse_provider, "domain", query)
         sources, matches = self.osintverse.results(search)
+        search, sources, matches = await self.unlock_remaining(query, search, sources, matches)
         self.log_coverage(query, sources)
 
         entries = []
@@ -77,6 +84,32 @@ class leakradar(osintverse_leak):
                 }
             )
         return entries
+
+    async def unlock_remaining(self, query, search, sources, matches):
+        """
+        The search includes the first 1,000 credentials. OSINTverse unlocks all the rest in one call, so do it only
+        when the whole domain fits max_credentials; on any failure keep the rows already returned.
+        """
+        total = sum(int(s.get("total") or 0) for s in sources)
+        unlocked = sum(int(s.get("total_unlocked") or 0) for s in sources)
+        if total <= unlocked:
+            return search, sources, matches
+        if total > self.max_credentials:
+            self.info(
+                f'Not unlocking the {total - unlocked:,} remaining LeakRadar credentials for "{query}": '
+                f"{total:,} in total is over max_credentials ({self.max_credentials:,})"
+            )
+            return search, sources, matches
+        updated = await self.osintverse.unlock(search)
+        new_sources, new_matches = self.osintverse.results(updated)
+        if not new_matches:
+            return search, sources, matches
+        # never lose a row the first search returned
+        seen = {str(m.get("id")) for m in new_matches if m.get("id") not in (None, "")}
+        kept = [m for m in matches if m.get("id") in (None, "") or str(m.get("id")) not in seen]
+        if kept:
+            self.verbose(f'{len(kept):,} LeakRadar rows for "{query}" were only in the first response')
+        return updated, new_sources or sources, new_matches + [m for m in kept if m.get("type") == "leak"]
 
     def log_coverage(self, query, sources):
         for source in sources:

@@ -181,3 +181,100 @@ class TestLeakradarSubdomainTarget(ModuleTestBase):
     def check(self, module_test, events):
         assert not any(r.url.path == "/v1/search" for r in module_test.httpx_mock.get_requests())
         assert not any(e.type == "LEAKED_CREDENTIAL" for e in events)
+
+
+def _unlocked_search():
+    """The search after unlocking: every row is unlocked; one leak from the first response is missing."""
+    search = dict(leakradar_search, cost_usd="0.50")
+    first = leakradar_search["result"]
+    source = dict(first["sources"][0], total_unlocked=1071)
+    matches = [m for m in first["matches"] if m.get("id") != "lr_tp_01"] + [
+        {
+            "type": "leak",
+            "id": "lr_emp_1071",
+            "url": "https://sso.blacklanternsecurity.com/",
+            "username": "late.row@blacklanternsecurity.com",
+            "password": "Unlocked#1071",
+            "unlocked": True,
+            "is_email": True,
+            "category": "employees",
+        }
+    ]
+    search["result"] = dict(first, sources=[source], matches=matches)
+    return search
+
+
+class TestLeakradarUnlock(ModuleTestBase):
+    """Remaining credentials are unlocked when the domain fits max_credentials, without losing first-page rows."""
+
+    module_name = "leakradar"
+    config_overrides = {"modules": {"leakradar": {"osintverse_api_key": "ov_test"}}}
+    unlock_status = 200
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://apiv1.osintverse.com/v1/search/quote",
+            method="POST",
+            json=dict(osintverse_quote, provider="leakradar", unit_cost_usd="1.00"),
+        )
+        module_test.httpx_mock.add_response(
+            url="https://apiv1.osintverse.com/v1/search", method="POST", json=leakradar_search
+        )
+        unlock = (
+            {"json": _unlocked_search()}
+            if self.unlock_status == 200
+            else {"status_code": self.unlock_status, "json": {"error": {"message": "Insufficient balance"}}}
+        )
+        module_test.httpx_mock.add_response(
+            url=f"https://apiv1.osintverse.com/v1/search/{leakradar_search['id']}/unlock",
+            method="POST",
+            match_json={"unlock_remaining": True},
+            **unlock,
+        )
+        await module_test.mock_dns({"blacklanternsecurity.com": {"A": ["127.0.0.1"]}})
+
+    def unlock_requests(self, module_test):
+        return [r for r in module_test.httpx_mock.get_requests() if r.url.path.endswith("/unlock")]
+
+    def leaks(self, events):
+        return {e.data.get("email") or e.data.get("username") for e in events if e.type == "LEAKED_CREDENTIAL"}
+
+    def check(self, module_test, events):
+        assert len(self.unlock_requests(module_test)) == 1
+        assert any(e.type == "PASSWORD" and e.data == "late.row@blacklanternsecurity.com:Unlocked#1071" for e in events)
+        # the unlocked response dropped vendor.ops: it is still reported, once
+        assert {"late.row@blacklanternsecurity.com", "vendor.ops", "jane.doe@blacklanternsecurity.com"} <= self.leaks(
+            events
+        )
+        assert sum(1 for e in events if e.type == "LEAKED_CREDENTIAL" and e.data.get("username") == "vendor.ops") == 1
+        assert "more locked credentials" not in open(module_test.scan.home / "scan.log").read()
+
+
+class TestLeakradarUnlockFails(TestLeakradarUnlock):
+    """A failed unlock (402) keeps the first 1,000 rows."""
+
+    unlock_status = 402
+
+    def check(self, module_test, events):
+        assert len(self.unlock_requests(module_test)) == 1
+        assert {"vendor.ops", "jane.doe@blacklanternsecurity.com", "jdoe"} <= self.leaks(events)
+        assert "late.row@blacklanternsecurity.com" not in self.leaks(events)
+        assert "LeakRadar has 71 more locked credentials" in open(module_test.scan.home / "scan.log").read()
+
+
+class TestLeakradarUnlockOverCap(TestLeakradarUnlock):
+    """A domain with more credentials than max_credentials is never unlocked (the API unlocks all at once)."""
+
+    config_overrides = {"modules": {"leakradar": {"osintverse_api_key": "ov_test", "max_credentials": 1070}}}
+
+    def check(self, module_test, events):
+        assert not self.unlock_requests(module_test)
+        assert "jane.doe@blacklanternsecurity.com" in self.leaks(events)
+        log = open(module_test.scan.home / "scan.log").read()
+        assert "Not unlocking the 71 remaining LeakRadar credentials" in log
+
+
+class TestLeakradarUnlockAtCap(TestLeakradarUnlock):
+    """Exactly max_credentials in total is still unlocked."""
+
+    config_overrides = {"modules": {"leakradar": {"osintverse_api_key": "ov_test", "max_credentials": 1071}}}

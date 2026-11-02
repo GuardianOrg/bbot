@@ -94,6 +94,44 @@ class OSINTverseClient:
         )
         return search
 
+    async def unlock(self, search):
+        """
+        Unlock every leftover row of a completed search (LeakRadar). Returns the updated search, or None.
+        """
+        search_id = (search or {}).get("id")
+        if not search_id:
+            return None
+        headers = dict(
+            self.headers,
+            **{"Idempotency-Key": hashlib.sha256(f"bbot|{self.module.scan.id}|unlock|{search_id}".encode()).hexdigest()},
+        )
+        description = f'OSINTverse unlock of search "{search_id}" ({search.get("query")})'
+        r = None
+        for attempt in range(self.max_attempts):
+            r = await self.module.helpers.request(
+                f"{self.base_url}/v1/search/{search_id}/unlock",
+                method="POST",
+                headers=headers,
+                json={"unlock_remaining": True},
+            )
+            if r is not None and r.status_code < 500:
+                break
+            if attempt + 1 < self.max_attempts:
+                await asyncio.sleep(self.poll_interval)
+        if r is None:
+            self.module.warning(f"{description} failed (no response)")
+            return None
+        j = self._json(r)
+        if not 200 <= r.status_code < 300:
+            self.module.warning(f"{description} failed (status code {r.status_code}): {self._error(r, j)}")
+            return None
+        unlocked = await self._wait(j)
+        if unlocked.get("status") != "completed":
+            self.module.warning(f"{description} did not complete (status: {unlocked.get('status')})")
+            return None
+        self.module.verbose(f"{description} done (balance after: ${unlocked.get('balance_after')})")
+        return unlocked
+
     async def _wait(self, search):
         elapsed = 0
         while search.get("status") == "running" and search.get("id") and elapsed < self.poll_timeout:
