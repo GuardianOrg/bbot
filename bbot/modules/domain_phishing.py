@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import dns.asyncresolver
+import dns.exception
 import dns.resolver
 
 from bbot.core.helpers.whois import normalize_whois_ownership, whois_result_with_registrant
@@ -114,11 +115,17 @@ class domain_phishing(BaseModule):
 
     async def _resolve_monitor_extra_candidate(self, domain, fuzzer):
         async def resolve(record_type):
-            try:
-                answers = await dns.asyncresolver.resolve(domain, record_type, lifetime=3)
-            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
-                return []
-            return [str(answer).strip().rstrip(".") for answer in answers]
+            for lifetime in (3, 6):
+                try:
+                    answers = await dns.asyncresolver.resolve(domain, record_type, lifetime=lifetime)
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                    return []
+                except (dns.exception.Timeout, dns.resolver.NoNameservers):
+                    # One slow lookup among thousands of permutations must not fail the whole domain.
+                    continue
+                return [str(answer).strip().rstrip(".") for answer in answers]
+            self.debug(f"No {record_type} answer for {domain} after retrying a DNS timeout")
+            return []
 
         a, aaaa, mx, ns = await asyncio.gather(*(resolve(kind) for kind in ("A", "AAAA", "MX", "NS")))
         if not (a or aaaa or mx or ns):

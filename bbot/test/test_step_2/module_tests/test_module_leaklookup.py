@@ -1,4 +1,5 @@
 import hashlib
+import time
 
 from .base import ModuleTestBase
 
@@ -395,3 +396,42 @@ def test_record_fingerprint_covers_all_values():
     assert record_fingerprint("dehashed", "X", emails=["a@x.com"], passwords=["pw"]) == record_fingerprint(
         "dehashed", "X", emails=["a@x.com"], hashes=[secret_hash("pw")]
     )
+
+
+class TestLeaklookupRateLimitedThenServed(TestLeaklookupPrivate):
+    """A burst limit (HTTP 429) is waited out (Retry-After first), not reported as a failed module."""
+
+    async def setup_before_prep(self, module_test):
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search", method="POST", status_code=429, headers={"Retry-After": "0"}
+        )
+        module_test.httpx_mock.add_response(
+            url="https://leak-lookup.com/api/search", method="POST", status_code=429, headers={"Retry-After": "0"}
+        )
+        await super().setup_before_prep(module_test)
+
+    async def setup_after_prep(self, module_test):
+        # the server's Retry-After wins over the default backoff
+        module_test.scan.modules["leaklookup"].rate_limit_waits = (40, 40, 40)
+        self.started = time.monotonic()
+
+    def check(self, module_test, events):
+        assert time.monotonic() - self.started < 30
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+        assert len([r for r in module_test.httpx_mock.get_requests() if r.url.path == "/api/search"]) == 3
+        super().check(module_test, events)
+
+
+class TestLeaklookupRateLimitedPersistently(_LeaklookupSearchFailure):
+    """After every retry is rate limited the module still fails visibly."""
+
+    async def setup_before_prep(self, module_test):
+        await super().setup_before_prep(module_test)
+        module_test.httpx_mock.add_response(url="https://leak-lookup.com/api/search", method="POST", status_code=429)
+
+    async def setup_after_prep(self, module_test):
+        module_test.scan.modules["leaklookup"].rate_limit_waits = (0, 0)
+
+    def check(self, module_test, events):
+        super().check(module_test, events)
+        assert len([r for r in module_test.httpx_mock.get_requests() if r.url.path == "/api/search"]) == 3

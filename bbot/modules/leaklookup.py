@@ -30,6 +30,9 @@ class leaklookup(subdomain_enum):
     }
 
     search_url = "https://leak-lookup.com/api/search"
+    # A 429 is a burst limit: wait and retry instead of failing the module.
+    rate_limit_waits = (5, 15, 30)
+    max_rate_limit_wait = 60
     hash_url = "https://leak-lookup.com/api/hash"
 
     SOURCE = "leaklookup"
@@ -280,11 +283,7 @@ class leaklookup(subdomain_enum):
             return
 
         crack_key = self.private_api_key or self.detection_key
-        response = await self.helpers.request(
-            self.hash_url,
-            method="POST",
-            data={"key": crack_key, "query": hash_value},
-        )
+        response = await self._post(self.hash_url, {"key": crack_key, "query": hash_value})
         json_result = self._safe_json(response)
         if str(json_result.get("error", "")).lower() == "true":
             message = json_result.get("message", "")
@@ -327,11 +326,7 @@ class leaklookup(subdomain_enum):
     async def _search(self, key, query):
         if not key:
             return {}
-        response = await self.helpers.request(
-            self.search_url,
-            method="POST",
-            data={"key": key, "type": "domain", "query": query},
-        )
+        response = await self._post(self.search_url, {"key": key, "type": "domain", "query": query})
         json_result = self._safe_json(response)
         if str(json_result.get("error", "")).lower() == "true":
             message = json_result.get("message", "")
@@ -343,6 +338,19 @@ class leaklookup(subdomain_enum):
         if message is None:
             raise RuntimeError(f'Leak-Lookup search returned malformed data for "{query}"')
         return message
+
+    async def _post(self, url, data):
+        for wait in (*self.rate_limit_waits, None):
+            response = await self.helpers.request(url, method="POST", data=data)
+            if wait is None or getattr(response, "status_code", 0) != 429:
+                return response
+            try:
+                wait = float(response.headers.get("Retry-After") or wait)
+            except (TypeError, ValueError):
+                pass
+            wait = min(max(wait, 0), self.max_rate_limit_wait)
+            self.verbose(f"Leak-Lookup rate limited (HTTP 429); retrying in {wait:g}s")
+            await asyncio.sleep(wait)
 
     @staticmethod
     def _quota_exhausted(message):

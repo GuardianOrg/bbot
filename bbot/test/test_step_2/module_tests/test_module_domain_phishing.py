@@ -789,3 +789,39 @@ def test_domain_phishing_web_probe_bounds_whole_chain_and_preserves_cancellation
     mod.scan.helpers.request = cancel_request
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(mod._check_candidate_web("coinba5e.com", "coinbase.com", candidate))
+
+
+def test_domain_phishing_a_dns_timeout_is_retried_and_never_fails_the_domain(monkeypatch):
+    import dns.asyncresolver
+    import dns.resolver
+
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.fuzzers = ["homoglyph", "insertion"]
+    mod.debug = lambda *args, **kwargs: None
+    lifetimes = {}
+
+    async def resolve(domain, record_type, lifetime):
+        lifetimes.setdefault((domain, record_type), []).append(lifetime)
+        if domain == "coinbasre.com":
+            # the first A lookup times out, the retry answers
+            if record_type == "A" and len(lifetimes[(domain, record_type)]) == 1:
+                raise dns.resolver.LifetimeTimeout(timeout=3.0, errors=[])
+            return {"A": ["1.2.3.4"], "AAAA": [], "MX": [], "NS": []}[record_type]
+        if domain == "coinbasse.com":
+            raise dns.resolver.NoNameservers()
+        raise dns.resolver.NXDOMAIN()
+
+    async def fingerprint(_domain):
+        return {}
+
+    monkeypatch.setattr(dns.asyncresolver, "resolve", resolve)
+    mod._lookup_ownership_fingerprint = fingerprint
+    rows = asyncio.run(mod._monitor_extra_candidates("coinbase.com", []))
+
+    assert [row["domain"] for row in rows] == ["coinbasre.com"]
+    assert rows[0]["dns-a"] == ["1.2.3.4"]
+    assert lifetimes[("coinbasre.com", "A")] == [3, 6]
+    # a domain whose lookups keep failing is tried twice per record type, then left out
+    assert lifetimes[("coinbasse.com", "NS")] == [3, 6]
