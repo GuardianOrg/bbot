@@ -19,6 +19,7 @@ class domain_whois(BaseModule):
     deps_pip = ["python-whois~=0.9.5"]
     in_scope_only = True
     per_domain_only = True
+    WHOIS_RETRY_DELAYS = (10, 30)
     RDAP_BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
     RDAP_HEADERS = {
         "Accept": "application/rdap+json, application/json",
@@ -31,16 +32,31 @@ class domain_whois(BaseModule):
         if not target:
             return
 
-        try:
-            result = await asyncio.to_thread(self.lookup_whois, target)
-            if not isinstance(result, dict) or not self.string_list(result.get("status")):
-                raise ValueError("WHOIS returned no registration statuses")
-        except Exception as whois_error:
-            self.debug(f"WHOIS lookup failed for {target}; trying RDAP: {whois_error}")
+        # WHOIS servers drop or throttle queries during busy scans, and some TLDs (e.g. .io) have no RDAP to fall back
+        # on, so a failed lookup is retried after a pause before the domain is reported as uncovered.
+        rdap_error = None
+        for attempt, delay in enumerate((0, *self.WHOIS_RETRY_DELAYS)):
+            if delay:
+                await asyncio.sleep(delay)
             try:
-                result = await self.lookup_rdap(target)
-            except Exception as rdap_error:
-                raise RuntimeError(f"WHOIS and RDAP coverage failed for {target}: {rdap_error}") from rdap_error
+                result = await asyncio.to_thread(self.lookup_whois, target)
+                if not isinstance(result, dict) or not self.string_list(result.get("status")):
+                    raise ValueError("WHOIS returned no registration statuses")
+                break
+            except Exception as error:
+                whois_error = error
+                self.debug(f"WHOIS lookup {attempt + 1} failed for {target}: {whois_error}")
+            if attempt == 0:
+                try:
+                    result = await self.lookup_rdap(target)
+                    break
+                except Exception as error:
+                    rdap_error = error
+        else:
+            raise RuntimeError(
+                f"WHOIS and RDAP coverage failed for {target}: WHOIS ({attempt + 1} attempts): {whois_error}; "
+                f"RDAP: {rdap_error}"
+            ) from rdap_error
 
         payload = self.normalize_result(target, result)
         emitted = await self.emit_event(

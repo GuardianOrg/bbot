@@ -73,6 +73,7 @@ class TestDomainWhoisRdapFallback(TestDomainWhois):
 
         module_test.monkeypatch.setattr(module_test.module, "lookup_whois", failed_whois)
         module_test.monkeypatch.setattr(module_test.module, "lookup_rdap", rdap, raising=False)
+        module_test.monkeypatch.setattr(module_test.module, "WHOIS_RETRY_DELAYS", (0, 0), raising=False)
 
     def check(self, module_test, events):
         whois_events = [e for e in events if e.type == "DOMAIN_WHOIS"]
@@ -94,6 +95,59 @@ class TestDomainWhoisBothSourcesFailed(TestDomainWhoisRdapFallback):
     def check(self, module_test, events):
         assert module_test.scan.finish_event().data["status"] == "FAILED"
         assert not any(e.type == "DOMAIN_WHOIS" for e in events)
+
+
+class TestDomainWhoisRetriesWhoisWithoutRdap(TestDomainWhoisRdapFallback):
+    async def setup_after_prep(self, module_test):
+        await super().setup_after_prep(module_test)
+        self.whois_calls = []
+
+        def flaky_whois(domain):
+            self.whois_calls.append(domain)
+            if len(self.whois_calls) < 3:
+                raise RuntimeError("Whois command returned no output")
+            return {"registrar": "Example Registrar", "status": ["clientTransferProhibited"]}
+
+        async def no_rdap(domain):
+            raise ValueError(f"No authoritative RDAP service found for {domain}")
+
+        module_test.monkeypatch.setattr(module_test.module, "lookup_whois", flaky_whois)
+        module_test.monkeypatch.setattr(module_test.module, "lookup_rdap", no_rdap, raising=False)
+
+    def check(self, module_test, events):
+        whois_events = [e for e in events if e.type == "DOMAIN_WHOIS"]
+        assert len(whois_events) == 1
+        assert whois_events[0].data["whois_status"] == ["clientTransferProhibited"]
+        assert self.whois_calls == ["polychain.capital"] * 3
+        assert module_test.scan.finish_event().data["status"] == "FINISHED"
+
+
+def test_domain_whois_gives_up_after_the_last_whois_retry():
+    import asyncio
+    from types import SimpleNamespace
+
+    import pytest
+
+    from bbot.modules.domain_whois import domain_whois
+
+    mod = object.__new__(domain_whois)
+    calls = {"whois": 0, "rdap": 0}
+
+    def failed_whois(_domain):
+        calls["whois"] += 1
+        raise RuntimeError("timed out")
+
+    async def failed_rdap(domain):
+        calls["rdap"] += 1
+        raise ValueError(f"No authoritative RDAP service found for {domain}")
+
+    mod.lookup_whois, mod.lookup_rdap, mod.WHOIS_RETRY_DELAYS = failed_whois, failed_rdap, (0, 0)
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(split_domain=lambda host: ("", host)))
+    mod.debug = lambda *_: None
+
+    with pytest.raises(RuntimeError, match="3 attempts"):
+        asyncio.run(mod.handle_event(SimpleNamespace(data="gyzer.io")))
+    assert calls == {"whois": 3, "rdap": 1}
 
 
 def test_domain_whois_rdap_bootstrap_preserves_registration_status():
