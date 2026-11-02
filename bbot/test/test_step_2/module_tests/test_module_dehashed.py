@@ -380,6 +380,75 @@ class TestDehashedOSINTverseRawEntries(ModuleTestBase):
         )
 
 
+class TestDehashedOSINTverseRawEntriesTrimmed(TestDehashedOSINTverseRawEntries):
+    """A raw list shorter than the matches must not drop rows: the missing matches are added by id."""
+
+    with_ids = True
+
+    async def setup_before_prep(self, module_test):
+        matches = [
+            {"type": "breach_record", "id": "1", "email": "tim@blacklanternsecurity.com", "password": "x"},
+            {"type": "breach_record", "id": "2", "email": "ann@blacklanternsecurity.com", "password": "AnnPass1"},
+            {"type": "breach_record", "id": "3", "email": "bob@blacklanternsecurity.com", "password": "BobPass1"},
+        ]
+        entries = [
+            {
+                "id": "1",
+                "email": ["tim@blacklanternsecurity.com"],
+                "password": ["TimTamSlam69"],
+                "url": ["https://vpn.blacklanternsecurity.com/login"],
+                "database_name": "eatstreet",
+            }
+        ]
+        if not self.with_ids:
+            for row in matches + entries:
+                del row["id"]
+        module_test.httpx_mock.add_response(
+            url="https://apiv1.osintverse.com/v1/search/quote", method="POST", json=osintverse_quote
+        )
+        module_test.httpx_mock.add_response(
+            url="https://apiv1.osintverse.com/v1/search",
+            method="POST",
+            json={
+                "id": "550e8400-e29b-41d4-a716-446655440001",
+                "status": "completed",
+                "result": {
+                    "sources": [{"name": "dehashed", "type": "email", "returned": 3, "total": 3}],
+                    "matches": matches,
+                    "raw": {"entries": entries},
+                },
+            },
+        )
+        await module_test.mock_dns(
+            {"blacklanternsecurity.com": {"A": ["127.0.0.1"]}, "vpn.blacklanternsecurity.com": {"A": ["127.0.0.1"]}}
+        )
+
+    def check(self, module_test, events):
+        leaks = {e.data.get("email"): e.data for e in events if e.type == "LEAKED_CREDENTIAL"}
+        assert set(leaks) == {
+            "tim@blacklanternsecurity.com",
+            "ann@blacklanternsecurity.com",
+            "bob@blacklanternsecurity.com",
+        }
+        assert leaks["ann@blacklanternsecurity.com"]["password"] == "AnnPass1"
+        assert leaks["bob@blacklanternsecurity.com"]["password"] == "BobPass1"
+        tim = leaks["tim@blacklanternsecurity.com"]
+        if self.with_ids:
+            # the row present in both keeps DeHashed's full entry, not the flattened match
+            assert tim["password"] == "TimTamSlam69"
+            assert tim["login_url"] == "https://vpn.blacklanternsecurity.com/login"
+        else:
+            # nothing to join on: the complete matches replace the shorter raw list, so no row is doubled
+            assert tim["password"] == "x"
+            assert len([e for e in events if e.type == "LEAKED_CREDENTIAL"]) == 3
+
+
+class TestDehashedOSINTverseRawEntriesTrimmedWithoutIds(TestDehashedOSINTverseRawEntriesTrimmed):
+    """Without ids to join on, a shorter raw list is replaced by the complete matches."""
+
+    with_ids = False
+
+
 class TestDehashedOSINTverseInsufficientBalance(TestDehashedOSINTverse):
     async def setup_before_prep(self, module_test):
         module_test.httpx_mock.add_response(

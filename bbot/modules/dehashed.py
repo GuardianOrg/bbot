@@ -58,9 +58,19 @@ class dehashed(osintverse_leak):
             # every field: the leaked login URLs and each hash separately.
             raw = ((search or {}).get("result") or {}).get("raw")
             entries = raw.get("entries") if isinstance(raw, dict) else None
-            if isinstance(entries, list) and entries:
-                return [e for e in entries if isinstance(e, dict)]
-            return [self.normalize_breach_record(m) for m in matches if m.get("type") == "breach_record"]
+            entries = [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+            records = [m for m in matches if m.get("type") == "breach_record"]
+            # Never lose a returned row: if the raw list is shorter than the matches (e.g. trimmed on a large
+            # result), add the matches it lacks, joined by DeHashed id or, without ids, by count.
+            ids = {str(e["id"]) for e in entries if e.get("id") not in (None, "")}
+            if ids:
+                missing = [m for m in records if str(m.get("id")) not in ids]
+            else:
+                missing = records if len(records) > len(entries) else []
+                entries = [] if missing else entries
+            if missing:
+                self.verbose(f'{len(missing):,} DeHashed rows for "{query}" were only in the normalized matches')
+            return entries + [self.normalize_breach_record(m) for m in missing]
         entries = []
         async for batch in self.query(query):
             entries += batch
