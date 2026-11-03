@@ -156,6 +156,7 @@ def fake_module(monkeypatch, origin_response):
     module.scan = SimpleNamespace(
         helpers=SimpleNamespace(parent_domain=lambda _: "guardianaudits.com"),
         in_scope=lambda name: name == "guardianaudits.com" or name.endswith(".guardianaudits.com"),
+        custom_http_headers={},
     )
     events = []
     calls = []
@@ -176,7 +177,7 @@ def fake_module(monkeypatch, origin_response):
             return await emit_existing(args[0])
         return await emit(*args, **kwargs)
 
-    async def fetch(address, host_header, port, tls, path="/", timeout=4):
+    async def fetch(address, host_header, port, tls, path="/", timeout=4, headers=None):
         calls.append((address, host_header, port, tls))
         if address == host:
             return response()
@@ -281,7 +282,7 @@ async def test_provider_observed_unusual_port_is_probed_first(monkeypatch):
     async def api_candidates(*_args):
         return [("8.8.8.8", 49152, "shodan:hostname")]
 
-    async def fetch(address, host_header, port, tls, path="/", timeout=4):
+    async def fetch(address, host_header, port, tls, path="/", timeout=4, headers=None):
         calls.append((address, host_header, port, tls))
         if address == "www.guardianaudits.com":
             return response()
@@ -321,7 +322,7 @@ async def test_other_website_load_balancer_ip_is_excluded_before_probing(monkeyp
 async def test_default_virtual_host_does_not_confirm_origin(monkeypatch):
     module, events, _ = fake_module(monkeypatch, response())
 
-    async def all_hosts_same(address, host_header, port, tls, path="/", timeout=4):
+    async def all_hosts_same(address, host_header, port, tls, path="/", timeout=4, headers=None):
         return response()
 
     monkeypatch.setattr(originfinder_module, "fetch_website", all_hosts_same)
@@ -350,7 +351,7 @@ async def test_censys_starter_results_supply_ip_and_observed_port(monkeypatch):
     async def no_favicon(*_args, **_kwargs):
         return None
 
-    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request), custom_http_headers={})
     module.shodan_key = ""
     module.censys_key = "fake-starter-token"
     module.censys_organization_id = "1988436e-c699-44e7-9873-e140f7a992dd"
@@ -375,7 +376,7 @@ async def test_shodan_certificate_pivot_uses_sha1_not_censys_sha256(monkeypatch)
     async def no_favicon(*_args, **_kwargs):
         return None
 
-    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request), custom_http_headers={})
     module.shodan_key = "fake-shodan-token"
     module.censys_key = ""
     module.censys_organization_id = ""
@@ -408,7 +409,7 @@ async def test_censys_paginates_candidate_ips_without_losing_observed_ports(monk
     async def no_favicon(*_args, **_kwargs):
         return None
 
-    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    module.scan = SimpleNamespace(helpers=SimpleNamespace(request=request), custom_http_headers={})
     module.shodan_key = ""
     module.censys_key = "fake-starter-token"
     module.censys_organization_id = "1988436e-c699-44e7-9873-e140f7a992dd"

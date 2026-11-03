@@ -119,6 +119,12 @@ class wpscan(BaseModule):
             command += ["--proxy", str(self.proxy)]
         # user agent
         command += ["--user-agent", f"'{self.scan.useragent}'"]
+        # custom headers, which wpscan takes as one ';'-separated list
+        if self.scan.custom_http_headers:
+            command += [
+                "--headers",
+                ";".join(f"{name}: {value}" for name, value in self.scan.custom_http_headers.items()),
+            ]
         # threads
         command += ["--max-threads", str(self.threads)]
         # request timeout

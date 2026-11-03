@@ -8,6 +8,8 @@ class TestTelerik(ModuleTestBase):
     config_overrides = {"modules": {"telerik": {"exploit_RAU_crypto": True}}}
 
     async def setup_before_prep(self, module_test):
+        # The RAU_crypto exploit only runs without custom HTTP headers, which the shared test config sets.
+        module_test.scan.custom_http_headers = {}
         # Simulate Telerik.Web.UI.WebResource.axd?type=rau detection
         expect_args = {"method": "GET", "uri": "/Telerik.Web.UI.WebResource.axd", "query_string": "type=rau"}
         respond_args = {
@@ -134,6 +136,8 @@ class TestTelerikDialogHandler_includesubdirs(TestTelerik):
     modules_overrides = ["httpx", "telerik"]
 
     async def setup_before_prep(self, module_test):
+        # The RAU_crypto exploit only runs without custom HTTP headers, which the shared test config sets.
+        module_test.scan.custom_http_headers = {}
         # Simulate NO SpellCheckHandler detection (not testing for that with this test)
         expect_args = {"method": "GET", "uri": "/Telerik.Web.UI.SpellCheckHandler.axd"}
         respond_args = {"status": 404}

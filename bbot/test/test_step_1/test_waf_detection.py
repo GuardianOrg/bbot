@@ -30,7 +30,9 @@ async def test_wafw00f_requests_every_match_and_emits_each_vendor(monkeypatch):
         helpers=SimpleNamespace(run_in_executor=run_in_executor),
         config={"find_all": True},
         emit_event=emit_event,
+        scan=SimpleNamespace(custom_http_headers={}),
     )
+    module.probe = lambda url: wafw00f.probe(module, url)
     event = SimpleNamespace(
         parsed_url=SimpleNamespace(scheme="https", netloc="example.com"), host="example.com"
     )

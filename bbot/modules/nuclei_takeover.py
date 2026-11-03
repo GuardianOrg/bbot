@@ -144,6 +144,8 @@ class nuclei_takeover(BaseModule):
             command += ["-t", str(self.nuclei_templates_dir), "-tags", self.tags]
         if self.etags:
             command += ["-etags", self.etags]
+        for name, value in self.scan.custom_http_headers.items():
+            command += ["-H", f"{name}: {value}"]
         target_file = self.helpers.tempfile(targets, pipe=False)
         command += ["-l", target_file]
         self.info(f"Running nuclei takeover command: {' '.join(str(part) for part in command)}")

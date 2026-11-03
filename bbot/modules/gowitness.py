@@ -255,6 +255,9 @@ class gowitness(BaseModule):
         command += ["--screenshot-path", str(self.screenshot_path)]
         # user agent
         command += ["--chrome-user-agent", f"{self.scan.useragent}"]
+        # custom headers
+        for name, value in self.scan.custom_http_headers.items():
+            command += ["--chrome-header", f"{name}: {value}"]
         # proxy
         if self.proxy:
             command += ["--chrome-proxy", str(self.proxy)]

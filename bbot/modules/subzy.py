@@ -62,6 +62,9 @@ class subzy(BaseModule):
     domain_seed_scope_only = True
 
     async def setup(self):
+        if self.scan.custom_http_headers:
+            # Its HTTP fingerprint requests would go out without the headers every scan request must carry.
+            return None, "subzy has no option to send the scan's custom HTTP headers"
         self.binary = str(self.config.get("binary", "subzy")).strip()
         self.concurrency = int(self.config.get("concurrency", 25))
         self.timeout = int(self.config.get("timeout", 10))

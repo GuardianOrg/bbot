@@ -254,7 +254,8 @@ class telerik(BaseModule):
                         event,
                         context=f"{{module}} scanned {base_url} and identified {{event.type}}: Telerik RAU AXD Handler",
                     )
-                    if self.config.get("exploit_RAU_crypto") is True:
+                    # The RAU_crypto exploit script cannot send the scan's custom HTTP headers.
+                    if self.config.get("exploit_RAU_crypto") is True and not self.scan.custom_http_headers:
                         if base_url not in self.RAUConfirmed:
                             self.RAUConfirmed.append(base_url)
                             root_tool_path = self.scan.helpers.tools_dir / "telerik"
