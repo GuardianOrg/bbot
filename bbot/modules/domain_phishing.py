@@ -447,7 +447,8 @@ class domain_phishing(BaseModule):
             return False, "tld-swap requires at least one tld_swap_tlds entry"
         self.nameservers = list(self.config.get("nameservers", []))
         self.threads = int(self.config.get("threads", 16))
-        self.enable_lsh = bool(self.config.get("lsh", False))
+        # dnstwist's LSH fetches the scanned domain's page and cannot send the scan's custom HTTP headers.
+        self.enable_lsh = bool(self.config.get("lsh", False)) and not self.scan.custom_http_headers
         self.lsh_threshold = int(self.config.get("lsh_threshold", 70))
         self.young_domain_days = int(self.config.get("young_domain_days", 45))
         self.max_candidates = int(self.config.get("max_candidates", 2000))

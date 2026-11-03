@@ -35,6 +35,10 @@ class TestSmuggler(ModuleTestBase):
     targets = ["http://127.0.0.1:8888"]
     modules_overrides = ["httpx", "smuggler"]
 
+    async def setup_before_prep(self, module_test):
+        # smuggler stands down when the scan has custom HTTP headers, which the shared test config sets.
+        module_test.scan.custom_http_headers = {}
+
     async def setup_after_prep(self, module_test):
         old_run_live = module_test.scan.helpers.run_live
 

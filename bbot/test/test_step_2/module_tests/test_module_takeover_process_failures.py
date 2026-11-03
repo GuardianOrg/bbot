@@ -145,6 +145,7 @@ def test_takeover_and_dns_audit_setup_errors_are_hard_failures(module_type, conf
     module.scan = SimpleNamespace(
         config={"modules": {module.name: config}},
         helpers=SimpleNamespace(chain_lists=lambda value: value, tools_dir=Path("/nonexistent/bbot-tools")),
+        custom_http_headers={},
     )
 
     status, _reason = asyncio.run(module.setup())

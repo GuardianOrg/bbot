@@ -138,6 +138,10 @@ class deadfinder(BaseModule):
         ]
         if self.include_30x:
             command.append("--include30x")
+        # The scanned pages get the custom headers; the external links found on them (worker requests) do not,
+        # like BBOT's own client, which only adds them to in-scope requests.
+        for name, value in self.scan.custom_http_headers.items():
+            command += ["--headers", f"{name}: {value}"]
         return command
 
     def _load_results(self, output_file):

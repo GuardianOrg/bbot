@@ -1022,7 +1022,11 @@ class domain_config_dns_audit(BaseModule):
         connection = None
         try:
             connection = http.client.HTTPSConnection(host, timeout=3, context=ssl.create_default_context())
-            connection.request("GET", f"{path}?name=example.com&type=A", headers={"Accept": "application/dns-json"})
+            headers = {"Accept": "application/dns-json"}
+            # Like BBOT's HTTP client, add the scan's custom headers only to in-scope hosts.
+            if self.scan.in_scope(host):
+                headers.update(self.scan.custom_http_headers)
+            connection.request("GET", f"{path}?name=example.com&type=A", headers=headers)
             response = connection.getresponse()
             response.read(512)
             return response.status == 200

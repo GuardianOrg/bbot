@@ -1,5 +1,6 @@
 from bbot.modules.base import BaseModule
 from wafw00f import main as wafw00f_main
+from wafw00f.lib.evillib import def_headers as wafw00f_def_headers
 
 # disable wafw00f logging
 import logging
@@ -33,6 +34,15 @@ class wafw00f(BaseModule):
     in_scope_only = True
     per_hostport_only = True
 
+    def probe(self, url):
+        """A WAFW00F engine whose every request carries the scan's custom HTTP headers."""
+        headers = dict(self.scan.custom_http_headers)
+        if not headers:
+            return wafw00f_main.WAFW00F(url, followredirect=False)
+        # extraheaders replaces WAFW00F's default headers, and every probe (including the one that drops
+        # User-Agent) sends a copy of them, so the defaults are kept alongside the custom headers.
+        return wafw00f_main.WAFW00F(url, followredirect=False, extraheaders={**wafw00f_def_headers, **headers})
+
     async def filter_event(self, event):
         http_status = getattr(event, "http_status", 0)
         if not http_status or str(http_status).startswith("3"):
@@ -44,7 +54,7 @@ class wafw00f(BaseModule):
 
     async def handle_event(self, event):
         original_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}/"
-        WW = await self.helpers.run_in_executor(wafw00f_main.WAFW00F, original_url, followredirect=False)
+        WW = await self.helpers.run_in_executor(self.probe, original_url)
         waf_detections, _ = await self.helpers.run_in_executor(
             WW.identwaf, bool(self.config.get("find_all", True))
         )

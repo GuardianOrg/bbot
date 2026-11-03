@@ -24,6 +24,11 @@ class smuggler(BaseModule):
         }
     ]
 
+    async def setup(self):
+        if self.scan.custom_http_headers:
+            return None, "smuggler has no option to send the scan's custom HTTP headers"
+        return True
+
     async def handle_event(self, event):
         command = [
             sys.executable,

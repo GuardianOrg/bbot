@@ -132,7 +132,7 @@ def similarity(reference, candidate):
     return overlap if overlap >= 0.90 else 0.0
 
 
-async def fetch_website(address, host, port, tls, path="/", timeout=4):
+async def fetch_website(address, host, port, tls, path="/", timeout=4, headers=None):
     """Connect to an IP while sending the real Host and TLS SNI; never follow redirects."""
     context = None
     if tls:
@@ -148,7 +148,14 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4):
         request = (
             f"GET {path} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: Mozilla/5.0 "
             "(compatible; GuardianOriginFinder/1.0)\r\nAccept: text/html,*/*\r\n"
-            "Accept-Encoding: identity\r\nConnection: close\r\n\r\n"
+            "Accept-Encoding: identity\r\nConnection: close\r\n"
+            # The scan's custom HTTP headers; CR/LF would split the request, so such a header is never sent.
+            + "".join(
+                f"{name}: {value}\r\n"
+                for name, value in (headers or {}).items()
+                if not any(char in f"{name}{value}" for char in "\r\n")
+            )
+            + "\r\n"
         )
         writer.write(request.encode("ascii"))
         await asyncio.wait_for(writer.drain(), timeout)
@@ -232,6 +239,9 @@ class originfinder(BaseModule):
         self.censys_key = str(self.config.get("censys_api_key", "") or "").strip()
         self.censys_organization_id = str(self.config.get("censys_organization_id", "") or "").strip()
         return True
+
+    async def fetch_website(self, *args, **kwargs):
+        return await fetch_website(*args, headers=self.scan.custom_http_headers, **kwargs)
 
     async def filter_event(self, event):
         if event.scope_distance != 0:
@@ -418,10 +428,10 @@ class originfinder(BaseModule):
         for website_url in sorted(website["urls"], key=lambda item: not item.startswith("https://")):
             parsed = urlparse(website_url)
             baseline_port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            candidate_baseline = await fetch_website(host, host, baseline_port, parsed.scheme == "https")
+            candidate_baseline = await self.fetch_website(host, host, baseline_port, parsed.scheme == "https")
             candidate_path = same_host_redirect_path(candidate_baseline, host) or "/"
             if candidate_path != "/":
-                candidate_baseline = await fetch_website(
+                candidate_baseline = await self.fetch_website(
                     host, host, baseline_port, parsed.scheme == "https", candidate_path
                 )
             if candidate_baseline is not None and candidate_baseline["status"] == 200:
@@ -471,7 +481,7 @@ class originfinder(BaseModule):
                 ports.extend(item for item in HTTP_PORTS if item not in ports)
 
                 async def probe(port, tls):
-                    candidate = await fetch_website(ip, host, port, tls, probe_path)
+                    candidate = await self.fetch_website(ip, host, port, tls, probe_path)
                     score = similarity(baseline, candidate) if candidate else 0.0
                     return score, candidate, port, tls
 
@@ -483,7 +493,7 @@ class originfinder(BaseModule):
                         if score < 0.88:
                             continue
                         control_host = f"no-such-host-{hashlib.sha256(host.encode()).hexdigest()[:12]}.invalid"
-                        control = await fetch_website(ip, control_host, port, tls, probe_path)
+                        control = await self.fetch_website(ip, control_host, port, tls, probe_path)
                         if control is not None and similarity(candidate, control) >= 0.65:
                             continue
                         await self.report_origin(host, url, ip, port, tls, score, candidate, evidence, parent)
@@ -497,7 +507,7 @@ class originfinder(BaseModule):
                         if score < 0.88:
                             continue
                         control_host = f"no-such-host-{hashlib.sha256(host.encode()).hexdigest()[:12]}.invalid"
-                        control = await fetch_website(ip, control_host, port, tls, probe_path)
+                        control = await self.fetch_website(ip, control_host, port, tls, probe_path)
                         if control is not None and similarity(candidate, control) >= 0.65:
                             continue
                         await self.report_origin(host, url, ip, port, tls, score, candidate, evidence, parent)
@@ -555,7 +565,7 @@ class originfinder(BaseModule):
             body_hash = hashlib.sha256(baseline["body"][:65536]).hexdigest()
             censys_queries.append(f'host.services.endpoints.http.body_hash_sha256 = "{body_hash}"')
         # Shodan indexes favicons by Murmur3 of base64-encoded bytes.
-        favicon = await fetch_website(host, host, 443, True, "/favicon.ico")
+        favicon = await self.fetch_website(host, host, 443, True, "/favicon.ico")
         if (
             favicon
             and favicon["status"] == 200

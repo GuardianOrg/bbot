@@ -84,6 +84,9 @@ class dnsreaper(BaseModule):
     ]
 
     async def setup(self):
+        if self.scan.custom_http_headers:
+            # Its HTTP fingerprint requests would go out without the headers every scan request must carry.
+            return None, "dnsreaper has no option to send the scan's custom HTTP headers"
         self.binary = str(self.config.get("binary", "dnsreaper")).strip()
         self.parallelism = int(self.config.get("parallelism", 30))
         self.timeout = float(self.config.get("timeout", 30))
