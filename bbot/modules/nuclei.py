@@ -13,6 +13,29 @@ from urllib.parse import urlparse
 from bbot.modules.base import BaseModule
 
 
+def inventory_result_kind(result):
+    """Route plain discovery matches away from the vulnerability stream.
+
+    DNS answers already live on DNS_NAME/RAW_DNS_RECORD events. A DNS service
+    fingerprint can additionally enrich the asset as TECHNOLOGY.
+    """
+    if str(result.get("severity") or "").upper() != "INFO":
+        return None
+    tags = result.get("tags") or []
+    if isinstance(tags, str):
+        tags = tags.split(",")
+    tags = {str(tag).strip().lower() for tag in tags}
+    template = str(result.get("template") or "").lower()
+    name = str(result.get("name") or "").lower()
+    if "takeover" in template or "takeover" in name:
+        return None
+    if template == "form-detection":
+        return "skip"
+    if {"dns", "discovery"} <= tags and not tags.intersection({"vuln", "misconfig", "takeover", "subdomain-takeover"}):
+        return "technology" if "service" in tags else "skip"
+    return None
+
+
 def nuclei_runtime_limits(
     inputs,
     ratelimit,
@@ -679,6 +702,25 @@ class nuclei(BaseModule):
                         parent_event,
                         context=f"{{module}} scanned {url} and identified {{event.type}}: {name}",
                     )
+                continue
+
+            inventory_kind = inventory_result_kind(result)
+            if inventory_kind == "skip":
+                continue
+            if inventory_kind == "technology":
+                await self.emit_event(
+                    {
+                        "technology": str(name).lower(),
+                        "host": str(parent_event.host),
+                        "template": template,
+                        **({"url": url} if url else {}),
+                        **({"evidence": ", ".join(str(value) for value in extracted_results[:8])}
+                           if extracted_results else {}),
+                    },
+                    "TECHNOLOGY",
+                    parent_event,
+                    context=f"{{module}} identified DNS service {{event.type}} on {str(parent_event.host)}: {name}",
+                )
                 continue
 
             if severity == "INFO" and "tech" in tags:
