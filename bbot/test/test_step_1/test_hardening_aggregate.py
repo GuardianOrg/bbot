@@ -110,7 +110,7 @@ def test_url_origin_reduces_to_scheme_host_port():
 
 
 @pytest.mark.asyncio
-async def test_paths_of_one_origin_collapse_into_one_row(bbot_scanner):
+async def test_all_header_origins_share_one_summary_with_one_row_each(bbot_scanner):
     h = await harness(bbot_scanner)
     tpl = "naxus-missing-security-headers"
     for url, header in [
@@ -124,22 +124,21 @@ async def test_paths_of_one_origin_collapse_into_one_row(bbot_scanner):
     await h.finish_rounds()
 
     summaries = h.by_category()
-    assert set(summaries) == {
-        "grouped:security_headers:http://app.example.com",
-        "grouped:security_headers:https://app.example.com",
-        "grouped:security_headers:https://app.example.com:8443",
+    assert set(summaries) == {"grouped:security_headers"}
+    event = summaries["grouped:security_headers"]
+    assert event.type == "VULNERABILITY"
+    assert event.parent is h.scan.root_event
+    assert event.data["table"] == {
+        "columns": ["Website", "content-security-policy", "x-frame-options"],
+        "rows": [
+            ["http://app.example.com", "", "missing"],
+            ["https://app.example.com", "missing", "missing"],
+            ["https://app.example.com:8443", "missing", ""],
+        ],
     }
-    for origin, expected in (
-        ("http://app.example.com", ["http://app.example.com", "missing"]),
-        ("https://app.example.com", ["https://app.example.com", "missing", "missing"]),
-        ("https://app.example.com:8443", ["https://app.example.com:8443", "missing"]),
-    ):
-        event = summaries[f"grouped:security_headers:{origin}"]
-        assert event.type == "VULNERABILITY"
-        assert event.parent is h.scan.root_event
-        assert event.data["table"]["rows"] == [expected]
-        assert event.data["affected_endpoints"] == [origin]
-        assert event.data["source_templates"] == [tpl]
+    assert event.data["affected_endpoints"] == ["http://app.example.com", "https://app.example.com",
+                                                 "https://app.example.com:8443"]
+    assert event.data["source_templates"] == [tpl]
 
 
 @pytest.mark.asyncio
@@ -168,10 +167,9 @@ async def test_severe_header_and_cookie_findings_group_while_unrelated_findings_
     assert [event.data for event in passing] == before
     await h.finish_rounds()
     summaries = h.by_category()
-    assert set(summaries) == {"grouped:security_headers:https://app.example.com",
-                              "grouped:cookies:https://app.example.com"}
-    assert summaries["grouped:security_headers:https://app.example.com"].data["severity"] == "HIGH"
-    assert summaries["grouped:cookies:https://app.example.com"].data["severity"] == "CRITICAL"
+    assert set(summaries) == {"grouped:security_headers", "grouped:cookies"}
+    assert summaries["grouped:security_headers"].data["severity"] == "HIGH"
+    assert summaries["grouped:cookies"].data["severity"] == "CRITICAL"
 
 
 @pytest.mark.asyncio
@@ -200,7 +198,7 @@ async def test_stickiness_cookies_are_dropped_but_session_cookies_kept(bbot_scan
     assert not await h.feed(only_stickiness)
     await h.finish_rounds()
 
-    data = h.by_category()["grouped:cookies:https://app.example.com"].data
+    data = h.by_category()["grouped:cookies"].data
     assert data["table"]["columns"] == ["Website", "Item", "Problem"]
     assert data["table"]["rows"] == [
         ["https://app.example.com", "cookie BIGipServerpool_web", "missing Secure"],
@@ -212,9 +210,26 @@ async def test_stickiness_cookies_are_dropped_but_session_cookies_kept(bbot_scan
         "cookies-without-httponly",
         "cookies-without-secure",
     ]
-    headers = h.by_category()["grouped:security_headers:https://app.example.com"].data
+    headers = h.by_category()["grouped:security_headers"].data
     assert headers["table"]["rows"] == [["https://app.example.com", "script-src allows any origin"]]
     assert headers["source_templates"] == ["csp-script-src-wildcard"]
+
+
+@pytest.mark.asyncio
+async def test_cookie_issues_across_websites_share_one_finding(bbot_scanner):
+    h = await harness(bbot_scanner)
+    for url, cookie in (("https://app.example.com/account", "SID"),
+                        ("https://shop.example.com/cart", "CART")):
+        assert not await h.feed(h.nuclei(url, "cookies-without-secure", "Cookies",
+                                        poc=f"Extracted Data: {cookie}"))
+    await h.finish_rounds()
+    assert set(h.by_category()) == {"grouped:cookies"}
+    data = h.by_category()["grouped:cookies"].data
+    assert data["table"]["rows"] == [
+        ["https://app.example.com", "cookie SID", "missing Secure"],
+        ["https://shop.example.com", "cookie CART", "missing Secure"],
+    ]
+    assert data["affected_endpoints"] == ["https://app.example.com", "https://shop.example.com"]
 
 
 @pytest.mark.asyncio
@@ -231,7 +246,7 @@ async def test_cookie_result_without_url_uses_the_scanned_url(bbot_scanner):
     assert "url" not in event.data
     assert not await h.feed(event)
     await h.finish_rounds()
-    assert h.by_category()["grouped:cookies:https://app.example.com:8443"].data["table"]["rows"] == [
+    assert h.by_category()["grouped:cookies"].data["table"]["rows"] == [
         ["https://app.example.com:8443", "cookie SID", "missing Secure"]
     ]
 
@@ -357,7 +372,7 @@ async def test_one_emission_per_category_after_a_quiet_finish_round(bbot_scanner
     assert scan._new_activity is True
 
     await h.module.finish()
-    assert sorted(h.by_category()) == ["grouped:retirejs", "grouped:security_headers:https://app.example.com"]
+    assert sorted(h.by_category()) == ["grouped:retirejs", "grouped:security_headers"]
     assert len(h.emitted) == 2
     await h.finish_rounds()
     assert len(h.emitted) == 2
@@ -408,11 +423,10 @@ async def test_summary_is_independent_of_arrival_order(bbot_scanner):
         summaries.append({key: (event.id, event.data) for key, event in h.by_category().items()})
     assert summaries[0] == summaries[1] == summaries[2]
     assert sorted(summaries[0]) == [
-        "grouped:cookies:https://a.example.com",
+        "grouped:cookies",
         "grouped:dns",
         "grouped:retirejs",
-        "grouped:security_headers:https://a.example.com",
-        "grouped:security_headers:https://b.example.com",
+        "grouped:security_headers",
     ]
     # the event id comes from the stable dedupe key, not from the scanned targets
     other_scan = await harness(bbot_scanner)

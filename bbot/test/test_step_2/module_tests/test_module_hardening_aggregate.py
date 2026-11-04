@@ -78,8 +78,8 @@ class TestHardeningAggregate(ModuleTestBase):
         assert [e.data["template"] for e in vulns if e.data.get("severity") == "HIGH"] == ["generic-env"]
 
         grouped = {e.data["dedupe_key"]: e for e in vulns if "grouped" in e.tags}
-        assert sorted(grouped) == ["grouped:retirejs", "grouped:security_headers:http://127.0.0.1:8888"]
-        headers = grouped["grouped:security_headers:http://127.0.0.1:8888"]
+        assert sorted(grouped) == ["grouped:retirejs", "grouped:security_headers"]
+        headers = grouped["grouped:security_headers"]
         assert headers.type == "VULNERABILITY"
         assert headers.module == module_test.scan.modules["hardening_aggregate"]
         assert headers.data["table"] == {
