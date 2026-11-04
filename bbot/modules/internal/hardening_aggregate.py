@@ -5,8 +5,8 @@ from urllib.parse import urlsplit
 from bbot.modules.base import BaseInterceptModule
 from bbot.modules.internal.base import BaseInternalModule
 
-# Only DNS and web hardening advice may be folded into a summary at these severities.
-GROUPABLE_SEVERITIES = {"", "INFO", "LOW", "MEDIUM"}
+# Known library vulnerabilities at high severity remain individual issues.
+RETIREJS_GROUPABLE_SEVERITIES = {"", "INFO", "LOW", "MEDIUM"}
 SEVERITY_RANK = {"": 0, "INFO": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "CRITICAL": 5}
 
 SECURITY_HEADERS_TEMPLATE = "naxus-missing-security-headers"
@@ -112,8 +112,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
 
     The individual findings are held back while the scan runs. Once the scan is finishing
     and no more of them arrive, one summary per category and web origin is emitted.
-    Anything that arrives after that is passed on unchanged. High-risk reputation
-    observations join the reputation summary; other HIGH and CRITICAL findings stay separate.
+    Anything that arrives after that is passed on unchanged. Explicit DNS, header,
+    cookie and reputation classifications join their summaries at any severity.
     """
 
     watched_events = ["FINDING", "VULNERABILITY"]
@@ -192,8 +192,6 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         module = str(getattr(event, "module", "") or "")
         if module == "host_reputation" and str(data.get("category") or "") in {"host-reputation", "indicator-reputation"}:
             return self._classify_reputation(event, data)
-        if severity not in GROUPABLE_SEVERITIES:
-            return None
         template = str(data.get("template") or "")
         if module == "nuclei":
             return self._classify_nuclei(event, data, template, severity)
@@ -204,7 +202,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             title = str(data.get("title") or "").strip()
             if domain and title:
                 return "dns", "dnsresolve", [((domain, title), {"severity": severity or "INFO"})]
-        if module == "retirejs":
+        if module == "retirejs" and severity in RETIREJS_GROUPABLE_SEVERITIES:
             return self._classify_retirejs(event, data, severity)
         return None
 
@@ -224,7 +222,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             origin = self._event_origin(event, data)
             if not origin or not title:
                 return None
-            return "security_headers", template, [((origin, title.lower()), {"problem": "missing"})]
+            return "security_headers", template, [((origin, title.lower()), {"problem": "missing", "severity": severity})]
         if template in COOKIE_TEMPLATES:
             origin = self._event_origin(event, data)
             if not origin:
@@ -234,27 +232,27 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
                 return (
                     "cookies",
                     template,
-                    [((origin, "(cookie name not reported)"), {"problem": COOKIE_TEMPLATES[template]})],
+                    [((origin, "(cookie name not reported)"), {"problem": COOKIE_TEMPLATES[template], "severity": severity})],
                 )
             names = [name for name in dict.fromkeys(names) if name.lower() not in STICKINESS_COOKIES]
             return (
                 "cookies",
                 template,
-                [((origin, f"cookie {name}"), {"problem": COOKIE_TEMPLATES[template]}) for name in names],
+                [((origin, f"cookie {name}"), {"problem": COOKIE_TEMPLATES[template], "severity": severity}) for name in names],
             )
         if template in CSP_TEMPLATES:
             origin = self._event_origin(event, data)
             if not origin:
                 return None
             return "security_headers", template, [((origin, "content-security-policy"),
-                                                   {"problem": CSP_TEMPLATES[template]})]
+                                                   {"problem": CSP_TEMPLATES[template], "severity": severity})]
         if template == TOMCAT_COOKIE_TEMPLATE:
             origin = self._event_origin(event, data)
             if not origin:
                 return None
             item = "Tomcat CookieExample servlet"
             problem = "example servlet exposed; it echoes the request cookies"
-            return "cookies", template, [((origin, item), {"problem": problem})]
+            return "cookies", template, [((origin, item), {"problem": problem, "severity": severity})]
         if template in DNS_NUCLEI_TEMPLATES:
             domain = str(event.host or "").lower()
             if not domain or not title:
@@ -359,7 +357,9 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         data = {
             "severity": (max((row["severity"] for row in selected.values()),
                              key=lambda level: SEVERITY_RANK.get(level, 0))
-                         if category == "reputation" else "MEDIUM"),
+                         if category == "reputation" else
+                         max(["MEDIUM", *(row["severity"] for row in selected.values())],
+                             key=lambda level: SEVERITY_RANK.get(level, 0))),
             "title": meta["title"],
             "category": "grouped-hardening",
             "path": f"grouped/{category}" + (f"/{sha256(origin.encode()).hexdigest()[:12]}" if origin else ""),
