@@ -1,5 +1,4 @@
 from collections import Counter
-from hashlib import sha256
 from urllib.parse import urlsplit
 
 from bbot.modules.base import BaseInterceptModule
@@ -107,11 +106,11 @@ def extracted_values(data):
 
 class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     """
-    Folds per-URL hardening advice, DNS/email policy, reputation observations,
-    and outdated JavaScript libraries into summaries before event ingestion.
+    Folds web hardening advice, DNS/email policy, reputation observations,
+    and outdated JavaScript libraries into one summary per category before event ingestion.
 
     The individual findings are held back while the scan runs. Once the scan is finishing
-    and no more of them arrive, one summary per category and web origin is emitted.
+    and no more of them arrive, one summary per category is emitted.
     Anything that arrives after that is passed on unchanged. Explicit DNS, header,
     cookie and reputation classifications join their summaries at any severity.
     """
@@ -171,19 +170,16 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return
         self._emitted = True
         for category in CATEGORIES:
-            origins = (sorted({key[0] for key in self._rows[category]})
-                       if category in {"security_headers", "cookies"} else [None])
-            for origin in origins:
-                data = self.summary(category, origin)
-                if data is None:
-                    continue
-                await self.emit_event(
-                    data,
-                    "VULNERABILITY",
-                    parent=self.scan.root_event,
-                    tags=["grouped", "grouped-hardening", f"grouped-{category.replace('_', '-')}"],
-                    context=f"{{module}} grouped {data['row_count']} {category} rows into one {{event.type}}",
-                )
+            data = self.summary(category)
+            if data is None:
+                continue
+            await self.emit_event(
+                data,
+                "VULNERABILITY",
+                parent=self.scan.root_event,
+                tags=["grouped", "grouped-hardening", f"grouped-{category.replace('_', '-')}"],
+                context=f"{{module}} grouped {data['row_count']} {category} rows into one {{event.type}}",
+            )
 
     def classify(self, event):
         """(category, template, [(row key, row values)]) for a groupable event, else None."""
@@ -311,9 +307,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     def _record_template(self, category, key, template):
         self._rows[category][key]["templates"].add(template)
 
-    def table(self, category, origin=None):
-        rows = {key: value for key, value in self._rows[category].items()
-                if origin is None or key[0] == origin}
+    def table(self, category):
+        rows = self._rows[category]
         if category == "security_headers":
             headers = sorted({header for _, header in rows})
             missing_by_origin = {}
@@ -338,17 +333,14 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             table_rows = [[origin, item, ", ".join(sorted(row["problems"]))] for (origin, item), row in rows.items()]
         return COLUMNS[category], sorted(table_rows), sorted({row[0] for row in table_rows})
 
-    def summary(self, category, origin=None):
-        selected = {key: value for key, value in self._rows[category].items()
-                    if origin is None or key[0] == origin}
+    def summary(self, category):
+        selected = self._rows[category]
         if not selected:
             return None
         meta = CATEGORIES[category]
-        columns, rows, endpoints = self.table(category, origin)
+        columns, rows, endpoints = self.table(category)
         hosts = self._hosts[category]
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
-        if origin:
-            host = urlsplit(origin).hostname
         place = "domain" if category == "dns" else "asset" if category == "reputation" else "website"
         description = (
             f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {len(endpoints)} "
@@ -362,8 +354,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
                              key=lambda level: SEVERITY_RANK.get(level, 0))),
             "title": meta["title"],
             "category": "grouped-hardening",
-            "path": f"grouped/{category}" + (f"/{sha256(origin.encode()).hexdigest()[:12]}" if origin else ""),
-            "dedupe_key": f"grouped:{category}" + (f":{origin}" if origin else ""),
+            "path": f"grouped/{category}",
+            "dedupe_key": f"grouped:{category}",
             "description": description,
             "recommendation": meta["recommendation"],
             "table": {"columns": columns, "rows": rows},
