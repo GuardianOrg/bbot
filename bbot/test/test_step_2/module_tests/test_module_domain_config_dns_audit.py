@@ -97,7 +97,7 @@ class TestDomainConfigDnsAudit(ModuleTestBase):
         finding_titles = {e.data.get("title") for e in findings}
         vulnerability_titles = {e.data.get("title") for e in vulnerabilities}
 
-        assert "No IPv6 (AAAA) Record" in finding_titles
+        assert "No IPv6 (AAAA) Record" not in finding_titles
         assert "Insufficient Nameservers" in vulnerability_titles
         assert "SPF Allows All Senders" in vulnerability_titles
         assert "Missing DMARC Record" in vulnerability_titles

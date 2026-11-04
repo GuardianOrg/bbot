@@ -1,11 +1,11 @@
 from collections import Counter
+from hashlib import sha256
 from urllib.parse import urlsplit
 
 from bbot.modules.base import BaseInterceptModule
 from bbot.modules.internal.base import BaseInternalModule
 
-# Only weaknesses that are hardening advice may be folded into a summary. Anything rated
-# higher stays an individual finding, whatever produced it.
+# Only DNS and web hardening advice may be folded into a summary at these severities.
 GROUPABLE_SEVERITIES = {"", "INFO", "LOW", "MEDIUM"}
 SEVERITY_RANK = {"": 0, "INFO": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "CRITICAL": 5}
 
@@ -27,24 +27,9 @@ DNS_AUDIT_TEMPLATE = "domain-config-dns-audit"
 # its value encodes the internal pool member address.
 STICKINESS_COOKIES = {"awsalb", "awsalbcors", "awsalbapp", "awselb", "awselbcors"}
 
-# Email and certificate-authority records only express sending and issuance policy.
-DNS_AUDIT_GROUPED_CATEGORIES = {"email", "certificate"}
-# Zone hardening advice from the DNS and DNSSEC checks. Everything else from those checks
-# (zone transfer, zone walking, wildcards, resolver exposure, delegation errors...) is a
-# finding in its own right and is never grouped.
-DNS_AUDIT_GROUPED_TITLES = {
-    "insufficient nameservers",
-    "low nameserver diversity",
-    "dnssec not enabled",
-    "weak dnssec algorithm",
-    "ds record uses only sha-1",
-    "missing ds record at parent",
-    "tld does not support dnssec",
-    "multiple dnssec algorithms",
-    "soa refresh too short",
-    "soa expire too short",
-    "very low dns ttl on critical records",
-    "no https/svcb service binding records",
+DNS_AUDIT_CATEGORIES = {"dns", "dnssec", "email", "certificate"}
+DNS_AUDIT_INDIVIDUAL_TITLES = {
+    "dns zone transfer enabled", "nsec allows zone walking", "open dns resolver",
 }
 
 CATEGORIES = {
@@ -56,12 +41,11 @@ CATEGORIES = {
             "load balancer or CDN configuration so that all pages inherit them."
         ),
     },
-    "cookies_csp": {
-        "title": "Weak cookie attributes and Content-Security-Policy",
+    "cookies": {
+        "title": "Weak HTTP cookie attributes",
         "noun": "issue",
         "recommendation": (
-            "Set Secure and HttpOnly on cookies that carry sessions or other secrets, and tighten the "
-            "Content-Security-Policy so scripts and objects only load from trusted sources."
+            "Set Secure and HttpOnly on cookies that carry sessions or other secrets."
         ),
     },
     "dns": {
@@ -80,12 +64,18 @@ CATEGORIES = {
             "when it is no longer used."
         ),
     },
+    "reputation": {
+        "title": "Reputation observations for scanned assets",
+        "noun": "observation",
+        "recommendation": "Review the listed threat-intelligence signals and verify ownership and current activity before taking action.",
+    },
 }
 
 COLUMNS = {
-    "cookies_csp": ["Website", "Item", "Problem"],
+    "cookies": ["Website", "Item", "Problem"],
     "dns": ["Domain", "Issue", "Severity"],
     "retirejs": ["Website", "Library", "Version", "Max severity", "CVEs"],
+    "reputation": ["Asset", "Indicator", "Risk score", "Sources"],
 }
 
 
@@ -117,13 +107,13 @@ def extracted_values(data):
 
 class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     """
-    Folds per-URL hardening advice (missing security headers, cookie flags, weak CSP,
-    DNS/email policy, outdated JavaScript libraries) into one summary per category.
+    Folds per-URL hardening advice, DNS/email policy, reputation observations,
+    and outdated JavaScript libraries into summaries before event ingestion.
 
     The individual findings are held back while the scan runs. Once the scan is finishing
-    and no more of them arrive, one VULNERABILITY per category is emitted carrying a table
-    of every affected website or domain. Anything that arrives after that is passed on
-    unchanged, and nothing rated HIGH or CRITICAL is ever held back.
+    and no more of them arrive, one summary per category and web origin is emitted.
+    Anything that arrives after that is passed on unchanged. High-risk reputation
+    observations join the reputation summary; other HIGH and CRITICAL findings stay separate.
     """
 
     watched_events = ["FINDING", "VULNERABILITY"]
@@ -140,7 +130,6 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     async def setup(self):
         self._rows = {category: {} for category in CATEGORIES}
         self._hosts = {category: Counter() for category in CATEGORIES}
-        self._templates = {category: set() for category in CATEGORIES}
         self._held = 0
         self._held_at_last_finish = None
         self._emitted = False
@@ -160,7 +149,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return True
         for key, values in rows:
             self._merge_row(category, key, values)
-        self._templates[category].add(template)
+            self._record_template(category, key, template)
         if event.host:
             self._hosts[category][str(event.host)] += 1
         self._held += 1
@@ -182,29 +171,39 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return
         self._emitted = True
         for category in CATEGORIES:
-            data = self.summary(category)
-            if data is None:
-                continue
-            await self.emit_event(
-                data,
-                "VULNERABILITY",
-                parent=self.scan.root_event,
-                tags=["grouped", "grouped-hardening", f"grouped-{category.replace('_', '-')}"],
-                context=f"{{module}} grouped {data['row_count']} {category} rows into one {{event.type}}",
-            )
+            origins = (sorted({key[0] for key in self._rows[category]})
+                       if category in {"security_headers", "cookies"} else [None])
+            for origin in origins:
+                data = self.summary(category, origin)
+                if data is None:
+                    continue
+                await self.emit_event(
+                    data,
+                    "VULNERABILITY",
+                    parent=self.scan.root_event,
+                    tags=["grouped", "grouped-hardening", f"grouped-{category.replace('_', '-')}"],
+                    context=f"{{module}} grouped {data['row_count']} {category} rows into one {{event.type}}",
+                )
 
     def classify(self, event):
         """(category, template, [(row key, row values)]) for a groupable event, else None."""
         data = event.data if isinstance(event.data, dict) else {}
         severity = str(data.get("severity") or "").strip().upper()
+        module = str(getattr(event, "module", "") or "")
+        if module == "host_reputation" and str(data.get("category") or "") in {"host-reputation", "indicator-reputation"}:
+            return self._classify_reputation(event, data)
         if severity not in GROUPABLE_SEVERITIES:
             return None
-        module = str(getattr(event, "module", "") or "")
         template = str(data.get("template") or "")
         if module == "nuclei":
             return self._classify_nuclei(event, data, template, severity)
         if module == "domain_config_dns_audit" and template == DNS_AUDIT_TEMPLATE:
             return self._classify_dns_audit(event, data, severity)
+        if module == "dnsresolve" and str(data.get("category") or "") == "domain-classification":
+            domain = str(data.get("host") or event.host or "").lower().rstrip(".")
+            title = str(data.get("title") or "").strip()
+            if domain and title:
+                return "dns", "dnsresolve", [((domain, title), {"severity": severity or "INFO"})]
         if module == "retirejs":
             return self._classify_retirejs(event, data, severity)
         return None
@@ -225,7 +224,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             origin = self._event_origin(event, data)
             if not origin or not title:
                 return None
-            return "security_headers", template, [((origin, title.lower()), {})]
+            return "security_headers", template, [((origin, title.lower()), {"problem": "missing"})]
         if template in COOKIE_TEMPLATES:
             origin = self._event_origin(event, data)
             if not origin:
@@ -233,13 +232,13 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             names = extracted_values(data)
             if not names:
                 return (
-                    "cookies_csp",
+                    "cookies",
                     template,
                     [((origin, "(cookie name not reported)"), {"problem": COOKIE_TEMPLATES[template]})],
                 )
             names = [name for name in dict.fromkeys(names) if name.lower() not in STICKINESS_COOKIES]
             return (
-                "cookies_csp",
+                "cookies",
                 template,
                 [((origin, f"cookie {name}"), {"problem": COOKIE_TEMPLATES[template]}) for name in names],
             )
@@ -247,15 +246,15 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             origin = self._event_origin(event, data)
             if not origin:
                 return None
-            item = f"CSP {title}" if title else "CSP"
-            return "cookies_csp", template, [((origin, item), {"problem": CSP_TEMPLATES[template]})]
+            return "security_headers", template, [((origin, "content-security-policy"),
+                                                   {"problem": CSP_TEMPLATES[template]})]
         if template == TOMCAT_COOKIE_TEMPLATE:
             origin = self._event_origin(event, data)
             if not origin:
                 return None
             item = "Tomcat CookieExample servlet"
             problem = "example servlet exposed; it echoes the request cookies"
-            return "cookies_csp", template, [((origin, item), {"problem": problem})]
+            return "cookies", template, [((origin, item), {"problem": problem})]
         if template in DNS_NUCLEI_TEMPLATES:
             domain = str(event.host or "").lower()
             if not domain or not title:
@@ -269,9 +268,22 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         domain = str(data.get("host") or event.host or "").lower()
         if not title or not domain:
             return None
-        if category not in DNS_AUDIT_GROUPED_CATEGORIES and title.lower() not in DNS_AUDIT_GROUPED_TITLES:
+        if category not in DNS_AUDIT_CATEGORIES or title.lower() in DNS_AUDIT_INDIVIDUAL_TITLES:
             return None
         return "dns", DNS_AUDIT_TEMPLATE, [((domain, title), {"severity": severity or "INFO"})]
+
+    def _classify_reputation(self, event, data):
+        asset = str(data.get("host") or event.host or "").strip()
+        indicator = str(data.get("indicator") or asset).strip()
+        if not asset or not indicator:
+            return None
+        sources = data.get("sources") or []
+        source_names = sorted({str(source.get("source") or source.get("name") or "")[:80]
+                               for source in sources if isinstance(source, dict)}) if isinstance(sources, list) else []
+        return "reputation", "host_reputation", [((asset, indicator), {
+            "risk_score": str(data.get("risk_score") or 0), "sources": source_names,
+            "severity": str(data.get("severity") or "INFO").upper(),
+        })]
 
     def _classify_retirejs(self, event, data, severity):
         component = str(data.get("component") or "").strip()
@@ -288,23 +300,30 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         return "retirejs", "retirejs", [((origin, component, version), values)]
 
     def _merge_row(self, category, key, values):
-        row = self._rows[category].setdefault(key, {"problems": set(), "severity": "", "cves": set()})
+        row = self._rows[category].setdefault(key, {"problems": set(), "severity": "", "cves": set(),
+                                                    "templates": set(), "sources": set(), "risk_score": "0"})
         if values.get("problem"):
             row["problems"].add(values["problem"])
         if SEVERITY_RANK.get(values.get("severity", ""), 0) > SEVERITY_RANK.get(row["severity"], 0):
             row["severity"] = values["severity"]
         row["cves"].update(values.get("cves", ()))
+        row["sources"].update(values.get("sources", ()))
+        row["risk_score"] = max(row["risk_score"], values.get("risk_score", "0"), key=lambda score: int(score) if score.isdigit() else 0)
 
-    def table(self, category):
-        rows = self._rows[category]
+    def _record_template(self, category, key, template):
+        self._rows[category][key]["templates"].add(template)
+
+    def table(self, category, origin=None):
+        rows = {key: value for key, value in self._rows[category].items()
+                if origin is None or key[0] == origin}
         if category == "security_headers":
             headers = sorted({header for _, header in rows})
             missing_by_origin = {}
-            for origin, header in rows:
-                missing_by_origin.setdefault(origin, set()).add(header)
+            for website, header in rows:
+                missing_by_origin.setdefault(website, {})[header] = ", ".join(sorted(rows[(website, header)]["problems"]))
             table_rows = [
-                [origin] + ["missing" if header in missing else "" for header in headers]
-                for origin, missing in sorted(missing_by_origin.items())
+                [website] + [problems.get(header, "") for header in headers]
+                for website, problems in sorted(missing_by_origin.items())
             ]
             return ["Website"] + headers, table_rows, sorted(missing_by_origin)
         if category == "retirejs":
@@ -314,34 +333,43 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             ]
         elif category == "dns":
             table_rows = [[domain, title, row["severity"]] for (domain, title), row in rows.items()]
+        elif category == "reputation":
+            table_rows = [[asset, indicator, row["risk_score"], ", ".join(sorted(row["sources"]))]
+                          for (asset, indicator), row in rows.items()]
         else:
             table_rows = [[origin, item, ", ".join(sorted(row["problems"]))] for (origin, item), row in rows.items()]
         return COLUMNS[category], sorted(table_rows), sorted({row[0] for row in table_rows})
 
-    def summary(self, category):
-        if not self._rows[category]:
+    def summary(self, category, origin=None):
+        selected = {key: value for key, value in self._rows[category].items()
+                    if origin is None or key[0] == origin}
+        if not selected:
             return None
         meta = CATEGORIES[category]
-        columns, rows, endpoints = self.table(category)
+        columns, rows, endpoints = self.table(category, origin)
         hosts = self._hosts[category]
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
-        place = "domain" if category == "dns" else "website"
+        if origin:
+            host = urlsplit(origin).hostname
+        place = "domain" if category == "dns" else "asset" if category == "reputation" else "website"
         description = (
             f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {len(endpoints)} "
             f"{place}{'' if len(endpoints) == 1 else 's'}. The affected {place}s and details are listed in the table."
         )
         data = {
-            "severity": "MEDIUM",
+            "severity": (max((row["severity"] for row in selected.values()),
+                             key=lambda level: SEVERITY_RANK.get(level, 0))
+                         if category == "reputation" else "MEDIUM"),
             "title": meta["title"],
             "category": "grouped-hardening",
-            "path": f"grouped/{category}",
-            "dedupe_key": f"grouped:{category}",
+            "path": f"grouped/{category}" + (f"/{sha256(origin.encode()).hexdigest()[:12]}" if origin else ""),
+            "dedupe_key": f"grouped:{category}" + (f":{origin}" if origin else ""),
             "description": description,
             "recommendation": meta["recommendation"],
             "table": {"columns": columns, "rows": rows},
             "affected_endpoints": endpoints,
             "row_count": len(rows),
-            "source_templates": sorted(self._templates[category]),
+            "source_templates": sorted({template for row in selected.values() for template in row["templates"]}),
         }
         if host:
             data["host"] = host
