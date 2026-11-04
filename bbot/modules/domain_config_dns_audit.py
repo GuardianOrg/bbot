@@ -432,7 +432,6 @@ class domain_config_dns_audit(BaseModule):
 
     async def check_basic_dns(self, domain, records, findings):
         a_records = records.get("A", [])
-        aaaa_records = records.get("AAAA", [])
         ns_records = records.get("NS", [])
         if not a_records:
             findings.append(AuditFinding(
@@ -451,25 +450,6 @@ class domain_config_dns_audit(BaseModule):
                 f"DNS query for {domain} A returned empty",
                 "Add an A record if the domain should be directly reachable over IPv4.",
                 f"dig {domain} A +short",
-            ))
-        if a_records and not aaaa_records:
-            findings.append(AuditFinding(
-                "No IPv6 (AAAA) Record",
-                "INFO",
-                "DNS",
-                (
-                    f"{domain} resolves over IPv4 but has no AAAA record. IPv6-only clients and networks will not be able to reach this host directly, which can reduce availability and user reachability as IPv6 adoption increases."
-                    ' An AAAA record is the DNS entry that maps a name to an IPv6 address. IPv6 is'
-                    ' increasingly common on mobile networks, cloud environments, corporate networks, and regions where IPv4'
-                    ' addresses are scarce. When a service only has IPv4 records, IPv6-only users must rely on translation gateways'
-                    ' or may not reach the service at all. This is usually an availability and future-readiness issue rather than an'
-                    ' immediate security flaw. It should be reviewed when the application, CDN, load balancer, or hosting provider'
-                    ' already supports IPv6, because adding the record can improve reachability without changing the application'
-                    ' itself.'
-                ),
-                f"DNS query for {domain} AAAA returned empty",
-                "Add an AAAA record if the service supports IPv6.",
-                f"dig {domain} AAAA +short",
             ))
         if len(ns_records) < 2:
             findings.append(AuditFinding(

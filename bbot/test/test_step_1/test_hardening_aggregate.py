@@ -123,31 +123,23 @@ async def test_paths_of_one_origin_collapse_into_one_row(bbot_scanner):
         assert not await h.feed(h.nuclei(url, tpl, header))
     await h.finish_rounds()
 
-    assert list(h.by_category()) == ["grouped:security_headers"]
-    event = h.emitted[0]
-    assert event.type == "VULNERABILITY"
-    assert event.parent is h.scan.root_event
-    assert "grouped" in event.tags
-    data = event.data
-    assert data["table"] == {
-        "columns": ["Website", "content-security-policy", "x-frame-options"],
-        "rows": [
-            ["http://app.example.com", "", "missing"],
-            ["https://app.example.com", "missing", "missing"],
-            ["https://app.example.com:8443", "missing", ""],
-        ],
+    summaries = h.by_category()
+    assert set(summaries) == {
+        "grouped:security_headers:http://app.example.com",
+        "grouped:security_headers:https://app.example.com",
+        "grouped:security_headers:https://app.example.com:8443",
     }
-    assert data["row_count"] == 3
-    assert data["affected_endpoints"] == [
-        "http://app.example.com",
-        "https://app.example.com",
-        "https://app.example.com:8443",
-    ]
-    assert data["severity"] == "MEDIUM"
-    assert data["host"] == "app.example.com"
-    assert data["path"] == "grouped/security_headers"
-    assert data["source_templates"] == [tpl]
-    assert "3 websites" in data["description"]
+    for origin, expected in (
+        ("http://app.example.com", ["http://app.example.com", "missing"]),
+        ("https://app.example.com", ["https://app.example.com", "missing", "missing"]),
+        ("https://app.example.com:8443", ["https://app.example.com:8443", "missing"]),
+    ):
+        event = summaries[f"grouped:security_headers:{origin}"]
+        assert event.type == "VULNERABILITY"
+        assert event.parent is h.scan.root_event
+        assert event.data["table"]["rows"] == [expected]
+        assert event.data["affected_endpoints"] == [origin]
+        assert event.data["source_templates"] == [tpl]
 
 
 @pytest.mark.asyncio
@@ -200,14 +192,9 @@ async def test_stickiness_cookies_are_dropped_but_session_cookies_kept(bbot_scan
     assert not await h.feed(only_stickiness)
     await h.finish_rounds()
 
-    data = h.by_category()["grouped:cookies_csp"].data
+    data = h.by_category()["grouped:cookies:https://app.example.com"].data
     assert data["table"]["columns"] == ["Website", "Item", "Problem"]
     assert data["table"]["rows"] == [
-        [
-            "https://app.example.com",
-            'CSP Content-Security-Policy "script-src" Wildcard Detected',
-            "script-src allows any origin",
-        ],
         ["https://app.example.com", "cookie BIGipServerpool_web", "missing Secure"],
         ["https://app.example.com", "cookie SESSIONID", "missing HttpOnly, missing Secure"],
     ]
@@ -216,8 +203,10 @@ async def test_stickiness_cookies_are_dropped_but_session_cookies_kept(bbot_scan
     assert data["source_templates"] == [
         "cookies-without-httponly",
         "cookies-without-secure",
-        "csp-script-src-wildcard",
     ]
+    headers = h.by_category()["grouped:security_headers:https://app.example.com"].data
+    assert headers["table"]["rows"] == [["https://app.example.com", "script-src allows any origin"]]
+    assert headers["source_templates"] == ["csp-script-src-wildcard"]
 
 
 @pytest.mark.asyncio
@@ -234,7 +223,7 @@ async def test_cookie_result_without_url_uses_the_scanned_url(bbot_scanner):
     assert "url" not in event.data
     assert not await h.feed(event)
     await h.finish_rounds()
-    assert h.by_category()["grouped:cookies_csp"].data["table"]["rows"] == [
+    assert h.by_category()["grouped:cookies:https://app.example.com:8443"].data["table"]["rows"] == [
         ["https://app.example.com:8443", "cookie SID", "missing Secure"]
     ]
 
@@ -253,7 +242,6 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
     individual = [
         h.dns_audit("example.com", "DNS zone transfer enabled", "HIGH", "DNS"),
         h.dns_audit("example.com", "NSEC Allows Zone Walking", "INFO", "DNSSEC"),
-        h.dns_audit("example.com", "Wildcard DNS Record Detected", "INFO", "DNS"),
         h.dns_audit("example.com", "Open DNS Resolver", "MEDIUM", "DNS"),
         h.dns_audit("example.com", "MX Does Not Resolve", "HIGH", "Email"),
         h.dns_audit("example.com", "RRSIG Signatures Expired", "CRITICAL", "DNSSEC"),
@@ -261,6 +249,14 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
     ]
     for event in grouped:
         assert not await h.feed(event), event.data["title"]
+    classified = h.scan.make_event(
+        {"host": "example.com", "category": "domain-classification", "title": "Hosted mail DNS signals",
+         "description": "Observed hosted MX records", "severity": "INFO"},
+        "FINDING", parent=h.scan.root_event, module=h.scan._make_dummy_module("dnsresolve"),
+    )
+    assert not await h.feed(classified)
+    wildcard = h.dns_audit("example.com", "Wildcard DNS Record Detected", "INFO", "DNS")
+    assert not await h.feed(wildcard)
     for event in individual:
         assert await h.feed(event), event.data["title"]
     await h.finish_rounds()
@@ -271,14 +267,40 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
         "rows": [
             ["app.example.com", "SPF record DNS lookup limit", "INFO"],
             ["example.com", "DNSSEC Not Enabled", "INFO"],
+            ["example.com", "Hosted mail DNS signals", "INFO"],
             ["example.com", "Low Nameserver Diversity", "LOW"],
             ["example.com", "Missing CAA Records", "INFO"],
             ["example.com", "Missing DMARC Record", "MEDIUM"],
             ["example.com", "SPF Softfail Policy", "LOW"],
+            ["example.com", "Wildcard DNS Record Detected", "INFO"],
         ],
     }
     assert data["host"] == "example.com"
-    assert data["source_templates"] == ["domain-config-dns-audit", "spf-limit-lookup"]
+    assert data["source_templates"] == ["dnsresolve", "domain-config-dns-audit", "spf-limit-lookup"]
+
+
+@pytest.mark.asyncio
+async def test_reputation_observations_form_one_scan_finding(bbot_scanner):
+    h = await harness(bbot_scanner)
+    for asset, indicator, risk in (
+        ("example.com", "example.com", 80),
+        ("app.example.com", "CVE-2026-1234", 65),
+    ):
+        event = h.scan.make_event(
+            {"host": asset, "category": "host-reputation" if asset == indicator else "indicator-reputation",
+             "title": f"Reputation of {indicator}", "description": "Threat-intelligence source observation",
+             "severity": "HIGH", "risk_score": risk, "indicator": indicator,
+             "sources": [{"source": "MalwareWorld"}]},
+            "FINDING", parent=h.scan.root_event, module=h.scan._make_dummy_module("host_reputation"),
+        )
+        assert not await h.feed(event)
+    await h.finish_rounds()
+    reputation = h.by_category()["grouped:reputation"].data
+    assert reputation["severity"] == "HIGH"
+    assert reputation["table"] == {"columns": ["Asset", "Indicator", "Risk score", "Sources"],
+                                   "rows": [["app.example.com", "CVE-2026-1234", "65", "MalwareWorld"],
+                                            ["example.com", "example.com", "80", "MalwareWorld"]]}
+    assert reputation["affected_endpoints"] == ["app.example.com", "example.com"]
 
 
 @pytest.mark.asyncio
@@ -324,7 +346,7 @@ async def test_one_emission_per_category_after_a_quiet_finish_round(bbot_scanner
     assert scan._new_activity is True
 
     await h.module.finish()
-    assert sorted(h.by_category()) == ["grouped:retirejs", "grouped:security_headers"]
+    assert sorted(h.by_category()) == ["grouped:retirejs", "grouped:security_headers:https://app.example.com"]
     assert len(h.emitted) == 2
     await h.finish_rounds()
     assert len(h.emitted) == 2
@@ -375,10 +397,11 @@ async def test_summary_is_independent_of_arrival_order(bbot_scanner):
         summaries.append({key: (event.id, event.data) for key, event in h.by_category().items()})
     assert summaries[0] == summaries[1] == summaries[2]
     assert sorted(summaries[0]) == [
-        "grouped:cookies_csp",
+        "grouped:cookies:https://a.example.com",
         "grouped:dns",
         "grouped:retirejs",
-        "grouped:security_headers",
+        "grouped:security_headers:https://a.example.com",
+        "grouped:security_headers:https://b.example.com",
     ]
     # the event id comes from the stable dedupe key, not from the scanned targets
     other_scan = await harness(bbot_scanner)
