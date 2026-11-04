@@ -148,6 +148,22 @@ async def test_every_emitted_payload_names_its_template():
     results = [
         {"severity": "INFO", "template": "waf-detect", "tags": ["waf", "tech"], "name": "cloudfront"},
         {"severity": "INFO", "template": "tech-detect", "tags": ["tech"], "name": "Nginx"},
+        {"severity": "INFO", "template": "aaaa-fingerprint", "tags": ["dns", "aaaa", "ipv6", "discovery"],
+         "name": "AAAA Record - IPv6 Detection"},
+        {"severity": "INFO", "template": "dns-saas-service-detection", "tags": ["dns", "service", "discovery"],
+         "name": "auth0", "extracted_results": ["tenant.auth0.com"]},
+        {"severity": "INFO", "template": "dns-saas-service-detection", "tags": "dns,service,discovery",
+         "name": "amazon-cloudfront", "extracted_results": ["d123.cloudfront.net"]},
+        {"severity": "INFO", "template": "nameserver-fingerprint", "tags": ["dns", "ns", "discovery"],
+         "name": "Cloudflare NS"},
+        {"severity": "INFO", "template": "form-detection", "tags": ["form", "misc", "vuln"],
+         "name": "HTML form present"},
+        {"severity": "HIGH", "template": "spf-limit-lookup", "tags": ["dns", "misconfig", "discovery"],
+         "name": "SPF lookup limit exceeded"},
+        {"severity": "INFO", "template": "spoofable-spf-records-ptr", "tags": ["dns", "misconfig", "discovery"],
+         "name": "Spoofable SPF PTR record"},
+        {"severity": "INFO", "template": "dns-cname-takeover", "tags": ["dns", "discovery"],
+         "name": "Potential subdomain takeover"},
         {
             "severity": "INFO",
             "template": "naxus-missing-security-headers",
@@ -180,9 +196,20 @@ async def test_every_emitted_payload_names_its_template():
     assert [(event_type, data["template"]) for event_type, data in emitted] == [
         ("WAF", "waf-detect"),
         ("TECHNOLOGY", "tech-detect"),
+        ("TECHNOLOGY", "dns-saas-service-detection"),
+        ("TECHNOLOGY", "dns-saas-service-detection"),
+        ("VULNERABILITY", "spf-limit-lookup"),
+        ("FINDING", "spoofable-spf-records-ptr"),
+        ("FINDING", "dns-cname-takeover"),
         ("FINDING", "naxus-missing-security-headers"),
         ("FINDING", "odd-template"),
         ("VULNERABILITY", "generic-env"),
+    ]
+    assert [data["technology"] for event_type, data in emitted if event_type == "TECHNOLOGY"] == [
+        "nginx", "auth0", "amazon-cloudfront",
+    ]
+    assert [data.get("evidence") for event_type, data in emitted if event_type == "TECHNOLOGY"][-2:] == [
+        "tenant.auth0.com", "d123.cloudfront.net",
     ]
 
 

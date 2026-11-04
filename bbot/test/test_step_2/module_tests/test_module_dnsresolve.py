@@ -93,9 +93,9 @@ class TestDNSREsolve(ModuleTestBase):
             [
                 e
                 for e in events
-                if e.type == "FINDING"
-                and e.data.get("category") == "domain-classification"
-                and e.data.get("is_google_workspace") is True
+                if e.type == "TECHNOLOGY"
+                and e.data.get("technology") == "Google Workspace"
+                and "mx-google" in e.data.get("evidence", "")
                 and e.data.get("host") == "blacklanternsecurity.com"
             ]
         )

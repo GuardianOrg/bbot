@@ -20,3 +20,26 @@ def test_missing_optional_telemetry_is_not_emitted_as_a_finding():
     asyncio.run(module.check_caa("example.com", records, findings))
     assert records["CAA"]
     assert not findings
+
+
+def test_service_binding_records_remain_inventory_without_absence_finding():
+    module = object.__new__(domain_config_dns_audit)
+
+    async def query_dns(name, rdtype):
+        if name == "example.com" and rdtype == "HTTPS":
+            return True, ['1 . alpn="h2"']
+        return True, []
+
+    module.query_dns = query_dns
+    records = {"A": ["192.0.2.1"]}
+    findings = []
+    asyncio.run(module.check_https_svcb_records("example.com", records, findings))
+    assert records["HTTPS"] == ['example.com: 1 . alpn="h2"']
+    assert not findings
+
+    records = {"A": ["192.0.2.1"]}
+    async def no_records(_name, _rdtype):
+        return True, []
+    module.query_dns = no_records
+    asyncio.run(module.check_https_svcb_records("example.com", records, findings))
+    assert not findings

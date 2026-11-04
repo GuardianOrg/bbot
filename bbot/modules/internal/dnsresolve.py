@@ -36,7 +36,7 @@ simple_url_regex = re.compile(r"https?://[^;\s]+", re.I)
 
 class DNSResolve(BaseInterceptModule):
     watched_events = ["*"]
-    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD", "EMAIL_ADDRESS", "URL_UNVERIFIED", "FINDING"]
+    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD", "EMAIL_ADDRESS", "URL_UNVERIFIED", "TECHNOLOGY"]
     meta = {"description": "Perform DNS resolution", "created_date": "2022-04-08", "author": "@TheTechromancer"}
     _priority = 1
     scope_distance_modifier = None
@@ -520,13 +520,13 @@ class DNSResolve(BaseInterceptModule):
         if service_record(host) is True:
             return
 
-        await self.emit_google_workspace_finding(event, host)
+        await self.emit_google_workspace_technology(event, host)
         await self.emit_caa_enrichments(event, host)
         await self.emit_dmarc_enrichments(event, host)
         await self.emit_tlsrpt_enrichments(event, host)
         await self.emit_bimi_enrichments(event, host)
 
-    async def emit_google_workspace_finding(self, event, host):
+    async def emit_google_workspace_technology(self, event, host):
         dedup_key = ("google-workspace", host)
         if dedup_key in self.policy_queries_done:
             return
@@ -555,26 +555,17 @@ class DNSResolve(BaseInterceptModule):
             return
 
         await self.emit_unique_policy_event(
-            ("FINDING", host, "google-workspace"),
+            ("TECHNOLOGY", host, "google-workspace"),
             {
                 "host": host,
-                "title": f"Google Workspace detected for {host}",
-                "category": "domain-classification",
-                "description": (
-                    f"Google Workspace DNS signals were detected for {host}: {', '.join(sorted(signals))}. "
-                    "This indicates the domain may use Google's hosted mail, identity, verification, or collaboration services. "
-                    "The finding is informational, but it is useful for security review because identity and email providers are high-value control points. "
-                    "Confirm that the tenant is owned by the organization, that abandoned domains are not still linked to active services, and that mail authentication, administrator access, multifactor authentication, and account recovery settings are managed intentionally. "
-                    "Unexpected Workspace records can also reveal legacy migrations or forgotten SaaS configuration that should be cleaned up."
-                ),
-                "is_google_workspace": True,
-                "signals": sorted(signals),
+                "technology": "Google Workspace",
+                "evidence": f"DNS signals: {', '.join(sorted(signals))}",
                 "template": "dnsresolve-google-workspace",
             },
-            "FINDING",
+            "TECHNOLOGY",
             event,
-            ["domain-classification", "google-workspace"],
-            f'{{module}} analyzed DNS for "{host}" and produced {{event.type}}',
+            ["google-workspace"],
+            f'{{module}} analyzed DNS for "{host}" and identified {{event.type}}',
         )
 
     async def emit_caa_enrichments(self, event, host):

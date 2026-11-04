@@ -2111,25 +2111,6 @@ class domain_config_dns_audit(BaseModule):
             records["HTTPS"] = https_found
         if svcb_found:
             records["SVCB"] = svcb_found
-        if (records.get("A") or records.get("AAAA")) and not https_found and not svcb_found:
-            findings.append(AuditFinding(
-                "No HTTPS/SVCB Service Binding Records",
-                "INFO",
-                "DNS",
-                (
-                    "The domain has web-address records but does not publish HTTPS/SVCB records. Clients cannot use DNS service hints for HTTPS parameters, alternative endpoints, or future protocol optimization."
-                    ' HTTPS and SVCB records are newer DNS record types that can advertise service'
-                    ' parameters such as preferred protocols, alternative endpoints, and HTTPS connection hints before a client'
-                    ' connects. They are not required for normal websites to work, so this finding is informational. The absence'
-                    ' means clients cannot use DNS-level service hints that may improve performance, protocol negotiation, or future'
-                    ' deployment patterns. For many domains this is acceptable, especially when a CDN or provider does not require'
-                    ' them. The domain owner should consider these records only if the web platform supports them and there is a'
-                    ' clear operational benefit.'
-                ),
-                f"Checked: {domain}, www.{domain}",
-                "Consider HTTPS/SVCB records if your DNS provider and stack support them.",
-                f"dig {domain} HTTPS +short && dig {domain} SVCB +short",
-            ))
 
     async def check_dns_edns_resilience(self, domain, records, findings):
         if not self.is_apex_domain(domain):
