@@ -143,12 +143,14 @@ async def test_paths_of_one_origin_collapse_into_one_row(bbot_scanner):
 
 
 @pytest.mark.asyncio
-async def test_severe_and_unrelated_findings_pass_untouched(bbot_scanner):
+async def test_severe_header_and_cookie_findings_group_while_unrelated_findings_pass(bbot_scanner):
     h = await harness(bbot_scanner)
     url = "https://app.example.com/"
-    passing = [
+    grouped = [
         h.nuclei(url, "weak-csp-detect", "unsafe-script-src", severity="HIGH"),
         h.nuclei(url, "cookies-without-secure", "Cookies", severity="CRITICAL", poc="Extracted Data: SID"),
+    ]
+    passing = [
         h.nuclei(url, "generic-env", "Env file disclosure", severity="MEDIUM"),
         h.nuclei(url, "robots-txt", "robots.txt"),
         h.nuclei(url, "unknown-severity", "Odd", severity="UNKNOWN"),
@@ -158,12 +160,18 @@ async def test_severe_and_unrelated_findings_pass_untouched(bbot_scanner):
     other = h.nuclei(url, "naxus-missing-security-headers", "x-frame-options")
     other.module = h.scan._make_dummy_module("some_other_module")
     passing.append(other)
+    for event in grouped:
+        assert not await h.feed(event), event.data
     before = [dict(event.data) for event in passing]
     for event in passing:
         assert await h.feed(event), event.data
     assert [event.data for event in passing] == before
     await h.finish_rounds()
-    assert h.emitted == []
+    summaries = h.by_category()
+    assert set(summaries) == {"grouped:security_headers:https://app.example.com",
+                              "grouped:cookies:https://app.example.com"}
+    assert summaries["grouped:security_headers:https://app.example.com"].data["severity"] == "HIGH"
+    assert summaries["grouped:cookies:https://app.example.com"].data["severity"] == "CRITICAL"
 
 
 @pytest.mark.asyncio
@@ -237,14 +245,14 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
         h.dns_audit("example.com", "Missing CAA Records", "INFO", "Certificate"),
         h.dns_audit("example.com", "Low Nameserver Diversity", "LOW", "DNS"),
         h.dns_audit("example.com", "DNSSEC Not Enabled", "INFO", "DNSSEC"),
+        h.dns_audit("example.com", "MX Does Not Resolve", "HIGH", "Email"),
+        h.dns_audit("example.com", "RRSIG Signatures Expired", "CRITICAL", "DNSSEC"),
         h.nuclei("https://app.example.com/", "spf-limit-lookup", "SPF record DNS lookup limit"),
     ]
     individual = [
         h.dns_audit("example.com", "DNS zone transfer enabled", "HIGH", "DNS"),
         h.dns_audit("example.com", "NSEC Allows Zone Walking", "INFO", "DNSSEC"),
         h.dns_audit("example.com", "Open DNS Resolver", "MEDIUM", "DNS"),
-        h.dns_audit("example.com", "MX Does Not Resolve", "HIGH", "Email"),
-        h.dns_audit("example.com", "RRSIG Signatures Expired", "CRITICAL", "DNSSEC"),
         h.nuclei("https://app.example.com/", "cname-takeover-heroku", "Heroku takeover", severity="MEDIUM"),
     ]
     for event in grouped:
@@ -269,13 +277,16 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
             ["example.com", "DNSSEC Not Enabled", "INFO"],
             ["example.com", "Hosted mail DNS signals", "INFO"],
             ["example.com", "Low Nameserver Diversity", "LOW"],
+            ["example.com", "MX Does Not Resolve", "HIGH"],
             ["example.com", "Missing CAA Records", "INFO"],
             ["example.com", "Missing DMARC Record", "MEDIUM"],
+            ["example.com", "RRSIG Signatures Expired", "CRITICAL"],
             ["example.com", "SPF Softfail Policy", "LOW"],
             ["example.com", "Wildcard DNS Record Detected", "INFO"],
         ],
     }
     assert data["host"] == "example.com"
+    assert data["severity"] == "CRITICAL"
     assert data["source_templates"] == ["dnsresolve", "domain-config-dns-audit", "spf-limit-lookup"]
 
 
