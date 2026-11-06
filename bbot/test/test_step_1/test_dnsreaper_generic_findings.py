@@ -78,3 +78,50 @@ def test_generic_dangling_cname_is_a_lead_while_confirmed_netlify_is_a_vulnerabi
         ("netlify", "VULNERABILITY"),
         ("specific-provider", "VULNERABILITY"),
     ]
+
+
+def test_wildcard_placeholder_hosts_are_not_checked_for_takeover(tmp_path):
+    targets_file = tmp_path / "targets.txt"
+    commands = []
+    written = []
+
+    class TestDnsreaper(dnsreaper):
+        @property
+        def helpers(self):
+            def tempfile(targets, **kwargs):
+                written.extend(targets)
+                return targets_file
+
+            return SimpleNamespace(tempfile=tempfile)
+
+    module = object.__new__(TestDnsreaper)
+    module.binary = "dnsreaper"
+    module.parallelism = 1
+    module.timeout = 5
+    module.resolver = ""
+    module.disable_probable = False
+    module.enable_unlikely = False
+    module.signatures = []
+    module.exclude_signatures = []
+
+    async def run_process(command, **kwargs):
+        commands.append(command)
+        # What dnsreaper reported for the placeholder before it was filtered out.
+        finding = {
+            "domain": "_wildcard.example.com",
+            "signature": "_generic_cname_found_but_unregistered",
+            "confidence": "POTENTIAL",
+        }
+        return SimpleNamespace(stdout=json.dumps([finding]))
+
+    async def emit_event(*args, **kwargs):
+        raise AssertionError("no takeover result is expected for a wildcard placeholder")
+
+    module.run_process = run_process
+    module.emit_event = emit_event
+    events = [SimpleNamespace(host="_wildcard.example.com", raw_dns_records={"CNAME": {"example.com."}})]
+
+    asyncio.run(module.handle_batch(*events))
+
+    assert commands == []
+    assert written == []

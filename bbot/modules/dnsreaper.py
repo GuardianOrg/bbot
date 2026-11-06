@@ -113,7 +113,8 @@ class dnsreaper(BaseModule):
         parent_by_host = {}
         for event in events:
             host = str(event.host or "").strip().rstrip(".").lower()
-            if not host:
+            # "_wildcard.<domain>" is BBOT's placeholder for a wildcard DNS record, not a real hostname.
+            if not host or host.startswith("_wildcard."):
                 continue
             if host not in parent_by_host:
                 parent_by_host[host] = event
