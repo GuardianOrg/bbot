@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from bbot.modules.internal.hardening_aggregate import hardening_aggregate, url_origin
+from bbot.modules.internal.hardening_aggregate import SECURITY_HEADERS_TEMPLATE, hardening_aggregate, url_origin
 
 from ..bbot_fixtures import *
 
@@ -199,10 +199,10 @@ async def test_stickiness_cookies_are_dropped_but_session_cookies_kept(bbot_scan
     await h.finish_rounds()
 
     data = h.by_category()["grouped:cookies"].data
-    assert data["table"]["columns"] == ["Website", "Item", "Problem"]
+    assert data["table"]["columns"] == ["Website", "Item", "Problem", "Severity"]
     assert data["table"]["rows"] == [
-        ["https://app.example.com", "cookie BIGipServerpool_web", "missing Secure"],
-        ["https://app.example.com", "cookie SESSIONID", "missing HttpOnly, missing Secure"],
+        ["https://app.example.com", "cookie BIGipServerpool_web", "missing Secure", "INFO"],
+        ["https://app.example.com", "cookie SESSIONID", "missing HttpOnly, missing Secure", "INFO"],
     ]
     # the stickiness-only site never shows up
     assert data["affected_endpoints"] == ["https://app.example.com"]
@@ -226,8 +226,8 @@ async def test_cookie_issues_across_websites_share_one_finding(bbot_scanner):
     assert set(h.by_category()) == {"grouped:cookies"}
     data = h.by_category()["grouped:cookies"].data
     assert data["table"]["rows"] == [
-        ["https://app.example.com", "cookie SID", "missing Secure"],
-        ["https://shop.example.com", "cookie CART", "missing Secure"],
+        ["https://app.example.com", "cookie SID", "missing Secure", "INFO"],
+        ["https://shop.example.com", "cookie CART", "missing Secure", "INFO"],
     ]
     assert data["affected_endpoints"] == ["https://app.example.com", "https://shop.example.com"]
 
@@ -247,7 +247,7 @@ async def test_cookie_result_without_url_uses_the_scanned_url(bbot_scanner):
     assert not await h.feed(event)
     await h.finish_rounds()
     assert h.by_category()["grouped:cookies"].data["table"]["rows"] == [
-        ["https://app.example.com:8443", "cookie SID", "missing Secure"]
+        ["https://app.example.com:8443", "cookie SID", "missing Secure", "INFO"]
     ]
 
 
@@ -272,12 +272,6 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
     ]
     for event in grouped:
         assert not await h.feed(event), event.data["title"]
-    classified = h.scan.make_event(
-        {"host": "example.com", "category": "domain-classification", "title": "Hosted mail DNS signals",
-         "description": "Observed hosted MX records", "severity": "INFO"},
-        "FINDING", parent=h.scan.root_event, module=h.scan._make_dummy_module("dnsresolve"),
-    )
-    assert not await h.feed(classified)
     wildcard = h.dns_audit("example.com", "Wildcard DNS Record Detected", "INFO", "DNS")
     assert not await h.feed(wildcard)
     for event in individual:
@@ -290,7 +284,6 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
         "rows": [
             ["app.example.com", "SPF record DNS lookup limit", "INFO"],
             ["example.com", "DNSSEC Not Enabled", "INFO"],
-            ["example.com", "Hosted mail DNS signals", "INFO"],
             ["example.com", "Low Nameserver Diversity", "LOW"],
             ["example.com", "MX Does Not Resolve", "HIGH"],
             ["example.com", "Missing CAA Records", "INFO"],
@@ -302,31 +295,54 @@ async def test_dns_groups_policy_weaknesses_only(bbot_scanner):
     }
     assert data["host"] == "example.com"
     assert data["severity"] == "CRITICAL"
-    assert data["source_templates"] == ["dnsresolve", "domain-config-dns-audit", "spf-limit-lookup"]
+    assert data["source_templates"] == ["domain-config-dns-audit", "spf-limit-lookup"]
 
 
 @pytest.mark.asyncio
-async def test_reputation_observations_form_one_scan_finding(bbot_scanner):
+async def test_reputation_observations_form_one_scan_finding_never_above_medium(bbot_scanner):
     h = await harness(bbot_scanner)
-    for asset, indicator, risk in (
-        ("example.com", "example.com", 80),
-        ("app.example.com", "CVE-2026-1234", 65),
+    for asset, indicator, risk, malicious in (
+        ("example.com", "example.com", 80, True),
+        ("app.example.com", "CVE-2026-1234", 65, True),
+        ("203.0.113.7", "203.0.113.7", 10, False),
     ):
         event = h.scan.make_event(
             {"host": asset, "category": "host-reputation" if asset == indicator else "indicator-reputation",
              "title": f"Reputation of {indicator}", "description": "Threat-intelligence source observation",
-             "severity": "HIGH", "risk_score": risk, "indicator": indicator,
-             "sources": [{"source": "MalwareWorld"}]},
+             "severity": "HIGH" if malicious else "INFO", "risk_score": risk, "indicator": indicator,
+             "malicious": malicious, "sources": [{"source": "MalwareWorld"}]},
             "FINDING", parent=h.scan.root_event, module=h.scan._make_dummy_module("host_reputation"),
         )
         assert not await h.feed(event)
     await h.finish_rounds()
     reputation = h.by_category()["grouped:reputation"].data
-    assert reputation["severity"] == "HIGH"
-    assert reputation["table"] == {"columns": ["Asset", "Indicator", "Risk score", "Sources"],
-                                   "rows": [["app.example.com", "CVE-2026-1234", "65", "MalwareWorld"],
-                                            ["example.com", "example.com", "80", "MalwareWorld"]]}
-    assert reputation["affected_endpoints"] == ["app.example.com", "example.com"]
+    assert reputation["severity"] == "MEDIUM"
+    assert reputation["table"] == {
+        "columns": ["Asset", "Indicator", "Verdict", "Risk score", "Sources", "Severity"],
+        "rows": [["203.0.113.7", "203.0.113.7", "not malicious", "10", "MalwareWorld", "INFO"],
+                 ["app.example.com", "CVE-2026-1234", "malicious", "65", "MalwareWorld", "MEDIUM"],
+                 ["example.com", "example.com", "malicious", "80", "MalwareWorld", "MEDIUM"]],
+    }
+    assert reputation["affected_endpoints"] == ["203.0.113.7", "app.example.com", "example.com"]
+    assert reputation["affected_hosts"] == ["203.0.113.7", "app.example.com", "example.com"]
+    assert "203.0.113.7, app.example.com, example.com" in reputation["description"]
+
+
+@pytest.mark.asyncio
+async def test_summary_is_rated_like_its_most_severe_row_without_a_floor(bbot_scanner):
+    h = await harness(bbot_scanner)
+    for url in ("https://app.example.com/", "https://shop.example.com:8443/"):
+        assert not await h.feed(h.nuclei(url, SECURITY_HEADERS_TEMPLATE, "x-frame-options", severity="INFO"))
+    assert not await h.feed(h.dns_audit("example.com", "Missing CAA Records", "INFO", "Certificate"))
+    assert not await h.feed(h.dns_audit("example.com", "SPF Softfail Policy", "LOW", "Email"))
+    await h.finish_rounds()
+    summaries = h.by_category()
+    headers = summaries["grouped:security_headers"].data
+    assert headers["severity"] == "INFO"
+    assert headers["affected_endpoints"] == ["https://app.example.com", "https://shop.example.com:8443"]
+    assert headers["affected_hosts"] == ["app.example.com", "shop.example.com"]
+    assert "https://app.example.com, https://shop.example.com:8443" in headers["description"]
+    assert summaries["grouped:dns"].data["severity"] == "LOW"
 
 
 @pytest.mark.asyncio

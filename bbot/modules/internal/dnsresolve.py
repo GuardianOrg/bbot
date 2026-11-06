@@ -6,6 +6,7 @@ from contextlib import suppress
 from bbot.errors import ValidationError
 from bbot.core.helpers.dns.engine import all_rdtypes
 from bbot.core.helpers.dns.helpers import extract_targets, service_record
+from bbot.core.helpers.workspace_providers import EMAIL_SERVICE, WORKSPACE_PROVIDERS, detect_workspace_providers
 from bbot.core.helpers.regexes import dns_name_extraction_regex, email_regex, url_regexes
 from bbot.modules.base import BaseInterceptModule, BaseModule
 
@@ -36,7 +37,7 @@ simple_url_regex = re.compile(r"https?://[^;\s]+", re.I)
 
 class DNSResolve(BaseInterceptModule):
     watched_events = ["*"]
-    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD", "EMAIL_ADDRESS", "URL_UNVERIFIED", "TECHNOLOGY"]
+    produced_events = ["DNS_NAME", "IP_ADDRESS", "RAW_DNS_RECORD", "EMAIL_ADDRESS", "URL_UNVERIFIED", "WORKSPACE_PROVIDER"]
     meta = {"description": "Perform DNS resolution", "created_date": "2022-04-08", "author": "@TheTechromancer"}
     _priority = 1
     scope_distance_modifier = None
@@ -520,53 +521,37 @@ class DNSResolve(BaseInterceptModule):
         if service_record(host) is True:
             return
 
-        await self.emit_google_workspace_technology(event, host)
+        await self.emit_workspace_providers(event, host)
         await self.emit_caa_enrichments(event, host)
         await self.emit_dmarc_enrichments(event, host)
         await self.emit_tlsrpt_enrichments(event, host)
         await self.emit_bimi_enrichments(event, host)
 
-    async def emit_google_workspace_technology(self, event, host):
-        dedup_key = ("google-workspace", host)
+    async def emit_workspace_providers(self, event, host):
+        dedup_key = ("workspace-providers", host)
         if dedup_key in self.policy_queries_done:
             return
         self.policy_queries_done.add(dedup_key)
 
-        signals = set()
-        for answer in event.raw_dns_records.get("TXT", set()):
-            value = self.normalize_txt_answer(answer.to_text()).lower()
-            if "include:_spf.google.com" in value:
-                signals.add("spf-google")
-
-        for answer in event.raw_dns_records.get("MX", set()):
-            value = answer.to_text().strip().lower()
-            if any(
-                marker in value
-                for marker in (
-                    " smtp.google.com",
-                    " aspmx.l.google.com",
-                    ".googlemail.com",
-                    ".google.com",
-                )
-            ):
-                signals.add("mx-google")
-
-        if not signals:
-            return
-
-        await self.emit_unique_policy_event(
-            ("TECHNOLOGY", host, "google-workspace"),
-            {
-                "host": host,
-                "technology": "Google Workspace",
-                "evidence": f"DNS signals: {', '.join(sorted(signals))}",
-                "template": "dnsresolve-google-workspace",
-            },
-            "TECHNOLOGY",
-            event,
-            ["google-workspace"],
-            f'{{module}} analyzed DNS for "{host}" and identified {{event.type}}',
-        )
+        mx_answers = [answer.to_text() for answer in event.raw_dns_records.get("MX", set())]
+        txt_values = [self.normalize_txt_answer(answer.to_text()) for answer in event.raw_dns_records.get("TXT", set())]
+        for provider, signals in detect_workspace_providers(mx_answers, txt_values).items():
+            name = WORKSPACE_PROVIDERS[provider]["name"]
+            await self.emit_unique_policy_event(
+                ("WORKSPACE_PROVIDER", host, provider),
+                {
+                    "host": host,
+                    "provider": provider,
+                    "name": name,
+                    "services": [EMAIL_SERVICE],
+                    "signals": signals,
+                    "evidence": f"DNS signals for {name}: {', '.join(signals)}",
+                },
+                "WORKSPACE_PROVIDER",
+                event,
+                [provider.replace("_", "-")],
+                f'{{module}} analyzed DNS for "{host}" and identified {{event.type}}: {name}',
+            )
 
     async def emit_caa_enrichments(self, event, host):
         dedup_key = ("caa", host)

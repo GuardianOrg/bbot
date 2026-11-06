@@ -7,6 +7,10 @@ from bbot.modules.internal.base import BaseInternalModule
 # Known library vulnerabilities at high severity remain individual issues.
 RETIREJS_GROUPABLE_SEVERITIES = {"", "INFO", "LOW", "MEDIUM"}
 SEVERITY_RANK = {"": 0, "INFO": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "CRITICAL": 5}
+DEFAULT_SEVERITY = "INFO"
+# Threat-intelligence reputation is third-party context, not proof of compromise.
+REPUTATION_MAX_SEVERITY = "MEDIUM"
+REPUTATION_CATEGORIES = {"host-reputation", "indicator-reputation"}
 
 SECURITY_HEADERS_TEMPLATE = "naxus-missing-security-headers"
 COOKIE_TEMPLATES = {
@@ -71,10 +75,10 @@ CATEGORIES = {
 }
 
 COLUMNS = {
-    "cookies": ["Website", "Item", "Problem"],
+    "cookies": ["Website", "Item", "Problem", "Severity"],
     "dns": ["Domain", "Issue", "Severity"],
     "retirejs": ["Website", "Library", "Version", "Max severity", "CVEs"],
-    "reputation": ["Asset", "Indicator", "Risk score", "Sources"],
+    "reputation": ["Asset", "Indicator", "Verdict", "Risk score", "Sources", "Severity"],
 }
 
 
@@ -94,6 +98,21 @@ def url_origin(url):
     return f"{scheme}://{host}" + (f":{port}" if port and port != default_port else "")
 
 
+def cap_severity(severity, ceiling):
+    return ceiling if SEVERITY_RANK.get(severity, 0) > SEVERITY_RANK[ceiling] else severity
+
+def highest_severity(severities):
+    return max(severities, key=lambda level: SEVERITY_RANK.get(level, 0), default=DEFAULT_SEVERITY) or DEFAULT_SEVERITY
+
+def endpoint_host(endpoint):
+    """Hostname of a website origin, or the endpoint itself when it is already a host."""
+    if "://" not in endpoint:
+        return endpoint.lower()
+    try:
+        return (urlsplit(endpoint).hostname or "").lower()
+    except ValueError:
+        return ""
+
 def extracted_values(data):
     values = data.get("extracted_results")
     if isinstance(values, (list, tuple)):
@@ -110,9 +129,10 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     and outdated JavaScript libraries into one summary per category before event ingestion.
 
     The individual findings are held back while the scan runs. Once the scan is finishing
-    and no more of them arrive, one summary per category is emitted.
-    Anything that arrives after that is passed on unchanged. Explicit DNS, header,
-    cookie and reputation classifications join their summaries at any severity.
+    and no more of them arrive, one summary per category is emitted. A summary is rated
+    like the most severe finding it merged (reputation never above MEDIUM) and lists every
+    affected asset. Anything that arrives after that is passed on unchanged. Explicit DNS,
+    header, cookie and reputation classifications join their summaries at any severity.
     """
 
     watched_events = ["FINDING", "VULNERABILITY"]
@@ -186,18 +206,13 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         data = event.data if isinstance(event.data, dict) else {}
         severity = str(data.get("severity") or "").strip().upper()
         module = str(getattr(event, "module", "") or "")
-        if module == "host_reputation" and str(data.get("category") or "") in {"host-reputation", "indicator-reputation"}:
+        if module == "host_reputation" and str(data.get("category") or "") in REPUTATION_CATEGORIES:
             return self._classify_reputation(event, data)
         template = str(data.get("template") or "")
         if module == "nuclei":
             return self._classify_nuclei(event, data, template, severity)
         if module == "domain_config_dns_audit" and template == DNS_AUDIT_TEMPLATE:
             return self._classify_dns_audit(event, data, severity)
-        if module == "dnsresolve" and str(data.get("category") or "") == "domain-classification":
-            domain = str(data.get("host") or event.host or "").lower().rstrip(".")
-            title = str(data.get("title") or "").strip()
-            if domain and title:
-                return "dns", "dnsresolve", [((domain, title), {"severity": severity or "INFO"})]
         if module == "retirejs" and severity in RETIREJS_GROUPABLE_SEVERITIES:
             return self._classify_retirejs(event, data, severity)
         return None
@@ -274,9 +289,11 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         sources = data.get("sources") or []
         source_names = sorted({str(source.get("source") or source.get("name") or "")[:80]
                                for source in sources if isinstance(source, dict)}) if isinstance(sources, list) else []
+        severity = str(data.get("severity") or DEFAULT_SEVERITY).upper()
         return "reputation", "host_reputation", [((asset, indicator), {
             "risk_score": str(data.get("risk_score") or 0), "sources": source_names,
-            "severity": str(data.get("severity") or "INFO").upper(),
+            "malicious": data.get("malicious") is True,
+            "severity": cap_severity(severity, REPUTATION_MAX_SEVERITY),
         })]
 
     def _classify_retirejs(self, event, data, severity):
@@ -295,13 +312,15 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
 
     def _merge_row(self, category, key, values):
         row = self._rows[category].setdefault(key, {"problems": set(), "severity": "", "cves": set(),
-                                                    "templates": set(), "sources": set(), "risk_score": "0"})
+                                                    "templates": set(), "sources": set(), "risk_score": "0",
+                                                    "malicious": False})
         if values.get("problem"):
             row["problems"].add(values["problem"])
         if SEVERITY_RANK.get(values.get("severity", ""), 0) > SEVERITY_RANK.get(row["severity"], 0):
             row["severity"] = values["severity"]
         row["cves"].update(values.get("cves", ()))
         row["sources"].update(values.get("sources", ()))
+        row["malicious"] = row["malicious"] or bool(values.get("malicious"))
         row["risk_score"] = max(row["risk_score"], values.get("risk_score", "0"), key=lambda score: int(score) if score.isdigit() else 0)
 
     def _record_template(self, category, key, template):
@@ -327,10 +346,12 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         elif category == "dns":
             table_rows = [[domain, title, row["severity"]] for (domain, title), row in rows.items()]
         elif category == "reputation":
-            table_rows = [[asset, indicator, row["risk_score"], ", ".join(sorted(row["sources"]))]
+            table_rows = [[asset, indicator, "malicious" if row["malicious"] else "not malicious", row["risk_score"],
+                           ", ".join(sorted(row["sources"])), row["severity"] or DEFAULT_SEVERITY]
                           for (asset, indicator), row in rows.items()]
         else:
-            table_rows = [[origin, item, ", ".join(sorted(row["problems"]))] for (origin, item), row in rows.items()]
+            table_rows = [[origin, item, ", ".join(sorted(row["problems"])), row["severity"] or DEFAULT_SEVERITY]
+                          for (origin, item), row in rows.items()]
         return COLUMNS[category], sorted(table_rows), sorted({row[0] for row in table_rows})
 
     def summary(self, category):
@@ -344,14 +365,14 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         place = "domain" if category == "dns" else "asset" if category == "reputation" else "website"
         description = (
             f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {len(endpoints)} "
-            f"{place}{'' if len(endpoints) == 1 else 's'}. The affected {place}s and details are listed in the table."
+            f"{place}{'' if len(endpoints) == 1 else 's'}: {', '.join(endpoints)}. "
+            f"The details for each affected {place} are listed in the table."
         )
+        severity = highest_severity(row["severity"] for row in selected.values())
+        if category == "reputation":
+            severity = cap_severity(severity, REPUTATION_MAX_SEVERITY)
         data = {
-            "severity": (max((row["severity"] for row in selected.values()),
-                             key=lambda level: SEVERITY_RANK.get(level, 0))
-                         if category == "reputation" else
-                         max(["MEDIUM", *(row["severity"] for row in selected.values())],
-                             key=lambda level: SEVERITY_RANK.get(level, 0))),
+            "severity": severity,
             "title": meta["title"],
             "category": "grouped-hardening",
             "path": f"grouped/{category}",
@@ -360,6 +381,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             "recommendation": meta["recommendation"],
             "table": {"columns": columns, "rows": rows},
             "affected_endpoints": endpoints,
+            "affected_hosts": sorted({host for host in map(endpoint_host, endpoints) if host}),
             "row_count": len(rows),
             "source_templates": sorted({template for row in selected.values() for template in row["templates"]}),
         }

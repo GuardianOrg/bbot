@@ -37,7 +37,7 @@ class host_reputation(BaseModule):
         "FINDING",
         "VULNERABILITY",
     ]
-    produced_events = ["FINDING"]
+    produced_events = ["FINDING", "HOST_REPUTATION"]
     flags = ["passive", "safe", "ip-enum"]
     meta = {
         "description": "Check observed indicators against MalwareWorld threat intelligence",
@@ -121,10 +121,26 @@ class host_reputation(BaseModule):
         if not malicious and risk_score == 0 and not sources:
             return
         verdict = "malicious" if malicious else "not malicious"
+        # The host's reputation is asset information in its own right; the FINDING below is
+        # only an observation that is grouped with the others of the scan.
         await self.emit_event(
             {
                 "host": host,
-                "severity": "HIGH" if malicious else "INFO",
+                "kind": "ip" if is_ip else "domain",
+                "risk_score": int(risk_score or 0),
+                "malicious": bool(malicious),
+                "sources": sources,
+                "malwareworld": mw_result["malwareworld"],
+            },
+            "HOST_REPUTATION",
+            event,
+            context=f"{{module}} checked reputation sources for {host} and emitted {{event.type}}",
+        )
+        await self.emit_event(
+            {
+                "host": host,
+                # Reputation is third-party context, not proof of compromise: never above MEDIUM.
+                "severity": "MEDIUM" if malicious else "INFO",
                 "title": f"Host reputation: {host} is {verdict}",
                 "category": "host-reputation",
                 "description": (
@@ -191,7 +207,7 @@ class host_reputation(BaseModule):
                 "kind": kind,
                 "indicator": value,
                 "category": "indicator-reputation",
-                "severity": "HIGH",
+                "severity": "MEDIUM",
                 "title": f"MalwareWorld {kind} observation: {value}",
                 "location": f"{kind}:{value}",
                 "description": "Passive threat-intelligence match; review attribution and source categories before assigning company risk.",

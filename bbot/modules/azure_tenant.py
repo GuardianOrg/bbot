@@ -1,3 +1,4 @@
+from bbot.core.helpers.workspace_providers import IDENTITY_SERVICE
 from bbot.modules.base import BaseModule
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
@@ -6,7 +7,7 @@ import re
 
 class azure_tenant(BaseModule):
     watched_events = ["DNS_NAME"]
-    produced_events = ["DNS_NAME"]
+    produced_events = ["DNS_NAME", "AZURE_TENANT", "WORKSPACE_PROVIDER"]
     flags = ["affiliates", "subdomain-enum", "cloud-enum", "passive", "safe"]
     meta = {
         "description": "Query Azure via azmap.dev for tenant sister domains",
@@ -95,6 +96,20 @@ class azure_tenant(BaseModule):
                 "AZURE_TENANT",
                 parent=event,
                 context=f'{{module}} queried {source} for "{query}" and found {{event.type}}: {tenant_names_str}',
+            )
+            await self.emit_event(
+                {
+                    "host": query,
+                    "provider": "microsoft_entra_id",
+                    "name": "Microsoft Entra ID",
+                    "services": [IDENTITY_SERVICE],
+                    "signals": ["entra-tenant"],
+                    "evidence": f"{query} is a verified domain of Entra ID tenant {tenant_names_str or tenant_id or 'unknown'}",
+                },
+                "WORKSPACE_PROVIDER",
+                parent=event,
+                tags=["microsoft-entra-id"],
+                context=f'{{module}} queried {source} for "{query}" and found {{event.type}}: Microsoft Entra ID',
             )
 
     async def query(self, domain):
