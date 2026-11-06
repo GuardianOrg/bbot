@@ -380,6 +380,7 @@ class github_leak_formatter:
             or self.is_public_google_maps_javascript_key(scan_path, file_path, line, leak, detector, verified)
             or self.is_public_amplitude_api_key(scan_path, file_path, line, leak, detector)
             or self.is_documentation_placeholder(leak, detector, verified)
+            or self.is_labelled_example_key(scan_path, file_path, line, leak, detector, verified)
             or self.is_expired_jwt(leak, detector, verified)
             or self.is_public_gitbook_content_token(scan_path, file_path, line, leak, detector, verified)
         ):
@@ -515,6 +516,8 @@ class github_leak_formatter:
             return False
         value = str(leak or "").strip().strip("\"'")
         detector = str(detector or "").strip().lower()
+        if github_leak_formatter.is_example_value(github_leak_formatter.normalize_secret_value(value), detector):
+            return True
         if detector == "http bearer token":
             return bool(re.fullmatch(r"Authorization:\s*Bearer\s+YOUR_[A-Z0-9_]+", value, re.IGNORECASE))
         if detector == "generic secret":
@@ -533,6 +536,43 @@ class github_leak_formatter:
                 )
             )
         return False
+
+    @staticmethod
+    def is_example_value(value, detector):
+        """Values that documentation writes in place of a real credential."""
+        lowered = value.lower()
+        if "dummy" in lowered or any(marker in value for marker in ("${", "{{", "process.env", "os.environ")):
+            return True
+        if re.fullmatch(r"(?:token|key|secret|password|api[_-]?key)[_-]?\d{1,6}", value, re.IGNORECASE):
+            return True
+        if re.match(r"(?:GET_FROM_|YOUR_|REPLACE_|INSERT_|<)", value, re.IGNORECASE):
+            return True
+        # A run of one repeated character standing for an id or key, e.g. a UUID ending in 111111111111.
+        return detector != "private-key" and bool(re.search(r"(?:^|[-_:=])(.)\1{7,}(?:$|[-_])", value))
+
+    @staticmethod
+    def is_labelled_example_key(scan_path, file_path, line, leak, detector, verified):
+        """Documentation presents sample key pairs under an "Example values" or "sample key" label."""
+        if verified or str(detector or "").strip().lower() != "private-key":
+            return False
+        try:
+            source = Path(scan_path).resolve()
+            reported = Path(file_path).resolve()
+            line_number = int(line)
+        except (OSError, TypeError, ValueError):
+            return False
+        if line_number < 1 or source != reported or not source.is_file():
+            return False
+        try:
+            with source.open(encoding="utf-8", errors="ignore") as stream:
+                lines = [text for index, text in enumerate(stream, 1) if line_number - 5 <= index <= line_number]
+        except OSError:
+            return False
+        if not lines:
+            return False
+        lines[-1] = lines[-1].split("-----BEGIN", 1)[0]
+        label = r"\b(?:example|sample)\s+(?:values?|(?:private\s+)?keys?)\b"
+        return bool(re.search(label, "".join(lines), re.IGNORECASE))
 
     @staticmethod
     def is_expired_jwt(leak, detector, verified):
