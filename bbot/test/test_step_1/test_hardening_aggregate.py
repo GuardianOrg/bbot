@@ -138,6 +138,9 @@ async def test_all_header_origins_share_one_summary_with_one_row_each(bbot_scann
     }
     assert event.data["affected_endpoints"] == ["http://app.example.com", "https://app.example.com",
                                                  "https://app.example.com:8443"]
+    assert event.data["description"].startswith(
+        "3 websites: http://app.example.com, https://app.example.com, https://app.example.com:8443. "
+    )
     assert event.data["source_templates"] == [tpl]
 
 
