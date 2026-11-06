@@ -2,7 +2,10 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+from pathlib import Path
+
 from bbot.modules.dnsreaper import dnsreaper
+from bbot.modules.nuclei_takeover import nuclei_takeover
 from bbot.modules.subzy import subzy
 
 
@@ -66,3 +69,47 @@ def test_netlify_takeover_has_one_title_across_subzy_and_dnsreaper(tmp_path):
         ("subdomain-takeover", "VULNERABILITY"),
     ]
     assert emitted[0][0]["title"] == emitted[1][0]["title"]
+
+
+def test_nuclei_takeover_shares_the_host_level_title_and_sets_no_url(tmp_path):
+    host = "inquiry.cumberland.io"
+    emitted = []
+
+    class TestNucleiTakeover(nuclei_takeover):
+        @property
+        def helpers(self):
+            return SimpleNamespace(tempfile=lambda *args, **kwargs: tmp_path / "targets.txt")
+
+    module = object.__new__(TestNucleiTakeover)
+    module.nuclei_bin = "nuclei"
+    module.nuclei_templates_dir = Path(tmp_path)
+    module.takeover_templates_dir = Path(tmp_path) / "takeovers"
+    module.templates = ""
+    module.tags = "takeover"
+    module.etags = ""
+    module.ratelimit = module.retries = module.timeout = 1
+    module.module_timeout = 30
+    module.silent = True
+    module.scan = SimpleNamespace(custom_http_headers={})
+    module.info = module.warning = lambda *args, **kwargs: None
+
+    async def run_process_live(*args, **kwargs):
+        result = {
+            "template-id": "netlify-takeover",
+            "host": host,
+            "matched-at": f"https://{host}/",
+            "info": {"name": "Netlify Takeover Detection", "severity": "high"},
+        }
+        yield json.dumps(result)
+
+    async def emit(data, event_type, parent_event, **kwargs):
+        emitted.append((data, event_type))
+
+    module.run_process_live = run_process_live
+    module.emit_event = emit
+    asyncio.run(module.handle_batch(SimpleNamespace(host=host)))
+
+    assert [event_type for _, event_type in emitted] == ["VULNERABILITY"]
+    data = emitted[0][0]
+    assert data["title"] == "Potential subdomain takeover via netlify on inquiry.cumberland.io"
+    assert "url" not in data
