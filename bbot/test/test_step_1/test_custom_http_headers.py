@@ -16,7 +16,7 @@ from bbot.modules.wafw00f import wafw00f
 from bbot.modules.wpscan import wpscan
 from ..bbot_fixtures import *
 
-HEADERS = {"X-Assessment": "naxus42"}
+HEADERS = {"X-Assessment": "assess42"}
 
 
 def make(module_class, scan, name):
@@ -60,7 +60,7 @@ async def test_gowitness_wpscan_and_deadfinder_pass_the_scan_headers_only_when_s
     module = make(wpscan, scan, "wpscan")
     await module.setup()
     command = module.construct_command("https://example.com/")
-    assert flag_values(command, "--headers") == (["X-Assessment: naxus42"] if headers else [])
+    assert flag_values(command, "--headers") == (["X-Assessment: assess42"] if headers else [])
 
     scan = header_scan(bbot_scanner, "deadfinder", headers)
     module = make(deadfinder, scan, "deadfinder")
@@ -131,7 +131,7 @@ async def test_wafw00f_sends_the_scan_headers_on_every_probe(bbot_scanner, bbot_
     assert len(requests) >= 4
     for request in requests:
         if headers:
-            assert request.headers.get("X-Assessment") == "naxus42"
+            assert request.headers.get("X-Assessment") == "assess42"
         else:
             assert "X-Assessment" not in request.headers
     if headers:
@@ -163,7 +163,7 @@ async def test_originfinder_raw_requests_carry_the_scan_headers(bbot_scanner, he
     assert response["status"] == 200
     request = received[0].decode()
     assert request.startswith("GET /login HTTP/1.1\r\n")
-    assert ("X-Assessment: naxus42\r\n" in request) == bool(headers)
+    assert ("X-Assessment: assess42\r\n" in request) == bool(headers)
     assert request.endswith("\r\n\r\n") and request.count("\r\n\r\n") == 1
 
 
@@ -246,5 +246,5 @@ async def test_dns_audit_doh_probe_sends_the_scan_headers_only_to_in_scope_names
 
     assert module._sync_check_doh("ns1.example.com", "/dns-query") is True
     assert module._sync_check_doh("ns1.thirdparty-dns.net", "/dns-query") is True
-    assert sent["ns1.example.com"] == {"Accept": "application/dns-json", "X-Assessment": "naxus42"}
+    assert sent["ns1.example.com"] == {"Accept": "application/dns-json", "X-Assessment": "assess42"}
     assert sent["ns1.thirdparty-dns.net"] == {"Accept": "application/dns-json"}

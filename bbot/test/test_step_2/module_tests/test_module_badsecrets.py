@@ -86,12 +86,9 @@ class TestBadSecrets(ModuleTestBase):
             ):
                 SecretFound = True
 
-            if (
-                e.type == "FINDING"
-                and "AHo0wmLu5ceItIi+I7XkEi1GAb4h12WZ894pA+Z4OH7bco2jXEy1RSCWwjtJcZNbWPcvPqL5zzfl03DoeMZfGGX7a9PSv+fUT8MAeKNouAGj1dZuO8srXt8xZIGg+wPCWWCzcX6IhWOtgWUwiXeSojCDTKXklsYt+kAAAAk5wOsXvb2lTJoO0Q=="
-                in e.data["description"]
-            ):
+            if e.type == "TECHNOLOGY" and e.data["technology"] == "java server faces viewstate":
                 IdentifyOnly = True
+            assert e.type != "FINDING" or str(e.module) != "badsecrets", e.data
 
             if (
                 e.type == "VULNERABILITY"

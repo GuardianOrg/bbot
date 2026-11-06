@@ -122,6 +122,75 @@ def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
     )["category"] == "secret"
 
 
+def test_documentation_example_values_are_not_reported_as_secrets(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    artifact = tmp_path / "llms-full.txt"
+    artifact.write_text("docs\n")
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/llms-full.txt", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    examples = (
+        ("Authorization: Bearer token123", "HTTP Bearer Token"),
+        ('API_KEY="GET_FROM_EXAMPLE_DEVELOPER_PLATFORM', "Generic API Key"),
+        ("BG19dk9-thisisdummytoken-M9Bhk7StKQFJEbsguv", "Generic API Key"),
+        ("apiKey=${process.env.NEXT_PUBLIC_EXAMPLE_API_KEY", "Generic API Key"),
+        ("API_KEY_ID=3008043e-4528-46b7-82ff-111111111111", "Generic API Key"),
+    )
+    for value, detector in examples:
+        assert formatter.format_artifact_leak(event, artifact, value, detector=detector) is None
+        reported = formatter.format_artifact_leak(event, artifact, value, detector=detector, verified=True)
+        assert reported["severity"] == "High"
+
+    for value, detector in (
+        ("Authorization: Bearer 7f3a9c2e5b8d1f4a6c0e9b2d5f8a1c4e", "HTTP Bearer Token"),
+        ("API_KEY_ID=3008043e-4528-46b7-82ff-5d1e9c7a2b40", "Generic API Key"),
+        ('API_KEY="k8Qz2LmN4pR7sT1vW3xY5"', "Generic API Key"),
+    ):
+        assert formatter.format_artifact_leak(event, artifact, value, detector=detector)["category"] == "secret"
+
+
+def test_private_keys_labelled_as_example_values_are_not_reported(tmp_path):
+    class Formatter(github_leak_formatter):
+        name = "kingfisher"
+
+    pem = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIFixtureKeyMaterial\n-----END EC PRIVATE KEY-----"
+    artifact = tmp_path / "llms-full.txt"
+    root = SimpleNamespace(type="SCAN", data=None, parent=None)
+    url = SimpleNamespace(type="URL_UNVERIFIED", data="https://docs.example.com/llms-full.txt", parent=root)
+    event = SimpleNamespace(type="FILESYSTEM", data={"path": str(artifact)}, parent=url)
+    formatter = Formatter()
+
+    def report(text, line, verified=False):
+        artifact.write_text(text)
+        return formatter.format_artifact_leak(
+            event, artifact, pem, detector="private-key", file_path=str(artifact), line=line, verified=verified
+        )
+
+    labelled = "## Authentication\n\nExample values:\n\nAPI key name: organizations/example/apiKeys/example\n" + pem
+    assert report(labelled, 6) is None
+    assert report(labelled, 6, verified=True)["severity"] == "High"
+    assert report("Rotate the deployment key below.\n" + pem, 2)["category"] == "secret"
+
+
+def test_one_secret_matched_by_different_rules_has_one_fingerprint():
+    fingerprint = github_leak_formatter.secret_fingerprint
+    amplitude = "6cf69a22c4e1b7d3f9a0e5c8b2d47f13"
+    google = "AIzaSyFixtureKeyMaterialForRegressionT178"
+    bearer = "abd90c4e7f2b1a8d5c3e9f0b6a2d4c8e"
+
+    assert fingerprint(amplitude) == fingerprint(f'apiKey\\":\\"{amplitude}') == fingerprint(f'apiKey":"{amplitude}"')
+    assert fingerprint(google) == fingerprint(f'{google}"')
+    assert fingerprint(f"Authorization: Bearer {bearer}'") == fingerprint(bearer)
+    assert fingerprint(amplitude) != fingerprint(google)
+    assert fingerprint("postgres://app:hunter2hunter2@db.example.com/app") != fingerprint(
+        "mysql://app:hunter2hunter2@db.example.com/app"
+    )
+
+
 def test_expired_jwt_artifacts_are_not_reported_as_secrets(tmp_path):
     class Formatter(github_leak_formatter):
         name = "kingfisher"

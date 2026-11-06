@@ -49,7 +49,7 @@ def test_whatweb_uses_only_live_distinct_html_and_20_global():
     assert all(record["live"] for record in picked)
 
 
-def test_batch_bytes_stay_below_naxus_compaction_threshold():
+def test_batch_bytes_stay_below_the_consumer_compaction_threshold():
     records = [observation(f"{ORIGIN}/f{i}/" + "x" * 200, ORIGIN, "katana", status=200, live=True)
                for i in range(200)]
     chunks = list(batches(ORIGIN, records, {"selected": 200}))

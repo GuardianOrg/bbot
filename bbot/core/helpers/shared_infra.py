@@ -15,7 +15,7 @@ Three independent kinds of evidence are checked, because none of them is enough 
   here, because their PTR is the same ``ec2-*.compute.amazonaws.com`` name as a dedicated instance's; it only
   names edge providers such as CloudFront or Akamai, and is checked as an alias.
 
-BBOT is the only place that decides this. Consumers (naxus, Sentry) trust the flags BBOT emits on GEOLOCATION.
+BBOT is the only place that decides this. Consumers trust the flags BBOT emits on GEOLOCATION.
 """
 
 from __future__ import annotations

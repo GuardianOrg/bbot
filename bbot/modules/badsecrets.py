@@ -24,7 +24,7 @@ def carve_all_modules_safely(**kwargs):
 
 class badsecrets(BaseModule):
     watched_events = ["HTTP_RESPONSE"]
-    produced_events = ["FINDING", "VULNERABILITY", "TECHNOLOGY"]
+    produced_events = ["VULNERABILITY", "TECHNOLOGY"]
     flags = ["active", "safe", "web-basic"]
     meta = {
         "description": "Library for detecting known or weak secrets across many web frameworks",
@@ -113,32 +113,15 @@ class badsecrets(BaseModule):
                     elif r["type"] == "IdentifyOnly":
                         if r["detecting_module"] == "Generic_JWT":
                             continue
-                        # Non-vulnerable ASP.NET artifacts identify a technology,
-                        # but are not useful findings by themselves.
+                        # An identify-only result means no known or weak secret signed the
+                        # artifact, so it names the technology rather than a vulnerability.
                         if r["detecting_module"] in ("ASPNET_Viewstate", "ASPNET_Resource"):
                             technology = "microsoft asp.net"
-                            await self.emit_event(
-                                {"technology": technology, "url": event.data["url"], "host": str(event.host)},
-                                "TECHNOLOGY",
-                                event,
-                                context=f"{{module}} identified {{event.type}}: {technology}",
-                            )
                         else:
-                            data = {
-                                "description": (
-                                    f"The response contains a recognizable {r['description']['product']} cryptographic artifact. "
-                                    "This is not necessarily vulnerable by itself, but it identifies security-sensitive application state that should use strong keys, current algorithms, and product-specific hardening. "
-                                    "For a non-specialist, this means the application is exposing data that appears to be protected, signed, encrypted, or otherwise security-related. "
-                                    "That data may be safe when configured correctly, but weak keys, old algorithms, predictable values, or missing integrity checks can turn it into a bypass or tampering risk. "
-                                    "Review the product-specific guidance, confirm the secret material is private, and avoid trusting client-controlled values without server-side validation. "
-                                    f"Observed product [{self.helpers.truncate_string(r['product'], 2000)}]."
-                                ),
-                                "url": event.data["url"],
-                                "host": str(event.host),
-                            }
-                            await self.emit_event(
-                                data,
-                                "FINDING",
-                                event,
-                                context=f'{{module}} identified cryptographic product ({{event.type}}): "{r["description"]["product"]}"',
-                            )
+                            technology = str(r["description"]["product"]).lower()
+                        await self.emit_event(
+                            {"technology": technology, "url": event.data["url"], "host": str(event.host)},
+                            "TECHNOLOGY",
+                            event,
+                            context=f"{{module}} identified {{event.type}}: {technology}",
+                        )

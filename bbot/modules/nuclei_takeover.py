@@ -5,6 +5,7 @@ import subprocess
 from urllib.parse import urlparse
 
 from bbot.modules.base import BaseModule
+from bbot.modules.templates.takeover import takeover_finding_title
 
 
 class nuclei_takeover(BaseModule):
@@ -199,14 +200,15 @@ class nuclei_takeover(BaseModule):
                         poc_parts.append(f"Extracted Results: {extracted_str}")
                     if matcher:
                         poc_parts.append(f"Matcher: {matcher}")
-                    url_value = matched_at if "://" in str(matched_at) else None
+                    # Host-level identity, shared with subzy and dnsreaper: "netlify-takeover" names
+                    # the same provider as their "netlify" signature.
+                    provider = str(template_id).removesuffix("-takeover")
                     event_data = {
-                        "title": name,
+                        "title": takeover_finding_title(host, provider),
                         "category": "subdomain-takeover",
                         "description": description,
                         "recommendation": "Validate the dangling DNS target and reclaim or remove the stale integration before it can be taken over.",
                         "host": host,
-                        "url": url_value,
                         "poc": "\n".join(poc_parts) or None,
                     }
                     if severity in ("info", "unknown", ""):

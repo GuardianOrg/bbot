@@ -112,7 +112,7 @@ def test_url_origin_reduces_to_scheme_host_port():
 @pytest.mark.asyncio
 async def test_all_header_origins_share_one_summary_with_one_row_each(bbot_scanner):
     h = await harness(bbot_scanner)
-    tpl = "naxus-missing-security-headers"
+    tpl = "missing-security-headers"
     for url, header in [
         ("https://app.example.com/", "x-frame-options"),
         ("https://app.example.com/login", "x-frame-options"),
@@ -156,7 +156,7 @@ async def test_severe_header_and_cookie_findings_group_while_unrelated_findings_
         h.retire(url, "jquery", "1.2.3", "high", ["CVE-2020-11022"]),
     ]
     # a module other than nuclei reusing a grouped template id is not grouped either
-    other = h.nuclei(url, "naxus-missing-security-headers", "x-frame-options")
+    other = h.nuclei(url, "missing-security-headers", "x-frame-options")
     other.module = h.scan._make_dummy_module("some_other_module")
     passing.append(other)
     for event in grouped:
@@ -371,7 +371,7 @@ async def test_one_emission_per_category_after_a_quiet_finish_round(bbot_scanner
     scan = h.scan
     url = "https://app.example.com/"
     scan._new_activity = False
-    assert not await h.feed(h.nuclei(url, "naxus-missing-security-headers", "x-frame-options"))
+    assert not await h.feed(h.nuclei(url, "missing-security-headers", "x-frame-options"))
     # holding an event must keep the scan from ending before finish() sees it
     assert scan._new_activity is True
 
@@ -394,7 +394,7 @@ async def test_one_emission_per_category_after_a_quiet_finish_round(bbot_scanner
     assert len(h.emitted) == 2
 
     # after the summary, matching findings are forwarded individually instead of being lost
-    late = h.nuclei("https://late.example.com/", "naxus-missing-security-headers", "x-frame-options")
+    late = h.nuclei("https://late.example.com/", "missing-security-headers", "x-frame-options")
     assert await h.feed(late)
     # stickiness-only cookie results stay dropped after the summary as well
     sticky = h.nuclei("https://late.example.com/", "cookies-without-secure", "Cookies", poc="Extracted Data: AWSALB")
@@ -418,9 +418,9 @@ async def test_nothing_is_emitted_without_grouped_findings(bbot_scanner):
 async def test_summary_is_independent_of_arrival_order(bbot_scanner):
     def events(h):
         return [
-            h.nuclei("https://b.example.com/x", "naxus-missing-security-headers", "referrer-policy"),
-            h.nuclei("https://a.example.com/", "naxus-missing-security-headers", "x-frame-options"),
-            h.nuclei("https://a.example.com/y", "naxus-missing-security-headers", "referrer-policy"),
+            h.nuclei("https://b.example.com/x", "missing-security-headers", "referrer-policy"),
+            h.nuclei("https://a.example.com/", "missing-security-headers", "x-frame-options"),
+            h.nuclei("https://a.example.com/y", "missing-security-headers", "referrer-policy"),
             h.nuclei("https://a.example.com/", "cookies-without-secure", "Cookies", poc="Extracted Data: B, A"),
             h.dns_audit("example.com", "Missing DMARC Record", "MEDIUM", "Email"),
             h.dns_audit("example.com", "SPF Softfail Policy", "LOW", "Email"),

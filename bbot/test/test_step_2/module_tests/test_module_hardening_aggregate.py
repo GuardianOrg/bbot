@@ -24,7 +24,7 @@ class TestHardeningAggregate(ModuleTestBase):
                             "url": f"{url}page",
                             "title": header,
                             "description": header,
-                            "template": "naxus-missing-security-headers",
+                            "template": "missing-security-headers",
                         },
                         "FINDING",
                         parent=event,
@@ -72,7 +72,7 @@ class TestHardeningAggregate(ModuleTestBase):
     def check(self, module_test, events):
         vulns = [e for e in events if e.type in ("FINDING", "VULNERABILITY")]
         # the individual low-risk findings never reach the output
-        assert not [e for e in vulns if e.data.get("template") == "naxus-missing-security-headers"]
+        assert not [e for e in vulns if e.data.get("template") == "missing-security-headers"]
         assert not [e for e in vulns if e.data.get("component") == "jquery"]
         # the severe one does, unchanged
         assert [e.data["template"] for e in vulns if e.data.get("severity") == "HIGH"] == ["generic-env"]
