@@ -9,8 +9,8 @@ from bbot.modules.nuclei_takeover import nuclei_takeover
 from bbot.modules.subzy import subzy
 
 
-def test_netlify_takeover_has_one_title_across_subzy_and_dnsreaper(tmp_path):
-    host = "inquiry.cumberland.io"
+def test_ghost_takeover_has_one_title_across_subzy_and_dnsreaper(tmp_path):
+    host = "blog.example.com"
     target_file = tmp_path / "targets.txt"
     output_file = tmp_path / "subzy.json"
     emitted = []
@@ -31,16 +31,22 @@ def test_netlify_takeover_has_one_title_across_subzy_and_dnsreaper(tmp_path):
     subzy_module.https = False
     subzy_module.verify_ssl = False
     subzy_module.resolver = ""
+    subzy_module.fingerprints_path = tmp_path / "fingerprints.json"
+    subzy_module.fingerprints_path.write_text(
+        json.dumps([{"service": "Ghost", "status": "Vulnerable", "cname": ["ghost.io"]}])
+    )
 
     async def subzy_process(*args, **kwargs):
-        output_file.write_text(json.dumps([{"status": "vulnerable", "subdomain": host, "engine": "Netlify"}]))
+        output_file.write_text(json.dumps([{"status": "vulnerable", "subdomain": host, "engine": "Ghost"}]))
 
     async def emit(data, event_type, parent_event, **kwargs):
         emitted.append((data, event_type))
 
     subzy_module.run_process = subzy_process
     subzy_module.emit_event = emit
-    asyncio.run(subzy_module.handle_batch(SimpleNamespace(host=host)))
+    asyncio.run(
+        subzy_module.handle_batch(SimpleNamespace(host=host, raw_dns_records={"CNAME": {"example.ghost.io."}}))
+    )
 
     class TestDnsreaper(dnsreaper):
         @property
@@ -58,7 +64,7 @@ def test_netlify_takeover_has_one_title_across_subzy_and_dnsreaper(tmp_path):
     dnsreaper_module.exclude_signatures = []
 
     async def dnsreaper_process(*args, **kwargs):
-        return SimpleNamespace(stdout=json.dumps([{"domain": host, "signature": "netlify", "confidence": "CONFIRMED"}]))
+        return SimpleNamespace(stdout=json.dumps([{"domain": host, "signature": "ghost", "confidence": "CONFIRMED"}]))
 
     dnsreaper_module.run_process = dnsreaper_process
     dnsreaper_module.emit_event = emit

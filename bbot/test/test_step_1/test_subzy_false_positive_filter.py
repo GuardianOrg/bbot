@@ -1,5 +1,9 @@
 import asyncio
+import json
 from types import SimpleNamespace
+
+import dns.rdata
+import pytest
 
 from bbot.modules.subzy import subzy
 
@@ -193,3 +197,120 @@ def test_subzy_ignores_cargo_match_on_own_apex_varnish_404():
         {"CNAME": {"site.cargo.site."}},
         host="direct.panteracapital.com",
     ) is False
+
+
+# Entries as published in can-i-take-over-xyz's fingerprints.json, which subzy matches against.
+FINGERPRINTS = [
+    {"service": "Ghost", "status": "Vulnerable", "cname": ["ghost.io"]},
+    {"service": "AWS/S3", "status": "Vulnerable", "cname": ["s3.amazonaws.com"]},
+    {"service": "SmartJobBoard", "status": "Vulnerable", "cname": ["52.16.160.97"]},
+    {"service": "Pantheon", "status": "Vulnerable", "cname": []},
+    {"service": "Getresponse", "status": "Vulnerable", "cname": []},
+    {"service": "Unbounce", "status": "Not vulnerable", "cname": []},
+    {"service": "Netlify", "status": "Edge case", "cname": []},
+]
+
+
+def rdata(rdtype, value):
+    return dns.rdata.from_text("IN", rdtype, value)
+
+
+def run_subzy(tmp_path, findings, dns_answers=None, fingerprints=FINGERPRINTS):
+    """Run handle_batch on subzy's JSON output. findings: (host, engine, raw_dns_records)."""
+    fingerprints_file = tmp_path / "fingerprints.json"
+    if fingerprints is not None:
+        fingerprints_file.write_text(json.dumps(fingerprints))
+    files = iter((tmp_path / "targets.txt", tmp_path / "subzy.json"))
+    dns_answers = dns_answers or {}
+    emitted = []
+
+    async def resolve_raw(name, type):
+        answer = dns_answers.get((name, type), [])
+        if answer is None:
+            return [], [("timeout", type)]
+        return [rdata(type, value) for value in answer], []
+
+    class TestSubzy(subzy):
+        @property
+        def helpers(self):
+            return SimpleNamespace(tempfile=lambda *args, **kwargs: next(files), resolve_raw=resolve_raw)
+
+        async def is_claimed_provider_host(self, *args, **kwargs):
+            return False
+
+    module = object.__new__(TestSubzy)
+    module.binary = "subzy"
+    module.concurrency = 1
+    module.timeout = 5
+    module.https = False
+    module.verify_ssl = False
+    module.fingerprints_path = fingerprints_file
+    module.debug = lambda *args, **kwargs: None
+
+    async def run_process(*args, **kwargs):
+        results = [{"status": "vulnerable", "subdomain": host, "engine": engine} for host, engine, _ in findings]
+        (tmp_path / "subzy.json").write_text(json.dumps(results))
+
+    async def emit_event(data, *args, **kwargs):
+        emitted.append(data["host"])
+
+    module.run_process = run_process
+    module.emit_event = emit_event
+    events = [SimpleNamespace(host=host, raw_dns_records=records) for host, _, records in findings]
+    asyncio.run(module.handle_batch(*events))
+    return emitted
+
+
+def test_subzy_drops_engines_that_its_fingerprints_do_not_rate_vulnerable(tmp_path):
+    emitted = run_subzy(
+        tmp_path,
+        [
+            ("lp.example.com", "Unbounce", {}),
+            ("www.example.com", "Netlify", {"CNAME": {"example.netlify.app."}}),
+            ("blog.example.com", "Ghost", {"CNAME": {"example.ghost.io."}}),
+        ],
+    )
+
+    assert emitted == ["blog.example.com"]
+
+
+def test_subzy_requires_the_host_to_point_to_the_engine_provider(tmp_path):
+    emitted = run_subzy(
+        tmp_path,
+        [
+            # A docs page quoting Ghost's error text, served from the company's own CDN.
+            ("docs.example.com", "Ghost", {"CNAME": {"docs.example-cdn.net."}}),
+            # Its own servers, no CNAME at all.
+            ("api.example.com", "Pantheon", {"A": {"203.0.113.10"}}),
+            ("jobs.example.com", "SmartJobBoard", {"A": {"203.0.113.11"}}),
+            # Reached through an intermediate CNAME.
+            ("news.example.com", "Ghost", {"CNAME": {"news.edge.example.net."}}),
+            ("assets.example.com", "AWS/S3", {"CNAME": {"assets.example.com.s3-website-us-east-1.amazonaws.com."}}),
+            ("careers.example.com", "SmartJobBoard", {"A": {"52.16.160.97"}}),
+            ("live.example.com", "Pantheon", {"CNAME": {"live-example.pantheonsite.io."}}),
+            # The CNAME lookup failed, or the engine names no provider domain: nothing disproves the match.
+            ("unknown.example.com", "Ghost", {}),
+            ("mail.example.com", "Getresponse", {"A": {"203.0.113.12"}}),
+        ],
+        dns_answers={
+            ("news.edge.example.net", "CNAME"): ["example.ghost.io."],
+            ("api.example.com", "CNAME"): [],
+            ("unknown.example.com", "CNAME"): None,
+        },
+    )
+
+    assert emitted == [
+        "news.example.com",
+        "assets.example.com",
+        "careers.example.com",
+        "live.example.com",
+        "unknown.example.com",
+        "mail.example.com",
+    ]
+
+
+def test_subzy_fails_when_its_fingerprints_cannot_be_checked(tmp_path):
+    with pytest.raises(RuntimeError, match="fingerprints"):
+        run_subzy(tmp_path, [("blog.example.com", "Ghost", {})], fingerprints=None)
+    with pytest.raises(RuntimeError, match="Brand New Host"):
+        run_subzy(tmp_path, [("blog.example.com", "Brand New Host", {})])

@@ -1,6 +1,10 @@
+import ipaddress
 import json
+import re
 from pathlib import Path
+from urllib.parse import urlparse
 
+from bbot.core.helpers.dns.helpers import extract_targets
 from bbot.modules.base import BaseModule
 from bbot.modules.templates.takeover import is_aws_elb_cname, takeover_finding_title
 
@@ -15,8 +19,49 @@ NON_CARGO_CNAME_SUFFIXES = ("sendgrid.net", "readmessl.com", "ghost.io")
 NON_INTERCOM_CNAME_SUFFIXES = ("ghost.io",)
 
 
+# subzy matches bodies against can-i-take-over-xyz's fingerprints but ignores their status and
+# CNAMEs, so a page quoting a provider's error text is reported as that provider's takeover.
+VULNERABLE_FINGERPRINT_STATUS = "vulnerable"
+MAX_CNAME_HOPS = 5
+# Provider domains for vulnerable fingerprints that list no CNAME.
+ENGINE_CNAME_DOMAINS = {
+    "campaign monitor": ("createsend.com",),
+    "canny": ("canny.io",),
+    "cargo collective": ("cargocollective.com", "cargo.site"),
+    "pantheon": ("pantheonsite.io",),
+    "pingdom": ("stats.pingdom.com",),
+    "readthedocs": ("readthedocs.io",),
+    "smugsmug": ("domains.smugmug.com",),
+}
+# Buckets are also addressed through regional and website endpoints.
+ENGINE_CNAME_PATTERNS = {
+    "aws/s3": re.compile(r"(?:^|\.)s3[.-](?:[a-z0-9-]+\.)*amazonaws\.com$"),
+}
+
+
 def cname_has_suffix(target, suffixes):
     return any(target == suffix or target.endswith(f".{suffix}") for suffix in suffixes)
+
+
+def normalize_dns_name(name):
+    return str(name).strip().rstrip(".").lower()
+
+
+def fingerprint_targets(engine, entry):
+    """Split a fingerprint's CNAME list, plus the known provider domains, into hostnames and IPs."""
+    names, ips = set(), set()
+    for target in [*(entry.get("cname") or ()), *ENGINE_CNAME_DOMAINS.get(engine, ())]:
+        target = str(target).strip()
+        if "://" in target:
+            target = urlparse(target).hostname or ""
+        target = normalize_dns_name(target)
+        if not target:
+            continue
+        try:
+            ips.add(str(ipaddress.ip_address(target)))
+        except ValueError:
+            names.add(target)
+    return names, ips
 
 
 class subzy(BaseModule):
@@ -36,6 +81,7 @@ class subzy(BaseModule):
         "https": False,
         "verify_ssl": False,
         "check_unresolved": False,
+        "fingerprints": "",
     }
     options_desc = {
         "binary": "Path to subzy executable",
@@ -44,6 +90,7 @@ class subzy(BaseModule):
         "https": "Use HTTPS when protocol is not supplied",
         "verify_ssl": "Only check sites with valid SSL certs",
         "check_unresolved": "Also check DNS_NAME_UNRESOLVED events",
+        "fingerprints": "Path to the fingerprints.json subzy uses (default: ~/subzy/fingerprints.json)",
     }
     deps_apt = ["golang-go"]
     deps_ansible = [
@@ -71,6 +118,10 @@ class subzy(BaseModule):
         self.https = bool(self.config.get("https", False))
         self.verify_ssl = bool(self.config.get("verify_ssl", False))
         self.check_unresolved = bool(self.config.get("check_unresolved", False))
+        fingerprints = str(self.config.get("fingerprints", "") or "").strip()
+        self.fingerprints_path = (
+            Path(fingerprints).expanduser() if fingerprints else Path.home() / "subzy" / "fingerprints.json"
+        )
         if "/" in self.binary:
             if not Path(self.binary).is_file():
                 return False, f"subzy binary not found at path: {self.binary}"
@@ -193,6 +244,75 @@ class subzy(BaseModule):
                 return True
         return False
 
+    def load_fingerprints(self):
+        """subzy downloads its fingerprints before a run; read the same file to know each engine's status and CNAMEs."""
+        try:
+            entries = json.loads(Path(self.fingerprints_path).read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"could not read subzy fingerprints at {self.fingerprints_path}: {exc}") from exc
+        return {str(entry.get("service", "")).strip().lower(): entry for entry in entries if isinstance(entry, dict)}
+
+    async def resolve_records(self, name, rdtype):
+        """Return the record values for name, or None when the lookup is inconclusive."""
+        try:
+            answers, errors = await self.helpers.resolve_raw(name, type=rdtype)
+        except Exception:
+            return None
+        values = {
+            normalize_dns_name(value)
+            for answer in answers
+            for answer_type, value in extract_targets(answer)
+            if answer_type == rdtype
+        }
+        if not values and errors:
+            return None
+        return values
+
+    async def points_elsewhere(self, host, engine, entry, raw_dns_records=None):
+        """
+        True when DNS proves the host is not routed to the fingerprint's provider: its CNAME chain
+        reaches none of the provider's domains and its addresses none of the provider's IPs.
+        Engines without known provider domains, and inconclusive lookups, keep the result.
+        """
+        names, ips = fingerprint_targets(engine, entry)
+        pattern = ENGINE_CNAME_PATTERNS.get(engine)
+        if not names and not ips and pattern is None:
+            return False
+
+        def matches(target):
+            return cname_has_suffix(target, names) or bool(pattern and pattern.search(target))
+
+        dns_records = raw_dns_records or {}
+        if ips:
+            addresses = {normalize_dns_name(a) for a in dns_records.get("A", ())}
+            if not addresses:
+                addresses = await self.resolve_records(host, "A")
+                if addresses is None:
+                    return False
+            if addresses & ips:
+                return False
+        if not names and pattern is None:
+            return True
+
+        chain = set()
+        frontier = {normalize_dns_name(target) for target in dns_records.get("CNAME", ())}
+        if not frontier:
+            frontier = await self.resolve_records(host, "CNAME")
+            if frontier is None:
+                return False
+        for _ in range(MAX_CNAME_HOPS):
+            frontier -= chain
+            if not frontier:
+                break
+            if any(matches(target) for target in frontier):
+                return False
+            chain |= frontier
+            next_hops = set()
+            for target in frontier:
+                next_hops |= await self.resolve_records(target, "CNAME") or set()
+            frontier = next_hops
+        return True
+
     async def handle_batch(self, *events):
         targets = []
         parent_by_host = {}
@@ -249,6 +369,7 @@ class subzy(BaseModule):
             if not isinstance(results, list):
                 raise RuntimeError("subzy returned a non-list JSON result")
 
+            fingerprints = None
             for result in results:
                 if not isinstance(result, dict):
                     continue
@@ -263,6 +384,21 @@ class subzy(BaseModule):
                     continue
 
                 engine = result.get("engine") or result.get("service") or "subzy"
+                if fingerprints is None:
+                    fingerprints = self.load_fingerprints()
+                entry = fingerprints.get(str(engine).strip().lower())
+                if entry is None:
+                    raise RuntimeError(f'subzy reported engine "{engine}", which is not in {self.fingerprints_path}')
+                if str(entry.get("status", "")).strip().lower() != VULNERABLE_FINGERPRINT_STATUS:
+                    self.debug(
+                        f'Suppressing {engine} takeover result for {host}: the fingerprint status is "{entry.get("status")}"'
+                    )
+                    continue
+                if await self.points_elsewhere(
+                    host, str(engine).strip().lower(), entry, getattr(parent_event, "raw_dns_records", None)
+                ):
+                    self.debug(f"Suppressing {engine} takeover result for {host}: its DNS does not point to {engine}")
+                    continue
                 if await self.is_claimed_provider_host(host, engine, getattr(parent_event, "raw_dns_records", None)):
                     self.debug(f"Suppressing {engine} takeover result for {host}: the response proves a claimed site")
                     continue
