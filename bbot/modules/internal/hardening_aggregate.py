@@ -23,6 +23,10 @@ CSP_TEMPLATES = {
 }
 TOMCAT_COOKIE_TEMPLATE = "tomcat-cookie-exposed"
 DNS_NUCLEI_TEMPLATES = {"spf-limit-lookup", "spoofable-spf-records-ptr"}
+# Templates that extract a disclosed value from responses: one row per value, not per page.
+DISCLOSURE_TEMPLATES = {"internal-ip-disclosure"}
+# Pages listed for one disclosed value; the rest are counted.
+MAX_LOCATIONS_PER_VALUE = 5
 DNS_AUDIT_TEMPLATE = "domain-config-dns-audit"
 
 # Load balancer stickiness cookies carry a backend-routing token and never a session, so
@@ -67,6 +71,14 @@ CATEGORIES = {
             "when it is no longer used."
         ),
     },
+    "disclosure": {
+        "title": "Internal IP addresses disclosed in HTTP responses",
+        "noun": "disclosed address",
+        "recommendation": (
+            "Stop the listed pages from echoing internal addresses (response headers, error pages, redirects "
+            "or bodies), typically by fixing the proxy or application configuration that adds them."
+        ),
+    },
     "reputation": {
         "title": "Reputation observations for scanned assets",
         "noun": "observation",
@@ -78,6 +90,7 @@ COLUMNS = {
     "cookies": ["Website", "Item", "Problem", "Severity"],
     "dns": ["Domain", "Issue", "Severity"],
     "retirejs": ["Website", "Library", "Version", "Max severity", "CVEs"],
+    "disclosure": ["Disclosed address", "Found at", "Pages", "Severity"],
     "reputation": ["Asset", "Indicator", "Verdict", "Risk score", "Sources", "Severity"],
 }
 
@@ -264,6 +277,13 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             item = "Tomcat CookieExample servlet"
             problem = "example servlet exposed; it echoes the request cookies"
             return "cookies", template, [((origin, item), {"problem": problem, "severity": severity})]
+        if template in DISCLOSURE_TEMPLATES:
+            location = str(data.get("url") or "").strip() or self._event_origin(event, data)
+            values = extracted_values(data)
+            if not location or not values:
+                return None
+            return "disclosure", template, [((value,), {"location": location, "severity": severity})
+                                            for value in dict.fromkeys(values)]
         if template in DNS_NUCLEI_TEMPLATES:
             domain = str(event.host or "").lower()
             if not domain or not title:
@@ -313,12 +333,14 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     def _merge_row(self, category, key, values):
         row = self._rows[category].setdefault(key, {"problems": set(), "severity": "", "cves": set(),
                                                     "templates": set(), "sources": set(), "risk_score": "0",
-                                                    "malicious": False})
+                                                    "malicious": False, "locations": set()})
         if values.get("problem"):
             row["problems"].add(values["problem"])
         if SEVERITY_RANK.get(values.get("severity", ""), 0) > SEVERITY_RANK.get(row["severity"], 0):
             row["severity"] = values["severity"]
         row["cves"].update(values.get("cves", ()))
+        if values.get("location"):
+            row["locations"].add(values["location"])
         row["sources"].update(values.get("sources", ()))
         row["malicious"] = row["malicious"] or bool(values.get("malicious"))
         row["risk_score"] = max(row["risk_score"], values.get("risk_score", "0"), key=lambda score: int(score) if score.isdigit() else 0)
@@ -343,6 +365,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
                 [origin, component, version, row["severity"], ", ".join(sorted(row["cves"]))]
                 for (origin, component, version), row in rows.items()
             ]
+        elif category == "disclosure":
+            return self.disclosure_table(rows)
         elif category == "dns":
             table_rows = [[domain, title, row["severity"]] for (domain, title), row in rows.items()]
         elif category == "reputation":
@@ -354,6 +378,19 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
                           for (origin, item), row in rows.items()]
         return COLUMNS[category], sorted(table_rows), sorted({row[0] for row in table_rows})
 
+    @staticmethod
+    def disclosure_table(rows):
+        """One row per disclosed value with up to MAX_LOCATIONS_PER_VALUE pages; the endpoints are the pages listed."""
+        table_rows, endpoints = [], set()
+        for (value,), row in rows.items():
+            locations = sorted(row["locations"])
+            shown = locations[:MAX_LOCATIONS_PER_VALUE]
+            endpoints.update(shown)
+            hidden = len(locations) - len(shown)
+            found_at = ", ".join(shown) + (f" and {hidden} more" if hidden else "")
+            table_rows.append([value, found_at, str(len(locations)), row["severity"] or DEFAULT_SEVERITY])
+        return COLUMNS["disclosure"], sorted(table_rows), sorted(endpoints)
+
     def summary(self, category):
         selected = self._rows[category]
         if not selected:
@@ -362,7 +399,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         columns, rows, endpoints = self.table(category)
         hosts = self._hosts[category]
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
-        place = "domain" if category == "dns" else "asset" if category == "reputation" else "website"
+        place = {"dns": "domain", "reputation": "asset", "disclosure": "page"}.get(category, "website")
         description = (
             f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {len(endpoints)} "
             f"{place}{'' if len(endpoints) == 1 else 's'}: {', '.join(endpoints)}. "
@@ -381,10 +418,16 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             "recommendation": meta["recommendation"],
             "table": {"columns": columns, "rows": rows},
             "affected_endpoints": endpoints,
-            "affected_hosts": sorted({host for host in map(endpoint_host, endpoints) if host}),
+            "affected_hosts": self.affected_hosts(category, endpoints),
             "row_count": len(rows),
             "source_templates": sorted({template for row in selected.values() for template in row["templates"]}),
         }
         if host:
             data["host"] = host
         return data
+
+    def affected_hosts(self, category, endpoints):
+        """Every host of the summary; a disclosure counts the pages it does not list too."""
+        if category == "disclosure":
+            endpoints = [location for row in self._rows[category].values() for location in row["locations"]]
+        return sorted({host for host in map(endpoint_host, endpoints) if host})

@@ -449,3 +449,31 @@ async def test_summary_is_independent_of_arrival_order(bbot_scanner):
     await other_scan.feed(other_scan.dns_audit("example.com", "Missing DMARC Record", "MEDIUM", "Email"))
     await other_scan.finish_rounds()
     assert other_scan.by_category()["grouped:dns"].id == summaries[0]["grouped:dns"][0]
+
+
+@pytest.mark.asyncio
+async def test_internal_ip_disclosures_form_one_finding_with_five_pages_per_address(bbot_scanner):
+    h = await harness(bbot_scanner)
+    tpl = "internal-ip-disclosure"
+    pages = [f"https://app.example.com/p{i}" for i in range(7)]
+    for page in pages:
+        assert not await h.feed(h.nuclei(page, tpl, "Internal IP Disclosure", poc="Extracted Data: 10.0.0.5"))
+    assert not await h.feed(h.nuclei("https://example.com/", tpl, "Internal IP Disclosure",
+                                     poc="Extracted Data: 10.0.0.5, 192.168.1.9"))
+    assert not await h.feed(h.nuclei("https://example.com/login", tpl, "Internal IP Disclosure",
+                                     poc="Extracted Data: 192.168.1.9"))
+    # A finding without an extracted address is not merged into the summary.
+    assert await h.feed(h.nuclei("https://example.com/x", tpl, "Internal IP Disclosure"))
+    await h.finish_rounds()
+
+    summaries = h.by_category()
+    assert set(summaries) == {"grouped:disclosure"}
+    data = summaries["grouped:disclosure"].data
+    ten_rows = [row for row in data["table"]["rows"] if row[0] == "10.0.0.5"]
+    assert len(ten_rows) == 1
+    listed = sorted(["https://example.com/"] + pages)[:5]
+    assert ten_rows[0] == ["10.0.0.5", ", ".join(listed) + " and 3 more", "8", "INFO"]
+    assert ["192.168.1.9", "https://example.com/, https://example.com/login", "2", "INFO"] in data["table"]["rows"]
+    assert data["affected_endpoints"] == sorted(set(listed) | {"https://example.com/", "https://example.com/login"})
+    assert data["affected_hosts"] == ["app.example.com", "example.com"]
+    assert data["row_count"] == 2
