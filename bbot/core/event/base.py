@@ -1866,6 +1866,55 @@ class AZURE_TENANT(DictEvent):
     _quick_emit = True
 
 
+class WORKSPACE_PROVIDER(DictHostEvent):
+    """A domain uses a hosted email or identity provider (Google Workspace, Microsoft 365, ...)."""
+
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        # stable identifier, e.g. "google_workspace", "microsoft_365", "amazon_workmail"
+        provider: str
+        # display name, e.g. "Google Workspace"
+        name: str
+        # what the domain uses the provider for: "email", "identity"
+        services: list[str]
+        # DNS or API signals the detection is based on, e.g. "mx", "spf", "verification-txt"
+        signals: list[str]
+        evidence: Optional[str] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+
+    def _data_id(self):
+        return f"{self.host}:{self.data.get('provider', '')}"
+
+    def _pretty_string(self):
+        return self.data["name"]
+
+
+class HOST_REPUTATION(DictHostEvent):
+    """Threat-intelligence reputation of one in-scope domain or IP address."""
+
+    _always_emit = True
+    _quick_emit = True
+
+    class _data_validator(BaseModel):
+        host: str
+        kind: str
+        risk_score: int
+        malicious: bool
+        sources: list[dict]
+        malwareworld: Optional[dict] = None
+        _validate_host = field_validator("host")(validators.validate_host)
+
+    def _data_id(self):
+        return f"{self.host}"
+
+    def _pretty_string(self):
+        verdict = "malicious" if self.data.get("malicious") else "not malicious"
+        return f"{self.host} is {verdict} (risk score {self.data.get('risk_score', 0)})"
+
+
 class DOMAIN_WHOIS(DictHostEvent):
     _always_emit = True
     _quick_emit = True

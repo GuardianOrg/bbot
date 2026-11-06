@@ -34,6 +34,12 @@ class TestAzure_Tenant(ModuleTestBase):
             and "blacklanternsecurity" in e.data["tenant-names"]
             for e in events
         )
+        assert any(
+            e.type == "WORKSPACE_PROVIDER"
+            and e.data["provider"] == "microsoft_entra_id"
+            and e.data["services"] == ["identity"]
+            for e in events
+        )
 
 
 class TestAzure_TenantSubdomain(ModuleTestBase):

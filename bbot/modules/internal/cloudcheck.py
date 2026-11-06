@@ -14,6 +14,21 @@ SHARED_CLOUD_PROVIDERS = {"heroku", "salesforce", "microsoft365", "zscaler"}
 FRONTEND_EVENT_TYPES = {"IP_ADDRESS", "DNS_NAME", "HTTP_RESPONSE"}
 
 
+def provider_rank(provider):
+    """How much one cloudcheck provider says about what answers on an address: CDN and WAF edges first, then
+    shared SaaS ranges, then plain cloud. cloudcheck tags all GitHub ranges "cdn", which is no CDN verdict."""
+    name, tags = provider
+    tag_set = {str(tag).lower() for tag in tags}
+    is_cdn = ("cdn" in tag_set and name != "github") or name == "cloudflare"
+    return is_cdn, "waf" in tag_set, name in SHARED_CLOUD_PROVIDERS, "cloud" in tag_set
+
+
+def primary_provider(providers):
+    """The (name, tags) that decides an address's verdict. cloudcheck lists overlapping providers in no fixed
+    order, so the first one is not it."""
+    return max(providers, key=provider_rank) if providers else (None, ())
+
+
 def frontend_cname_evidence(hosts):
     """(kind, provider, evidence) when a DNS alias names a CDN, WAF, load balancer, API gateway or shared platform."""
     return shared_infra.classify_hostnames(hosts)
@@ -217,8 +232,9 @@ class CloudCheck(BaseInterceptModule):
             if not shared:
                 frontend = await self.probed_evidence(event, host, frontend, providers)
             if frontend or shared:
-                data = cloud_ip_metadata(host, self._provider_slug(shared[0][0]) if shared else None,
-                                         shared[0][1] if shared else (), frontend)
+                provider_name, tags = primary_provider(shared)
+                data = cloud_ip_metadata(host, self._provider_slug(provider_name) if provider_name else None,
+                                         tags, frontend)
                 if not data["isFrontedProxy"] and not data["isCdn"]:
                     continue
                 self.remember_frontend(event, host, data)
@@ -386,12 +402,7 @@ class CloudCheck(BaseInterceptModule):
         return None
 
     async def emit_cloud_ip_metadata(self, event, host, providers, cname_frontend=None):
-        ranked = sorted(
-            providers,
-            key=lambda item: ("cdn" in item[1], "waf" in item[1], "cloud" in item[1]),
-            reverse=True,
-        )
-        provider_name, tags = ranked[0] if ranked else (None, [])
+        provider_name, tags = primary_provider(providers)
         if not provider_name and not cname_frontend and event.type != "IP_ADDRESS":
             return None
         provider_slug = self._provider_slug(provider_name) if provider_name else None

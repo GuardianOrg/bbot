@@ -116,17 +116,11 @@ class TestApkeepDirectPlayStoreUrl(ModuleTestBase):
         assert Path(filesystem_event[0].data["path"]).is_file(), "Destination apk doesn't exist"
 
 
-class TestApkeepDirectPlayStoreUrlFailureFinding(ModuleTestBase):
+class TestApkeepDirectPlayStoreUrlFailureIsNotAFinding(ModuleTestBase):
     targets = ["MOBILE_APP:https://play.google.com/store/apps/details?id=com.bbot.test"]
     modules_overrides = ["apkeep"]
 
     def check(self, module_test, events):
-        findings = [
-            e
-            for e in events
-            if e.type == "FINDING"
-            and e.data.get("category") == "mobile-apk-analysis-failed"
-            and e.data.get("host") == "com.bbot.test"
-        ]
-        assert 1 == len(findings), "Failed APK downloads must emit a visible scan-coverage finding"
-        assert findings[0].data.get("severity") == "medium"
+        # A package that cannot be downloaded is a coverage gap for the scan log, not a weakness of the app.
+        assert not [e for e in events if e.type in ("FINDING", "VULNERABILITY")]
+        assert not [e for e in events if e.type == "FILESYSTEM"]

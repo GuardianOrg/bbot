@@ -150,7 +150,7 @@ config:
         atproto-did-exposure,nostr-json-exposure,discord-invite-detect,crypto-address-detect,
         torrent-magnet-detect,onion-website-supported,detect-dns-over-https,ssl-issuer,ssl-dns-names,
         tls-version,wildcard-tls,missing-cookie-samesite-strict,missing-sri,xss-deprecated-header,
-        http-missing-security-headers
+        http-missing-security-headers,addeventlistener-detect
       # Runs the corrected templates shipped in bbot/modules/nuclei_templates.
       bundled_templates: true
       ratelimit: 120
