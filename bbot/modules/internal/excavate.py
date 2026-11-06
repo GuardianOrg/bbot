@@ -5,6 +5,7 @@ import time
 import inspect
 import base64
 import binascii
+import zlib
 import regex as re
 from pathlib import Path
 from bbot.errors import ExcavateError, ValidationError
@@ -111,6 +112,41 @@ class YaraRuleSettings:
         self.description = description
         self.tags = tags
         self.emit_match = emit_match
+
+
+# Files whose extracted text is prose (manuals, guides, slides): sample payloads and
+# quoted error messages in them describe a product rather than expose a running one.
+DOCUMENT_EXTENSIONS = (
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".odt",
+    ".odp",
+    ".ods",
+    ".odg",
+    ".ppt",
+    ".pptx",
+    ".pps",
+    ".ppsx",
+    ".xls",
+    ".xlsx",
+    ".md",
+    ".markdown",
+    ".rtf",
+    ".sxw",
+    ".wpd",
+    ".indd",
+)
+
+
+def is_document_text(event):
+    """RAW_TEXT extracted from a document file rather than from a log, dump or config file."""
+    if getattr(event, "type", "") != "RAW_TEXT":
+        return False
+    parent = getattr(event, "parent", None)
+    data = getattr(parent, "data", None)
+    path = str(data.get("path", "") if isinstance(data, dict) else "").lower()
+    return path.endswith(DOCUMENT_EXTENSIONS)
 
 
 class ExcavateRule:
@@ -845,6 +881,9 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             )
 
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
+            if is_document_text(event):
+                self.excavate.debug("Ignoring error text quoted in a document")
+                return
             for identifier in yara_results.keys():
                 for findings in yara_results[identifier]:
                     event_data = {
@@ -869,6 +908,21 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             "PHP_Object": re.compile(r"[^a-zA-Z0-9\/+][\"']?Tzo[xyz0123456][a-zA-Z0-9+\/]+={0,2}"),
             "Possible_Compressed": re.compile(r"[^a-zA-Z0-9\/+][\"']?H4sIAAAA[a-zA-Z0-9+\/]+={0,2}"),
         }
+        prefixes = {
+            "Java": "rO0",
+            "Ruby": "BAh",
+            "DOTNET": "AAEAAAD",
+            "PHP_Array": "YTo",
+            "PHP_String": "czo",
+            "PHP_Object": "Tzo",
+            "Possible_Compressed": "H4sI",
+        }
+        ruby_type_codes = {bytes([code]) for code in b'0TFil":;[{}o@IeCuUdfcmMS/'}
+        php_headers = {
+            "PHP_Array": re.compile(rb"a:\d+:\{"),
+            "PHP_String": re.compile(rb's:\d+:"'),
+            "PHP_Object": re.compile(rb'O:\d+:"'),
+        }
         yara_rules = {}
 
         def __init__(self, excavate):
@@ -881,9 +935,49 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 f'rule serialization_detection {{meta: description = "contains a possible serialized object" strings: {regexes_component} condition: any of them}}'
             )
 
+        @staticmethod
+        def _decode(match, prefix):
+            start = match.find(prefix)
+            if start < 0:
+                return b""
+            value = match[start:].rstrip("=")
+            # YARA caps the matched data, so decode only whole base64 quanta.
+            value = value[: len(value) - len(value) % 4]
+            try:
+                return base64.b64decode(value, validate=True)
+            except (ValueError, binascii.Error):
+                return b""
+
+        @classmethod
+        def _is_serialized(cls, identifier, match):
+            """The base64 prefix fixes the magic bytes; check the bytes after them form an object too."""
+            decoded = cls._decode(match, cls.prefixes[identifier])
+            if identifier == "Java":
+                # Stream magic and version, then a TC_* type code.
+                return decoded[:4] == b"\xac\xed\x00\x05" and len(decoded) > 4 and 0x70 <= decoded[4] <= 0x7E
+            if identifier == "Ruby":
+                return decoded[:2] == b"\x04\x08" and decoded[2:3] in cls.ruby_type_codes
+            if identifier == "DOTNET":
+                return decoded[:9] == b"\x00\x01\x00\x00\x00\xff\xff\xff\xff" and len(decoded) > 17
+            if identifier.startswith("PHP_"):
+                return bool(re.match(cls.php_headers[identifier], decoded))
+            if identifier == "Possible_Compressed":
+                if decoded[:3] != b"\x1f\x8b\x08":
+                    return False
+                try:
+                    return bool(zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(decoded, 1024))
+                except zlib.error:
+                    return False
+            return False
+
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
+            if is_document_text(event):
+                self.excavate.debug("Ignoring serialized-object lookalikes in a document")
+                return
             for identifier in yara_results.keys():
                 for findings in yara_results[identifier]:
+                    if not self._is_serialized(identifier, findings):
+                        continue
                     event_data = {
                         "description": (
                             f"{discovery_context} {yara_rule_settings.description} ({identifier}). "
