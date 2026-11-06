@@ -1,6 +1,6 @@
 # Initial web fingerprints
 
-The shared `all-but-intense-http.yml` preset enables `whatweb` and `retirejs` for Naxus and GuardianSentry. Both retain the existing `HTTP_RESPONSE`, `TECHNOLOGY` and `FINDING` event types.
+The shared `all-but-intense-http.yml` preset enables `whatweb` and `retirejs` for its consumers, including GuardianSentry. Both retain the existing `HTTP_RESPONSE`, `TECHNOLOGY` and `FINDING` event types.
 
 ## Response metadata
 
@@ -47,7 +47,7 @@ Script downloads are limited to 5 MiB by default (`max_js_size`), with a 30-seco
 
 ## Consumer requirements
 
-- Naxus installs the selected remote BBOT revision and downloads the preset from that same revision. Updating only its fallback preset does not change the deployed image. New metadata is kept in large-event previews as well as the full S3 record.
+- Consumers that install a remote BBOT revision download the preset from that same revision. Updating only a consumer's fallback preset does not change the deployed image. New metadata is kept in large-event previews as well as the full S3 record.
 - GuardianSentry builds its pinned `bbot-guardian` submodule. Update the pin together with its URL metadata migration/ingester changes. GuardianSentryClient receives these fields through existing graph metadata.
 - BBOT's dependency installer supplies Ruby/WhatWeb and architecture-selected Node/RetireJS during image warmup. Existing image build verification must succeed before promotion. The new source alone does not update a running image or database.
 

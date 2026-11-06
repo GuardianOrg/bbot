@@ -1,8 +1,8 @@
-id: naxus-missing-security-headers
+id: missing-security-headers
 
 info:
   name: HTTP Missing Security Headers
-  author: socketz,geeknik,G4L1T0,convisoappsec,kurohost,dawid-czarnecki,forgedhallpass,jub0bs,userdehghani,celbahraoui,safejulian,naxus
+  author: socketz,geeknik,G4L1T0,convisoappsec,kurohost,dawid-czarnecki,forgedhallpass,jub0bs,userdehghani,celbahraoui,safejulian
   severity: info
   description: |
     Reports browser security headers missing from an HTML page. Corrected copy of the upstream

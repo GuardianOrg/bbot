@@ -137,7 +137,7 @@ config:
       # Inventory/fingerprint templates that report what exists rather than a weakness, DNS
       # checks that domain_config_dns_audit already covers (DMARC, DNSSEC, wildcard DNS), and
       # header checks with known false positives. http-missing-security-headers is replaced
-      # by the bundled naxus-missing-security-headers template.
+      # by the bundled missing-security-headers template.
       exclude_ids: >-
         aaaa-fingerprint,acme-challenge-detect,bimi-record-detect,caa-fingerprint,dkim-record-detect,
         dmarc-detect,dnssec-detection,dns-saas-service-detection,ec2-detection,mx-fingerprint,

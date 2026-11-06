@@ -162,7 +162,7 @@ async def test_discovered_answers_flag_their_addresses_without_full_cloud_taggin
 
 
 def probe_module(answers, probe=True, provider_tags=("cloud",)):
-    """CloudCheck in Naxus/Sentry mode whose web requests return ``answers[url]`` (an httpx.Response or None)."""
+    """CloudCheck in consumer mode whose web requests return ``answers[url]`` (an httpx.Response or None)."""
     import httpx
 
     class Module(CloudCheck):

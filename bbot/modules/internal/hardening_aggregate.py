@@ -12,7 +12,7 @@ DEFAULT_SEVERITY = "INFO"
 REPUTATION_MAX_SEVERITY = "MEDIUM"
 REPUTATION_CATEGORIES = {"host-reputation", "indicator-reputation"}
 
-SECURITY_HEADERS_TEMPLATE = "naxus-missing-security-headers"
+SECURITY_HEADERS_TEMPLATE = "missing-security-headers"
 COOKIE_TEMPLATES = {
     "cookies-without-secure": "missing Secure",
     "cookies-without-httponly": "missing HttpOnly",
@@ -154,7 +154,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     meta = {
         "description": "Group low-risk hardening findings into one summary event per category",
         "created_date": "2026-11-02",
-        "author": "@naxus",
+        "author": "@carlospolop",
     }
     # run after the tagging intercept modules, right before the event is distributed
     _priority = 5

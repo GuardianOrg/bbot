@@ -60,7 +60,7 @@ def test_setup_adds_bundled_templates_only_when_enabled(tmp_path, monkeypatch):
     module, _ = make_setup_module(tmp_path, bundled_templates=True)
     assert asyncio.run(module.setup()) is True
     assert module.bundled_template_dirs == [nuclei.bundled_templates_dir.resolve()]
-    assert (nuclei.bundled_templates_dir / "http" / "naxus-missing-security-headers.yaml").is_file()
+    assert (nuclei.bundled_templates_dir / "http" / "missing-security-headers.yaml").is_file()
     # bundled templates are not a user template source
     assert module.template_source_dirs == []
 
@@ -166,7 +166,7 @@ async def test_every_emitted_payload_names_its_template():
          "name": "Potential subdomain takeover"},
         {
             "severity": "INFO",
-            "template": "naxus-missing-security-headers",
+            "template": "missing-security-headers",
             "tags": ["headers"],
             "name": "x-frame-options",
         },
@@ -201,7 +201,7 @@ async def test_every_emitted_payload_names_its_template():
         ("VULNERABILITY", "spf-limit-lookup"),
         ("FINDING", "spoofable-spf-records-ptr"),
         ("FINDING", "dns-cname-takeover"),
-        ("FINDING", "naxus-missing-security-headers"),
+        ("FINDING", "missing-security-headers"),
         ("FINDING", "odd-template"),
         ("VULNERABILITY", "generic-env"),
     ]
