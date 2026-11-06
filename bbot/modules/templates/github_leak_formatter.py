@@ -616,10 +616,21 @@ class github_leak_formatter:
         return ""
 
     @staticmethod
+    def normalize_secret_value(leak_value):
+        """Reduce a match to the secret itself, so one secret matched by different rules is one value."""
+        value = str(leak_value or "").strip().replace('\\"', '"')
+        value = re.sub(r"^(?:Authorization:\s*)?Bearer\s+", "", value, flags=re.IGNORECASE)
+        assignment = re.match(r"""["'`]?[A-Za-z_][\w.-]*["'`]?\s*(?:=|:(?!//))\s*(.+)""", value, re.DOTALL)
+        if assignment and len(assignment.group(1).strip("\"'`,; ")) >= 8:
+            value = assignment.group(1)
+        return value.strip().strip("\"'`,;").strip()
+
+    @staticmethod
     def secret_fingerprint(leak_value):
-        if not leak_value:
+        value = github_leak_formatter.normalize_secret_value(leak_value)
+        if not value:
             return ""
-        return "sha256:" + sha256(leak_value.encode("utf-8", errors="ignore")).hexdigest()
+        return "sha256:" + sha256(value.encode("utf-8", errors="ignore")).hexdigest()
 
     @staticmethod
     def source_location(path, line):

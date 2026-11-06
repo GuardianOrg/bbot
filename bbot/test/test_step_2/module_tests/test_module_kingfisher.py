@@ -122,6 +122,21 @@ def test_documentation_placeholders_are_not_reported_as_secrets(tmp_path):
     )["category"] == "secret"
 
 
+def test_one_secret_matched_by_different_rules_has_one_fingerprint():
+    fingerprint = github_leak_formatter.secret_fingerprint
+    amplitude = "6cf69a22c4e1b7d3f9a0e5c8b2d47f13"
+    google = "AIzaSyFixtureKeyMaterialForRegressionT178"
+    bearer = "abd90c4e7f2b1a8d5c3e9f0b6a2d4c8e"
+
+    assert fingerprint(amplitude) == fingerprint(f'apiKey\\":\\"{amplitude}') == fingerprint(f'apiKey":"{amplitude}"')
+    assert fingerprint(google) == fingerprint(f'{google}"')
+    assert fingerprint(f"Authorization: Bearer {bearer}'") == fingerprint(bearer)
+    assert fingerprint(amplitude) != fingerprint(google)
+    assert fingerprint("postgres://app:hunter2hunter2@db.example.com/app") != fingerprint(
+        "mysql://app:hunter2hunter2@db.example.com/app"
+    )
+
+
 def test_expired_jwt_artifacts_are_not_reported_as_secrets(tmp_path):
     class Formatter(github_leak_formatter):
         name = "kingfisher"
