@@ -400,9 +400,11 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         hosts = self._hosts[category]
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
         place = {"dns": "domain", "reputation": "asset", "disclosure": "page"}.get(category, "website")
+        places = f"{len(endpoints)} {place}{'' if len(endpoints) == 1 else 's'}"
+        # A summary with one row per website counts the websites once, not "N websites across N websites".
+        lead = places if meta["noun"] == place else f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {places}"
         description = (
-            f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {len(endpoints)} "
-            f"{place}{'' if len(endpoints) == 1 else 's'}: {', '.join(endpoints)}. "
+            f"{lead}: {', '.join(endpoints)}. "
             f"The details for each affected {place} are listed in the table."
         )
         severity = highest_severity(row["severity"] for row in selected.values())
