@@ -4,6 +4,9 @@ cloudcheck decides once per address; every later event on that address (Shodan p
 answers) inherits the verdict, and httpx only visits DNS names behind such frontends, not the shared address.
 """
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 
 from bbot.core.helpers import shared_infra
@@ -35,6 +38,13 @@ def make_cloudcheck(scan):
     module._probe_verdicts = {}
     module._probe_tasks = {}
     return module
+
+
+def full_tagging(module):
+    """Tag every event, as for scan input; no storage bucket hostname patterns are needed here."""
+    module.scope_input_only = False
+    module._cloud_hostname_regexes = {}
+    module._cloud_hostname_regexes_lock = asyncio.Lock()
 
 
 def make_httpx(scan):
@@ -192,3 +202,53 @@ async def test_answers_that_stay_websites(bbot_scanner):
     disabled_port = disabled.make_event("52.3.199.81:443", "OPEN_TCP_PORT", parent=disabled.root_event)
     assert await make_httpx(disabled).handle_shared_frontend_answer(
         disabled_port, "https://52.3.199.81/", elb_answer) is False
+
+
+GITHUB_FIRST_M365 = [
+    {"name": "GitHub", "tags": ["cdn"]},
+    {"name": "Microsoft", "tags": ["cloud"]},
+    {"name": "Microsoft365", "tags": ["cloud"]},
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("as_target", [False, True])
+async def test_saas_range_is_shared_whatever_order_cloudcheck_lists_providers(bbot_scanner, monkeypatch, as_target):
+    # cloudcheck lists overlapping providers in no fixed order; GitHub's "cdn" tag is not a CDN verdict and must
+    # not hide that the address is in Microsoft 365's range (Exchange Online answers there, not the target).
+    scan = shared_scan(bbot_scanner)
+    cloudcheck, web = make_cloudcheck(scan), make_httpx(scan)
+    if as_target:
+        full_tagging(cloudcheck)
+
+    async def lookup(host):
+        return GITHUB_FIRST_M365
+
+    monkeypatch.setattr(scan.helpers, "_cloudcheck", SimpleNamespace(lookup=lookup))
+    dns = scan.make_event("autodiscover.example.com", "DNS_NAME", parent=scan.root_event)
+    ip_event = scan.make_event("40.99.227.120", "IP_ADDRESS", parent=dns)
+    ip_event.scope_distance = 0
+    await cloudcheck.handle_event(ip_event)
+    assert "shared-frontend" in ip_event.tags
+    assert "shared-proxy-microsoft365" in ip_event.tags
+    port = scan.make_event("40.99.227.120:80", "OPEN_TCP_PORT", parent=ip_event)
+    port.scope_distance = 0
+    verdict = await web.filter_event(port)
+    assert verdict is not True and verdict[0] is False
+
+
+@pytest.mark.asyncio
+async def test_github_cdn_tag_alone_still_names_the_cloud_provider(bbot_scanner, monkeypatch):
+    scan = shared_scan(bbot_scanner)
+    cloudcheck = make_cloudcheck(scan)
+    full_tagging(cloudcheck)
+
+    async def lookup(host):
+        return GITHUB_FIRST_M365[:2]
+
+    monkeypatch.setattr(scan.helpers, "_cloudcheck", SimpleNamespace(lookup=lookup))
+    ip_event = scan.make_event("20.50.1.1", "IP_ADDRESS", parent=scan.root_event)
+    await cloudcheck.handle_event(ip_event)
+    assert "shared-frontend" not in ip_event.tags
+    geo = [e for e in emitted(cloudcheck) + scan.ingress_module.events if e.type == "GEOLOCATION"]
+    assert geo and geo[0].data["cloudProvider"] == "azure" and geo[0].data["providerType"] == "cloud"
