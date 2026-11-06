@@ -137,6 +137,8 @@ DOCUMENT_EXTENSIONS = (
     ".wpd",
     ".indd",
 )
+# A JWT that expires within a day of issue was minted for the visitor who loaded the page.
+JWT_SHORT_LIVED_SECONDS = 24 * 60 * 60
 
 
 def is_document_text(event):
@@ -829,6 +831,14 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                 and cls._has_gitbook_response_marker(event)
             )
 
+        @staticmethod
+        def _is_short_lived(claims):
+            """A token issued for one page view (exp less than a day after iat) is minted per visitor."""
+            issued_at, expires_at = claims.get("iat"), claims.get("exp")
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (issued_at, expires_at)):
+                return False
+            return 0 < expires_at - issued_at < JWT_SHORT_LIVED_SECONDS
+
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
             for results in yara_results.values():
                 for result in results:
@@ -844,6 +854,13 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                             continue
                     if self._is_public_gitbook_content_token(result, event):
                         self.excavate.debug("Suppressing public GitBook content-delivery JWT")
+                        continue
+                    # Supabase ships its anon key to every browser; row-level security, not the key, guards data.
+                    if claims.get("role") == "anon":
+                        self.excavate.debug("Suppressing Supabase anon key JWT")
+                        continue
+                    if self._is_short_lived(claims):
+                        self.excavate.debug("Suppressing short-lived per-visitor JWT")
                         continue
                     event_data = {"description": f"{discovery_context} {yara_rule_settings.description}"}
                     if yara_rule_settings.emit_match:
