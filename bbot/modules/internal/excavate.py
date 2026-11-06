@@ -139,6 +139,14 @@ DOCUMENT_EXTENSIONS = (
 )
 # A JWT that expires within a day of issue was minted for the visitor who loaded the page.
 JWT_SHORT_LIVED_SECONDS = 24 * 60 * 60
+# Hosted documentation platforms embed their own widgets (e.g. Mintlify's assistant
+# takes file attachments) on every page they serve.
+DOCUMENTATION_PLATFORM_HEADERS = (
+    "x-mintlify-client-version",
+    "x-mint-proxy-version",
+    "x-gitbook-route-site",
+    "x-gitbook-target",
+)
 
 
 def is_document_text(event):
@@ -149,6 +157,14 @@ def is_document_text(event):
     data = getattr(parent, "data", None)
     path = str(data.get("path", "") if isinstance(data, dict) else "").lower()
     return path.endswith(DOCUMENT_EXTENSIONS)
+
+
+def response_headers(event):
+    data = getattr(event, "data", None)
+    headers = data.get("header-dict", {}) if isinstance(data, dict) else {}
+    if not isinstance(headers, dict):
+        return {}
+    return {str(key).lower(): value for key, value in headers.items()}
 
 
 class ExcavateRule:
@@ -1013,10 +1029,27 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             "Web_Service_WSDL": r'rule Web_Service_WSDL { meta: emit_match = "True" description = "contains a web service WSDL URL" strings: $wsdl = /https?:\/\/[^\s]*\.(wsdl)/ nocase condition: $wsdl }',
         }
 
+        def __init__(self, excavate):
+            super().__init__(excavate)
+            self.file_upload_hosts = set()
+
+        def _report_file_upload(self, event):
+            """One upload signal per host; a hosted docs platform's own widgets are not the target's uploads."""
+            headers = response_headers(event)
+            if any(header in headers for header in DOCUMENTATION_PLATFORM_HEADERS):
+                return False
+            host = str(getattr(event, "host", "") or "")
+            if host in self.file_upload_hosts:
+                return False
+            self.file_upload_hosts.add(host)
+            return True
+
         async def process(self, yara_results, event, yara_rule_settings, discovery_context):
             for identifier, results in yara_results.items():
                 for result in results:
                     if identifier == "fileuploadfunc":
+                        if not self._report_file_upload(event):
+                            break
                         description = (
                             f"{discovery_context} contains file upload functionality. "
                             "A file upload feature is legitimate in many applications, but it is a high-risk area because it accepts attacker-supplied files and stores or processes them on the server. "

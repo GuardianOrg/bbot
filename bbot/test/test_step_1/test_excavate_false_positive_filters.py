@@ -13,6 +13,8 @@ DOTNET = "AAEAAAD/////AQAAAAAAAAAMAgAAAFJTeXN0ZW0uQ29sbGVjdGlvbnMuR2VuZXJpYy5MaX
 def rule(rule_class):
     instance = object.__new__(rule_class)
     instance.excavate = SimpleNamespace(debug=lambda *args, **kwargs: None)
+    if rule_class is excavate.FunctionalityExtractor:
+        instance.file_upload_hosts = set()
     instance.reported = []
 
     async def report(event_data, event, yara_rule_settings, discovery_context, event_type="FINDING", **kwargs):
@@ -31,8 +33,8 @@ def raw_text(path):
     return SimpleNamespace(type="RAW_TEXT", host="docs.example.com", parent=SimpleNamespace(data={"path": path}))
 
 
-def http_response(host="app.example.com"):
-    return SimpleNamespace(type="HTTP_RESPONSE", host=host, data={})
+def http_response(host="app.example.com", headers=None):
+    return SimpleNamespace(type="HTTP_RESPONSE", host=host, data={"header-dict": headers or {}})
 
 
 def jwt(claims):
@@ -73,6 +75,20 @@ def test_serialized_objects_and_errors_quoted_in_documents_are_not_findings():
     assert len(process(rule(excavate.SerializationExtractor), {"DOTNET": [f" {DOTNET}"]}, log)) == 1
     assert len(process(rule(excavate.ErrorExtractor), {"PHP_3": ["Fatal error:"]}, log)) == 1
     assert len(process(rule(excavate.ErrorExtractor), {"PHP_3": ["Fatal error:"]}, http_response())) == 1
+
+
+def test_file_upload_is_reported_once_per_host_and_not_for_hosted_docs_widgets():
+    upload = {"fileuploadfunc": ['<input type="file" name="avatar">']}
+    extractor = rule(excavate.FunctionalityExtractor)
+
+    process(extractor, upload, http_response("app.example.com"))
+    process(extractor, upload, http_response("app.example.com"))
+    process(extractor, upload, http_response("portal.example.com"))
+    process(extractor, upload, http_response("docs.example.com", {"X-Mintlify-Client-Version": ["0.0.4074"]}))
+    process(extractor, upload, http_response("docs2.example.com", {"x-gitbook-route-site": ["docs2.example.com/"]}))
+
+    assert len(extractor.reported) == 2
+    assert all("file upload functionality" in data["description"] for data in extractor.reported)
 
 
 def test_supabase_anon_keys_and_per_visitor_jwts_are_not_findings():
