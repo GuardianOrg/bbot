@@ -8,7 +8,7 @@ from bbot.modules.base import BaseModule
 
 class apkeep(BaseModule):
     watched_events = ["MOBILE_APP"]
-    produced_events = ["FILESYSTEM", "FINDING"]
+    produced_events = ["FILESYSTEM"]
     flags = ["passive", "safe", "code-enum", "download"]
     meta = {
         "description": "Download Android applications with apkeep",
@@ -81,7 +81,7 @@ class apkeep(BaseModule):
                 context=f'{{module}} downloaded the mobile app "{app_id}" to: {path}',
             )
         else:
-            await self.emit_download_failure(event, app_id)
+            await self.report_download_failure(event, app_id)
 
     async def download_apk(self, app_id):
         app_dir = self.output_dir / app_id
@@ -196,26 +196,10 @@ class apkeep(BaseModule):
             args.append("--accept-tos")
         return args
 
-    async def emit_download_failure(self, event, app_id):
-        severity = "medium" if "target" in event.tags else "info"
-        await self.emit_event(
-            {
-                "host": app_id,
-                "severity": severity,
-                "category": "mobile-apk-analysis-failed",
-                "title": f"Mobile APK analysis did not run for {app_id}",
-                "description": (
-                    f'An APK, XAPK, or APKS package could not be downloaded for "{app_id}", so downstream mobile file analysis modules could not inspect the application package. '
-                    "This is not a vulnerability in the application by itself, but it creates an analysis gap: static mobile checks cannot review the manifest, permissions, embedded URLs, hardcoded secrets, exported components, certificates, or third-party libraries. "
-                    "The package may require store authentication, may be unavailable in the selected region, may have a different package identifier, or may need to be supplied manually. "
-                    "Confirm the package source and rerun analysis with a known-good artifact so mobile risks are not missed."
-                ),
-                "recommendation": (
-                    "Confirm the package id and download source, provide any required store credentials, or run the "
-                    "mobile APK analysis with a known-good APK artifact."
-                ),
-            },
-            "FINDING",
-            parent=event,
-            context=f'{{module}} could not download the mobile app "{app_id}" for APK analysis',
+    async def report_download_failure(self, event, app_id):
+        # A package that could not be fetched is a gap in the scan's coverage, not a weakness of the
+        # app: it is reported in the scan log for operators, never as a finding.
+        self.warning(
+            f'Mobile APK analysis did not run for "{app_id}": no APK, XAPK or APKS package could be downloaded. '
+            "Check the package id, region and store credentials, or supply the package manually."
         )
