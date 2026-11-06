@@ -63,17 +63,13 @@ class bucket_amazon(bucket_template):
         return False, set()
 
     async def check_bucket_open(self, bucket_name, url):
+        # Only a working listing makes the bucket open. A readable index.html while
+        # listing is denied is a static website serving the objects it was built to publish.
         base_url = self.clean_bucket_url(url).rstrip("/")
         response = await self.helpers.request(base_url)
         tags = self.gen_tags_exists(response)
         status_code = getattr(response, "status_code", 404)
         content = getattr(response, "text", "")
-        if status_code == 200 and "Contents" in content:
+        if status_code == 200 and "<ListBucketResult" in content:
             return ("Open storage bucket", tags, {"permissions": ["read", "list"]})
-
-        for candidate in ("index.html", "robots.txt", "favicon.ico"):
-            probe_url = f"{base_url}/{candidate}"
-            probe = await self.helpers.request(probe_url)
-            if getattr(probe, "status_code", 0) == 200:
-                return (f"Open storage bucket (public object: {candidate})", tags, {"permissions": ["read"]})
         return ("", tags, {})
