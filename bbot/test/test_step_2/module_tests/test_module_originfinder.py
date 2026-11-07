@@ -157,6 +157,8 @@ def fake_module(monkeypatch, origin_response):
     module.processed_hosts = {}
     module.reported_origins = set()
     module.host_origins = defaultdict(dict)
+    module.origins_at_last_finish = {}
+    module.reported_origin_findings = {}
     module.scan = SimpleNamespace(
         helpers=SimpleNamespace(parent_domain=lambda _: "guardianaudits.com"),
         in_scope=lambda name: name == "guardianaudits.com" or name.endswith(".guardianaudits.com"),
@@ -210,6 +212,9 @@ def fake_module(monkeypatch, origin_response):
 @pytest.mark.asyncio
 async def test_verified_origin_emits_frontend_relation_ip_and_finding(monkeypatch):
     module, events, calls = fake_module(monkeypatch, response())
+    await module.finish()
+    assert [event[0] for event in events] == ["WEB_FRONTEND", "WEB_ORIGIN", "IP_ADDRESS", "OPEN_TCP_PORT"]
+    # The verified origin emitted events, so BBOT runs another finishing round.
     await module.finish()
     assert [event[0] for event in events] == ["WEB_FRONTEND", "WEB_ORIGIN", "IP_ADDRESS", "OPEN_TCP_PORT", "FINDING"]
     assert events[1][1]["ip"] == "8.8.8.8"
@@ -296,6 +301,7 @@ async def test_provider_observed_unusual_port_is_probed_first(monkeypatch):
 
     monkeypatch.setattr(module, "api_candidates", api_candidates)
     monkeypatch.setattr(originfinder_module, "fetch_website", fetch)
+    await module.finish()
     await module.finish()
     candidate_calls = [call for call in calls if call[0] == "8.8.8.8"]
     assert candidate_calls[0][2] == 49152
@@ -469,10 +475,30 @@ async def test_every_origin_of_a_website_is_reported_in_one_finding(monkeypatch)
     module.add_candidate(host, "8.8.4.4", "historical-dns:robtex")
     module.add_candidate(host, "2001:4860:4860::8888", "historical-dns:robtex")
     await module.finish()
+    await module.finish()
     kinds = [kind for kind, *_ in events]
     assert kinds.count("WEB_ORIGIN") == 3
     findings = [data for kind, data, _ in events if kind == "FINDING"]
     assert len(findings) == 1
     assert findings[0]["affected_endpoints"] == ["8.8.4.4:80/tcp", "8.8.8.8:80/tcp", "[2001:4860:4860::8888]:80/tcp"]
     assert findings[0]["dedupe_key"] == f"origin-ip-exposure:{host}"
-    assert findings[0]["title"] == f"Public origin IPs exposed for {host}"
+    assert findings[0]["title"] == f"Public origin IP exposure for {host}"
+
+
+@pytest.mark.asyncio
+async def test_origins_verified_in_separate_rounds_are_reported_in_one_finding(monkeypatch):
+    module, events, _ = fake_module(monkeypatch, response())
+    host = "www.guardianaudits.com"
+    await module.finish()
+    assert [kind for kind, *_ in events].count("WEB_ORIGIN") == 1
+    # Another module adds passive history in a later round; it verifies a second origin.
+    module.add_candidate(host, "8.8.4.4", "late-history")
+    await module.finish()
+    assert [kind for kind, *_ in events].count("WEB_ORIGIN") == 2
+    assert "FINDING" not in [kind for kind, *_ in events]
+    await module.finish()
+    await module.finish()
+    findings = [data for kind, data, _ in events if kind == "FINDING"]
+    assert len(findings) == 1
+    assert findings[0]["affected_endpoints"] == ["8.8.4.4:80/tcp", "8.8.8.8:80/tcp"]
+    assert findings[0]["title"] == f"Public origin IP exposure for {host}"
