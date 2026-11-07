@@ -156,6 +156,7 @@ def fake_module(monkeypatch, origin_response):
     module.certificates = defaultdict(set)
     module.processed_hosts = {}
     module.reported_origins = set()
+    module.host_origins = defaultdict(dict)
     module.scan = SimpleNamespace(
         helpers=SimpleNamespace(parent_domain=lambda _: "guardianaudits.com"),
         in_scope=lambda name: name == "guardianaudits.com" or name.endswith(".guardianaudits.com"),
@@ -459,3 +460,19 @@ async def test_published_provider_edge_range_is_a_frontend():
 async def test_address_the_scan_already_classified_as_frontend_is_skipped():
     module = frontend_module(NetworkIndex({}), {"203.0.113.7": ("load_balancer", "aws")})
     assert await module.is_frontend_ip("203.0.113.7")
+
+
+@pytest.mark.asyncio
+async def test_every_origin_of_a_website_is_reported_in_one_finding(monkeypatch):
+    module, events, _ = fake_module(monkeypatch, response())
+    host = "www.guardianaudits.com"
+    module.add_candidate(host, "8.8.4.4", "historical-dns:robtex")
+    module.add_candidate(host, "2001:4860:4860::8888", "historical-dns:robtex")
+    await module.finish()
+    kinds = [kind for kind, *_ in events]
+    assert kinds.count("WEB_ORIGIN") == 3
+    findings = [data for kind, data, _ in events if kind == "FINDING"]
+    assert len(findings) == 1
+    assert findings[0]["affected_endpoints"] == ["8.8.4.4:80/tcp", "8.8.8.8:80/tcp", "[2001:4860:4860::8888]:80/tcp"]
+    assert findings[0]["dedupe_key"] == f"origin-ip-exposure:{host}"
+    assert findings[0]["title"] == f"Public origin IPs exposed for {host}"

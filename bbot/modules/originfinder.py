@@ -240,6 +240,8 @@ class originfinder(BaseModule):
         self.api_cache = {}
         self.processed_hosts = {}
         self.reported_origins = set()
+        # host -> {endpoint: (proof, sources)}: every verified origin of a website, reported together.
+        self.host_origins = defaultdict(dict)
         self.shodan_key = str(self.config.get("shodan_api_key", "") or "").strip()
         self.censys_key = str(self.config.get("censys_api_key", "") or "").strip()
         self.censys_organization_id = str(self.config.get("censys_organization_id", "") or "").strip()
@@ -522,7 +524,10 @@ class originfinder(BaseModule):
                         await self.report_origin(host, url, ip, port, tls, score, candidate, evidence, parent)
                         return
 
+        reported = len(self.host_origins.get(host, ()))
         await asyncio.gather(*(check(ip, item) for ip, item in candidates.items()))
+        if len(self.host_origins.get(host, ())) > reported:
+            await self.report_origin_finding(host, url, parent)
 
     async def query_sibling_dns(self, host, domain):
         loop = asyncio.get_running_loop()
@@ -763,22 +768,31 @@ class originfinder(BaseModule):
             ip_event or origin or parent,
             context=f"{{module}} verified HTTP on website origin {ip}:{port}",
         )
+        self.host_origins[host][endpoint] = (proof, sources)
+        self.reported_origins.add((host, ip))
+
+    async def report_origin_finding(self, host, url, parent):
+        """One finding per website listing every origin verified for it: the same
+        exposure, however many addresses serve it directly. A later finishing round
+        that verifies another origin reports the website again with all of them."""
+        origins = self.host_origins[host]
+        endpoints = sorted(origins)
+        noun = "origin IP" if len(endpoints) == 1 else "origin IPs"
+        description = "\n\n".join(origins[endpoint][0] for endpoint in endpoints)
+        sources = sorted({source for _, endpoint_sources in origins.values() for source in endpoint_sources})
         await self.emit_event(
             {
                 "host": host,
                 "url": url,
-                "ip": ip,
-                "port": port,
-                "affected_endpoints": [endpoint],
+                "affected_endpoints": endpoints,
                 "category": "origin-ip-exposure",
-                "title": f"Public origin IP exposed for {host}",
-                "description": proof,
-                "evidence": proof,
+                "title": f"Public {noun} exposed for {host}",
+                "description": description,
+                "evidence": description,
                 "sources": sources,
-                "dedupe_key": f"origin-ip-exposure:{host}:{ip}:{port}",
+                "dedupe_key": f"origin-ip-exposure:{host}",
             },
             "FINDING",
-            origin or parent,
-            context=f"{{module}} found {{event.type}} for {host} at {ip}:{port}",
+            parent,
+            context=f"{{module}} found {{event.type}} for {host}: {len(endpoints)} direct {noun}",
         )
-        self.reported_origins.add((host, ip))
