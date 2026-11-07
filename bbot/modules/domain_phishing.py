@@ -585,6 +585,9 @@ class domain_phishing(BaseModule):
                 "probability": score,
                 "score": score,
                 "severity": severity,
+                # What made the look-alike reportable: its usable mail records and whether it serves a page.
+                "dns_mx": usable_mx,
+                "web_active": bool(web_active),
             }
             # Attach the WHOIS ownership fingerprint (registrar + registration date +
             # registrant identity) so Sentry can distinguish a re-registered/newly-bought

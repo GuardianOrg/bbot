@@ -127,6 +127,9 @@ class TestDomainPhishing(ModuleTestBase):
         assert event.data["probability"] >= 4
         assert event.data["title"] == "Potential phishing look-alike domain: blacklanternsecur1ty.com"
         assert "Candidate domain: blacklanternsecur1ty.com" in event.data["evidence"]
+        # The mail records and live page that made it reportable travel with the finding.
+        assert event.data["dns_mx"] == ["mx1.example.com"]
+        assert event.data["web_active"] is True
 
         # WHOIS ownership fingerprint is attached for downstream de-duplication.
         assert event.data["registrar"] == "NameCheap, Inc."
