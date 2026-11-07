@@ -89,6 +89,16 @@ class TestShodan_IDB(ModuleTestBase):
                         "port": 102,
                         "transport": "tcp",
                     },
+                    {
+                        "port": 123,
+                        "transport": "udp",
+                        "product": "ntpd",
+                        "version": "3",
+                        "data": "NTP\nprotocolversion: 3\nstratum: 3\nleap: 0",
+                        "cpe": ["cpe:/a:ntp:ntp:3"],
+                        "cpe23": ["cpe:2.3:a:ntp:ntp:3"],
+                        "_shodan": {"module": "ntp"},
+                    },
                 ],
             },
         )
@@ -117,7 +127,7 @@ class TestShodan_IDB(ModuleTestBase):
                 if e.type == "OPEN_TCP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"
             ]
         )
-        assert 1 == len(
+        assert 2 == len(
             [e for e in events if e.type == "OPEN_UDP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"]
         )
         assert not any(e.type == "VULNERABILITY" and str(e.module) == "shodan_idb" for e in events)
@@ -177,6 +187,11 @@ class TestShodan_IDB(ModuleTestBase):
             e.type == "PROTOCOL" and e.data.get("port") == 102
             for e in events
         ), "Emitted schema-invalid protocol metadata without a protocol"
+        ntp = [e for e in events if e.type == "PROTOCOL" and e.data.get("port") == 123]
+        assert len(ntp) == 1, "Failed to emit Shodan host API NTP metadata"
+        assert ntp[0].data.get("product") == "ntpd"
+        assert "version" not in ntp[0].data, "An NTP protocol version is not the ntpd release"
+        assert ntp[0].data.get("cpes") == ["cpe:/a:ntp:ntp", "cpe:2.3:a:ntp:ntp"]
 
 
 class TestShodan_IDB_RangeSearch(ModuleTestBase):
@@ -277,3 +292,25 @@ def test_cloud_hosting_of_a_cdn_company_is_not_a_cdn_edge():
     assert module.detect_cdn(hosting, ["cloud"]) == (False, None)
     edge = {"org": "Akamai International B.V.", "isp": "Akamai International B.V.", "asn": "AS20940"}
     assert module.detect_cdn(edge, []) == (True, "akamai")
+
+
+def test_a_banner_protocol_version_is_not_the_software_version():
+    from bbot.modules.shodan_idb import shodan_idb
+
+    module = object.__new__(shodan_idb)
+    ntp = {
+        "port": 123,
+        "transport": "udp",
+        "product": "ntpd",
+        "version": "3",
+        "data": "NTP\nprotocolversion: 3\nstratum: 3\nleap: 0\nprecision: -23\n",
+        "cpe": ["cpe:/a:ntp:ntp:3"],
+        "cpe23": ["cpe:2.3:a:ntp:ntp:3"],
+    }
+    assert module.service_version_and_cpes(ntp) == (None, ["cpe:/a:ntp:ntp", "cpe:2.3:a:ntp:ntp"])
+
+    ntp_with_release = {**ntp, "version": "4.2.8p15", "cpe": ["cpe:/a:ntp:ntp:4.2.8p15"], "cpe23": []}
+    assert module.service_version_and_cpes(ntp_with_release) == ("4.2.8p15", ["cpe:/a:ntp:ntp:4.2.8p15"])
+
+    ssh = {"product": "OpenSSH", "version": "6.6.1p1", "data": "SSH-2.0-OpenSSH_6.6.1p1 Ubuntu-2ubuntu2.13", "cpe23": ["cpe:2.3:a:openbsd:openssh:6.6.1p1"]}
+    assert module.service_version_and_cpes(ssh) == ("6.6.1p1", ["cpe:2.3:a:openbsd:openssh:6.6.1p1"])
