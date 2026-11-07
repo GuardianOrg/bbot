@@ -46,7 +46,7 @@ class shodan_idb(BaseModule):
         "IP_ADDRESS",
         "TECHNOLOGY",
         "VULNERABILITY",
-        "FINDING",
+        "CVE_CANDIDATES",
         "OPEN_TCP_PORT",
         "OPEN_UDP_PORT",
         "PROTOCOL",
@@ -445,18 +445,10 @@ class shodan_idb(BaseModule):
             if dedupe_key not in self.reported_unverified_batches:
                 self.reported_unverified_batches.add(dedupe_key)
                 await self.emit_event(
-                    {
-                        "host": str(ip),
-                        "severity": "LOW",
-                        "title": f"{source} unverified CVE candidates for {ip}",
-                        "category": "Shodan",
-                        "description": self.unverified_vulnerability_description(ip, source, len(candidates)),
-                        "recommendation": "Confirm the affected service and version on this asset before treating any listed CVE as a vulnerability; review Shodan's verification status and validate each relevant candidate independently.",
-                        "evidence": f"{source} listed {len(candidates)} unverified CVE candidates for {ip}: {', '.join(candidates)}",
-                    },
-                    "FINDING",
+                    {"host": str(ip), "source": source, "cves": list(candidates)},
+                    "CVE_CANDIDATES",
                     parent=event,
-                    context=f'{{module}} queried {source} for "{query_host}" and found unverified CVE candidates',
+                    context=f'{{module}} queried {source} for "{query_host}" and found {len(candidates)} unverified {{event.type}}',
                 )
 
     def detect_privacy_flags(self, tags):
@@ -670,14 +662,6 @@ class shodan_idb(BaseModule):
                     "cvss": self.to_float(details.get("cvss") or details.get("cvss_score")),
                     "verified": details.get("verified") is True,
                 }
-
-    def unverified_vulnerability_description(self, ip, source, count):
-        return (
-            f"{source} listed {count} CVE candidates for {ip}, but did not verify that the exposed service is vulnerable. "
-            "Shodan can associate CVEs with service metadata such as product and version; the same version may have been patched without a visible version change, and an IP address can host multiple services. "
-            "These identifiers are investigation leads, not confirmed vulnerabilities. Confirm the service, product, version, exposure path, and patch level on the actual in-scope asset before assigning a vulnerability. "
-            "The complete candidate list is preserved in the evidence so that relevant CVEs can still be reviewed without creating one unverified vulnerability alert per identifier."
-        )
 
     def vulnerability_severity(self, cvss):
         if isinstance(cvss, (int, float)):

@@ -121,13 +121,13 @@ class TestShodan_IDB(ModuleTestBase):
             [e for e in events if e.type == "OPEN_UDP_PORT" and e.host == "blacklanternsecurity.com" and str(e.module) == "shodan_idb"]
         )
         assert not any(e.type == "VULNERABILITY" and str(e.module) == "shodan_idb" for e in events)
+        assert not any(e.type == "FINDING" and str(e.module) == "shodan_idb" for e in events)
         assert 1 == len([
-            e for e in events if e.type == "FINDING"
-            and str(e.module) == "shodan_idb"
-            and e.data["title"] == "Shodan InternetDB unverified CVE candidates for 1.2.3.4"
-            and e.data["severity"] == "LOW"
-            and "CVE-2021-26857" in e.data["evidence"]
-            and "CVE-2021-26855" in e.data["evidence"]
+            e for e in events if e.type == "CVE_CANDIDATES"
+            and str(e.host) == "1.2.3.4"
+            and e.data["source"] == "Shodan InternetDB"
+            and {"CVE-2021-26857", "CVE-2021-26855"} <= set(e.data["cves"])
+            and "severity" not in e.data
         ])
         assert not any(e.type == "VULNERABILITY" and e.data["title"] == "Shodan detected CVE-2099-0001" for e in events)
         assert 2 == len([e for e in events if e.type == "TECHNOLOGY" and str(e.module) == "shodan_idb"])
@@ -255,11 +255,10 @@ class TestShodan_IDB_RangeSearch(ModuleTestBase):
             for e in events
         ), "Failed to emit vulnerability details from Shodan range search"
         assert any(
-            e.type == "FINDING"
-            and e.data.get("severity") == "LOW"
-            and "CVE-2024-54321" in e.data.get("evidence", "")
+            e.type == "CVE_CANDIDATES" and str(e.host) == "1.2.3.44" and e.data.get("cves") == ["CVE-2024-54321"]
             for e in events
-        ), "Unverified Shodan CVE must remain a single review lead"
+        ), "An unverified Shodan CVE is a candidate of the address, not a finding"
+        assert not any(e.type == "FINDING" and str(e.module) == "shodan_idb" for e in events)
         assert not any(
             e.type == "VULNERABILITY" and e.data.get("cve") == "CVE-2024-54321" for e in events
         ), "Unverified Shodan CVE must not be promoted to a confirmed vulnerability"
