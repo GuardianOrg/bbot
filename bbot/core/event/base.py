@@ -2097,6 +2097,12 @@ class DOMAIN_CERTIFICATE_HISTORY(DictHostEvent):
     _quick_emit = True
 
 
+class CVE_CANDIDATES(DictHostEvent):
+    """CVE ids a passive source lists for an address without confirming them: hints to verify, not findings."""
+
+    _always_emit = True
+
+
 class WEB_FRONTEND(DictHostEvent):
     """An in-scope website currently resolves through a managed frontend."""
 

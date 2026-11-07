@@ -35,7 +35,7 @@ REPOSITORY_OWNER_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
 REPOSITORY_HOSTS = REPOSITORY_OWNER_HOSTS | {"hub.docker.com"}
 EMAIL_SCOPE_EVENT_TYPES = {"EMAIL_ADDRESS", "EMAIL_PROFILE"}
 # Facts about one domain or IP. A domain is held to the hostname rule below; an IP must be in scope.
-HOST_PROFILE_EVENT_TYPES = {"HOST_REPUTATION"}
+HOST_PROFILE_EVENT_TYPES = {"HOST_REPUTATION", "CVE_CANDIDATES"}
 # Their host is a provider's by nature (a bucket, a store listing) or they report
 # a test of an asset this filter already accepted (a lookalike domain of the
 # target, a secret on github.com). Every other event must name in-scope hosts.

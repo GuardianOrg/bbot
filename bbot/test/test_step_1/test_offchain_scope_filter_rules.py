@@ -300,6 +300,11 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertFalse(self.check(other))
         self.assertFalse(self.check(Event("IP_ADDRESS", "9.9.9.9", "9.9.9.9", parent=other)))
 
+    def test_cve_candidates_follow_the_scope_of_their_address(self):
+        candidates = {"source": "Shodan InternetDB", "cves": ["CVE-2021-26855"]}
+        self.assertTrue(self.check(Event("CVE_CANDIDATES", {"host": "8.8.8.8", **candidates}, "8.8.8.8")))
+        self.assertFalse(self.check(Event("CVE_CANDIDATES", {"host": "9.9.9.9", **candidates}, "9.9.9.9")))
+
     def test_email_and_ip_range_events_follow_their_seeded_scope(self):
         self.filter.allowed_email_addresses = {"owner@gmail.com"}
         self.filter.allowed_ip_range_values = set()
