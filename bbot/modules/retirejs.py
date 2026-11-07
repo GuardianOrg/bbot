@@ -161,6 +161,7 @@ class retirejs(BaseModule):
                         follow_redirects=False,
                         timeout=timeout,
                         warn=False,
+                        headers=dict(self.scan.custom_http_headers),
                     ),
                     timeout=timeout,
                 )

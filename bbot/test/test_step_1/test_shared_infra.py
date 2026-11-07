@@ -167,6 +167,7 @@ def probe_module(answers, probe=True, provider_tags=("cloud",)):
 
     class Module(CloudCheck):
         helpers = None
+        scan = SimpleNamespace(custom_http_headers={})
 
     module = Module.__new__(Module)
     module.scope_input_only = True

@@ -154,7 +154,12 @@ class filedownload(BaseModule):
         if orig_filename is None:
             return
         result = await self.helpers.download(
-            url, warn=False, filename=file_destination, max_size=self.max_filesize, include_response_url=True
+            url,
+            warn=False,
+            filename=file_destination,
+            max_size=self.max_filesize,
+            include_response_url=True,
+            headers=dict(self.scan.custom_http_headers),
         )
         if result:
             downloaded_path, final_url = result

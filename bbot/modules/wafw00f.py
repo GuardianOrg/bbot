@@ -39,9 +39,17 @@ class wafw00f(BaseModule):
         headers = dict(self.scan.custom_http_headers)
         if not headers:
             return wafw00f_main.WAFW00F(url, followredirect=False)
-        # extraheaders replaces WAFW00F's default headers, and every probe (including the one that drops
-        # User-Agent) sends a copy of them, so the defaults are kept alongside the custom headers.
-        return wafw00f_main.WAFW00F(url, followredirect=False, extraheaders={**wafw00f_def_headers, **headers})
+        # extraheaders replaces WAFW00F's default headers, so the defaults are kept alongside the custom headers.
+        engine = wafw00f_main.WAFW00F(url, followredirect=False, extraheaders={**wafw00f_def_headers, **headers})
+        # Generic detection deletes User-Agent for one probe; a custom one must still go out on it.
+        send = engine.Request
+
+        def with_headers(*args, **kwargs):
+            kwargs["headers"] = {**(kwargs.get("headers") or engine.headers), **headers}
+            return send(*args, **kwargs)
+
+        engine.Request = with_headers
+        return engine
 
     async def filter_event(self, event):
         http_status = getattr(event, "http_status", 0)
@@ -55,9 +63,7 @@ class wafw00f(BaseModule):
     async def handle_event(self, event):
         original_url = f"{event.parsed_url.scheme}://{event.parsed_url.netloc}/"
         WW = await self.helpers.run_in_executor(self.probe, original_url)
-        waf_detections, _ = await self.helpers.run_in_executor(
-            WW.identwaf, bool(self.config.get("find_all", True))
-        )
+        waf_detections, _ = await self.helpers.run_in_executor(WW.identwaf, bool(self.config.get("find_all", True)))
         # WAFW00F returns its last probe URL, which may contain attack payloads.
         # Associate the detection with the original root website instead.
         resolved_url = original_url

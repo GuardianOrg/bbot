@@ -28,6 +28,7 @@ TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 TEXT_RE = re.compile(r"<script\b.*?</script>|<style\b.*?</style>|<[^>]+>", re.I | re.S)
 RESOURCE_RE = re.compile(r"<(?:script|link|img)\b[^>]*?\b(?:src|href)\s*=\s*['\"]([^'\"]+)", re.I)
 MAX_BODY_BYTES = 65536
+ORIGINFINDER_USER_AGENT = "Mozilla/5.0 (compatible; GuardianOriginFinder/1.0)"
 
 
 def public_ip(value):
@@ -145,9 +146,11 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4, headers=N
             asyncio.open_connection(address, port, ssl=context, server_hostname=host if tls else None), timeout
         )
         host_header = host if port in (80, 443) else f"{host}:{port}"
+        # A custom User-Agent replaces the built-in one instead of being sent next to it.
+        custom_user_agent = any(name.lower() == "user-agent" for name in (headers or {}))
+        user_agent = "" if custom_user_agent else f"User-Agent: {ORIGINFINDER_USER_AGENT}\r\n"
         request = (
-            f"GET {path} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: Mozilla/5.0 "
-            "(compatible; GuardianOriginFinder/1.0)\r\nAccept: text/html,*/*\r\n"
+            f"GET {path} HTTP/1.1\r\nHost: {host_header}\r\n{user_agent}Accept: text/html,*/*\r\n"
             "Accept-Encoding: identity\r\nConnection: close\r\n"
             # The scan's custom HTTP headers; CR/LF would split the request, so such a header is never sent.
             + "".join(

@@ -60,6 +60,9 @@ class fingerprintx(BaseModule):
     )
 
     async def setup(self):
+        if self.scan.custom_http_headers:
+            # Its HTTP plugins probe every open port with requests that cannot carry the headers.
+            return None, "fingerprintx has no option to send the scan's custom HTTP headers"
         self.skip_common_web = self.config.get("skip_common_web", True)
         self.timeout_ms = int(self.config.get("timeout_ms", 2000))
         self.fast = bool(self.config.get("fast", False))
