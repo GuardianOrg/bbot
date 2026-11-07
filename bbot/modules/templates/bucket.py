@@ -69,14 +69,10 @@ class bucket_template(BaseModule):
             await self.handle_storage_bucket(event)
 
     async def handle_dns_name(self, event):
-        buckets = set()
+        # Only names that carry the whole host: a bucket named after the domain stem alone ("guardian" for
+        # guardian.security) can belong to anyone, and reporting it open would blame the target for it.
         base = self.helpers.unidecode(self.helpers.smart_decode_punycode(event.data))
-        stem = self.helpers.domain_stem(base)
-        for b in [base, stem]:
-            split = b.split(".")
-            for d in self.delimiters:
-                bucket_name = d.join(split)
-                buckets.add(bucket_name)
+        buckets = {d.join(base.split(".")) for d in self.delimiters}
         async for bucket_name, url, tags, num_buckets, metadata in self.brute_buckets(
             buckets,
             permutations=self.permutations,
