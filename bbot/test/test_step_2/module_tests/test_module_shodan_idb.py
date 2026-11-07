@@ -262,3 +262,18 @@ class TestShodan_IDB_RangeSearch(ModuleTestBase):
         assert not any(
             e.type == "VULNERABILITY" and e.data.get("cve") == "CVE-2024-54321" for e in events
         ), "Unverified Shodan CVE must not be promoted to a confirmed vulnerability"
+
+
+def test_cloud_hosting_of_a_cdn_company_is_not_a_cdn_edge():
+    from bbot.modules.shodan_idb import shodan_idb
+
+    module = object.__new__(shodan_idb)
+    hosting = {
+        "org": "Akamai Connected Cloud",
+        "isp": "Akamai Connected Cloud",
+        "asn": "AS63949",
+        "hostnames": ["li86-221.members.linode.com"],
+    }
+    assert module.detect_cdn(hosting, ["cloud"]) == (False, None)
+    edge = {"org": "Akamai International B.V.", "isp": "Akamai International B.V.", "asn": "AS20940"}
+    assert module.detect_cdn(edge, []) == (True, "akamai")
