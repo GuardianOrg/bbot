@@ -1,9 +1,13 @@
 from bbot.modules.base import BaseModule
+import re
 import time
 
 
 # ISP, org and hostname markers of the cloud hosting a CDN company sells besides its edges.
 CDN_COMPANY_HOSTING = ("akamai connected cloud", "linode")
+
+# The protocol version a banner declares for itself, as Shodan's NTP banners do (`protocolversion: 3`).
+BANNER_PROTOCOL_VERSION = re.compile(r"^protocolversion:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 class shodan_idb(BaseModule):
@@ -380,6 +384,7 @@ class shodan_idb(BaseModule):
             if not protocol:
                 continue
 
+            version, cpes = self.service_version_and_cpes(service)
             protocol_data = {
                 "host": str(event.host or event.data or ip),
                 "ip": ip,
@@ -388,11 +393,11 @@ class shodan_idb(BaseModule):
                 "protocol": protocol,
                 "banner": self.clean_string(service.get("data")),
                 "product": self.clean_string(service.get("product")),
-                "version": self.clean_string(service.get("version")),
+                "version": version,
                 "os": self.clean_os(service.get("os")),
                 "tls_version": self.service_tls_version(service),
                 "cipher_suite": self.service_cipher_suite(service),
-                "cpes": self.service_cpes(service),
+                "cpes": cpes,
             }
             protocol_data = {k: v for k, v in protocol_data.items() if v not in (None, "", [])}
             await self.emit_event(
@@ -635,6 +640,22 @@ class shodan_idb(BaseModule):
         ssl_info = service.get("ssl") if isinstance(service.get("ssl"), dict) else {}
         cipher = ssl_info.get("cipher") if isinstance(ssl_info.get("cipher"), dict) else {}
         return self.clean_string(cipher.get("name"))
+
+    def service_version_and_cpes(self, service):
+        """
+        The software version and CPEs Shodan gives a service. A version that is
+        the protocol version the banner declares (an NTP server's
+        `protocolversion: 3`) names the protocol, not the software: it is
+        dropped, and the CPEs keep the product without it.
+        """
+        version = self.clean_string(service.get("version"))
+        cpes = self.service_cpes(service)
+        declared = BANNER_PROTOCOL_VERSION.search(self.clean_string(service.get("data")) or "")
+        if version and declared and declared.group(1) == version:
+            suffix = f":{version}"
+            cpes = self.normalize_string_list([cpe[: -len(suffix)] if cpe.endswith(suffix) else cpe for cpe in cpes or []]) or None
+            version = None
+        return version, cpes
 
     def service_cpes(self, service):
         cpes = []
