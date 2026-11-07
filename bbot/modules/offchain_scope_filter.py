@@ -1,3 +1,4 @@
+import asyncio
 import json
 import ipaddress
 import os
@@ -40,6 +41,9 @@ HOST_PROFILE_EVENT_TYPES = {"HOST_REPUTATION"}
 # target, a secret on github.com). Every other event must name in-scope hosts.
 REGISTRATION_EVENT_TYPES = {"DOMAIN_WHOIS", "DOMAIN_DNS_CONFIG"}
 OFF_DOMAIN_EVENT_TYPES = {"STORAGE_BUCKET", "MOBILE_APP", "OPTIONAL_MOBILE_APP", "FINDING", "VULNERABILITY"}
+# Seeded hostnames are resolved before the scan starts; a world can seed hundreds of them.
+SEED_RESOLUTION_CONCURRENCY = 20
+SEED_RESOLUTION_TIMEOUT_SECONDS = 10
 HOSTNAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}")
 GITHUB_SITE_ROUTES = {
     "about",
@@ -112,9 +116,37 @@ class offchain_scope_filter(BaseInterceptModule):
         self.allowed_ips = set()
         self.allowed_ip_range_values = set()
         self.allowed_ip_ranges = []
+        self.seeded_hostnames = set()
         self._load_config_scope()
         self._load_seed_scope()
+        private = await self._private_seed_resolution()
+        if private:
+            # Setup failing aborts the scan before any module contacts the address.
+            return False, f"scan target {private} currently resolves to a non-public IP address"
         return True
+
+    async def _private_seed_resolution(self):
+        """The first seeded hostname that resolves to a non-public address, if any."""
+        hosts = sorted(self.seeded_hostnames)
+        limit = asyncio.Semaphore(SEED_RESOLUTION_CONCURRENCY)
+
+        async def check(host):
+            async with limit:
+                addresses = await self._resolve_addresses(host)
+            return host if any(not self._is_global_ip(address) for address in addresses) else None
+
+        return next((host for host in await asyncio.gather(*(check(host) for host in hosts)) if host), None)
+
+    async def _resolve_addresses(self, host):
+        """Every address the system resolver returns for ``host``; none when it does not resolve, since passive
+        discovery can still run for an unresolved seed."""
+        try:
+            answers = await asyncio.wait_for(
+                asyncio.get_running_loop().getaddrinfo(host, None), SEED_RESOLUTION_TIMEOUT_SECONDS
+            )
+        except (OSError, asyncio.TimeoutError, UnicodeError):
+            return []
+        return [answer[4][0].split("%", 1)[0] for answer in answers]
 
     async def handle_event(self, event, **kwargs):
         if event.type in DNS_SCOPE_EVENT_TYPES | WEB_SCOPE_EVENT_TYPES | IP_ANALYSIS_EVENT_TYPES:
@@ -372,12 +404,14 @@ class offchain_scope_filter(BaseInterceptModule):
                 domain = self._normalize_domain(seed_data)
                 if domain:
                     self.allowed_domain_roots.add(domain)
+                    self.seeded_hostnames.add(domain)
                 continue
 
             if seed_type == "EMAIL_ADDRESS":
                 email = self._normalize_email(seed_data)
                 if email:
                     self.allowed_email_addresses.add(email)
+                    self.seeded_hostnames.add(email.rsplit("@", 1)[-1])
                 continue
 
             if seed_type in {"URL", "URL_UNVERIFIED"}:
@@ -385,6 +419,7 @@ class offchain_scope_filter(BaseInterceptModule):
                 normalized = self._normalize_domain(host)
                 if normalized and not self._is_ip(normalized):
                     self.allowed_domain_roots.add(normalized)
+                    self.seeded_hostnames.add(normalized)
                 continue
 
             if seed_type == "IP_ADDRESS":

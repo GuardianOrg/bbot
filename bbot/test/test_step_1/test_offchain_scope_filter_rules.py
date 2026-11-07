@@ -56,6 +56,7 @@ class ScopeFilterTests(unittest.TestCase):
         self.filter.allowed_ip_ranges = []
         self.filter.allowed_repo_tuples = set()
         self.filter.allowed_repo_owners = set()
+        self.filter.seeded_hostnames = set()
         self.emitted = []
         self.filter.make_event = lambda data, event_type, parent: (data, event_type, parent)
 
@@ -519,3 +520,47 @@ class SharedFrontendTests(unittest.TestCase):
         )
         origin_address = Event("IP_ADDRESS", "8.8.8.8", "8.8.8.8", parent=origin)
         self.assertTrue(self.verdict(Event("OPEN_TCP_PORT", "8.8.8.8:22", "8.8.8.8", parent=origin_address))[0])
+
+
+class Seed:
+    def __init__(self, type_, data):
+        self.type = type_
+        self.data = data
+        self.input = data
+
+
+class PrivateTargetResolutionTests(unittest.TestCase):
+    """A seeded target that currently points at a non-public address stops the scan before any module contacts it."""
+
+    def setup_with(self, seeds, answers):
+        async def resolve(host):
+            return answers.get(host, [])
+
+        module = make_filter(make_scan(seeds))
+        with mock.patch.object(module, "_resolve_addresses", side_effect=resolve):
+            return asyncio.run(module.setup())
+
+    def test_seeded_name_url_or_email_domain_resolving_privately_fails_setup(self):
+        for seed in (
+            Seed("DNS_NAME", "internal.example.com"),
+            Seed("URL", "https://internal.example.com/login"),
+            Seed("EMAIL_ADDRESS", "admin@internal.example.com"),
+        ):
+            with self.subTest(seed=seed.type):
+                status = self.setup_with([seed], {"internal.example.com": ["93.184.216.34", "10.0.0.5"]})
+                self.assertIsInstance(status, tuple)
+                self.assertIs(status[0], False)
+                self.assertIn("non-public", status[1])
+
+    def test_loopback_and_link_local_answers_are_refused_too(self):
+        for address in ("127.0.0.1", "169.254.169.254", "fd00::1"):
+            with self.subTest(address=address):
+                status = self.setup_with([Seed("DNS_NAME", "example.com")], {"example.com": [address]})
+                self.assertIs(status[0], False)
+
+    def test_public_and_unresolved_seeds_start_the_scan(self):
+        status = self.setup_with(
+            [Seed("DNS_NAME", "example.com"), Seed("DNS_NAME", "not-registered-yet.example")],
+            {"example.com": ["93.184.216.34", "2606:2800:220:1::1"]},
+        )
+        self.assertIs(status, True)
