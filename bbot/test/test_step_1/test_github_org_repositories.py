@@ -166,15 +166,24 @@ async def test_private_org_repos_require_explicit_opt_in_and_user_token():
 
 
 @pytest.mark.asyncio
-async def test_private_clone_accepts_only_verified_org_repository_events():
+async def test_private_clone_accepts_only_repositories_of_a_seeded_owner():
     module = SimpleNamespace(config={"private_only": True})
-    event = Event(type="CODE_REPOSITORY", tags={"git", "github-private-repo", "github-org-scope"}, module="github_org")
+    owner = Event(type="CODE_REPOSITORY_OWNER", data={"url": "https://github.com/company"})
+    event = Event(type="CODE_REPOSITORY", tags={"git", "github-private-repo"}, module="github_org", parent=owner)
     assert await git_clone.filter_event(module, event) is True
     event.module = "other_module"
     assert (await git_clone.filter_event(module, event))[0] is False
+    discovered = Event(type="SOCIAL", data={"profile_name": "company"}, tags={"github-org"})
+    event = Event(
+        type="CODE_REPOSITORY",
+        tags={"git", "github-private-repo", "github-org-scope"},
+        module="github_org",
+        parent=discovered,
+    )
+    assert (await git_clone.filter_event(module, event))[0] is False
 
 
-def test_only_verified_org_and_member_repositories_enter_secret_scanner_scope():
+def test_repositories_of_discovered_orgs_and_members_stay_out_of_secret_scanner_scope():
     scope = code_repository_scope()
     scope.allowed_code_repositories = set()
     scope.allowed_code_repository_owners = set()
@@ -190,7 +199,7 @@ def test_only_verified_org_and_member_repositories_enter_secret_scanner_scope():
         module="github_org",
         parent=member,
     )
-    assert scope.is_code_repository_in_scope(repo)
+    assert not scope.is_code_repository_in_scope(repo)
     company_repo = Event(
         type="CODE_REPOSITORY",
         data={"url": "https://github.com/company/project"},
@@ -198,14 +207,8 @@ def test_only_verified_org_and_member_repositories_enter_secret_scanner_scope():
         module="github_org",
         parent=org,
     )
+    assert not scope.is_code_repository_in_scope(company_repo)
+    # Seeding the org is what puts its repositories in scope, and only its own.
+    scope.allowed_code_repository_owners = {("github", "company")}
     assert scope.is_code_repository_in_scope(company_repo)
-    repo.parent = Event(
-        type="SOCIAL", data={"profile_name": "stranger"}, tags={"github-org-member"}, module="github_org", parent=org
-    )
-    assert not scope.is_code_repository_in_scope(repo)
-    repo.parent = member
-    repo.module = "other_module"
-    assert not scope.is_code_repository_in_scope(repo)
-    repo.module = "github_org"
-    repo.tags = {"git", "github"}
     assert not scope.is_code_repository_in_scope(repo)

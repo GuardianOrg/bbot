@@ -35,10 +35,7 @@ class git_clone(github):
         if self.config.get("private_only", False) and not (
             "github-private-repo" in event.tags
             and str(getattr(event, "module", "")) == "github_org"
-            and (
-                "github-org-scope" in event.tags
-                or getattr(event.get_parent(), "type", "") == "CODE_REPOSITORY_OWNER"
-            )
+            and getattr(event.get_parent(), "type", "") == "CODE_REPOSITORY_OWNER"
         ):
             return False, "repository is not a scoped private GitHub repository"
         return True

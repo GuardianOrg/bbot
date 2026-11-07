@@ -533,32 +533,11 @@ class offchain_scope_filter(BaseInterceptModule):
         repo = self._parse_repository_scope(repo_url)
         if not repo:
             return False, "repository event does not contain a supported repository URL"
+        # Only seeded repositories and the repositories of seeded owners: an org or member account found from
+        # a website link is not the organisation's to scan.
         if repo in self.allowed_repo_tuples or self._owner_allowed((repo[0], repo[1])):
             return True
-        if self._is_discovered_github_org_repository(event, repo):
-            return True
         return False, "repository is outside the seeded repository scope"
-
-    @staticmethod
-    def _is_discovered_github_org_repository(event, repo):
-        if repo[0] != "github.com" or str(getattr(event, "module", "")) != "github_org":
-            return False
-        if "github-org-scope" not in getattr(event, "tags", ()):
-            return False
-        get_parent = getattr(event, "get_parent", None)
-        parent = get_parent() if callable(get_parent) else getattr(event, "parent", None)
-        if getattr(parent, "type", "") != "SOCIAL":
-            return False
-        profile = getattr(parent, "data", {})
-        if not isinstance(profile, dict) or str(profile.get("profile_name", "")).lower() != repo[1]:
-            return False
-        if "github-org-member" in getattr(parent, "tags", ()):
-            if str(getattr(parent, "module", "")) != "github_org":
-                return False
-            get_grandparent = getattr(parent, "get_parent", None)
-            grandparent = get_grandparent() if callable(get_grandparent) else getattr(parent, "parent", None)
-            return getattr(grandparent, "type", "") == "SOCIAL" and "github-org" in getattr(grandparent, "tags", ())
-        return True
 
     def _owner_allowed(self, owner_tuple):
         platform, owner = owner_tuple

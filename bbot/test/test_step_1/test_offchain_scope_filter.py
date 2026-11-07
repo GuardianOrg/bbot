@@ -91,7 +91,7 @@ async def test_offchain_scope_filter_limits_domains_and_repositories_to_world_sc
 
 
 @pytest.mark.asyncio
-async def test_offchain_scope_filter_allows_verified_org_and_member_repositories_only():
+async def test_offchain_scope_filter_refuses_repositories_of_discovered_orgs_and_members():
     module = await create_scope_filter(["domain:example.com"])
     org = make_event("SOCIAL", {"profile_name": "company"}, tags={"github-org"})
     member = make_event(
@@ -105,11 +105,9 @@ async def test_offchain_scope_filter_allows_verified_org_and_member_repositories
         parent=member,
         source_module="github_org",
     )
-    assert await module.handle_event(repo) is True
-    repo.module = "other_module"
     assert await module.handle_event(repo) == (False, "repository is outside the seeded repository scope")
-    repo.module = "github_org"
-    repo.data = {"url": "https://github.com/stranger/project"}
+    repo.data = {"url": "https://github.com/company/project"}
+    repo.parent = org
     assert await module.handle_event(repo) == (False, "repository is outside the seeded repository scope")
 
 

@@ -153,7 +153,7 @@ class ScopeFilterTests(unittest.TestCase):
             )
         )
 
-    def test_company_page_linking_a_profile_that_names_the_company_keeps_it_and_its_repositories(self):
+    def test_company_page_linking_a_profile_that_names_the_company_keeps_the_profile_not_its_repositories(self):
         page = Event(
             "URL",
             "https://guardianaudits.com/",
@@ -181,7 +181,8 @@ class ScopeFilterTests(unittest.TestCase):
             tags={"git", "github", "github-org-scope"},
             source_module="github_org",
         )
-        self.assertTrue(self.check(repo))
+        # The profile is the company's, but its repositories were not seeded, so they are not scanned.
+        self.assertFalse(self.check(repo))
         # A linked profile that does not name the company is still a third party.
         self.assertFalse(self.check(linked("golang")))
         # A short domain label is too generic to identify a longer profile name.
@@ -241,7 +242,7 @@ class ScopeFilterTests(unittest.TestCase):
         origin.module = "untrusted_module"
         self.assertFalse(self.check(origin))
 
-    def test_verified_github_org_member_repository_is_allowed_but_unrelated_repos_are_not(self):
+    def test_repositories_of_a_discovered_github_org_or_its_members_are_not_scanned(self):
         org = Event("SOCIAL", {"profile_name": "company"}, "github.com", tags={"github-org"})
         member = Event(
             "SOCIAL",
@@ -259,12 +260,12 @@ class ScopeFilterTests(unittest.TestCase):
             tags={"git", "github", "github-org-scope"},
             source_module="github_org",
         )
+        self.assertFalse(self.check(repo))
+        repo.data = {"url": "https://github.com/company/project"}
+        repo.parent = org
+        self.assertFalse(self.check(repo))
+        self.filter.allowed_repo_owners.add(("github.com", "company"))
         self.assertTrue(self.check(repo))
-        repo.module = "other_module"
-        self.assertFalse(self.check(repo))
-        repo.module = "github_org"
-        repo.data = {"url": "https://github.com/stranger/project"}
-        self.assertFalse(self.check(repo))
 
     def test_in_scope_names_that_resolve_to_internal_addresses_are_never_scanned(self):
         for event in (
