@@ -75,7 +75,6 @@ modules:
   - virustotal
   - wafw00f
   - whatweb
-  - web_recon
   - wayback
   - dnsreaper
 
