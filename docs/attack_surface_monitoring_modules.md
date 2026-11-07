@@ -158,7 +158,7 @@ dehashed, leakosintbot, leakradar and snusbase emit one `LEAKED_CREDENTIAL` even
 ## Service fingerprinting / enrichment
 | Module | What it does | Needs API key | Free/limited test option? | Intensity | Safer settings (if intense) |
 |---|---|---:|---|---|---|
-| fingerprintx | Fingerprint exposed services like RDP, SSH, MySQL, etc. | No | N/A | Medium (active) |  |
+| service_fingerprint | Identify the service, product and version on open ports (Nerva, then Recog, then Nuclei) | No | N/A | Medium (active) |  |
 
 ## Web enumeration (basic)
 | Module | What it does | Needs API key | Free/limited test option? | Intensity | Safer settings (if intense) |

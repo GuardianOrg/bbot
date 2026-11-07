@@ -29,7 +29,6 @@ modules:
   - docker_pull
   - extractous
   - filedownload
-  - fingerprintx
   - gitdumper
   - github_org
   - git_clone
@@ -60,6 +59,7 @@ modules:
   - rapiddns
   - robtex
   - retirejs
+  - service_fingerprint
   - securitytrails
   - shodan_dns
   - shodan_idb
@@ -176,12 +176,14 @@ config:
       find_all: true
     retirejs:
       severity: low
-    fingerprintx:
-      batch_size: 1
-      module_threads: 64
+    service_fingerprint:
+      # Each batch is one fast Nerva run, a time-limited thorough run per port it could not name,
+      # and one Nuclei run over the non-web ports still without a product and version.
+      batch_size: 25
+      module_threads: 8
       skip_common_web: false
       timeout_ms: 1000
-      fast: false
+      thorough_timeout: 30
     nuclei_takeover:
       ratelimit: 30
       concurrency: 5

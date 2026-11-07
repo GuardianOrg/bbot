@@ -44,7 +44,7 @@ modules:
   - extractous
   - ffuf_shortnames
   - filedownload
-  - fingerprintx
+  - service_fingerprint
   - generic_ssrf
   - ggshield
   - git

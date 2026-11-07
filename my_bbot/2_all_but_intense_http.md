@@ -42,7 +42,7 @@ modules:
   - dockerhub
   - extractous
   - filedownload
-  - fingerprintx
+  - service_fingerprint
   - ggshield
   - git
   - git_clone

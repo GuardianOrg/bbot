@@ -7,17 +7,17 @@ This doc is entry-event based and lists modules that support `OPEN_TCP_PORT` inp
 
 ## Quick start (recommended)
 - Run with a focused set of `OPEN_TCP_PORT` modules (example):
-  - `bbot -t example.com -m fingerprintx httpx portfilter sslcert`
+  - `bbot -t example.com -m service_fingerprint httpx portfilter sslcert`
 - If the chosen modules are passive-capable, you can force passive mode:
-  - `bbot -t example.com -m fingerprintx httpx portfilter sslcert -rf passive`
+  - `bbot -t example.com -m service_fingerprint httpx portfilter sslcert -rf passive`
 
 ## Enable a specific set of `OPEN_TCP_PORT` modules
 Use `-m` to list modules explicitly (example):
-`bbot -t example.com -m fingerprintx httpx portfilter sslcert`
+`bbot -t example.com -m service_fingerprint httpx portfilter sslcert`
 
 ## API keys
 Put keys in your config (or pass via `-c`):
-- Example: `bbot -t example.com -m fingerprintx httpx portfilter sslcert -c modules.<module>.api_key=YOURKEY`
+- Example: `bbot -t example.com -m service_fingerprint httpx portfilter sslcert -c modules.<module>.api_key=YOURKEY`
 
 ## What these modules do
 - Grouped by emitted event type:
@@ -25,7 +25,7 @@ Put keys in your config (or pass via `-c`):
 - Emit `DNS_NAME`: `sslcert`.
 - Emit `EMAIL_ADDRESS`: `sslcert`.
 - Emit `HTTP_RESPONSE`: `httpx`.
-- Emit `PROTOCOL`: `fingerprintx`.
+- Emit `PROTOCOL`: `service_fingerprint`.
 - Emit `URL`: `httpx`.
 
 ## Preset config enabling all `Should use = Yes` modules
@@ -36,7 +36,7 @@ Save this as a preset, for example `open_tcp_port-discovery-yes.yml`, and run wi
 description: OPEN_TCP_PORT discovery with all modules marked "Should use = Yes"
 
 modules:
-  - fingerprintx
+  - service_fingerprint
   - httpx
   - portfilter
   - sslcert
@@ -45,7 +45,7 @@ modules:
 ## Modules supporting entry event `OPEN_TCP_PORT`
 | Module | Emitted event | What it does (1 sentence) | Needs API key | Notes | Should use |
 |---|---|---|---:|---|---:|
-| fingerprintx | PROTOCOL | Module `fingerprintx` functionality. | No | Yes, recommended | Yes |
+| service_fingerprint | PROTOCOL | Module `service_fingerprint` functionality. | No | Yes, recommended | Yes |
 | httpx | HTTP_RESPONSE | Module `httpx` functionality. | No | Yes, recommended | Yes |
 | httpx | URL | Module `httpx` functionality. | No | Yes, recommended | Yes |
 | portfilter | (none) | Module `portfilter` functionality. | No | Yes, recommended | Yes |

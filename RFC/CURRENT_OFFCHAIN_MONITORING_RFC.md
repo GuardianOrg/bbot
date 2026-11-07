@@ -977,7 +977,7 @@ Summary of what the template typically covers:
 | Passive subdomain discovery | `crt`, `certspotter`, `otx`, `rapiddns` | DomainNode |
 | DNS enrichment | `dnsresolve`, `dnscommonsrv`, `baddns` | DomainNode DNS/security attributes |
 | HTTP probing/fingerprinting | `httpx`, `wafw00f`, `retirejs` | URLObject + web metadata |
-| NetworkService/TLS discovery | `naabu`, `fingerprintx`, `sslcert` | NetworkServiceNode + cert attributes |
+| NetworkService/TLS discovery | `naabu`, `service_fingerprint`, `sslcert` | NetworkServiceNode + cert attributes |
 | Cloud/resource discovery | `bucket_*`, `azure_*` | CloudResourceNode |
 | Code/repo discovery | `github_*`, `code_repository` | CodeRepositoryNode |
 | Identity/leak discovery | `hunterio`, `leaklookup` | EmailAddress, TrackedFinding (secrets) |
