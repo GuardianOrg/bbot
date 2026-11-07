@@ -13,6 +13,7 @@ import dns.rdatatype
 
 from radixtarget import RadixTarget, host_size_key
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseModule
 
 QUIC_PROBE_DESTINATION_ID = bytes.fromhex("0102030405060708")
@@ -139,6 +140,7 @@ class udpx(BaseModule):
     }
     options = {
         "binary": "udpx",
+        "skip_shared_frontends": False,
         "concurrency": 64,
         "target_concurrency": 1,
         "target_batch_size": 256,
@@ -149,6 +151,7 @@ class udpx(BaseModule):
     }
     options_desc = {
         "binary": "Path to the udpx executable",
+        "skip_shared_frontends": "Do not probe IPs identified as CDN, WAF, load balancer or shared proxy frontends",
         "concurrency": "Maximum concurrent UDP probes per udpx run",
         "target_concurrency": "Maximum udpx target batches to run in parallel",
         "target_batch_size": "Maximum target hosts per udpx process when target_concurrency is greater than 1",
@@ -172,6 +175,11 @@ class udpx(BaseModule):
 
     batch_size = 1000000
     _shuffle_incoming_queue = False
+
+    async def filter_event(self, event):
+        if self.config.get("skip_shared_frontends", False) and shared_infra.event_frontend(self.scan, event):
+            return False, shared_infra.SHARED_FRONTEND_SKIP_REASON
+        return True
 
     async def setup(self):
         self.binary = str(self.config.get("binary", "udpx")).strip() or "udpx"

@@ -613,3 +613,33 @@ def known_frontend(scan, host):
     """(kind, provider) when this scan already classified ``host`` (an address) as a shared frontend, else None."""
     address = _address(host)
     return getattr(scan, "__dict__", {}).get("_shared_frontend_ips", {}).get(address) if address else None
+
+# Why a port scanner leaves an address alone: probing it would scan the provider, not the scanned organisation.
+SHARED_FRONTEND_SKIP_REASON = "IP belongs to a CDN, WAF, load balancer, API gateway or shared platform"
+
+
+def event_frontend(scan, event):
+    """(kind, provider) when ``event`` is about a shared frontend address, else None.
+
+    The address counts as shared when cloudcheck tagged the event (or put it in a CDN or WAF range), when the DNS
+    name it was resolved from aliases a managed frontend, or when this scan already classified the address. A
+    verified origin (WEB_ORIGIN) is the frontend's backend, so aliases above it are not evidence about it.
+    """
+    tags = {str(tag).lower() for tag in getattr(event, "tags", ())}
+    if "shared-frontend" in tags:
+        return ("proxy", "tagged")
+    for tag in sorted(tags):
+        kind, _, provider = tag.partition("-")
+        if kind in ("cdn", "waf") and provider and provider != "github":
+            return (kind, provider)
+    get_parents = getattr(event, "get_parents", None)
+    for parent in get_parents(include_self=True) if callable(get_parents) else ():
+        if getattr(parent, "type", None) == "WEB_ORIGIN":
+            break
+        if getattr(parent, "type", None) == "DNS_NAME":
+            alias = classify_hostnames((getattr(parent, "dns_children", None) or {}).get("CNAME", ()))
+            if alias:
+                return alias[:2]
+            break
+    host = getattr(event, "host", None)
+    return known_frontend(scan, host) if host else None

@@ -274,6 +274,7 @@ class whatweb(BaseInterceptModule):
                     follow_redirects=False,
                     timeout=self.timeout,
                     warn=False,
+                    headers=dict(self.scan.custom_http_headers),
                 )
                 if not downloaded:
                     continue

@@ -21,6 +21,10 @@ class RetireJSSeverity(IntEnum):
             return cls.NONE
 
 
+# Advisory data the module reads; it is tooling input, never a scan target.
+RETIREJS_REPOSITORY_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json"
+
+
 class retirejs(BaseModule):
     watched_events = ["URL_UNVERIFIED"]
     produced_events = ["FINDING"]
@@ -140,9 +144,7 @@ class retirejs(BaseModule):
                 f"Invalid severity level '{configured_severity}'. Valid options are: {', '.join(valid_severities)}",
             )
 
-        self.repofile = await self.helpers.download(
-            "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json", cache_hrs=24
-        )
+        self.repofile = await self.helpers.download(RETIREJS_REPOSITORY_URL, cache_hrs=24)
         if not self.repofile:
             return False, "failed to download retire.js repository file"
         return True
@@ -161,6 +163,7 @@ class retirejs(BaseModule):
                         follow_redirects=False,
                         timeout=timeout,
                         warn=False,
+                        headers=dict(self.scan.custom_http_headers),
                     ),
                     timeout=timeout,
                 )

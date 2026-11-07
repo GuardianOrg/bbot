@@ -4,6 +4,7 @@ from contextlib import suppress
 
 from radixtarget import RadixTarget, host_size_key
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseModule
 from bbot.modules.naabu import MAX_OPEN_PORTS_PER_IP, NMAP_TOP_1000
 
@@ -20,6 +21,7 @@ class tcp_connect_verify(BaseModule):
 
     options = {
         "ports": "",
+        "skip_shared_frontends": False,
         "top_ports": "1000",
         "connect_concurrency": 5,
         "target_concurrency": 6,
@@ -31,6 +33,7 @@ class tcp_connect_verify(BaseModule):
     }
     options_desc = {
         "ports": "Ports to verify (BBOT port string); empty uses top_ports",
+        "skip_shared_frontends": "Do not probe IPs identified as CDN, WAF, load balancer or shared proxy frontends",
         "top_ports": "Top ports to verify when ports is empty. Currently supports 1000.",
         "connect_concurrency": "Maximum concurrent TCP connects per target host",
         "target_concurrency": "Maximum target hosts to verify in parallel",
@@ -43,6 +46,11 @@ class tcp_connect_verify(BaseModule):
 
     batch_size = 1000000
     _shuffle_incoming_queue = False
+
+    async def filter_event(self, event):
+        if self.config.get("skip_shared_frontends", False) and shared_infra.event_frontend(self.scan, event):
+            return False, shared_infra.SHARED_FRONTEND_SKIP_REASON
+        return True
 
     async def setup(self):
         self.ports = self._normalize_port_string(self.config.get("ports", ""))

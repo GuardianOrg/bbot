@@ -177,7 +177,8 @@ class CloudCheck(BaseInterceptModule):
         host = f"[{ip}]" if ":" in ip else ip
         urls = [f"https://{host}/", f"http://{host}/"]
         responses = await asyncio.gather(*(self.helpers.request(url, timeout=self.probe_timeout,
-                                                                follow_redirects=False) for url in urls),
+                                                                follow_redirects=False,
+                                                                headers=dict(self.scan.custom_http_headers)) for url in urls),
                                          return_exceptions=True)
         found = []
         for url, response in zip(urls, responses):

@@ -168,6 +168,30 @@ async def test_originfinder_raw_requests_carry_the_scan_headers(bbot_scanner, he
 
 
 @pytest.mark.asyncio
+async def test_originfinder_sends_a_custom_user_agent_instead_of_its_own():
+    received = []
+
+    async def handle(reader, writer):
+        received.append(await reader.readuntil(b"\r\n\r\n"))
+        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        await originfinder_module.fetch_website(
+            "127.0.0.1", "app.example.com", port, False, "/", headers={"User-Agent": "scanner42"}
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    user_agents = [line for line in received[0].decode().split("\r\n") if line.lower().startswith("user-agent:")]
+    assert user_agents == ["User-Agent: scanner42"]
+
+
+@pytest.mark.asyncio
 async def test_originfinder_never_sends_a_header_that_would_split_the_request():
     received = []
 
@@ -248,3 +272,92 @@ async def test_dns_audit_doh_probe_sends_the_scan_headers_only_to_in_scope_names
     assert module._sync_check_doh("ns1.thirdparty-dns.net", "/dns-query") is True
     assert sent["ns1.example.com"] == {"Accept": "application/dns-json", "X-Assessment": "assess42"}
     assert sent["ns1.thirdparty-dns.net"] == {"Accept": "application/dns-json"}
+
+
+TARGET_HEADERS = {"X-Assessment": "assess42", "User-Agent": "scanner42"}
+
+
+def capture_requests(module, monkeypatch):
+    """Every engine request and download the module makes, with the headers it passed."""
+    calls = []
+
+    async def record(url, *args, **kwargs):
+        calls.append((str(url), kwargs.get("headers")))
+        return None
+
+    monkeypatch.setattr(module.helpers, "request", record)
+    monkeypatch.setattr(module.helpers, "download", record)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_engine_requests_to_target_hosts_carry_the_scan_headers(bbot_scanner, monkeypatch):
+    """The engine only adds the headers for whitelisted hosts; an address or redirect host the scan reached through
+    an in-scope name is a target too, so modules that contact them pass the headers themselves."""
+    from types import SimpleNamespace
+
+    from bbot.modules.filedownload import filedownload
+    from bbot.modules.gitdumper import gitdumper
+    from bbot.modules.internal.cloudcheck import CloudCheck
+    from bbot.modules.retirejs import retirejs
+    from bbot.modules.whatweb import whatweb
+
+    scan = header_scan(bbot_scanner, "httpx", TARGET_HEADERS)
+
+    cloud = make(CloudCheck, scan, "cloudcheck")
+    cloud.probe_timeout = 1
+    calls = capture_requests(cloud, monkeypatch)
+    await cloud._probe_frontend("93.184.216.34")
+    assert calls and all(headers == TARGET_HEADERS for _, headers in calls)
+
+    retire = make(retirejs, scan, "retirejs")
+    calls = capture_requests(retire, monkeypatch)
+    await retire.handle_event(SimpleNamespace(data="https://93.184.216.34/app.js"))
+    assert calls == [("https://93.184.216.34/app.js", TARGET_HEADERS)]
+
+    download = make(filedownload, scan, "filedownload")
+    download.mime_db_file = scan.temp_dir / "mime-db.json"
+    download.mime_db_file.write_text("{}")
+    await download.setup()
+    calls = capture_requests(download, monkeypatch)
+    await download.download_file("https://93.184.216.34/report.pdf")
+    assert calls == [("https://93.184.216.34/report.pdf", TARGET_HEADERS)]
+
+    dumper = make(gitdumper, scan, "gitdumper")
+    dumper.urls_downloaded = set()
+    calls = capture_requests(dumper, monkeypatch)
+    await dumper.directory_listing_enabled("https://93.184.216.34/.git/")
+    folder = scan.temp_dir / "gitdumper-test"
+    await dumper.download_files([scan.helpers.urlparse("https://93.184.216.34/.git/HEAD")], folder)
+    assert [headers for _, headers in calls] == [TARGET_HEADERS, TARGET_HEADERS]
+
+    web = make(whatweb, scan, "whatweb")
+    web.timeout = 1
+    web.max_icon_size = 1024
+    calls = capture_requests(web, monkeypatch)
+    monkeypatch.setattr(web.scan, "in_scope", lambda *_: True)
+    await web.find_favicon("https://example.com/", "")
+    assert calls and all(headers == TARGET_HEADERS for _, headers in calls)
+
+
+@pytest.mark.asyncio
+async def test_fingerprintx_stands_down_when_the_scan_has_headers(bbot_scanner):
+    from bbot.modules.fingerprintx import fingerprintx
+
+    # Its HTTP plugins send requests that cannot carry the headers.
+    status = await make(fingerprintx, header_scan(bbot_scanner, "fingerprintx"), "fingerprintx").setup()
+    assert status[0] is None
+    assert await make(fingerprintx, header_scan(bbot_scanner, "fingerprintx", {}), "fingerprintx").setup() is True
+
+
+@pytest.mark.asyncio
+async def test_wafw00f_keeps_a_custom_user_agent_on_the_probe_that_drops_it(bbot_scanner, bbot_httpserver):
+    bbot_httpserver.expect_request(uri=re.compile(".*")).respond_with_data("ok")
+    scan = header_scan(bbot_scanner, "wafw00f", TARGET_HEADERS)
+    engine = make(wafw00f, scan, "wafw00f").probe(bbot_httpserver.url_for("/"))
+    engine.identwaf(True)
+    engine.genericdetect()
+
+    requests = [request for request, _ in bbot_httpserver.log]
+    assert len(requests) >= 4
+    assert all(request.headers.get("User-Agent") == "scanner42" for request in requests)

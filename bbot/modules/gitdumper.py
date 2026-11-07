@@ -139,7 +139,7 @@ class gitdumper(BaseModule):
             self.helpers.rm_rf(repo_folder)
 
     async def directory_listing_enabled(self, repo_url):
-        response = await self.helpers.request(repo_url)
+        response = await self.helpers.request(repo_url, headers=dict(self.scan.custom_http_headers))
         if "<title>Index of" in getattr(response, "text", ""):
             self.info(f"Directory listing enabled at {repo_url}")
             return response
@@ -155,7 +155,7 @@ class gitdumper(BaseModule):
                 continue
             if href.endswith("/"):
                 folder_url = self.helpers.urljoin(str(dir_listing.url), href)
-                response = await self.helpers.request(folder_url)
+                response = await self.helpers.request(folder_url, headers=dict(self.scan.custom_http_headers))
                 if getattr(response, "status_code", 0) == 200:
                     file_list.extend(await self.recursive_dir_list(response))
             else:
@@ -269,6 +269,7 @@ class gitdumper(BaseModule):
                     filename=filename,
                     warn=False,
                     max_size=self._download_max_size,
+                    headers=dict(self.scan.custom_http_headers),
                 )
                 self.urls_downloaded.add(hash(str(file_url)))
         if any(folder.rglob("*")):

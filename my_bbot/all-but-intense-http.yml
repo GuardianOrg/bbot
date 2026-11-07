@@ -1,8 +1,5 @@
 description: Generic discovery preset excluding deep/intense URL-internal probing modules
 
-module_dirs:
-  - /workspace/bbot-guardian/my_bbot/modules
-
 modules:
   - apkeep
   - azure_tenant
@@ -240,6 +237,7 @@ config:
       target_batch_size: 256
       timeout_ms: 750
       capture_banner: true
+      skip_shared_frontends: true
     tcp_connect_verify:
       ports: ''
       top_ports: 1000
@@ -249,6 +247,7 @@ config:
       timeout_ms: 500
       retries: 1
       max_open_ports_per_ip: 70
+      skip_shared_frontends: true
     bucket_amazon:
       permutations: true
       max_candidates: 500
