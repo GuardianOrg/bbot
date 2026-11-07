@@ -361,9 +361,12 @@ config:
       osintverse_api_key: ${env:OSINTVERSE_API_KEY,""}
     github_org:
       include_private_org_repos: false
-      include_members: true
-      include_member_repos: true
+      # A member's own account is not the organisation's: the scope filter drops its repositories.
+      include_members: false
+      include_member_repos: false
       include_forks: false
+      # Every fork of a seeded owner is checked for commits of its own (two API calls each).
+      max_fork_checks: 50
       max_org_repos: 100
       max_org_members: 20
       max_member_repos: 20
