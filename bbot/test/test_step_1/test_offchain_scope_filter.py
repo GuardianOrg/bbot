@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from my_bbot.modules.offchain_scope_filter import offchain_scope_filter
+from bbot.modules.offchain_scope_filter import offchain_scope_filter
 
 
 def make_event(
@@ -264,12 +264,12 @@ async def test_offchain_scope_filter_only_allows_ips_from_a_and_aaaa_resolution(
 
 @pytest.mark.asyncio
 async def test_offchain_scope_filter_allows_open_ports_by_netloc_for_seeded_ips():
-    module = await create_scope_filter(["ip_address:10.0.0.2"])
+    module = await create_scope_filter(["ip_address:93.184.216.2"])
 
-    allowed_tcp_port = make_event("OPEN_TCP_PORT", data="10.0.0.2:443")
-    allowed_udp_port = make_event("OPEN_UDP_PORT", data="10.0.0.2:123")
-    allowed_protocol = make_event("PROTOCOL", data={"host": "10.0.0.2", "port": 443, "transport": "tcp"})
-    blocked_tcp_port = make_event("OPEN_TCP_PORT", data="10.0.0.3:443")
+    allowed_tcp_port = make_event("OPEN_TCP_PORT", data="93.184.216.2:443")
+    allowed_udp_port = make_event("OPEN_UDP_PORT", data="93.184.216.2:123")
+    allowed_protocol = make_event("PROTOCOL", data={"host": "93.184.216.2", "port": 443, "transport": "tcp"})
+    blocked_tcp_port = make_event("OPEN_TCP_PORT", data="93.184.216.3:443")
 
     assert await module.handle_event(allowed_tcp_port) is True
     assert await module.handle_event(allowed_udp_port) is True
@@ -312,12 +312,12 @@ async def test_offchain_scope_filter_allows_urls_for_scoped_domains_and_ip_range
     module = await create_scope_filter(
         [
             "domain:example.com",
-            "ip_range:10.0.0.0/30",
+            "ip_range:93.184.216.0/30",
         ]
     )
 
     allowed_domain_url = make_event("URL", data="https://portal.example.com/login", host="portal.example.com")
-    allowed_ip_url = make_event("URL", data="https://10.0.0.2/login", host="10.0.0.2")
+    allowed_ip_url = make_event("URL", data="https://93.184.216.2/login", host="93.184.216.2")
     blocked_domain_url = make_event("URL", data="https://vendor.net/login", host="vendor.net")
     blocked_ip_url = make_event("URL", data="https://8.8.8.8/login", host="8.8.8.8")
 
@@ -329,20 +329,20 @@ async def test_offchain_scope_filter_allows_urls_for_scoped_domains_and_ip_range
 
     assert blocked_domain_result == (
         False,
-        "web event is outside the seeded domain and IP scope",
+        "web event host is outside the seeded domain and IP scope",
     )
     assert blocked_ip_result == (
         False,
-        "web event is outside the seeded domain and IP scope",
+        "web event host is outside the seeded domain and IP scope",
     )
 
 
 @pytest.mark.asyncio
 async def test_offchain_scope_filter_keeps_ip_range_events_to_seeded_ranges():
-    module = await create_scope_filter(["ip_range:10.0.0.0/30"])
+    module = await create_scope_filter(["ip_range:93.184.216.0/30"])
 
-    allowed_range = make_event("IP_RANGE", data="10.0.0.0/30", host="10.0.0.0/30")
-    blocked_range = make_event("IP_RANGE", data="10.0.0.0/24", host="10.0.0.0/24")
+    allowed_range = make_event("IP_RANGE", data="93.184.216.0/30", host="93.184.216.0/30")
+    blocked_range = make_event("IP_RANGE", data="93.184.216.0/24", host="93.184.216.0/24")
 
     assert await module.handle_event(allowed_range) is True
     assert await module.handle_event(blocked_range) == (

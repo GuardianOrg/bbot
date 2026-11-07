@@ -1,8 +1,5 @@
 description: Generic discovery preset excluding deep/intense URL-internal probing modules
 
-module_dirs:
-  - /workspace/bbot-guardian/my_bbot/modules
-
 modules:
   - apkeep
   - azure_tenant
