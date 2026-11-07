@@ -4,6 +4,7 @@ import os
 import re
 from urllib.parse import urlparse
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseInterceptModule
 
 
@@ -120,6 +121,10 @@ class offchain_scope_filter(BaseInterceptModule):
             if any(not self._is_global_ip(candidate) for candidate in self._event_ip_candidates(event)):
                 return False, "event resolves to a non-public IP address"
 
+        shared_frontend = self._shared_frontend_refusal(event)
+        if shared_frontend:
+            return False, shared_frontend
+
         if event.type == "WEB_FRONTEND":
             data = self._event_data(event)
             host = self._normalize_domain(data.get("host"))
@@ -222,6 +227,28 @@ class offchain_scope_filter(BaseInterceptModule):
             ):
                 return False, "event names a hostname outside the seeded domain scope"
         return True
+
+    def _shared_frontend_refusal(self, event):
+        """Why an event about a shared frontend (CDN, WAF, load balancer, API gateway, shared platform) is dropped.
+
+        Such an address serves every customer of its provider. A port or service on it is the provider's, so no
+        module may fingerprint, brute-force or scan it, and its bare address is not a website of the target unless
+        the scan was seeded with it. A name behind the frontend stays a website of the target.
+        """
+        if event.type in PORT_SERVICE_EVENT_TYPES:
+            # Port and protocol events are keyed to an address; the rules below drop any keyed to a name.
+            address = self._event_primary_ip(event)
+            if address and self._address_frontend(event, address):
+                return "service on a shared frontend address belongs to the provider, not the target"
+            return None
+        if event.type in WEB_SCOPE_EVENT_TYPES and "target" not in getattr(event, "tags", ()):
+            host = self._extract_event_url_host(event) or self._normalize_domain(getattr(event, "host", None))
+            if host and self._is_ip(host) and self._address_frontend(event, host):
+                return "bare address of a shared frontend is not a website of the target"
+        return None
+
+    def _address_frontend(self, event, address):
+        return shared_infra.event_frontend(self.scan, event) or shared_infra.known_frontend(self.scan, address)
 
     def _event_hostnames(self, event):
         data = self._event_data(event)

@@ -6,6 +6,7 @@ import types
 import unittest
 from unittest import mock
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.offchain_scope_filter import offchain_scope_filter
 
 
@@ -38,6 +39,13 @@ class Event:
 
     def get_parent(self):
         return self.parent
+
+    def get_parents(self, include_self=False):
+        parents, parent = ([self] if include_self else []), self.parent
+        while parent is not None:
+            parents.append(parent)
+            parent = parent.parent
+        return parents
 
 
 class ScopeFilterTests(unittest.TestCase):
@@ -441,3 +449,73 @@ class ScopeFilterTests(unittest.TestCase):
                 self.assertEqual(scope.allowed_repo_tuples, {("github.com", "org", "repo")})
                 self.assertEqual(scope.allowed_repo_owners, {("*", "myorg")})
                 self.assertEqual(scope.allowed_email_addresses, set())
+
+
+CDN_IP = "104.16.1.1"
+
+
+class SharedFrontendTests(unittest.TestCase):
+    """A CDN, WAF, load balancer or shared platform address is never network-scanned, and its bare address is not a
+    website; the target's names behind it remain websites."""
+
+    def setUp(self):
+        self.filter = make_filter()
+        self.filter.allowed_domain_roots = {"guardianaudits.com"}
+        self.filter.allowed_ips = {"8.8.8.8", CDN_IP}
+        self.filter.allowed_ip_ranges = []
+        shared_infra.remember_frontend(self.filter.scan, CDN_IP, "cdn", "cloudflare")
+
+    def verdict(self, event):
+        result = asyncio.run(self.filter.handle_event(event))
+        return result if isinstance(result, tuple) else (result, None)
+
+    def test_ports_and_services_on_a_shared_frontend_address_are_dropped(self):
+        for event in (
+            Event("OPEN_TCP_PORT", f"{CDN_IP}:22", CDN_IP),
+            Event("OPEN_TCP_PORT", f"{CDN_IP}:443", CDN_IP),
+            Event("OPEN_UDP_PORT", f"{CDN_IP}:53", CDN_IP),
+            Event("PROTOCOL", {"host": CDN_IP, "port": 22, "protocol": "SSH"}, CDN_IP),
+        ):
+            with self.subTest(event=event.data):
+                allowed, reason = self.verdict(event)
+                self.assertFalse(allowed)
+                self.assertIn("shared frontend", reason)
+
+    def test_dedicated_address_ports_are_kept(self):
+        self.assertTrue(self.verdict(Event("OPEN_TCP_PORT", "8.8.8.8:22", "8.8.8.8"))[0])
+        self.assertTrue(
+            self.verdict(Event("PROTOCOL", {"host": "8.8.8.8", "port": 22, "protocol": "SSH"}, "8.8.8.8"))[0]
+        )
+
+    def test_bare_shared_frontend_address_is_not_a_website_unless_seeded(self):
+        self.assertFalse(self.verdict(Event("URL", f"https://{CDN_IP}/", CDN_IP))[0])
+        self.assertFalse(self.verdict(Event("URL_UNVERIFIED", f"http://{CDN_IP}:2095/", CDN_IP))[0])
+        self.assertTrue(self.verdict(Event("URL", f"https://{CDN_IP}/", CDN_IP, tags={"target"}))[0])
+
+    def test_names_behind_a_shared_frontend_remain_websites(self):
+        name = "www.guardianaudits.com"
+        self.assertTrue(self.verdict(Event("URL", f"https://{name}/", name, [CDN_IP]))[0])
+        self.assertTrue(self.verdict(Event("HTTP_RESPONSE", {"url": f"https://{name}/"}, name, [CDN_IP]))[0])
+
+    def test_alias_to_a_managed_frontend_marks_the_address_but_not_a_verified_origin_behind_it(self):
+        self.filter.allowed_ips.add("8.8.4.4")
+        name = Event("DNS_NAME", "app.guardianaudits.com", "app.guardianaudits.com", ["8.8.4.4"])
+        name.dns_children = {"CNAME": ["d111.cloudfront.net"]}
+        address = Event("IP_ADDRESS", "8.8.4.4", "8.8.4.4", parent=name)
+        self.assertFalse(self.verdict(Event("OPEN_TCP_PORT", "8.8.4.4:22", "8.8.4.4", parent=address))[0])
+        origin = Event(
+            "WEB_ORIGIN",
+            {
+                "host": "app.guardianaudits.com",
+                "url": "https://app.guardianaudits.com/",
+                "ip": "8.8.8.8",
+                "port": 443,
+                "protocol": "https",
+                "confidence": 0.95,
+            },
+            "app.guardianaudits.com",
+            parent=name,
+            source_module="originfinder",
+        )
+        origin_address = Event("IP_ADDRESS", "8.8.8.8", "8.8.8.8", parent=origin)
+        self.assertTrue(self.verdict(Event("OPEN_TCP_PORT", "8.8.8.8:22", "8.8.8.8", parent=origin_address))[0])
