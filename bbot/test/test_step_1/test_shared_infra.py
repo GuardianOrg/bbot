@@ -5,7 +5,13 @@ from types import SimpleNamespace
 import pytest
 
 from bbot.core.helpers import shared_infra
-from bbot.core.helpers.shared_infra import classify_hostname, classify_ip, classify_response, load_service_ranges
+from bbot.core.helpers.shared_infra import (
+    classify_hostname,
+    classify_internetdb,
+    classify_ip,
+    classify_response,
+    load_service_ranges,
+)
 from bbot.modules.internal.cloudcheck import CloudCheck
 
 
@@ -218,11 +224,15 @@ async def test_bare_cloud_address_probe_flags_frontends_before_port_scans(answer
     assert "shared-frontend" in event.tags
     assert module.emitted[0][0] == "GEOLOCATION" and module.emitted[0][1][kind] is True
     assert module.emitted[0][1]["frontendEvidence"].startswith("HTTP probe of http")
-    assert sorted(module.requests) == ["http://3.81.181.36/", "https://3.81.181.36/"]
+    assert sorted(module.requests) == [
+        "http://3.81.181.36/",
+        "https://3.81.181.36/",
+        "https://internetdb.shodan.io/3.81.181.36",
+    ]
 
     # The verdict is cached: the same address on another event is not requested again.
     await module.handle_event(ip_event("3.81.181.36"))
-    assert len(module.requests) == 2
+    assert len(module.requests) == 3
 
 
 @pytest.mark.asyncio
@@ -234,11 +244,77 @@ async def test_dedicated_cloud_server_answering_as_itself_is_not_flagged():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("probe, provider_tags", [(False, ("cloud",)), (True, ())])
-async def test_probe_is_opt_in_and_limited_to_general_cloud_ranges(probe, provider_tags):
-    module = probe_module({"https://3.81.181.36/": (503, [("server", "awselb/2.0")], b"")}, probe, provider_tags)
+async def test_probe_is_opt_in():
+    module = probe_module({"https://3.81.181.36/": (503, [("server", "awselb/2.0")], b"")}, probe=False)
     await module.handle_event(ip_event("3.81.181.36"))
     assert module.requests == [] and module.emitted == []
+
+
+@pytest.mark.asyncio
+async def test_every_unclassified_address_is_checked_before_port_scans_not_only_cloud_ranges():
+    # An address in no known cloud range is still asked: a managed load balancer can sit on any block.
+    module = probe_module({"https://198.51.7.10/": (503, [("server", "awselb/2.0")], b"")}, provider_tags=())
+    event = ip_event("198.51.7.10")
+    await module.handle_event(event)
+    assert "shared-frontend" in event.tags
+    assert module.emitted[0][1]["isLoadBalancer"] is True
+
+
+def internetdb(ip, **answer):
+    body = {"cpes": [], "hostnames": [], "ip": ip, "ports": [80, 443], "tags": [], "vulns": [], **answer}
+    return {f"https://internetdb.shodan.io/{ip}": (200, [("content-type", "application/json")], json.dumps(body).encode())}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer, kind",
+    [
+        ({"cpes": ["cpe:/a:amazon:elastic_load_balancing"]}, "isLoadBalancer"),
+        ({"tags": ["cdn"], "cpes": ["cpe:/a:cloudflare:cloudflare"]}, "isCdn"),
+        ({"hostnames": ["server-1-2-3-4.mad50.r.cloudfront.net"]}, "isCdn"),
+    ],
+)
+async def test_internetdb_names_a_managed_frontend_before_port_scans(answer, kind):
+    # The address itself answers as a plain web server; only the API knows what is in front of it.
+    module = probe_module({**internetdb("52.20.1.1", **answer),
+                           "https://52.20.1.1/": (200, [("server", "nginx")], b"<html>app</html>")})
+    event = ip_event("52.20.1.1")
+    await module.handle_event(event)
+    assert "shared-frontend" in event.tags
+    assert module.emitted[0][1][kind] is True
+    assert module.emitted[0][1]["frontendEvidence"].startswith("InternetDB")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer",
+    [
+        # A load balancer the organisation runs itself is its own server: it is scanned and kept as a website.
+        {"cpes": ["cpe:/h:f5:big-ip_local_traffic_manager", "cpe:/a:haproxy:haproxy", "cpe:/a:f5:nginx"]},
+        {"tags": ["cloud", "self-signed"], "hostnames": ["ec2-52-20-1-1.compute-1.amazonaws.com", "vpn.example.com"]},
+    ],
+)
+async def test_self_hosted_load_balancers_and_cloud_instances_are_not_shared_frontends(answer):
+    module = probe_module({**internetdb("52.20.1.1", **answer),
+                           "https://52.20.1.1/": (200, [("server", "BigIP")], b"<html>app</html>")})
+    event = ip_event("52.20.1.1")
+    await module.handle_event(event)
+    assert module.emitted == [] and event.tags == set()
+
+
+@pytest.mark.asyncio
+async def test_non_public_addresses_are_never_probed():
+    module = probe_module({}, provider_tags=())
+    await module.handle_event(ip_event("10.0.0.5"))
+    assert module.requests == []
+
+
+def test_internetdb_answers():
+    assert classify_internetdb(None) is None
+    assert classify_internetdb({"tags": ["cdn"]})[:2] == ("cdn", "unknown")
+    assert classify_internetdb({"cpes": ["cpe:/a:amazon:elastic_load_balancing"]})[:2] == ("load_balancer", "aws")
+    assert classify_internetdb({"cpes": ["cpe:/a:f5:big-ip_local_traffic_manager"]}) is None
+    assert classify_internetdb({"hostnames": ["app.herokuapp.com"]})[:2] == ("proxy", "heroku")
 
 
 @pytest.mark.asyncio

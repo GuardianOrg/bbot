@@ -579,6 +579,41 @@ def classify_response(response):
     return _as_triple(_pick(matches))
 
 
+# Shodan InternetDB (https://internetdb.shodan.io/<ip>): what Shodan saw on the address, without a key.
+INTERNETDB_URL = "https://internetdb.shodan.io/{ip}"
+# CPE vendor:product of a managed service that answers for many customers. A load balancer the organisation runs
+# itself (F5 BIG-IP, HAProxy, NetScaler, nginx) is one of its own servers and is never listed here.
+INTERNETDB_SERVICE_CPES = {
+    "amazon:elastic_load_balancing": ("load_balancer", "aws"),
+    "amazon:cloudfront": ("cdn", "cloudfront"),
+    "cloudflare:cloudflare": ("cdn", "cloudflare"),
+}
+INTERNETDB_CDN_TAG = "cdn"
+
+
+def classify_internetdb(answer):
+    """(kind, provider, evidence) when Shodan InternetDB describes the address as a shared frontend, else None.
+
+    Shodan's ``cdn`` tag, a managed service's CPE and a provider hostname on the address count. Its ``cloud`` tag
+    does not: a dedicated instance in a cloud range is a server of the organisation.
+    """
+    if not isinstance(answer, dict):
+        return None
+    matches = []
+    for cpe in answer.get("cpes") or ():
+        parts = str(cpe).lower().split(":")
+        label = INTERNETDB_SERVICE_CPES.get(":".join(parts[2:4])) if len(parts) >= 4 else None
+        if label:
+            matches.append((label, f"InternetDB CPE {cpe}"))
+    if INTERNETDB_CDN_TAG in {str(tag).lower() for tag in answer.get("tags") or ()}:
+        provider = next((label[1] for label, _ in matches if label[0] == "cdn"), "unknown")
+        matches.append((("cdn", provider), "InternetDB tag cdn"))
+    alias = classify_hostnames(answer.get("hostnames") or ())
+    if alias:
+        matches.append(((alias[0], alias[1]), f"InternetDB hostname {alias[2].removeprefix('DNS alias ')}"))
+    return _as_triple(_pick(matches))
+
+
 def classify(hostnames=(), ip=None, response=None, service_ranges=None):
     """Strongest evidence from aliases, the address and an HTTP answer."""
     found = [classify_hostnames(hostnames), classify_ip(ip, service_ranges) if ip else None,

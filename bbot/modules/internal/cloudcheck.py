@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import regex as re
 from contextlib import suppress
 from urllib.parse import urlparse
@@ -99,7 +100,8 @@ class CloudCheck(BaseInterceptModule):
         self._cloud_hostname_regexes = None
         self._cloud_hostname_regexes_lock = asyncio.Lock()
         self.scope_input_only = bool(self.config.get("scope_input_only", False))
-        # One request to a bare cloud address before port scanning, to recognise load balancers and API gateways.
+        # Before port scanning, ask every unclassified public address what it is (Shodan InternetDB and one bare
+        # request), to recognise managed load balancers, API gateways and CDNs that no alias or range names.
         self.probe_cloud_frontends = bool(self.config.get("probe_cloud_frontends", False))
         self.probe_timeout = float(self.config.get("probe_timeout", 5))
         self._probe_verdicts = {}
@@ -176,11 +178,12 @@ class CloudCheck(BaseInterceptModule):
     async def _probe_frontend(self, ip):
         host = f"[{ip}]" if ":" in ip else ip
         urls = [f"https://{host}/", f"http://{host}/"]
-        responses = await asyncio.gather(*(self.helpers.request(url, timeout=self.probe_timeout,
-                                                                follow_redirects=False,
-                                                                headers=dict(self.scan.custom_http_headers)) for url in urls),
-                                         return_exceptions=True)
-        found = []
+        api, *responses = await asyncio.gather(
+            self._internetdb_evidence(ip),
+            *(self.helpers.request(url, timeout=self.probe_timeout, follow_redirects=False,
+                                   headers=dict(self.scan.custom_http_headers)) for url in urls),
+            return_exceptions=True)
+        found = [api] if api and not isinstance(api, BaseException) else []
         for url, response in zip(urls, responses):
             if response is None or isinstance(response, BaseException) or not hasattr(response, "headers"):
                 continue
@@ -194,11 +197,27 @@ class CloudCheck(BaseInterceptModule):
                 found.append((answer[0], answer[1], f"HTTP probe of {url}: {answer[2]}"))
         return max(found, key=lambda match: shared_infra.KIND_PRIORITY[match[0]]) if found else None
 
-    async def probed_evidence(self, event, ip, frontend, providers):
-        """Probe an IP_ADDRESS (what port scanners consume) in a general cloud range that nothing else classified."""
+    async def _internetdb_evidence(self, ip):
+        """What Shodan InternetDB knows about the address: a managed service's CPE, its cdn tag or a provider name."""
+        response = await self.helpers.request(shared_infra.INTERNETDB_URL.format(ip=ip), timeout=self.probe_timeout)
+        if response is None or getattr(response, "status_code", None) != 200:
+            return None
+        try:
+            return shared_infra.classify_internetdb(response.json())
+        except ValueError:
+            return None
+
+    async def probed_evidence(self, event, ip, frontend):
+        """Check an IP_ADDRESS (what port scanners consume) that nothing else classified, wherever it is hosted.
+
+        Port scanners only receive the address once this returns, so every check has run before any scan.
+        """
         if frontend or not self.probe_cloud_frontends or event.type != "IP_ADDRESS":
             return frontend
-        if not any("cloud" in {str(tag).lower() for tag in tags} for _, tags in providers):
+        try:
+            if not ipaddress.ip_address(ip).is_global:
+                return None
+        except ValueError:
             return None
         return await self.probe_frontend(ip)
 
@@ -231,7 +250,7 @@ class CloudCheck(BaseInterceptModule):
             shared = [(name, tags) for name, tags in providers
                       if {"cdn", "waf"} & {str(tag).lower() for tag in tags} or name in SHARED_CLOUD_PROVIDERS]
             if not shared:
-                frontend = await self.probed_evidence(event, host, frontend, providers)
+                frontend = await self.probed_evidence(event, host, frontend)
             if frontend or shared:
                 provider_name, tags = primary_provider(shared)
                 data = cloud_ip_metadata(host, self._provider_slug(provider_name) if provider_name else None,
@@ -316,7 +335,7 @@ class CloudCheck(BaseInterceptModule):
                 providers = ip_providers.get(host, [])
                 if not any({"cdn", "waf"} & {str(tag).lower() for tag in tags} or name in SHARED_CLOUD_PROVIDERS
                            for name, tags in providers):
-                    frontend = await self.probed_evidence(event, host, frontend, providers)
+                    frontend = await self.probed_evidence(event, host, frontend)
                 data = await self.emit_cloud_ip_metadata(event, host, ip_providers.get(host, []), frontend)
                 if data and (data["isFrontedProxy"] or data["isCdn"]):
                     self.remember_frontend(event, host, data)
