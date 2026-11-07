@@ -486,6 +486,22 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertEqual(scope.allowed_org_stubs, {"acme", "configorg"})
         self.assertTrue(asyncio.run(scope.handle_event(seed)))
 
+    def test_seeded_mobile_apps_given_as_plain_store_urls_are_scanned(self):
+        play = Event("MOBILE_APP", "https://play.google.com/store/apps/details?id=com.Plain.App", "play.google.com")
+        play.input = "MOBILE_APP:https://play.google.com/store/apps/details?id=com.Plain.App"
+        apple = Event("MOBILE_APP", "https://apps.apple.com/us/app/wallet/id987654321", "apps.apple.com")
+        apple.input = "MOBILE_APP:https://apps.apple.com/us/app/wallet/id987654321"
+        scope = make_filter(make_scan([play, apple]))
+        self.assertTrue(asyncio.run(scope.setup()))
+
+        self.assertEqual(scope.allowed_mobile_app_ids, {"com.plain.app", "987654321"})
+        found = Event(
+            "MOBILE_APP",
+            {"id": "987654321", "url": "https://apps.apple.com/gb/app/wallet/id987654321"},
+            "acme.com",
+        )
+        self.assertTrue(asyncio.run(scope.handle_event(found)))
+
     def test_setup_reads_scope_targets_from_json_or_comma_separated_environment(self):
         scan = make_scan()
         targets = [
