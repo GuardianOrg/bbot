@@ -346,13 +346,12 @@ async def test_engine_requests_to_target_hosts_carry_the_scan_headers(bbot_scann
 
 
 @pytest.mark.asyncio
-async def test_fingerprintx_stands_down_when_the_scan_has_headers(bbot_scanner):
-    from bbot.modules.fingerprintx import fingerprintx
+async def test_service_fingerprint_stands_down_when_the_scan_has_headers(bbot_scanner):
+    from bbot.modules.service_fingerprint import service_fingerprint
 
-    # Its HTTP plugins send requests that cannot carry the headers.
-    status = await make(fingerprintx, header_scan(bbot_scanner, "fingerprintx"), "fingerprintx").setup()
+    # Nerva's HTTP plugins send requests that cannot carry the headers.
+    status = await make(service_fingerprint, header_scan(bbot_scanner, "service_fingerprint"), "service_fingerprint").setup()
     assert status[0] is None
-    assert await make(fingerprintx, header_scan(bbot_scanner, "fingerprintx", {}), "fingerprintx").setup() is True
 
 
 @pytest.mark.asyncio

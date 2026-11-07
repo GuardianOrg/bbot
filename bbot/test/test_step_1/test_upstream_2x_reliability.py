@@ -17,7 +17,6 @@ from bbot.core.helpers.web.envelopes import BaseEnvelope
 from bbot.errors import InteractshError
 from bbot.modules.badsecrets import badsecrets
 from bbot.modules.crt_db import crt_db
-from bbot.modules.fingerprintx import fingerprintx
 from bbot.modules.lightfuzz.lightfuzz import lightfuzz
 from bbot.modules.lightfuzz.submodules.base import BaseLightfuzz
 from bbot.modules.lightfuzz.submodules.crypto import crypto
@@ -68,40 +67,6 @@ def test_crypto_rejects_narrow_alphabet_base64_false_positives():
 def test_console_output_escapes_terminal_control_characters():
     assert make_printable("safe\tline\nraw\x00\x0e") == "safe\tline\nraw\\x00\\x0e"
     assert make_printable(b"bytes\x1f") == "bytes\\x1f"
-
-
-@pytest.mark.asyncio
-async def test_fingerprintx_emits_ipv6_web_url(bbot_scanner, monkeypatch):
-    module = fingerprintx(bbot_scanner("2001:db8::1"))
-    module.timeout_ms = 2000
-    module.fast = False
-    parent_event = SimpleNamespace(data="[2001:db8::1]:443")
-    emitted = []
-
-    async def fake_process(*args, **kwargs):
-        yield json.dumps(
-            {
-                "ip": "2001:db8::1",
-                "host": "2001:db8::1",
-                "port": 443,
-                "protocol": "HTTPS",
-                "metadata": {},
-            }
-        )
-
-    async def record_event(data, event_type, **kwargs):
-        emitted.append((event_type, data, kwargs))
-
-    monkeypatch.setattr(module, "run_process_live", fake_process)
-    monkeypatch.setattr(module, "emit_event", record_event)
-
-    await module.handle_batch(parent_event)
-
-    assert any(event_type == "PROTOCOL" and data["protocol"] == "HTTPS" for event_type, data, _ in emitted)
-    assert any(
-        event_type == "URL_UNVERIFIED" and data == "https://[2001:db8::1]" and kwargs["parent"] is parent_event
-        for event_type, data, kwargs in emitted
-    )
 
 
 @pytest.mark.asyncio

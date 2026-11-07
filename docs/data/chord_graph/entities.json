@@ -1295,7 +1295,7 @@
     },
     {
         "id": 80,
-        "name": "fingerprintx",
+        "name": "service_fingerprint",
         "parent": 99999999,
         "consumes": [
             16

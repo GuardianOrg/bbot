@@ -117,7 +117,7 @@ def test_website_only_preset_runs_the_policy_first_and_no_discovery_module():
     preset.merge(Preset.from_yaml_file(path))
     baked = preset.bake()
     assert {"website_origin_policy", "offchain_scope_filter", "httpx", "wafw00f"} <= set(baked.scan_modules)
-    assert not {"naabu", "dnsbrute", "subfinder", "nuclei", "fingerprintx"} & set(baked.scan_modules)
+    assert not {"naabu", "dnsbrute", "subfinder", "nuclei", "service_fingerprint"} & set(baked.scan_modules)
     assert baked.config.speculate is False and baked.config.cloudcheck is False
     assert baked.config.scope.strict is True
     assert "DNS_NAME" in baked.config.omit_event_types

@@ -1,8 +1,8 @@
-description: Detect technologies via Nuclei, and FingerprintX
+description: Detect technologies via Nuclei, and service fingerprinting (Nerva, Recog, Nuclei)
 
 modules:
   - nuclei
-  - fingerprintx
+  - service_fingerprint
 
 config:
   modules:
