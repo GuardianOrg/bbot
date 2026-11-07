@@ -3,11 +3,13 @@ import ssl
 import zlib
 from collections import defaultdict
 from pathlib import Path
+import ipaddress
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from bbot.core.helpers.shared_infra import NetworkIndex
 from bbot.modules import originfinder as originfinder_module
 from bbot.modules.originfinder import (
     HTTP_PORTS,
@@ -148,6 +150,7 @@ def fake_module(monkeypatch, origin_response):
     }
     module.host_events = {host: parent}
     module.ip_frontends = {"104.16.1.1": {"isFrontedProxy": True}}
+    module.ip_classifications = {}
     module.histories = defaultdict(dict, {host: {ip: {"sources": {"historical-dns:robtex"}, "ports": set()}}})
     module.ports = defaultdict(set)
     module.certificates = defaultdict(set)
@@ -419,3 +422,40 @@ async def test_censys_paginates_candidate_ips_without_losing_observed_ports(monk
     assert ("8.8.4.4", 8080, "censys:dns-name") in results
     assert ("8.8.8.8", 8080, "censys:dns-name") in results
     assert any(call.get("page_token") == "next-page" for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_candidate_answering_as_cdn_edge_is_not_reported_as_origin(monkeypatch):
+    edge = response()
+    edge["headers"] = "HTTP/1.1 200 OK\r\nX-Amz-Cf-Id: abc\r\nVia: 1.1 abc.cloudfront.net (CloudFront)"
+    module, events, _ = fake_module(monkeypatch, edge)
+    monkeypatch.setattr(module, "verbose", lambda *_args: None)
+    await module.finish()
+    assert [event[0] for event in events] == ["WEB_FRONTEND"]
+    assert module.ip_frontends["8.8.8.8"]["isFrontedProxy"]
+
+
+def frontend_module(service_ranges, known=None):
+    module = object.__new__(originfinder)
+    module.ip_frontends = {}
+    module.ip_classifications = {}
+    module.service_ranges = service_ranges
+    scan = SimpleNamespace(modules={})
+    if known:
+        scan._shared_frontend_ips = known
+    module.scan = scan
+    return module
+
+
+@pytest.mark.asyncio
+async def test_published_provider_edge_range_is_a_frontend():
+    ranges = NetworkIndex({ipaddress.ip_network("2600:9000:2000::/36"): ("cdn", "cloudfront")})
+    module = frontend_module(ranges)
+    assert await module.is_frontend_ip("2600:9000:24ba:1::1")
+    assert module.ip_frontends["2600:9000:24ba:1::1"]["isCdn"]
+
+
+@pytest.mark.asyncio
+async def test_address_the_scan_already_classified_as_frontend_is_skipped():
+    module = frontend_module(NetworkIndex({}), {"203.0.113.7": ("load_balancer", "aws")})
+    assert await module.is_frontend_ip("203.0.113.7")
