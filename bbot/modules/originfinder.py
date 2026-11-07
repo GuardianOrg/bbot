@@ -240,6 +240,10 @@ class originfinder(BaseModule):
         self.api_cache = {}
         self.processed_hosts = {}
         self.reported_origins = set()
+        # host -> {endpoint: (proof, sources)}: every verified origin of a website, reported together.
+        self.host_origins = defaultdict(dict)
+        self.origins_at_last_finish = {}
+        self.reported_origin_findings = {}
         self.shodan_key = str(self.config.get("shodan_api_key", "") or "").strip()
         self.censys_key = str(self.config.get("censys_api_key", "") or "").strip()
         self.censys_organization_id = str(self.config.get("censys_organization_id", "") or "").strip()
@@ -384,6 +388,7 @@ class originfinder(BaseModule):
             # Other modules can emit more passive evidence in later BBOT
             # finishing rounds. Only rerun this website if that input changes.
             self.processed_hosts[host] = self.evidence_signature(host, website)
+        await self.report_origin_findings()
 
     def external_service_cname(self, cnames):
         for raw_name in sorted(cnames):
@@ -763,22 +768,43 @@ class originfinder(BaseModule):
             ip_event or origin or parent,
             context=f"{{module}} verified HTTP on website origin {ip}:{port}",
         )
+        self.host_origins[host][endpoint] = (proof, sources, url, parent)
+        self.reported_origins.add((host, ip))
+
+    async def report_origin_findings(self):
+        """One finding per website listing every origin verified for it, emitted
+        once the origins stop changing: a finishing round that verified a new
+        origin emitted events, so another round follows. Reporting earlier would
+        record a website again with each origin found in a later round."""
+        current = {host: frozenset(origins) for host, origins in self.host_origins.items()}
+        if current != self.origins_at_last_finish:
+            self.origins_at_last_finish = current
+            return
+        for host, endpoints in sorted(current.items()):
+            if self.reported_origin_findings.get(host) == endpoints:
+                continue
+            self.reported_origin_findings[host] = endpoints
+            await self.report_origin_finding(host)
+
+    async def report_origin_finding(self, host):
+        origins = self.host_origins[host]
+        endpoints = sorted(origins)
+        _, _, url, parent = origins[endpoints[0]]
+        description = "\n\n".join(origins[endpoint][0] for endpoint in endpoints)
+        sources = sorted({source for _, endpoint_sources, _, _ in origins.values() for source in endpoint_sources})
         await self.emit_event(
             {
                 "host": host,
                 "url": url,
-                "ip": ip,
-                "port": port,
-                "affected_endpoints": [endpoint],
+                "affected_endpoints": endpoints,
                 "category": "origin-ip-exposure",
-                "title": f"Public origin IP exposed for {host}",
-                "description": proof,
-                "evidence": proof,
+                "title": f"Public origin IP exposure for {host}",
+                "description": description,
+                "evidence": description,
                 "sources": sources,
-                "dedupe_key": f"origin-ip-exposure:{host}:{ip}:{port}",
+                "dedupe_key": f"origin-ip-exposure:{host}",
             },
             "FINDING",
-            origin or parent,
-            context=f"{{module}} found {{event.type}} for {host} at {ip}:{port}",
+            parent,
+            context=f"{{module}} found {{event.type}} for {host}: {len(endpoints)} direct origin endpoint(s)",
         )
-        self.reported_origins.add((host, ip))
