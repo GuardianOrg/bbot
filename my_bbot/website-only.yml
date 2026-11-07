@@ -7,7 +7,6 @@ modules:
   - offchain_scope_filter
   - httpx
   - whatweb
-  - web_recon
   - retirejs
   - badsecrets
   - wafw00f
