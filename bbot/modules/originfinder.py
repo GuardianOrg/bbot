@@ -15,6 +15,7 @@ from urllib.parse import urlencode, urlparse
 
 import mmh3
 
+from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseModule
 from bbot.modules.internal.cloudcheck import cloud_ip_metadata, frontend_cname_evidence
 
@@ -232,6 +233,7 @@ class originfinder(BaseModule):
         self.host_events = {}
         self.ip_frontends = {}
         self.ip_classifications = {}
+        self.service_ranges = None
         self.histories = defaultdict(dict)
         self.ports = defaultdict(set)
         self.certificates = defaultdict(set)
@@ -499,6 +501,8 @@ class originfinder(BaseModule):
                         control = await self.fetch_website(ip, control_host, port, tls, probe_path)
                         if control is not None and similarity(candidate, control) >= 0.65:
                             continue
+                        if self.is_frontend_response(ip, candidate):
+                            return
                         await self.report_origin(host, url, ip, port, tls, score, candidate, evidence, parent)
                         return
                 # The ten common ports are checked with their usual scheme
@@ -513,6 +517,8 @@ class originfinder(BaseModule):
                         control = await self.fetch_website(ip, control_host, port, tls, probe_path)
                         if control is not None and similarity(candidate, control) >= 0.65:
                             continue
+                        if self.is_frontend_response(ip, candidate):
+                            return
                         await self.report_origin(host, url, ip, port, tls, score, candidate, evidence, parent)
                         return
 
@@ -539,6 +545,16 @@ class originfinder(BaseModule):
             return True
         if ip in self.ip_classifications:
             return self.ip_classifications[ip]
+        # The scan may already know the address as a frontend, or the provider publishes it as one (CloudFront's
+        # IPv6 edges are in AWS's ip-ranges.json but not in cloudcheck's signatures).
+        known = shared_infra.known_frontend(self.scan, ip)
+        published = shared_infra.classify_ip(ip, await self.provider_service_ranges())
+        for frontend in (known, published):
+            data = cloud_ip_metadata(ip, None, (), frontend) if frontend else {}
+            if data.get("isFrontedProxy"):
+                self.ip_frontends[ip] = data
+                self.ip_classifications[ip] = True
+                return True
         try:
             providers = await self.helpers.cloudcheck.lookup(ip)
         except Exception as exc:
@@ -552,6 +568,33 @@ class originfinder(BaseModule):
                 return True
         self.ip_classifications[ip] = False
         return False
+
+    async def provider_service_ranges(self):
+        """AWS's and Google's published service blocks, from cloudcheck when it loaded them, else loaded once."""
+        if self.service_ranges is None:
+            cloudcheck = getattr(self.scan, "modules", {}).get("cloudcheck")
+            self.service_ranges = getattr(cloudcheck, "service_ranges", None)
+        if self.service_ranges is None:
+            try:
+                self.service_ranges = await self.helpers.run_in_executor(shared_infra.load_service_ranges)
+            except Exception as exc:
+                self.verbose(f"Could not load provider service ranges: {type(exc).__name__}")
+                self.service_ranges = False
+        return self.service_ranges or None
+
+    def is_frontend_response(self, ip, response):
+        """Whether a direct answer came from a CDN or proxy edge: an edge serves the site for any visitor, so
+        matching the public website does not make it the origin."""
+        body = response.get("body") or b""
+        body = body.decode("latin-1") if isinstance(body, bytes) else str(body)
+        frontend = shared_infra.classify_response({"raw_header": response.get("headers"), "body": body})
+        data = cloud_ip_metadata(ip, None, (), frontend) if frontend else {}
+        if not data.get("isFrontedProxy"):
+            return False
+        self.verbose(f"Origin candidate {ip} answered as a {frontend[0]} edge ({frontend[2]}); not an origin")
+        self.ip_frontends[ip] = data
+        self.ip_classifications[ip] = True
+        return True
 
     async def api_candidates(self, host, fingerprints, baseline):
         results = []
