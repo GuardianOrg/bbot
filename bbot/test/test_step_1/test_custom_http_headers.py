@@ -308,7 +308,12 @@ async def test_engine_requests_to_target_hosts_carry_the_scan_headers(bbot_scann
     cloud.probe_timeout = 1
     calls = capture_requests(cloud, monkeypatch)
     await cloud._probe_frontend("93.184.216.34")
-    assert calls and all(headers == TARGET_HEADERS for _, headers in calls)
+    # The bare address gets the scan's headers; the InternetDB lookup about it is not a request to the target.
+    assert sorted(calls, key=lambda call: call[0]) == [
+        ("http://93.184.216.34/", TARGET_HEADERS),
+        ("https://93.184.216.34/", TARGET_HEADERS),
+        ("https://internetdb.shodan.io/93.184.216.34", None),
+    ]
 
     retire = make(retirejs, scan, "retirejs")
     calls = capture_requests(retire, monkeypatch)

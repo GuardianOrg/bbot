@@ -353,7 +353,9 @@ config:
       api_key: ${env:CHAOS_API_KEY,""}
     cloudcheck:
       scope_input_only: true
-      # Ask bare cloud addresses whether they are load balancers or API gateways before naabu scans them.
+      # Before any port scan or website on a bare address, ask Shodan InternetDB and the address itself whether it is
+      # a managed CDN, load balancer, API gateway or shared platform of another organisation. A load balancer the
+      # organisation runs itself is its own server and is scanned.
       probe_cloud_frontends: true
     dehashed:
       api_key: ${env:DEHASHED_API_KEY,""}
