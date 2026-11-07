@@ -51,10 +51,26 @@ class code_repository_scope:
         nothing of the owner's to scan: the fork has no commits of its own, or GitHub could not tell which they
         are. Scanning a fork whole would report the upstream project's history as the owner's secrets.
         """
-        if getattr(event, "type", "") != "CODE_REPOSITORY" or "fork" not in getattr(event, "tags", ()):
+        repository = code_repository_scope.cloned_repository(event)
+        if repository is None or "fork" not in getattr(repository, "tags", ()):
             return None
-        data = event.data if isinstance(event.data, dict) else {}
+        data = repository.data if isinstance(repository.data, dict) else {}
         return data.get("fork_since_commit") or ""
+
+    @staticmethod
+    def fork_branch(event):
+        """The fork's default branch, the one its `fork_scan_range` applies to."""
+        repository = code_repository_scope.cloned_repository(event)
+        data = getattr(repository, "data", None)
+        return data.get("fork_branch") if isinstance(data, dict) else None
+
+    @staticmethod
+    def cloned_repository(event):
+        """The CODE_REPOSITORY a scanner input stands for: itself, or the repository git_clone cloned to a folder."""
+        if getattr(event, "type", "") == "FILESYSTEM" and "git" in getattr(event, "tags", ()):
+            get_parent = getattr(event, "get_parent", None)
+            event = get_parent() if callable(get_parent) else None
+        return event if getattr(event, "type", "") == "CODE_REPOSITORY" else None
 
     def has_code_repository_scope(self):
         return bool(self.allowed_code_repositories or self.allowed_code_repository_owners)

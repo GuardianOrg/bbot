@@ -62,8 +62,12 @@ class gitleaks(code_secret_scanner):
 
     scans_commit_ranges = True
 
+    def scans_git_history(self, event):
+        """Repositories, and cloned forks whose own commits must be told apart from the history they inherited."""
+        return event.type == "CODE_REPOSITORY" or bool(self.fork_scan_range(event))
+
     async def iter_findings(self, scan_path, event):
-        if event.type == "CODE_REPOSITORY":
+        if self.scans_git_history(event):
             since_commit = self.fork_scan_range(event)
             # A fork's own commits after its last upstream sync, not the history it inherited.
             revisions = [f"{since_commit}..HEAD"] if since_commit else ["--all"]
@@ -100,7 +104,7 @@ class gitleaks(code_secret_scanner):
 
     async def scan_batch(self, scan_path, event, offset=None, size=None, revisions="--all"):
         report_file = self.helpers.temp_filename(extension="json")
-        use_git_mode = event.type == "CODE_REPOSITORY"
+        use_git_mode = self.scans_git_history(event)
 
         try:
             # Use git mode for repositories so gitleaks includes commit metadata.
