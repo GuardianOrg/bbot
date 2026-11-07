@@ -2,6 +2,10 @@ from bbot.modules.base import BaseModule
 import time
 
 
+# ISP, org and hostname markers of the cloud hosting a CDN company sells besides its edges.
+CDN_COMPANY_HOSTING = ("akamai connected cloud", "linode")
+
+
 class shodan_idb(BaseModule):
     """
     Query IP in Shodan InternetDB, returning open ports, discovered technologies, and findings/vulnerabilities
@@ -506,6 +510,10 @@ class shodan_idb(BaseModule):
             "edgio": "edgio",
             "limelight": "limelight",
         }
+        # A CDN company's cloud hosting (Akamai's Linode) names the company as its ISP, but its addresses are
+        # the customers' own servers. Only Shodan's own "cdn" tag makes one an edge.
+        if any(marker in text for marker in CDN_COMPANY_HOSTING) and "cdn" not in {tag.lower() for tag in tags}:
+            return False, None
         for marker, cdn in cdns.items():
             if marker in text:
                 return True, cdn
