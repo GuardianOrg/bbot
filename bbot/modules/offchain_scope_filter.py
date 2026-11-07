@@ -3,7 +3,7 @@ import json
 import ipaddress
 import os
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from bbot.core.helpers import shared_infra
 from bbot.modules.base import BaseInterceptModule
@@ -40,7 +40,8 @@ HOST_PROFILE_EVENT_TYPES = {"HOST_REPUTATION"}
 # a test of an asset this filter already accepted (a lookalike domain of the
 # target, a secret on github.com). Every other event must name in-scope hosts.
 REGISTRATION_EVENT_TYPES = {"DOMAIN_WHOIS", "DOMAIN_DNS_CONFIG"}
-OFF_DOMAIN_EVENT_TYPES = {"STORAGE_BUCKET", "MOBILE_APP", "OPTIONAL_MOBILE_APP", "FINDING", "VULNERABILITY"}
+OFF_DOMAIN_EVENT_TYPES = {"STORAGE_BUCKET", "OPTIONAL_MOBILE_APP", "FINDING", "VULNERABILITY"}
+APPLE_APP_ID = re.compile(r"(?:^|/)id(\d+)(?:$|[/?#])")
 # Seeded hostnames are resolved before the scan starts; a world can seed hundreds of them.
 SEED_RESOLUTION_CONCURRENCY = 20
 SEED_RESOLUTION_TIMEOUT_SECONDS = 10
@@ -113,6 +114,8 @@ class offchain_scope_filter(BaseInterceptModule):
         self.allowed_email_addresses = set()
         self.allowed_repo_tuples = set()
         self.allowed_repo_owners = set()
+        self.allowed_mobile_app_ids = set()
+        self.allowed_org_stubs = set()
         self.allowed_ips = set()
         self.allowed_ip_range_values = set()
         self.allowed_ip_ranges = []
@@ -176,6 +179,9 @@ class offchain_scope_filter(BaseInterceptModule):
 
         if event.type in REPOSITORY_SCOPE_EVENT_TYPES:
             return self._handle_repository_event(event)
+
+        if event.type == "MOBILE_APP":
+            return await self._handle_mobile_app_event(event)
 
         if event.type == "SOCIAL":
             if self._social_profile_allowed(self._event_data(event), event):
@@ -445,11 +451,18 @@ class offchain_scope_filter(BaseInterceptModule):
                     self.allowed_repo_owners.add(owner)
                 continue
 
+            if seed_type == "MOBILE_APP":
+                app_id = self._mobile_app_id(seed_data)
+                if app_id:
+                    self.allowed_mobile_app_ids.add(app_id)
+                continue
+
             if seed_type == "ORG_STUB":
                 owner_name = str(seed_data if seed_data is not None else raw_input.removeprefix("ORG_STUB:"))
                 normalized_owner = owner_name.strip().lower()
                 if normalized_owner:
                     self.allowed_repo_owners.add(("*", normalized_owner))
+                    self.allowed_org_stubs.add(normalized_owner)
 
     def _load_config_scope(self):
         scope_targets = self.config.get("scope_targets", [])
@@ -514,10 +527,17 @@ class offchain_scope_filter(BaseInterceptModule):
                     self.allowed_repo_owners.add(owner)
                 continue
 
+            if target_type == "mobile_app":
+                app_id = self._mobile_app_id(target_value)
+                if app_id:
+                    self.allowed_mobile_app_ids.add(app_id)
+                continue
+
             if target_type == "org_stub":
                 normalized_owner = target_value.lower()
                 if normalized_owner:
                     self.allowed_repo_owners.add(("*", normalized_owner))
+                    self.allowed_org_stubs.add(normalized_owner)
 
     def _handle_repository_event(self, event):
         repo_url = self._extract_event_url(event)
@@ -538,6 +558,48 @@ class offchain_scope_filter(BaseInterceptModule):
         if repo in self.allowed_repo_tuples or self._owner_allowed((repo[0], repo[1])):
             return True
         return False, "repository is outside the seeded repository scope"
+
+    async def _handle_mobile_app_event(self, event):
+        """Only seeded apps and the apps of a seeded organisation are downloaded, decompiled and scanned.
+
+        bbot names an org stub after every seeded domain, so a store search for it finds apps the user never named;
+        those are kept as OPTIONAL_MOBILE_APP for the user to add to the scope.
+        """
+        if self._mobile_app_id(self._event_data(event)) in self.allowed_mobile_app_ids:
+            return True
+        if any(
+            getattr(parent, "type", None) == "ORG_STUB" and str(parent.data).strip().lower() in self.allowed_org_stubs
+            for parent in self._parent_events(event)
+        ):
+            return True
+        await self._emit_optional_mobile_app(event)
+        return False, "mobile app is not a seeded app or an app of a seeded organisation"
+
+    async def _emit_optional_mobile_app(self, event):
+        data = self._event_data(event)
+        parent = event.get_parent()
+        if parent is None or not data.get("url"):
+            return
+        reason = "Its store listing names an in-scope domain or email, but the app is not in the scan's scope"
+        optional = self.make_event({**data, "reason": reason}, "OPTIONAL_MOBILE_APP", parent=parent)
+        await self.emit_event(optional, context="{module} kept a store app outside the scope as a suggestion")
+
+    def _mobile_app_id(self, value):
+        """The store id of an app: a Play package name or the number of an App Store id, lowercased."""
+        if isinstance(value, dict):
+            app_id = value.get("id")
+            if app_id:
+                return str(app_id).strip().lower() or None
+            value = value.get("url")
+        value = str(value or "").strip()
+        if not value.startswith(("http://", "https://")):
+            return value.lower() or None
+        parsed = urlparse(value)
+        app_id = (parse_qs(parsed.query).get("id") or [None])[0]
+        if not app_id:
+            match = APPLE_APP_ID.search(parsed.path)
+            app_id = match.group(1) if match else None
+        return app_id.strip().lower() if app_id else None
 
     def _owner_allowed(self, owner_tuple):
         platform, owner = owner_tuple

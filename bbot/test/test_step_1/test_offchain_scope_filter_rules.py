@@ -56,6 +56,8 @@ class ScopeFilterTests(unittest.TestCase):
         self.filter.allowed_ip_ranges = []
         self.filter.allowed_repo_tuples = set()
         self.filter.allowed_repo_owners = set()
+        self.filter.allowed_mobile_app_ids = set()
+        self.filter.allowed_org_stubs = set()
         self.filter.seeded_hostnames = set()
         self.emitted = []
         self.filter.make_event = lambda data, event_type, parent: (data, event_type, parent)
@@ -401,11 +403,6 @@ class ScopeFilterTests(unittest.TestCase):
                 {"name": "guardianaudits", "url": "https://guardianaudits.s3.amazonaws.com/"},
                 "guardianaudits.s3.amazonaws.com",
             ),
-            Event(
-                "MOBILE_APP",
-                {"url": "https://play.google.com/store/apps/details?id=com.guardianaudits"},
-                "play.google.com",
-            ),
             # A same-named store app kept only for the user to review; no module consumes it.
             Event(
                 "OPTIONAL_MOBILE_APP",
@@ -429,6 +426,65 @@ class ScopeFilterTests(unittest.TestCase):
         ):
             with self.subTest(event=event.type):
                 self.assertTrue(self.check(event))
+
+    def store_search_app(self, org_stub, app_id="com.guardianaudits.wallet"):
+        stub = Event("ORG_STUB", org_stub, None)
+        url = f"https://play.google.com/store/apps/details?id={app_id}"
+        app = Event(
+            "MOBILE_APP",
+            {"id": app_id, "url": url, "platform": "android"},
+            "play.google.com",
+            parent=stub,
+            tags={"android"},
+            source_module="google_playstore",
+        )
+        return stub, app
+
+    def test_store_apps_found_from_a_seeded_domain_are_only_suggested(self):
+        # bbot names an org stub after every seeded domain; a store search for it is not the user naming an app.
+        stub, app = self.store_search_app("guardianaudits")
+        self.assertFalse(self.check(app))
+        self.assertEqual(len(self.emitted), 1)
+        data, event_type, parent = self.emitted[0]
+        self.assertEqual(event_type, "OPTIONAL_MOBILE_APP")
+        self.assertIs(parent, stub)
+        self.assertEqual(data["id"], "com.guardianaudits.wallet")
+        self.assertEqual(data["platform"], "android")
+        self.assertIn("not in the scan's scope", data["reason"])
+
+    def test_seeded_apps_and_apps_of_a_seeded_organisation_are_scanned(self):
+        self.filter.allowed_mobile_app_ids = {"com.guardianaudits.wallet"}
+        self.filter.allowed_org_stubs = set()
+        self.assertTrue(self.check(self.store_search_app("guardianaudits")[1]))
+        self.filter.allowed_mobile_app_ids = set()
+        self.filter.allowed_org_stubs = {"guardianaudits"}
+        self.assertTrue(self.check(self.store_search_app("guardianaudits")[1]))
+        self.assertFalse(self.check(self.store_search_app("guardian")[1]))
+        self.assertEqual([event_type for _, event_type, _ in self.emitted], ["OPTIONAL_MOBILE_APP"])
+
+    def test_seeded_mobile_app_targets_are_read_by_id_or_store_url(self):
+        seed = Event(
+            "MOBILE_APP",
+            {"id": "com.Seeded.App", "url": "https://play.google.com/store/apps/details?id=com.Seeded.App"},
+            "play.google.com",
+        )
+        seed.input = "MOBILE_APP:https://play.google.com/store/apps/details?id=com.Seeded.App"
+        org = Event("ORG_STUB", "Acme", None)
+        org.input = "ORG_STUB:Acme"
+        targets = [
+            "mobile_app:com.config.app",
+            "mobile_app:https://play.google.com/store/apps/details?id=com.config.url&hl=en",
+            "mobile_app:https://apps.apple.com/us/app/wallet/id123456789",
+            "org_stub:ConfigOrg",
+        ]
+        with mock.patch.dict("os.environ", {"GUARDIAN_OFFCHAIN_SCOPE_TARGETS": json.dumps(targets)}):
+            scope = make_filter(make_scan([seed, org]))
+            self.assertTrue(asyncio.run(scope.setup()))
+        self.assertEqual(
+            scope.allowed_mobile_app_ids, {"com.seeded.app", "com.config.app", "com.config.url", "123456789"}
+        )
+        self.assertEqual(scope.allowed_org_stubs, {"acme", "configorg"})
+        self.assertTrue(asyncio.run(scope.handle_event(seed)))
 
     def test_setup_reads_scope_targets_from_json_or_comma_separated_environment(self):
         scan = make_scan()
