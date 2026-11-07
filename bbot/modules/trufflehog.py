@@ -118,6 +118,11 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             path = event.data["path"]
             if "git" in event.tags:
                 module = "git"
+                # A cloned fork: only its own commits, as for the repository itself.
+                since_commit = self.fork_scan_range(event)
+                if since_commit == "":
+                    self.verbose(f"Skipping cloned fork {path}: no commits of its own to scan")
+                    return
             elif "docker" in event.tags:
                 module = "docker"
             elif "postman" in event.tags:
@@ -149,7 +154,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             path,
             # A fork's own commits after its last upstream sync, not the history it inherited.
             since_commit=since_commit if module == "git" else None,
-            branch=event.data.get("fork_branch") if since_commit else None,
+            branch=self.fork_branch(event) if since_commit else None,
         ):
             metadata_items = source_metadata if isinstance(source_metadata, list) else [source_metadata]
             git_meta = {}

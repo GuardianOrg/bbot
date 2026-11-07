@@ -242,3 +242,76 @@ def test_trufflehog_passes_the_range_to_its_git_scan():
     asyncio.run(collect())
     assert commands[0].endswith(f"git https://github.com/acme/tool --since-commit={'c' * 40} --branch=main")
     assert commands[1].endswith("git https://github.com/acme/tool")
+
+
+def clone_event(repository, tags=("git",)):
+    """What git_clone emits for a repository it cloned (private repositories of a seeded owner)."""
+    return SimpleNamespace(
+        type="FILESYSTEM", data={"path": "/clones/acme-tool"}, tags=set(tags), get_parent=lambda: repository
+    )
+
+
+def test_a_cloned_fork_keeps_the_range_of_the_repository_it_was_cloned_from():
+    assert gitleaks.fork_scan_range(clone_event(repo_event(FORK, ["fork"]))) == "c" * 40
+    assert gitleaks.fork_branch(clone_event(repo_event(FORK, ["fork"]))) == "main"
+    assert gitleaks.fork_scan_range(clone_event(repo_event({"fork_branch": "main"}, ["fork", "fork-unmodified"]))) == ""
+    assert gitleaks.fork_scan_range(clone_event(repo_event())) is None
+    # Not a Git clone (an unpacked APK, a docker image): no fork range applies
+    assert gitleaks.fork_scan_range(clone_event(repo_event(FORK, ["fork"]), tags=("apk",))) is None
+
+
+def test_scanners_skip_cloned_forks_they_cannot_limit():
+    assert run_handle_event(gitleaks, clone_event(repo_event(FORK, ["fork"])))
+    assert not run_handle_event(gitleaks, clone_event(repo_event({}, ["fork"])))
+    assert not run_handle_event(noseyparker, clone_event(repo_event(FORK, ["fork"])))
+    assert run_handle_event(noseyparker, clone_event(repo_event()))
+
+
+def test_gitleaks_walks_only_the_own_commits_of_a_cloned_fork():
+    class Gitleaks(gitleaks):
+        config = {"git_commits_per_batch": 100}
+
+    module = object.__new__(Gitleaks)
+    counted, scanned = [], []
+
+    async def run_process(command, **kwargs):
+        counted.append(command[4:])
+        return SimpleNamespace(returncode=0, stdout="2\n")
+
+    async def scan_batch(scan_path, event, offset=None, size=None, revisions="--all"):
+        scanned.append(revisions)
+        return
+        yield
+
+    module.run_process = run_process
+    module.scan_batch = scan_batch
+
+    async def collect(event):
+        return [f async for f in module.iter_findings("/clones/acme-tool", event)]
+
+    asyncio.run(collect(clone_event(repo_event(FORK, ["fork"]))))
+    assert counted == [["--count", f"{'c' * 40}..HEAD"]]
+    assert scanned == [f"{'c' * 40}..HEAD"]
+    assert module.scans_git_history(clone_event(repo_event(FORK, ["fork"])))
+    assert not module.scans_git_history(clone_event(repo_event()))
+
+
+def test_trufflehog_limits_a_cloned_fork_to_its_own_commits():
+    module = object.__new__(trufflehog)
+    module.verbose = lambda message: None
+    module.deleted_forks = False
+    calls = []
+
+    async def execute_trufflehog(scanner, path=None, string=None, since_commit=None, branch=None):
+        calls.append((scanner, path, since_commit, branch))
+        return
+        yield
+
+    module.execute_trufflehog = execute_trufflehog
+    fork = clone_event(repo_event(FORK, ["fork"]))
+    fork.parent = SimpleNamespace(host="github.com")
+    asyncio.run(module.handle_event(fork))
+    unmodified = clone_event(repo_event({"fork_branch": "main"}, ["fork", "fork-unmodified"]))
+    unmodified.parent = fork.parent
+    asyncio.run(module.handle_event(unmodified))
+    assert calls == [("git", "/clones/acme-tool", "c" * 40, "main")]
