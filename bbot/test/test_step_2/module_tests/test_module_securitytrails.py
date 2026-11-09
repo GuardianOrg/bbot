@@ -106,6 +106,7 @@ class TestSecurityTrailsOSINTverse(ModuleTestBase):
                         },
                         {"type": "subdomain", "label": "asdf", "hostname": "asdf.blacklanternsecurity.com"},
                         {"type": "subdomain", "label": "api"},
+                        {"type": "subdomain", "label": "bff.otc", "hostname": "bff.otc"},
                     ],
                 },
             },
@@ -114,4 +115,6 @@ class TestSecurityTrailsOSINTverse(ModuleTestBase):
     def check(self, module_test, events):
         assert any(e.data == "asdf.blacklanternsecurity.com" for e in events), "Failed to detect subdomain"
         assert any(e.data == "api.blacklanternsecurity.com" for e in events), "Failed to build subdomain from label"
+        assert any(e.data == "bff.otc.blacklanternsecurity.com" for e in events), "Failed to qualify nested subdomain"
+        assert not any(e.data == "bff.otc" for e in events), "Emitted a hostname outside the queried domain"
         assert not any(e.type == "DOMAIN_DNS_HISTORY" for e in events)

@@ -65,10 +65,12 @@ class securitytrails(subdomain_enum_apikey):
         for match in matches:
             if match.get("type") != "subdomain":
                 continue
-            hostname = str(match.get("hostname") or "").strip().lower()
-            label = str(match.get("label") or "").strip().lower()
-            if not hostname and label:
-                hostname = f"{label}.{query}"
+            hostname = str(match.get("hostname") or "").strip().lower().rstrip(".")
+            label = str(match.get("label") or "").strip().lower().strip(".")
+            # Nested subdomains can come back with only their label as hostname (e.g. "bff.otc")
+            if hostname != query and not hostname.endswith(f".{query}"):
+                relative = label or hostname
+                hostname = f"{relative}.{query}" if relative else ""
             if hostname:
                 results.add(hostname)
         return results
