@@ -78,6 +78,10 @@ def test_generic_dangling_cname_is_a_lead_while_confirmed_netlify_is_a_vulnerabi
         ("netlify", "VULNERABILITY"),
         ("specific-provider", "VULNERABILITY"),
     ]
+    # The table that groups dangling references shows where each hostname points.
+    assert [data["cname_targets"] for data, _, _ in emitted] == [
+        ["unclaimed.example.net"], ["site.netlify.app"], ["provider.example.net"],
+    ]
 
 
 def test_wildcard_placeholder_hosts_are_not_checked_for_takeover(tmp_path):
