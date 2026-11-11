@@ -70,3 +70,50 @@ def test_forensic_report_destination_does_not_require_optional_fo_tag():
 def test_missing_optional_forensic_reporting_is_not_a_vulnerability():
     findings = findings_for_dmarc("v=DMARC1; p=reject; rua=mailto:aggregate@example.com")
     assert not any(finding.title == "DMARC Forensic Reporting Not Configured" for finding in findings)
+
+
+def spoofing_findings(dmarc_answer, spf="v=spf1 include:_spf.google.com -all", lookup_ok=True):
+    audit = object.__new__(domain_config_dns_audit)
+
+    async def query_dns(name, rdtype):
+        return lookup_ok, ([dmarc_answer] if dmarc_answer else []) if lookup_ok else ["timeout"]
+
+    audit.query_dns = query_dns
+    records = {"NS": ["ns1.example.net"], "MX": ["10 mail.example.com"]}
+    if spf:
+        records["SPF"] = spf
+    findings = []
+    asyncio.run(audit.check_dmarc("example.com", records, findings))
+    asyncio.run(audit.check_email_spoofing("example.com", records, findings))
+    return [finding for finding in findings if finding.title == "Email Spoofing Possible"]
+
+
+def test_missing_dmarc_makes_the_domain_spoofable_even_with_spf_hard_fail():
+    (finding,) = spoofing_findings(None)
+
+    assert finding.severity == "HIGH"
+    assert finding.category == "Email-Spoofing"
+    assert finding.details["spf"] == "v=spf1 include:_spf.google.com -all"
+    assert finding.details["dmarc"] == "none"
+    assert "publishes no DMARC record" in finding.details["spoofing_reason"]
+    assert "SPF only checks the envelope sender" in finding.details["spoofing_reason"]
+
+
+def test_monitoring_only_or_invalid_dmarc_is_spoofable():
+    (none,) = spoofing_findings("v=DMARC1; p=none; rua=mailto:d@example.com", spf=None)
+    assert "p=none, which only monitors" in none.details["spoofing_reason"]
+    assert "no SPF record" in none.details["spoofing_reason"]
+    (invalid,) = spoofing_findings("v=DMARC1; rua=mailto:d@example.com", spf="v=spf1 ~all")
+    assert "no valid p= policy" in invalid.details["spoofing_reason"]
+    assert "SPF ends in ~all" in invalid.details["spoofing_reason"]
+
+
+def test_subdomains_left_at_none_are_spoofable():
+    (finding,) = spoofing_findings("v=DMARC1; p=reject; sp=none")
+    assert "sets sp=none" in finding.details["spoofing_reason"]
+
+
+def test_enforced_dmarc_or_an_unknown_answer_is_not_reported_as_spoofable():
+    assert spoofing_findings("v=DMARC1; p=reject") == []
+    assert spoofing_findings("v=DMARC1; p=quarantine; sp=reject") == []
+    assert spoofing_findings(None, lookup_ok=False) == []

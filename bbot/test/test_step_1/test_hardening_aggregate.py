@@ -537,3 +537,35 @@ async def test_provider_fingerprint_lead_explains_its_fingerprint(bbot_scanner):
     (row,) = h.by_category()["grouped:dangling_dns"].data["table"]["rows"]
     assert row[3] == ("Its DNS to shops.myshopify.com matches the shopify unclaimed-resource fingerprint with "
                       "unlikely confidence; a takeover was not demonstrated.")
+
+
+def spoofing_event(h, domain, reason, spf, dmarc):
+    data = {"host": domain, "severity": "HIGH", "category": "Email-Spoofing", "title": "Email Spoofing Possible",
+            "description": reason, "template": "domain-config-dns-audit", "spoofing_reason": reason,
+            "spf": spf, "dmarc": dmarc}
+    return h.scan.make_event(data, "VULNERABILITY", parent=h.scan.root_event,
+                             module=h.scan._make_dummy_module("domain_config_dns_audit"))
+
+
+@pytest.mark.asyncio
+async def test_spoofable_domains_form_their_own_high_finding_apart_from_dns_hardening(bbot_scanner):
+    h = await harness(bbot_scanner)
+    assert not await h.feed(spoofing_event(h, "example.com", "No DMARC record.", "v=spf1 -all", "none"))
+    assert not await h.feed(spoofing_event(h, "app.example.com", "DMARC is p=none.", "none", "v=DMARC1; p=none"))
+    assert not await h.feed(h.dns_audit("example.com", "Missing DMARC Record", "MEDIUM", "Email"))
+    await h.finish_rounds()
+
+    summaries = h.by_category()
+    assert set(summaries) == {"grouped:email_spoofing", "grouped:dns"}
+    spoofing = summaries["grouped:email_spoofing"]
+    assert spoofing.data["severity"] == "HIGH"
+    assert spoofing.data["title"] == "Email spoofing possible for domains without an enforced DMARC policy"
+    assert spoofing.data["table"] == {
+        "columns": ["Domain", "Why it can be spoofed", "SPF", "DMARC", "Severity"],
+        "rows": [
+            ["app.example.com", "DMARC is p=none.", "none", "v=DMARC1; p=none", "HIGH"],
+            ["example.com", "No DMARC record.", "v=spf1 -all", "none", "HIGH"],
+        ],
+    }
+    assert spoofing.data["description"].startswith("2 domains: app.example.com, example.com.")
+    assert summaries["grouped:dns"].data["table"]["rows"] == [["example.com", "Missing DMARC Record", "MEDIUM"]]

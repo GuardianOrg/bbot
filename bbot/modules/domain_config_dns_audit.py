@@ -7,7 +7,7 @@ import socket
 import ssl
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import dns.exception
@@ -32,6 +32,10 @@ from bbot.core.event.base import _normalize_event_description
 # this deep into its window means re-signing has stopped; it is still reported before expiry,
 # and expired signatures stay CRITICAL.
 RRSIG_STALLED_REMAINING_FRACTION = 0.1
+# Its own category, so the spoofable domains form their own finding instead of joining the
+# grouped DNS and email hardening table.
+EMAIL_SPOOFING_CATEGORY = "Email-Spoofing"
+DMARC_ENFORCING_POLICIES = {"quarantine", "reject"}
 
 
 @dataclass
@@ -43,6 +47,8 @@ class AuditFinding:
     evidence: str
     recommendation: str
     command: str = ""
+    # Extra fields for the event, such as the reason a domain can be spoofed.
+    details: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.description = self._normalize_description(self.description)
@@ -229,6 +235,7 @@ class domain_config_dns_audit(BaseModule):
             self.check_spf,
             self.check_spf_include_depth,
             self.check_dmarc,
+            self.check_email_spoofing,
             self.check_dkim,
             self.check_mta_sts,
             self.check_tls_rpt,
@@ -310,6 +317,7 @@ class domain_config_dns_audit(BaseModule):
             "recommendation": finding.recommendation,
             "command": finding.command,
             "template": "domain-config-dns-audit",
+            **finding.details,
         }
         event_type = "VULNERABILITY" if severity in {"CRITICAL", "HIGH", "MEDIUM"} else "FINDING"
         await self.emit_event(
@@ -1194,6 +1202,8 @@ class domain_config_dns_audit(BaseModule):
     async def check_dmarc(self, domain, records, findings):
         success, dmarc_records = await self.query_dns(f"_dmarc.{domain}", "TXT")
         dmarc = next((rec.strip('"') for rec in dmarc_records if "v=dmarc1" in rec.lower()), None) if success else None
+        # A failed lookup says nothing about the policy; only an answer (or NXDOMAIN) shows it is missing.
+        records["DMARC_LOOKUP_OK"] = success
         if not dmarc:
             if records.get("MX"):
                 findings.append(AuditFinding(
@@ -1223,6 +1233,8 @@ class domain_config_dns_audit(BaseModule):
                 tags[name.strip()] = value.strip()
         policy = tags.get("p")
         subdomain_policy = tags.get("sp", policy)
+        records["DMARC_POLICY"] = policy
+        records["DMARC_SUBDOMAIN_POLICY"] = subdomain_policy
         if policy in {"none", "quarantine"}:
             findings.append(AuditFinding(
                 f"DMARC Policy Set to {policy.capitalize()}",
@@ -1295,6 +1307,58 @@ class domain_config_dns_audit(BaseModule):
                 "Increase pct to 100 after validating legitimate mail.",
                 f"dig _dmarc.{domain} TXT +short",
             ))
+
+    async def check_email_spoofing(self, domain, records, findings):
+        """A domain whose DMARC does not make receivers quarantine or reject mail forging it.
+
+        SPF alone does not stop this: it checks the envelope sender, and the attacker uses their
+        own envelope domain while the From: header people see names this one.
+        """
+        if not records.get("DMARC_LOOKUP_OK") or not (records.get("NS") or records.get("SOA")):
+            return
+        dmarc = records.get("DMARC")
+        policy = records.get("DMARC_POLICY")
+        subdomain_policy = records.get("DMARC_SUBDOMAIN_POLICY")
+        if not dmarc:
+            reason = (f"_dmarc.{domain} publishes no DMARC record, so receivers have no domain policy to "
+                      f"reject or quarantine mail whose From: header forges {domain}.")
+        elif policy == "none":
+            reason = (f"DMARC is p=none, which only monitors: receivers still deliver mail that forges {domain} "
+                      "and fails DMARC.")
+        elif policy not in DMARC_ENFORCING_POLICIES:
+            reason = (f"The DMARC record has no valid p= policy, so receivers ignore it and nothing stops mail "
+                      f"that forges {domain}.")
+        elif subdomain_policy == "none":
+            reason = (f"DMARC protects {domain} itself but sets sp=none, so mail forging any of its subdomains "
+                      f"(for example billing.{domain}) is still delivered.")
+        else:
+            return
+        spf = records.get("SPF")
+        if not spf:
+            reason += " There is no SPF record either."
+        else:
+            terminal = next((term for term in self.spf_policy_terms(spf) if term.lower().lstrip("+-~?") == "all"), "")
+            if terminal.startswith("-"):
+                reason += " SPF ends in -all, but SPF only checks the envelope sender, not the From: header people see."
+            else:
+                reason += f" SPF ends in {terminal or 'no all mechanism'}, which does not reject unauthorized senders."
+        findings.append(AuditFinding(
+            "Email Spoofing Possible",
+            "HIGH",
+            EMAIL_SPOOFING_CATEGORY,
+            (
+                f"Mail that forges {domain} in its From: header is not rejected or quarantined by a DMARC policy. "
+                + reason
+                + " An attacker can send phishing that shows the organization's own domain as the sender to customers, "
+                "partners or staff, without compromising any of its systems."
+            ),
+            f"SPF: {spf or 'none'}; DMARC: {dmarc or 'none'}",
+            ("Publish DMARC with p=reject (or p=quarantine while rolling out) and sp=reject once every legitimate "
+             "sender passes SPF or DKIM alignment. A domain that sends no mail should publish v=spf1 -all and "
+             "v=DMARC1; p=reject."),
+            f"dig _dmarc.{domain} TXT +short; dig {domain} TXT +short",
+            details={"spoofing_reason": reason, "spf": spf or "none", "dmarc": dmarc or "none"},
+        ))
 
     async def check_dkim(self, domain, records, findings):
         found = []
