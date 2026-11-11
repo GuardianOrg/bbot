@@ -78,7 +78,7 @@ class TestHardeningAggregate(ModuleTestBase):
         assert [e.data["template"] for e in vulns if e.data.get("severity") == "HIGH"] == ["generic-env"]
 
         grouped = {e.data["dedupe_key"]: e for e in vulns if "grouped" in e.tags}
-        assert sorted(grouped) == ["grouped:retirejs", "grouped:security_headers"]
+        assert sorted(grouped) == ["grouped:retirejs:jquery", "grouped:security_headers"]
         headers = grouped["grouped:security_headers"]
         assert headers.type == "VULNERABILITY"
         assert headers.module == module_test.scan.modules["hardening_aggregate"]
@@ -86,6 +86,6 @@ class TestHardeningAggregate(ModuleTestBase):
             "columns": ["Website", "content-security-policy", "x-frame-options"],
             "rows": [["http://127.0.0.1:8888", "missing", "missing"]],
         }
-        assert grouped["grouped:retirejs"].data["table"]["rows"] == [
+        assert grouped["grouped:retirejs:jquery"].data["table"]["rows"] == [
             ["http://127.0.0.1:8888", "jquery", "1.8.1", "MEDIUM", "CVE-2020-11022"]
         ]

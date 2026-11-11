@@ -359,13 +359,42 @@ async def test_retirejs_rows_merge_advisories_of_one_library(bbot_scanner):
     ]:
         assert not await h.feed(event)
     await h.finish_rounds()
-    data = h.by_category()["grouped:retirejs"].data
+    summaries = h.by_category()
+    assert sorted(summaries) == ["grouped:retirejs:bootstrap", "grouped:retirejs:jquery"]
+    data = summaries["grouped:retirejs:jquery"].data
     assert data["table"]["rows"] == [
         ["https://app.example.com", "jquery", "1.8.1", "MEDIUM", "CVE-2012-6708, CVE-2020-11022"],
         ["https://app.example.com", "jquery", "3.4.0", "MEDIUM", ""],
-        ["https://shop.example.com", "bootstrap", "3.3.7", "MEDIUM", "CVE-2019-8331"],
     ]
     assert data["source_templates"] == ["retirejs"]
+    assert data["title"] == "Outdated JavaScript library jquery with known vulnerabilities"
+    assert summaries["grouped:retirejs:bootstrap"].data["table"]["rows"] == [
+        ["https://shop.example.com", "bootstrap", "3.3.7", "MEDIUM", "CVE-2019-8331"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retirejs_summarizes_each_library_across_websites_at_its_own_severity(bbot_scanner):
+    h = await harness(bbot_scanner)
+    for event in [
+        h.retire("https://a.example.com/", "moment", "2.29.3", "medium", ["CVE-2022-31129"]),
+        h.retire("https://b.example.com/", "moment", "2.30.1", "low", ["CVE-2026-17495"]),
+        h.retire("https://b.example.com/", "Moment", "2.30.1", "low", []),
+        h.retire("https://b.example.com/", "lodash", "4.17.21", "low", ["CVE-2025-13465"]),
+    ]:
+        assert not await h.feed(event)
+    await h.finish_rounds()
+    summaries = h.by_category()
+    assert sorted(summaries) == ["grouped:retirejs:lodash", "grouped:retirejs:moment"]
+    moment = summaries["grouped:retirejs:moment"]
+    assert moment.data["severity"] == "MEDIUM"
+    assert moment.data["affected_hosts"] == ["a.example.com", "b.example.com"]
+    assert moment.data["path"] == "grouped/retirejs/moment"
+    assert "grouped-retirejs" in moment.tags
+    lodash = summaries["grouped:retirejs:lodash"].data
+    assert lodash["severity"] == "LOW"
+    assert lodash["host"] == "b.example.com"
+    assert lodash["table"]["rows"] == [["https://b.example.com", "lodash", "4.17.21", "LOW", "CVE-2025-13465"]]
 
 
 @pytest.mark.asyncio
@@ -391,7 +420,7 @@ async def test_one_emission_per_category_after_a_quiet_finish_round(bbot_scanner
     assert scan._new_activity is True
 
     await h.module.finish()
-    assert sorted(h.by_category()) == ["grouped:retirejs", "grouped:security_headers"]
+    assert sorted(h.by_category()) == ["grouped:retirejs:jquery", "grouped:security_headers"]
     assert len(h.emitted) == 2
     await h.finish_rounds()
     assert len(h.emitted) == 2
@@ -444,7 +473,7 @@ async def test_summary_is_independent_of_arrival_order(bbot_scanner):
     assert sorted(summaries[0]) == [
         "grouped:cookies",
         "grouped:dns",
-        "grouped:retirejs",
+        "grouped:retirejs:jquery",
         "grouped:security_headers",
     ]
     # the event id comes from the stable dedupe key, not from the scanned targets

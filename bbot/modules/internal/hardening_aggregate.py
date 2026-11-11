@@ -80,10 +80,10 @@ CATEGORIES = {
         ),
     },
     "retirejs": {
-        "title": "Outdated JavaScript libraries with known vulnerabilities",
+        "title": "Outdated JavaScript library {library} with known vulnerabilities",
         "noun": "library version",
         "recommendation": (
-            "Upgrade each listed JavaScript library to a release without published advisories, or remove it "
+            "Upgrade {library} on each listed website to a release without published advisories, or remove it "
             "when it is no longer used."
         ),
     },
@@ -179,7 +179,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     """
     Folds web hardening advice, DNS/email policy, domains whose email can be spoofed, reputation
     observations, outdated JavaScript libraries, and dangling DNS records (takeover leads with no takeover shown) into one summary
-    per category before event ingestion.
+    per category before event ingestion. Outdated JavaScript libraries get one summary per library,
+    listing every website and version that serves it, so each library is scored on its own advisories.
 
     The individual findings are held back while the scan runs. Once the scan is finishing
     and no more of them arrive, one summary per category is emitted. A summary is rated
@@ -243,16 +244,14 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return
         self._emitted = True
         for category in CATEGORIES:
-            data = self.summary(category)
-            if data is None:
-                continue
-            await self.emit_event(
+            for data in self.summaries(category):
+                await self.emit_event(
                 data,
-                "VULNERABILITY",
-                parent=self.scan.root_event,
-                tags=["grouped", "grouped-hardening", f"grouped-{category.replace('_', '-')}"],
-                context=f"{{module}} grouped {data['row_count']} {category} rows into one {{event.type}}",
-            )
+                    "VULNERABILITY",
+                    parent=self.scan.root_event,
+                    tags=["grouped", "grouped-hardening", f"grouped-{category.replace('_', '-')}"],
+                    context=f"{{module}} grouped {data['row_count']} {category} rows into one {{event.type}}",
+                )
 
     def classify(self, event):
         """(category, template, [(row key, row values)]) for a groupable event, else None."""
@@ -417,8 +416,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     def _record_template(self, category, key, template):
         self._rows[category][key]["templates"].add(template)
 
-    def table(self, category):
-        rows = self._rows[category]
+    def table(self, category, rows):
         if category == "security_headers":
             headers = sorted({header for _, header in rows})
             missing_by_origin = {}
@@ -469,13 +467,26 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             table_rows.append([value, found_at, str(len(locations)), row["severity"] or DEFAULT_SEVERITY])
         return COLUMNS["disclosure"], sorted(table_rows), sorted(endpoints)
 
-    def summary(self, category):
+    def summaries(self, category):
+        """The summaries of one category: one per library for retirejs, else at most one."""
         selected = self._rows[category]
         if not selected:
-            return None
+            return []
+        if category != "retirejs":
+            return [self.summary(category, selected, self._hosts[category])]
+        by_library = {}
+        for key, row in selected.items():
+            by_library.setdefault(key[1].lower(), {})[key] = row
+        return [self.summary(category, rows, self._library_hosts(rows), min(key[1] for key in rows))
+                for _, rows in sorted(by_library.items())]
+
+    @staticmethod
+    def _library_hosts(rows):
+        return Counter(host for host in (endpoint_host(origin) for origin, _, _ in rows) if host)
+
+    def summary(self, category, selected, hosts, library=""):
         meta = CATEGORIES[category]
-        columns, rows, endpoints = self.table(category)
-        hosts = self._hosts[category]
+        columns, rows, endpoints = self.table(category, selected)
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
         place = {"dns": "domain", "email_spoofing": "domain", "reputation": "asset", "disclosure": "page",
                  "dangling_dns": "hostname"}.get(category, "website")
@@ -489,14 +500,15 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         severity = highest_severity(row["severity"] for row in selected.values())
         if category == "reputation":
             severity = cap_severity(severity, REPUTATION_MAX_SEVERITY)
+        suffix = library.lower() if library else ""
         data = {
             "severity": severity,
-            "title": meta["title"],
+            "title": meta["title"].format(library=library),
             "category": "grouped-hardening",
-            "path": f"grouped/{category}",
-            "dedupe_key": f"grouped:{category}",
+            "path": f"grouped/{category}" + (f"/{suffix}" if suffix else ""),
+            "dedupe_key": f"grouped:{category}" + (f":{suffix}" if suffix else ""),
             "description": description,
-            "recommendation": meta["recommendation"],
+            "recommendation": meta["recommendation"].format(library=library),
             "table": {"columns": columns, "rows": rows},
             "affected_endpoints": endpoints,
             "affected_hosts": self.affected_hosts(category, endpoints),
