@@ -40,6 +40,8 @@ GENERIC_SIGNATURE_PREFIX = "_generic_"
 STICKINESS_COOKIES = {"awsalb", "awsalbcors", "awsalbapp", "awselb", "awselbcors"}
 
 DNS_AUDIT_CATEGORIES = {"dns", "dnssec", "email", "certificate"}
+# A domain whose mail can be forged is a vulnerability of its own, listed apart from the hardening table.
+EMAIL_SPOOFING_CATEGORY = "email-spoofing"
 DNS_AUDIT_INDIVIDUAL_TITLES = {
     "dns zone transfer enabled", "nsec allows zone walking", "open dns resolver",
 }
@@ -66,6 +68,15 @@ CATEGORIES = {
         "recommendation": (
             "Review the listed DNS, email-authentication (SPF, DKIM, DMARC, MTA-STS) and CAA records "
             "and tighten them once all legitimate senders and certificate authorities are known."
+        ),
+    },
+    "email_spoofing": {
+        "title": "Email spoofing possible for domains without an enforced DMARC policy",
+        "noun": "domain",
+        "recommendation": (
+            "For each listed domain, publish DMARC with p=reject (or p=quarantine while rolling out) and sp=reject "
+            "once every legitimate sender passes SPF or DKIM alignment. A domain that sends no mail should publish "
+            "v=spf1 -all and v=DMARC1; p=reject."
         ),
     },
     "retirejs": {
@@ -104,6 +115,7 @@ CATEGORIES = {
 COLUMNS = {
     "cookies": ["Website", "Item", "Problem", "Severity"],
     "dns": ["Domain", "Issue", "Severity"],
+    "email_spoofing": ["Domain", "Why it can be spoofed", "SPF", "DMARC", "Severity"],
     "retirejs": ["Website", "Library", "Version", "Max severity", "CVEs"],
     "disclosure": ["Disclosed address", "Found at", "Pages", "Severity"],
     "reputation": ["Asset", "Indicator", "Verdict", "Risk score", "Sources", "Severity"],
@@ -165,8 +177,8 @@ def extracted_values(data):
 
 class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     """
-    Folds web hardening advice, DNS/email policy, reputation observations, outdated JavaScript
-    libraries, and dangling DNS records (takeover leads with no takeover shown) into one summary
+    Folds web hardening advice, DNS/email policy, domains whose email can be spoofed, reputation
+    observations, outdated JavaScript libraries, and dangling DNS records (takeover leads with no takeover shown) into one summary
     per category before event ingestion.
 
     The individual findings are held back while the scan runs. Once the scan is finishing
@@ -327,6 +339,12 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         domain = str(data.get("host") or event.host or "").lower()
         if not title or not domain:
             return None
+        if category == EMAIL_SPOOFING_CATEGORY:
+            return "email_spoofing", DNS_AUDIT_TEMPLATE, [((domain,), {
+                "reasons": {str(data.get("spoofing_reason") or data.get("description") or title)},
+                "spf": {str(data.get("spf") or "none")}, "dmarc": {str(data.get("dmarc") or "none")},
+                "severity": severity or "HIGH",
+            })]
         if category not in DNS_AUDIT_CATEGORIES or title.lower() in DNS_AUDIT_INDIVIDUAL_TITLES:
             return None
         return "dns", DNS_AUDIT_TEMPLATE, [((domain, title), {"severity": severity or "INFO"})]
@@ -381,7 +399,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         row = self._rows[category].setdefault(key, {"problems": set(), "severity": "", "cves": set(),
                                                     "templates": set(), "sources": set(), "risk_score": "0",
                                                     "malicious": False, "locations": set(), "targets": set(),
-                                                    "detectors": set(), "reasons": set()})
+                                                    "detectors": set(), "reasons": set(), "spf": set(),
+                                                    "dmarc": set()})
         if values.get("problem"):
             row["problems"].add(values["problem"])
         if SEVERITY_RANK.get(values.get("severity", ""), 0) > SEVERITY_RANK.get(row["severity"], 0):
@@ -390,7 +409,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         if values.get("location"):
             row["locations"].add(values["location"])
         row["sources"].update(values.get("sources", ()))
-        for field in ("targets", "detectors", "reasons"):
+        for field in ("targets", "detectors", "reasons", "spf", "dmarc"):
             row[field].update(values.get(field, ()))
         row["malicious"] = row["malicious"] or bool(values.get("malicious"))
         row["risk_score"] = max(row["risk_score"], values.get("risk_score", "0"), key=lambda score: int(score) if score.isdigit() else 0)
@@ -419,6 +438,10 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return self.disclosure_table(rows)
         elif category == "dns":
             table_rows = [[domain, title, row["severity"]] for (domain, title), row in rows.items()]
+        elif category == "email_spoofing":
+            table_rows = [[domain, " ".join(sorted(row["reasons"])), ", ".join(sorted(row["spf"])),
+                           ", ".join(sorted(row["dmarc"])), row["severity"] or DEFAULT_SEVERITY]
+                          for (domain,), row in rows.items()]
         elif category == "dangling_dns":
             table_rows = [[host, ", ".join(sorted(row["targets"])) or "(target not reported)",
                            ", ".join(sorted(row["detectors"])), " ".join(sorted(row["reasons"])),
@@ -454,7 +477,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         columns, rows, endpoints = self.table(category)
         hosts = self._hosts[category]
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
-        place = {"dns": "domain", "reputation": "asset", "disclosure": "page",
+        place = {"dns": "domain", "email_spoofing": "domain", "reputation": "asset", "disclosure": "page",
                  "dangling_dns": "hostname"}.get(category, "website")
         places = f"{len(endpoints)} {place}{'' if len(endpoints) == 1 else 's'}"
         # A summary with one row per website counts the websites once, not "N websites across N websites".
