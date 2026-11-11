@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from enum import IntEnum
+from urllib.parse import urlsplit
 from bbot.modules.base import BaseModule
 
 
@@ -23,6 +24,89 @@ class RetireJSSeverity(IntEnum):
 
 # Advisory data the module reads; it is tooling input, never a scan target.
 RETIREJS_REPOSITORY_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json"
+EXPLOITABILITY_NOTE = "Version matched to public advisories; application exploitability has not been verified."
+
+
+def affected_versions(vuln):
+    below_version = vuln.get("below", "")
+    at_or_above = vuln.get("atOrAbove", "")
+    if at_or_above and below_version:
+        return f"[{at_or_above} to {below_version})"
+    if below_version:
+        return f"[< {below_version}]"
+    if at_or_above:
+        return f"[>= {at_or_above}]"
+    return ""
+
+
+def advisory_text(vuln):
+    """One advisory as the finding lists it: severity, summary, CVEs and affected versions."""
+    identifiers = vuln.get("identifiers", {})
+    cves = identifiers.get("CVE", [])
+    if isinstance(cves, str):
+        cves = [cves]
+    parts = [f"[{str(vuln.get('severity', 'unknown')).upper()}] {identifiers.get('summary', 'Unknown vulnerability')}"]
+    if cves:
+        parts.append(f"CVE(s): {', '.join(cves)}")
+    versions = affected_versions(vuln)
+    if versions:
+        parts.append(f"Affected versions: {versions}")
+    return " ".join(parts), cves
+
+
+def library_findings(results_json, min_severity, javascript_url, page_url):
+    """
+    One finding per library version a script bundles, listing every advisory at or above
+    `min_severity` and rated by the most severe of them. Advisories of one library version
+    are one fix (upgrade it), so they are one finding, not one each.
+    """
+    findings = []
+    for file_result in results_json.get("data") or []:
+        for component_result in file_result.get("results", []):
+            component = component_result.get("component", "unknown")
+            version = component_result.get("version", "unknown")
+            advisories = [
+                vuln
+                for vuln in component_result.get("vulnerabilities", [])
+                if RetireJSSeverity.from_string(vuln.get("severity", "unknown")) >= min_severity
+            ]
+            if not advisories:
+                continue
+            advisories.sort(key=lambda vuln: -RetireJSSeverity.from_string(vuln.get("severity", "unknown")))
+            severity = advisories[0].get("severity", "unknown")
+            texts, cves, advisory_urls = [], [], []
+            for vuln in advisories:
+                text, vuln_cves = advisory_text(vuln)
+                texts.append(text)
+                cves.extend(cve for cve in vuln_cves if cve not in cves)
+                advisory_urls.extend(url for url in vuln.get("info") or [] if url not in advisory_urls)
+            count = f"{len(advisories)} advisor{'y' if len(advisories) == 1 else 'ies'}"
+            description = (
+                f"Vulnerable JavaScript library detected: {component} v{version} Severity: {severity.upper()} "
+                f"JavaScript URL: {javascript_url} {count}: {'; '.join(texts)}. {EXPLOITABILITY_NOTE}"
+            )
+            data = {
+                "title": f"Vulnerable JavaScript library {component} v{version}",
+                "description": description,
+                "severity": severity,
+                "component": component,
+                "version": version,
+                "cves": cves,
+                "javascript_url": javascript_url,
+                "url": page_url,
+            }
+            if advisory_urls:
+                data["advisory_urls"] = advisory_urls
+            findings.append(data)
+    return findings
+
+
+def url_origin(url):
+    try:
+        parsed = urlsplit(str(url or ""))
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    except ValueError:
+        return str(url or "")
 
 
 class retirejs(BaseModule):
@@ -147,6 +231,9 @@ class retirejs(BaseModule):
         self.repofile = await self.helpers.download(RETIREJS_REPOSITORY_URL, cache_hrs=24)
         if not self.repofile:
             return False, "failed to download retire.js repository file"
+        # (website origin, library, version) already reported: other scripts of the
+        # website bundling the same library version add nothing to fix.
+        self._reported = set()
         return True
 
     async def handle_event(self, event):
@@ -184,68 +271,20 @@ class retirejs(BaseModule):
         if not results:
             self.warning("no output from retire.js")
             return
-        results_json = json.loads(results)
-        if results_json.get("data"):
-            for file_result in results_json["data"]:
-                for component_result in file_result.get("results", []):
-                    component = component_result.get("component", "unknown")
-                    version = component_result.get("version", "unknown")
-                    vulnerabilities = component_result.get("vulnerabilities", [])
-                    for vuln in vulnerabilities:
-                        severity = vuln.get("severity", "unknown")
-
-                        # Filter by minimum severity level
-                        min_severity = RetireJSSeverity.from_string(self.config.get("severity", "medium"))
-                        vuln_severity = RetireJSSeverity.from_string(severity)
-                        if vuln_severity < min_severity:
-                            self.debug(
-                                f"Skipping vulnerability with severity '{severity}' (below minimum '{min_severity.name.lower()}')"
-                            )
-                            continue
-
-                        identifiers = vuln.get("identifiers", {})
-                        summary = identifiers.get("summary", "Unknown vulnerability")
-                        cves = identifiers.get("CVE", [])
-                        if isinstance(cves, str):
-                            cves = [cves]
-                        description_parts = [
-                            f"Vulnerable JavaScript library detected: {component} v{version}",
-                            f"Severity: {severity.upper()}",
-                            f"Summary: {summary}",
-                            f"JavaScript URL: {event.data}",
-                        ]
-                        if cves:
-                            description_parts.append(f"CVE(s): {', '.join(cves)}")
-
-                        below_version = vuln.get("below", "")
-                        at_or_above = vuln.get("atOrAbove", "")
-                        if at_or_above and below_version:
-                            description_parts.append(f"Affected versions: [{at_or_above} to {below_version})")
-                        elif below_version:
-                            description_parts.append(f"Affected versions: [< {below_version}]")
-                        elif at_or_above:
-                            description_parts.append(f"Affected versions: [>= {at_or_above}]")
-                        description = (
-                            " ".join(description_parts)
-                            + " Version matched to a public advisory; application exploitability has not been verified."
-                        )
-                        data = {
-                            "description": description,
-                            "severity": severity,
-                            "component": component,
-                            "version": version,
-                            "cves": cves,
-                            "javascript_url": event.data,
-                            "url": self.page_url(event),
-                        }
-                        if vuln.get("info"):
-                            data["advisory_urls"] = vuln["info"]
-                        await self.emit_event(
-                            data,
-                            "FINDING",
-                            parent=event,
-                            context=f"{{module}} identified vulnerable JavaScript library {component} v{version} ({severity} severity)",
-                        )
+        min_severity = RetireJSSeverity.from_string(self.config.get("severity", "medium"))
+        page_url = self.page_url(event)
+        for data in library_findings(json.loads(results), min_severity, event.data, page_url):
+            key = (url_origin(page_url), data["component"].lower(), data["version"])
+            if key in self._reported:
+                self.debug(f"{data['component']} v{data['version']} on {key[0]} is already reported")
+                continue
+            self._reported.add(key)
+            await self.emit_event(
+                data,
+                "FINDING",
+                parent=event,
+                context=f"{{module}} identified vulnerable JavaScript library {data['component']} v{data['version']} ({data['severity']} severity)",
+            )
 
     async def filter_event(self, event):
         if not self.scan.in_scope(event):

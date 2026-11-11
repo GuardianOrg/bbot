@@ -134,7 +134,10 @@ config:
       # checks that domain_config_dns_audit already covers (DMARC, DNSSEC, wildcard DNS), and
       # header checks with known false positives. jwt-token matches the public content tokens
       # documentation sites such as GitBook embed in every page. http-missing-security-headers is replaced
-      # by the bundled missing-security-headers template.
+      # by the bundled missing-security-headers template. Header preferences that are not weaknesses:
+      # weak-hsts-detect flags any HSTS max-age under a year (a missing header is still reported),
+      # expect-ct-misconfigured an obsolete header, options-method an Allow list, and
+      # fastly-debug-headers the cache metadata Fastly returns for its debug header.
       exclude_ids: >-
         aaaa-fingerprint,acme-challenge-detect,bimi-record-detect,caa-fingerprint,dkim-record-detect,
         dmarc-detect,dnssec-detection,dns-saas-service-detection,ec2-detection,mx-fingerprint,
@@ -147,7 +150,8 @@ config:
         atproto-did-exposure,nostr-json-exposure,discord-invite-detect,crypto-address-detect,
         torrent-magnet-detect,onion-website-supported,detect-dns-over-https,ssl-issuer,ssl-dns-names,
         tls-version,wildcard-tls,missing-cookie-samesite-strict,missing-sri,xss-deprecated-header,
-        http-missing-security-headers,addeventlistener-detect,jwt-token
+        http-missing-security-headers,addeventlistener-detect,jwt-token,weak-hsts-detect,
+        expect-ct-misconfigured,options-method,fastly-debug-headers
       # Runs the corrected templates shipped in bbot/modules/nuclei_templates.
       bundled_templates: true
       ratelimit: 120
