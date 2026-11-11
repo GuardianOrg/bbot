@@ -134,7 +134,7 @@ def test_retirejs_page_lookup_stops_at_self_parenting_scan_root():
 async def test_response_enrichment_reaches_the_original_event_and_keeps_identity():
     module = make_module(whatweb)
     module.pages, module.icons, module.max_pages = {}, {}, 3
-    module.fingerprint = AsyncMock(return_value={"WordPress": {"version": ["6.6.2"]}})
+    module.fingerprint = AsyncMock(return_value={"HTML5": {}, "WordPress": {"version": ["6.6.2"]}})
     module.find_favicon = AsyncMock(
         return_value={"url": "https://example.com/favicon.ico", "sha256": "abc", "mmh3": -123}
     )
@@ -152,7 +152,7 @@ async def test_response_enrichment_reaches_the_original_event_and_keeps_identity
     )
     identifier = event.id
     assert await module.handle_event(event) is True
-    assert event.data["technologies"][0]["name"] == "WordPress"
+    assert [tech["name"] for tech in event.data["technologies"]] == ["WordPress"]
     assert event.data["favicon"]["mmh3"] == -123
     assert event.id == identifier
     module.emit_event.assert_awaited_once()
