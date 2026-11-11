@@ -43,6 +43,24 @@ METADATA_PLUGINS = {
     "Strict-Transport-Security",
     "Access-Control-Allow-Methods",
 }
+# These signatures describe a page feature, response header, protocol, or generic
+# text marker rather than an identifiable software product. Some WhatWeb plugins
+# put page metadata in their "version" field (for example, og:type=website).
+NON_PRODUCT_SIGNATURES = {
+    "basic",
+    "content-language",
+    "frame",
+    "hsts",
+    "html5",
+    "http/3",
+    "meta-powered-by",
+    "meta-refresh-redirect",
+    "open-graph-protocol",
+    "poweredby",
+    "script",
+    "via-proxy",
+    "x-ua-compatible",
+}
 
 
 def normalized_technologies(httpx_tech, plugins):
@@ -50,7 +68,7 @@ def normalized_technologies(httpx_tech, plugins):
 
     def add(name, version, source):
         name = str(name).strip()[:100]
-        if not name:
+        if not name or name.casefold() in NON_PRODUCT_SIGNATURES:
             return
         name = ALIASES.get(name.lower(), name)
         version = str(version).strip()[:100] if version else ""

@@ -45,6 +45,31 @@ def test_normalized_technologies_preserve_distinct_versions_and_omit_page_metada
     assert "WhatWeb" in result[0]["evidence"] and "httpx" in result[0]["evidence"]
 
 
+def test_normalized_technologies_keep_versionless_products_without_page_features():
+    result = normalized_technologies(
+        ["HSTS", "HTTP/3", "Basic", "Next.js"],
+        {
+            "HTML5": {},
+            "Script": {},
+            "X-UA-Compatible": {},
+            "Open-Graph-Protocol": {"version": ["website"]},
+            "Frame": {},
+            "Content-Language": {},
+            "Meta-Refresh-Redirect": {},
+            "Via-Proxy": {},
+            "PoweredBy": {},
+            "MetaPoweredBy": {},
+            "Grafana": {},
+            "jQuery": {"version": ["3.7.1"]},
+        },
+    )
+    assert [(tech["name"], tech.get("version")) for tech in result] == [
+        ("Next.js", None),
+        ("Grafana", None),
+        ("jQuery", "3.7.1"),
+    ]
+
+
 def test_icon_scope_base_url_and_html_negative_control():
     assert icon_urls(
         "https://example.com/blog/", '<base href="/assets/"><link rel="shortcut icon" href="icon.png">'
