@@ -42,6 +42,12 @@ STICKINESS_COOKIES = {"awsalb", "awsalbcors", "awsalbapp", "awselb", "awselbcors
 DNS_AUDIT_CATEGORIES = {"dns", "dnssec", "email", "certificate"}
 # A domain whose mail can be forged is a vulnerability of its own, listed apart from the hardening table.
 EMAIL_SPOOFING_CATEGORY = "email-spoofing"
+# Look-alike domains of the scanned ones: one summary of those that serve a website, one of those that
+# receive mail. A domain that does both is listed in both.
+PHISHING_MODULE = "domain_phishing"
+PHISHING_CATEGORY = "phishing-lookalike-domain"
+PHISHING_OWNER_FIELDS = ("registrar", "registration_date", "registrant_org", "registrant_name",
+                         "registrant_email", "registrant_country")
 DNS_AUDIT_INDIVIDUAL_TITLES = {
     "dns zone transfer enabled", "nsec allows zone walking", "open dns resolver",
 }
@@ -105,6 +111,25 @@ CATEGORIES = {
             "content under it."
         ),
     },
+    "phishing_websites": {
+        "title": "Look-alike websites that may impersonate scanned domains",
+        "noun": "look-alike website",
+        "recommendation": (
+            "Open each listed website and compare it with the domain it resembles. Report the ones that copy its "
+            "brand, login, product or support pages to the registrar and hosting provider for takedown, and warn "
+            "users and staff about them. Keep monitoring the others, as a parked look-alike can be turned into a "
+            "phishing page at any time."
+        ),
+    },
+    "phishing_mail": {
+        "title": "Look-alike domains with mail servers that may impersonate scanned domains",
+        "noun": "look-alike domain",
+        "recommendation": (
+            "A look-alike domain with mail servers can exchange email under a name mistaken for yours. Check who "
+            "owns each listed domain; for the ones not owned by a known, long-established business, warn staff and "
+            "partners, block the domain at the mail gateway, and report it to the registrar if it is used for abuse."
+        ),
+    },
     "reputation": {
         "title": "Reputation observations for scanned assets",
         "noun": "observation",
@@ -120,6 +145,9 @@ COLUMNS = {
     "disclosure": ["Disclosed address", "Found at", "Pages", "Severity"],
     "reputation": ["Asset", "Indicator", "Verdict", "Risk score", "Sources", "Severity"],
     "dangling_dns": ["Hostname", "Points to", "Detected by", "Why it is listed", "Severity"],
+    "phishing_websites": ["Look-alike website", "Resembles", "Permutation", "Registrant", "Registered", "Severity"],
+    "phishing_mail": ["Look-alike domain", "Resembles", "Permutation", "Mail servers (MX)", "Registrant",
+                      "Registered", "Severity"],
 }
 
 
@@ -154,6 +182,14 @@ def dangling_reason(targets, signature, confidence):
     level = f" with {confidence.lower()} confidence" if confidence else ""
     return (f"Its DNS to {target} matches the {signature} unclaimed-resource fingerprint{level}; "
             "a takeover was not demonstrated.")
+
+
+def registrant(owner):
+    """Who registered a look-alike domain, from its WHOIS fields."""
+    who = owner.get("registrant_org") or owner.get("registrant_name") or "not disclosed"
+    country = owner.get("registrant_country")
+    registrar = owner.get("registrar")
+    return who + (f" ({country})" if country else "") + (f", via {registrar}" if registrar else "")
 
 
 def endpoint_host(endpoint):
@@ -214,22 +250,25 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         grouped = self.classify(event)
         if grouped is None:
             return True
-        category, template, rows = grouped
-        if not rows:
+        # A look-alike domain can join two summaries; everything else joins one.
+        groupings = grouped if isinstance(grouped, list) else [grouped]
+        if not any(rows for _, _, rows in groupings):
             return False, "it only reports load balancer stickiness cookies"
         if self._emitted:
             # The summary is already out; a late finding still has to reach the scan.
             return True
-        for key, values in rows:
-            self._merge_row(category, key, values)
-            self._record_template(category, key, template)
-        if event.host:
-            self._hosts[category][str(event.host)] += 1
+        for category, template, rows in groupings:
+            for key, values in rows:
+                self._merge_row(category, key, values)
+                self._record_template(category, key, template)
+            if event.host:
+                self._hosts[category][str(event.host)] += 1
         self._held += 1
         # Holding an event is activity: ask the scan for one more finish round, or it could
         # end before finish() sees it.
         self.scan._new_activity = True
-        return False, f"it is grouped into the {category} summary"
+        categories = " and ".join(category for category, _, _ in groupings)
+        return False, f"it is grouped into the {categories} summary"
 
     async def finish(self):
         if self._emitted:
@@ -262,6 +301,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return self._classify_reputation(event, data)
         if event.type == "FINDING" and str(data.get("category") or "").strip().lower() == TAKEOVER_CATEGORY:
             return self._classify_dangling_dns(event, data, module)
+        if module == PHISHING_MODULE and str(data.get("category") or "").strip().lower() == PHISHING_CATEGORY:
+            return self._classify_phishing(event, data, severity)
         template = str(data.get("template") or "")
         if module == "nuclei":
             return self._classify_nuclei(event, data, template, severity)
@@ -380,6 +421,27 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             "severity": DEFAULT_SEVERITY,
         })]
 
+    def _classify_phishing(self, event, data, severity):
+        """The website summary for a look-alike that serves a page, the mail summary for one with mail servers."""
+        domain = str(data.get("host") or event.host or "").strip().rstrip(".").lower()
+        protected = str(data.get("source-domain") or "").strip().rstrip(".").lower()
+        if not domain or not protected:
+            return None
+        mail_servers = data.get("dns_mx") if isinstance(data.get("dns_mx"), (list, tuple)) else []
+        mail_servers = {str(server).strip().rstrip(".").lower() for server in mail_servers if str(server).strip()}
+        owner = {field: str(data.get(field) or "").strip() for field in PHISHING_OWNER_FIELDS}
+        values = {
+            "protected": {protected}, "fuzzers": {str(data.get("fuzzer") or "unknown").strip()},
+            "mail_servers": mail_servers, "owner": owner, "severity": severity or DEFAULT_SEVERITY,
+        }
+        groupings = []
+        if data.get("web_active") is True:
+            groupings.append(("phishing_websites", PHISHING_MODULE, [((domain,), values)]))
+        if mail_servers:
+            groupings.append(("phishing_mail", PHISHING_MODULE, [((domain,), values)]))
+        # domain_phishing reports only look-alikes with a website or mail servers; anything else stays as it is.
+        return groupings or None
+
     def _classify_retirejs(self, event, data, severity):
         component = str(data.get("component") or "").strip()
         if not component:
@@ -399,7 +461,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
                                                     "templates": set(), "sources": set(), "risk_score": "0",
                                                     "malicious": False, "locations": set(), "targets": set(),
                                                     "detectors": set(), "reasons": set(), "spf": set(),
-                                                    "dmarc": set()})
+                                                    "dmarc": set(), "protected": set(), "fuzzers": set(),
+                                                    "mail_servers": set(), "owner": {}})
         if values.get("problem"):
             row["problems"].add(values["problem"])
         if SEVERITY_RANK.get(values.get("severity", ""), 0) > SEVERITY_RANK.get(row["severity"], 0):
@@ -408,8 +471,11 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         if values.get("location"):
             row["locations"].add(values["location"])
         row["sources"].update(values.get("sources", ()))
-        for field in ("targets", "detectors", "reasons", "spf", "dmarc"):
+        for field in ("targets", "detectors", "reasons", "spf", "dmarc", "protected", "fuzzers", "mail_servers"):
             row[field].update(values.get(field, ()))
+        for field, value in values.get("owner", {}).items():
+            if value and not row["owner"].get(field):
+                row["owner"][field] = value
         row["malicious"] = row["malicious"] or bool(values.get("malicious"))
         row["risk_score"] = max(row["risk_score"], values.get("risk_score", "0"), key=lambda score: int(score) if score.isdigit() else 0)
 
@@ -445,6 +511,12 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
                            ", ".join(sorted(row["detectors"])), " ".join(sorted(row["reasons"])),
                            row["severity"] or DEFAULT_SEVERITY]
                           for (host,), row in rows.items()]
+        elif category in ("phishing_websites", "phishing_mail"):
+            table_rows = [[domain, ", ".join(sorted(row["protected"])), ", ".join(sorted(row["fuzzers"]))]
+                          + ([", ".join(sorted(row["mail_servers"]))] if category == "phishing_mail" else [])
+                          + [registrant(row["owner"]), row["owner"].get("registration_date") or "unknown",
+                             row["severity"] or DEFAULT_SEVERITY]
+                          for (domain,), row in rows.items()]
         elif category == "reputation":
             table_rows = [[asset, indicator, "malicious" if row["malicious"] else "not malicious", row["risk_score"],
                            ", ".join(sorted(row["sources"])), row["severity"] or DEFAULT_SEVERITY]
@@ -489,7 +561,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         columns, rows, endpoints = self.table(category, selected)
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
         place = {"dns": "domain", "email_spoofing": "domain", "reputation": "asset", "disclosure": "page",
-                 "dangling_dns": "hostname"}.get(category, "website")
+                 "dangling_dns": "hostname", "phishing_websites": "look-alike website",
+                 "phishing_mail": "look-alike domain"}.get(category, "website")
         places = f"{len(endpoints)} {place}{'' if len(endpoints) == 1 else 's'}"
         # A summary with one row per website counts the websites once, not "N websites across N websites".
         lead = places if meta["noun"] == place else f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {places}"
@@ -515,6 +588,15 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             "row_count": len(rows),
             "source_templates": sorted({template for row in selected.values() for template in row["templates"]}),
         }
+        if category in ("phishing_websites", "phishing_mail"):
+            # Each look-alike with what resembles it and who owns it, so a reviewer can drop the ones that
+            # do not imitate a scanned domain or belong to an established business.
+            data["lookalike_domains"] = [
+                {"domain": domain, "resembles": sorted(row["protected"]), "permutations": sorted(row["fuzzers"]),
+                 "mail_servers": sorted(row["mail_servers"]), **{field: row["owner"].get(field, "")
+                                                                  for field in PHISHING_OWNER_FIELDS}}
+                for (domain,), row in sorted(selected.items())
+            ]
         if host:
             data["host"] = host
         return data
