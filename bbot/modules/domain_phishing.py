@@ -528,6 +528,10 @@ class domain_phishing(BaseModule):
             candidate_domain = str(self._pick(candidate, "domain") or "").strip().lower().rstrip(".")
             if not candidate_domain or candidate_domain == root_domain:
                 continue
+            if self.scan.in_scope(candidate_domain):
+                # Another domain of this scan (e.g. bakkt.money next to bakkt.com) is not impersonating it.
+                self.debug(f"domain_phishing: skipping {candidate_domain}; it is in the scan's scope")
+                continue
 
             # Keep scan scope constrained: report risk as finding/vuln without expanding enumeration.
             score, severity, reasons = self._score_candidate(candidate)

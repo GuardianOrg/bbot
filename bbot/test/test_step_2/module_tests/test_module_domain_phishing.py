@@ -333,7 +333,7 @@ def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
         path.write_text("\n".join(contents))
         return path
 
-    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
+    mod.scan = SimpleNamespace(in_scope=lambda _domain: False, helpers=SimpleNamespace(
         split_domain=lambda _domain: ("", "bitpay.com"), is_domain=lambda _domain: True, tempfile=tempfile
     ))
 
@@ -372,6 +372,7 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
     mod.history_file = ""
     mod.known = {}
     mod.scan = SimpleNamespace(
+        in_scope=lambda _domain: False,
         helpers=SimpleNamespace(
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
@@ -458,6 +459,7 @@ def test_domain_phishing_extra_candidates_do_not_displace_dnstwist_results(tmp_p
     mod.known = {}
     mod._state_lock = asyncio.Lock()
     mod.scan = SimpleNamespace(
+        in_scope=lambda _domain: False,
         helpers=SimpleNamespace(
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
@@ -506,6 +508,7 @@ def test_domain_phishing_does_not_remember_an_event_that_failed_to_emit(tmp_path
     mod.known = {}
     mod._state_lock = asyncio.Lock()
     mod.scan = SimpleNamespace(
+        in_scope=lambda _domain: False,
         helpers=SimpleNamespace(
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
@@ -544,7 +547,7 @@ def test_domain_phishing_fails_when_dnstwist_output_is_unusable(returncode, stdo
     mod.threads = 1
     mod.fuzzers = []
     mod.nameservers = []
-    mod.scan = SimpleNamespace(helpers=SimpleNamespace(
+    mod.scan = SimpleNamespace(in_scope=lambda _domain: False, helpers=SimpleNamespace(
         split_domain=lambda _domain: ("", "coinbase.com"), is_domain=lambda _domain: True,
     ))
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(
@@ -693,6 +696,7 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected, tmp
         return None if status is None else SimpleNamespace(status_code=status, headers={})
 
     mod.scan = SimpleNamespace(
+        in_scope=lambda _domain: False,
         helpers=SimpleNamespace(
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
@@ -828,3 +832,49 @@ def test_domain_phishing_a_dns_timeout_is_retried_and_never_fails_the_domain(mon
     assert lifetimes[("coinbasre.com", "A")] == [3, 6]
     # a domain whose lookups keep failing is tried twice per record type, then left out
     assert lifetimes[("coinbasse.com", "NS")] == [3, 6]
+
+
+def test_domain_phishing_skips_lookalikes_that_are_scanned_domains(tmp_path):
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    mod.binary = "/bin/echo"
+    mod.registered_only = False
+    mod.enable_lsh = False
+    mod.threads = 1
+    mod.fuzzers = []
+    mod.nameservers = []
+    mod.max_candidates = 10
+    mod.min_score = 3
+    mod.young_domain_days = 45
+    mod.lsh_threshold = 70
+    mod.history_file = str(tmp_path / "phishing-history.json")
+    mod.known = {}
+    mod._state_lock = asyncio.Lock()
+    mod.scan = SimpleNamespace(
+        in_scope=lambda domain: domain in {"bakkt.com", "bakkt.money"},
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "bakkt.com"),
+            is_domain=lambda _domain: True,
+        ),
+    )
+    rows = [
+        {"domain": domain, "fuzzer": "tld-swap", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
+        for domain in ("bakkt.money", "bakkt.xyz")
+    ]
+    mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps(rows)))
+    mod._monitor_extra_candidates = lambda _root, _rows: asyncio.sleep(0, result=[])
+    mod._check_candidate_web = lambda *_args: asyncio.sleep(0, result=(False, False))
+    mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
+    emitted = []
+
+    async def emit_event(payload, *_args, **_kwargs):
+        emitted.append(payload["host"])
+        return payload
+
+    mod.emit_event = emit_event
+    mod.info = lambda *_args: None
+    mod.debug = lambda *_args: None
+    asyncio.run(mod.handle_event(SimpleNamespace(data="bakkt.com")))
+
+    assert emitted == ["bakkt.xyz"]

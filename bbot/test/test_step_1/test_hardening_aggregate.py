@@ -598,3 +598,84 @@ async def test_spoofable_domains_form_their_own_high_finding_apart_from_dns_hard
     }
     assert spoofing.data["description"].startswith("2 domains: app.example.com, example.com.")
     assert summaries["grouped:dns"].data["table"]["rows"] == [["example.com", "Missing DMARC Record", "MEDIUM"]]
+
+
+def lookalike(h, domain, protected, fuzzer="homoglyph", mx=(), web=False, severity="INFO", **owner):
+    data = {
+        "host": domain,
+        "title": f"Potential phishing look-alike domain: {domain}",
+        "description": f"Look-alike domain {domain}",
+        "category": "phishing-lookalike-domain",
+        "template": "domain-phishing",
+        "source-domain": protected,
+        "fuzzer": fuzzer,
+        "severity": severity,
+        "dns_mx": list(mx),
+        "web_active": web,
+        **owner,
+    }
+    return h.scan.make_event(data, "FINDING", parent=h.scan.root_event,
+                             module=h.scan._make_dummy_module("domain_phishing"))
+
+
+@pytest.mark.asyncio
+async def test_lookalike_websites_and_mail_domains_get_one_summary_each(bbot_scanner):
+    h = await harness(bbot_scanner)
+    assert not await h.feed(lookalike(h, "examp1e.com", "example.com", web=True, severity="LOW",
+                                      registrant_org="Shady LLC", registrant_country="PA",
+                                      registrar="NameCheap, Inc.", registration_date="2026-10-01"))
+    assert not await h.feed(lookalike(h, "exampie.com", "example.com", fuzzer="replacement",
+                                      mx=["10 mx.exampie.com.", "20 MX2.exampie.com"]))
+    # Both a website and mail servers: listed in both summaries.
+    assert not await h.feed(lookalike(h, "example.co", "example.com", fuzzer="tld-swap", web=True,
+                                      mx=["mail.example.co"], registrant_name="Jane Doe"))
+    await h.finish_rounds()
+
+    summaries = h.by_category()
+    assert set(summaries) == {"grouped:phishing_websites", "grouped:phishing_mail"}
+    websites = summaries["grouped:phishing_websites"]
+    assert websites.type == "VULNERABILITY"
+    assert websites.data["severity"] == "LOW"
+    assert websites.data["title"] == "Look-alike websites that may impersonate scanned domains"
+    assert websites.data["table"] == {
+        "columns": ["Look-alike website", "Resembles", "Permutation", "Registrant", "Registered", "Severity"],
+        "rows": [
+            ["examp1e.com", "example.com", "homoglyph", "Shady LLC (PA), via NameCheap, Inc.", "2026-10-01", "LOW"],
+            ["example.co", "example.com", "tld-swap", "Jane Doe", "unknown", "INFO"],
+        ],
+    }
+    assert websites.data["affected_endpoints"] == ["examp1e.com", "example.co"]
+    assert websites.data["description"].startswith("2 look-alike websites: examp1e.com, example.co.")
+    assert "grouped-phishing-websites" in websites.tags
+
+    mail = summaries["grouped:phishing_mail"]
+    assert mail.data["severity"] == "INFO"
+    assert mail.data["table"]["columns"] == ["Look-alike domain", "Resembles", "Permutation", "Mail servers (MX)",
+                                             "Registrant", "Registered", "Severity"]
+    assert [row[0] for row in mail.data["table"]["rows"]] == ["exampie.com", "example.co"]
+    assert mail.data["table"]["rows"][0][3] == "10 mx.exampie.com, 20 mx2.exampie.com"
+    assert [item["domain"] for item in mail.data["lookalike_domains"]] == ["exampie.com", "example.co"]
+    assert mail.data["lookalike_domains"][1]["registrant_name"] == "Jane Doe"
+    assert mail.data["lookalike_domains"][0]["mail_servers"] == ["10 mx.exampie.com", "20 mx2.exampie.com"]
+
+
+@pytest.mark.asyncio
+async def test_a_lookalike_of_two_scanned_domains_is_one_row(bbot_scanner):
+    h = await harness(bbot_scanner)
+    assert not await h.feed(lookalike(h, "exarnple.com", "example.com", mx=["mx.exarnple.com"]))
+    assert not await h.feed(lookalike(h, "exarnple.com", "exarnple.net", fuzzer="tld-swap", mx=["mx.exarnple.com"]))
+    await h.finish_rounds()
+
+    (mail,) = h.emitted
+    assert mail.data["table"]["rows"] == [
+        ["exarnple.com", "example.com, exarnple.net", "homoglyph, tld-swap", "mx.exarnple.com", "not disclosed",
+         "unknown", "INFO"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_lookalike_with_neither_website_nor_mail_is_passed_on(bbot_scanner):
+    h = await harness(bbot_scanner)
+    assert await h.feed(lookalike(h, "exampel.com", "example.com"))
+    await h.finish_rounds()
+    assert h.emitted == []
