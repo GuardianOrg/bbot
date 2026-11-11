@@ -53,7 +53,7 @@ NON_PRODUCT_SIGNATURES = {
     "hsts",
     "html5",
     "http/3",
-    "meta-powered-by",
+    "metapoweredby",
     "meta-refresh-redirect",
     "open-graph-protocol",
     "poweredby",
