@@ -1316,6 +1316,9 @@ class domain_config_dns_audit(BaseModule):
         """
         if not records.get("DMARC_LOOKUP_OK") or not (records.get("NS") or records.get("SOA")):
             return
+        # Like the other email checks, only a domain that receives mail; a null MX "0 ." (RFC 7505) receives none.
+        if not any(mx.split()[-1] != "." for mx in records.get("MX", []) if mx.split()):
+            return
         dmarc = records.get("DMARC")
         policy = records.get("DMARC_POLICY")
         subdomain_policy = records.get("DMARC_SUBDOMAIN_POLICY")
