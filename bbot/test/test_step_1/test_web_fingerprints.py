@@ -45,6 +45,31 @@ def test_normalized_technologies_preserve_distinct_versions_and_omit_page_metada
     assert "WhatWeb" in result[0]["evidence"] and "httpx" in result[0]["evidence"]
 
 
+def test_normalized_technologies_keep_versionless_products_without_page_features():
+    result = normalized_technologies(
+        ["HSTS", "HTTP/3", "Basic", "Next.js"],
+        {
+            "HTML5": {},
+            "Script": {},
+            "X-UA-Compatible": {},
+            "Open-Graph-Protocol": {"version": ["website"]},
+            "Frame": {},
+            "Content-Language": {},
+            "Meta-Refresh-Redirect": {},
+            "Via-Proxy": {},
+            "PoweredBy": {},
+            "MetaPoweredBy": {},
+            "Grafana": {},
+            "jQuery": {"version": ["3.7.1"]},
+        },
+    )
+    assert [(tech["name"], tech.get("version")) for tech in result] == [
+        ("Next.js", None),
+        ("Grafana", None),
+        ("jQuery", "3.7.1"),
+    ]
+
+
 def test_icon_scope_base_url_and_html_negative_control():
     assert icon_urls(
         "https://example.com/blog/", '<base href="/assets/"><link rel="shortcut icon" href="icon.png">'
@@ -109,7 +134,7 @@ def test_retirejs_page_lookup_stops_at_self_parenting_scan_root():
 async def test_response_enrichment_reaches_the_original_event_and_keeps_identity():
     module = make_module(whatweb)
     module.pages, module.icons, module.max_pages = {}, {}, 3
-    module.fingerprint = AsyncMock(return_value={"WordPress": {"version": ["6.6.2"]}})
+    module.fingerprint = AsyncMock(return_value={"HTML5": {}, "WordPress": {"version": ["6.6.2"]}})
     module.find_favicon = AsyncMock(
         return_value={"url": "https://example.com/favicon.ico", "sha256": "abc", "mmh3": -123}
     )
@@ -127,7 +152,7 @@ async def test_response_enrichment_reaches_the_original_event_and_keeps_identity
     )
     identifier = event.id
     assert await module.handle_event(event) is True
-    assert event.data["technologies"][0]["name"] == "WordPress"
+    assert [tech["name"] for tech in event.data["technologies"]] == ["WordPress"]
     assert event.data["favicon"]["mmh3"] == -123
     assert event.id == identifier
     module.emit_event.assert_awaited_once()
