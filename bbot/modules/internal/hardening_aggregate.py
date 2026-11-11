@@ -28,6 +28,11 @@ DISCLOSURE_TEMPLATES = {"internal-ip-disclosure"}
 # Pages listed for one disclosed value; the rest are counted.
 MAX_LOCATIONS_PER_VALUE = 5
 DNS_AUDIT_TEMPLATE = "domain-config-dns-audit"
+# Takeover scanners report a hostname whose DNS points at a provider resource that is missing
+# or unclaimed. As a FINDING (no takeover shown) it is a dangling reference, grouped with the
+# others; a VULNERABILITY (a takeover fingerprint with confidence) stays its own issue.
+TAKEOVER_CATEGORY = "subdomain-takeover"
+GENERIC_SIGNATURE_PREFIX = "_generic_"
 
 # Load balancer stickiness cookies carry a backend-routing token and never a session, so
 # the Secure/HttpOnly advice does not apply to them. BIGipServer* is not here on purpose:
@@ -79,6 +84,16 @@ CATEGORIES = {
             "or bodies), typically by fixing the proxy or application configuration that adds them."
         ),
     },
+    "dangling_dns": {
+        "title": "Dangling DNS records pointing to missing provider resources",
+        "noun": "hostname",
+        "recommendation": (
+            "For each listed hostname, remove the DNS record when the integration is no longer used, or "
+            "recreate or reclaim the provider resource it points to. Until then the hostname does not "
+            "resolve, and an account that can create a resource under the same provider name could serve "
+            "content under it."
+        ),
+    },
     "reputation": {
         "title": "Reputation observations for scanned assets",
         "noun": "observation",
@@ -92,6 +107,7 @@ COLUMNS = {
     "retirejs": ["Website", "Library", "Version", "Max severity", "CVEs"],
     "disclosure": ["Disclosed address", "Found at", "Pages", "Severity"],
     "reputation": ["Asset", "Indicator", "Verdict", "Risk score", "Sources", "Severity"],
+    "dangling_dns": ["Hostname", "Points to", "Detected by", "Why it is listed", "Severity"],
 }
 
 
@@ -117,6 +133,17 @@ def cap_severity(severity, ceiling):
 def highest_severity(severities):
     return max(severities, key=lambda level: SEVERITY_RANK.get(level, 0), default=DEFAULT_SEVERITY) or DEFAULT_SEVERITY
 
+def dangling_reason(targets, signature, confidence):
+    """One sentence on why a takeover scanner listed a hostname, for its table row."""
+    target = ", ".join(sorted(targets)) or "a provider resource"
+    if not signature or signature.startswith(GENERIC_SIGNATURE_PREFIX):
+        return (f"The CNAME to {target} does not resolve, so the hostname is a stale or unfinished alias; "
+                "the scan did not show that another account can claim the target.")
+    level = f" with {confidence.lower()} confidence" if confidence else ""
+    return (f"Its DNS to {target} matches the {signature} unclaimed-resource fingerprint{level}; "
+            "a takeover was not demonstrated.")
+
+
 def endpoint_host(endpoint):
     """Hostname of a website origin, or the endpoint itself when it is already a host."""
     if "://" not in endpoint:
@@ -138,8 +165,9 @@ def extracted_values(data):
 
 class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     """
-    Folds web hardening advice, DNS/email policy, reputation observations,
-    and outdated JavaScript libraries into one summary per category before event ingestion.
+    Folds web hardening advice, DNS/email policy, reputation observations, outdated JavaScript
+    libraries, and dangling DNS records (takeover leads with no takeover shown) into one summary
+    per category before event ingestion.
 
     The individual findings are held back while the scan runs. Once the scan is finishing
     and no more of them arrive, one summary per category is emitted. A summary is rated
@@ -221,6 +249,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         module = str(getattr(event, "module", "") or "")
         if module == "host_reputation" and str(data.get("category") or "") in REPUTATION_CATEGORIES:
             return self._classify_reputation(event, data)
+        if event.type == "FINDING" and str(data.get("category") or "").strip().lower() == TAKEOVER_CATEGORY:
+            return self._classify_dangling_dns(event, data, module)
         template = str(data.get("template") or "")
         if module == "nuclei":
             return self._classify_nuclei(event, data, template, severity)
@@ -316,6 +346,23 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             "severity": cap_severity(severity, REPUTATION_MAX_SEVERITY),
         })]
 
+    def _classify_dangling_dns(self, event, data, module):
+        host = str(data.get("host") or event.host or "").strip().rstrip(".").lower()
+        if not host:
+            return None
+        targets = data.get("cname_targets")
+        if not isinstance(targets, (list, tuple, set)):
+            parent = getattr(event, "parent", None)
+            targets = (getattr(parent, "raw_dns_records", None) or {}).get("CNAME", ()) if parent is not event else ()
+        targets = {str(target).strip().rstrip(".").lower() for target in targets if str(target).strip()}
+        signature = str(data.get("signature") or data.get("template") or "").strip()
+        detector = f"{module} ({signature})" if signature else module
+        return "dangling_dns", module, [((host,), {
+            "targets": targets, "detectors": {detector},
+            "reasons": {dangling_reason(targets, signature, str(data.get("confidence") or ""))},
+            "severity": DEFAULT_SEVERITY,
+        })]
+
     def _classify_retirejs(self, event, data, severity):
         component = str(data.get("component") or "").strip()
         if not component:
@@ -333,7 +380,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     def _merge_row(self, category, key, values):
         row = self._rows[category].setdefault(key, {"problems": set(), "severity": "", "cves": set(),
                                                     "templates": set(), "sources": set(), "risk_score": "0",
-                                                    "malicious": False, "locations": set()})
+                                                    "malicious": False, "locations": set(), "targets": set(),
+                                                    "detectors": set(), "reasons": set()})
         if values.get("problem"):
             row["problems"].add(values["problem"])
         if SEVERITY_RANK.get(values.get("severity", ""), 0) > SEVERITY_RANK.get(row["severity"], 0):
@@ -342,6 +390,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         if values.get("location"):
             row["locations"].add(values["location"])
         row["sources"].update(values.get("sources", ()))
+        for field in ("targets", "detectors", "reasons"):
+            row[field].update(values.get(field, ()))
         row["malicious"] = row["malicious"] or bool(values.get("malicious"))
         row["risk_score"] = max(row["risk_score"], values.get("risk_score", "0"), key=lambda score: int(score) if score.isdigit() else 0)
 
@@ -369,6 +419,11 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return self.disclosure_table(rows)
         elif category == "dns":
             table_rows = [[domain, title, row["severity"]] for (domain, title), row in rows.items()]
+        elif category == "dangling_dns":
+            table_rows = [[host, ", ".join(sorted(row["targets"])) or "(target not reported)",
+                           ", ".join(sorted(row["detectors"])), " ".join(sorted(row["reasons"])),
+                           row["severity"] or DEFAULT_SEVERITY]
+                          for (host,), row in rows.items()]
         elif category == "reputation":
             table_rows = [[asset, indicator, "malicious" if row["malicious"] else "not malicious", row["risk_score"],
                            ", ".join(sorted(row["sources"])), row["severity"] or DEFAULT_SEVERITY]
@@ -399,7 +454,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         columns, rows, endpoints = self.table(category)
         hosts = self._hosts[category]
         host = sorted(hosts.items(), key=lambda item: (-item[1], item[0]))[0][0] if hosts else None
-        place = {"dns": "domain", "reputation": "asset", "disclosure": "page"}.get(category, "website")
+        place = {"dns": "domain", "reputation": "asset", "disclosure": "page",
+                 "dangling_dns": "hostname"}.get(category, "website")
         places = f"{len(endpoints)} {place}{'' if len(endpoints) == 1 else 's'}"
         # A summary with one row per website counts the websites once, not "N websites across N websites".
         lead = places if meta["noun"] == place else f"{len(rows)} {meta['noun']}{'' if len(rows) == 1 else 's'} across {places}"

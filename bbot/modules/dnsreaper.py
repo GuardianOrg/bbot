@@ -189,6 +189,11 @@ class dnsreaper(BaseModule):
                     if cname_targets and all(is_aws_elb_cname(target) for target in cname_targets):
                         self.debug(f"Ignoring generic takeover result for {host}: CNAME points to AWS ELB")
                         continue
+                cname_targets = sorted(
+                    str(target).strip().rstrip(".").lower()
+                    for target in getattr(parent_event, "raw_dns_records", {}).get("CNAME", ())
+                    if str(target).strip()
+                )
                 generic_reference = str(signature).startswith("_generic_")
                 confidence = str(finding.get("confidence", "UNKNOWN")).upper()
                 info = finding.get("info", "")
@@ -229,6 +234,7 @@ class dnsreaper(BaseModule):
                             "template": "dnsreaper",
                             "signature": signature,
                             "confidence": confidence,
+                            "cname_targets": cname_targets,
                         },
                         "FINDING",
                         parent_event,
@@ -250,6 +256,7 @@ class dnsreaper(BaseModule):
                             "template": "dnsreaper",
                             "signature": signature,
                             "confidence": confidence,
+                            "cname_targets": cname_targets,
                         },
                         "VULNERABILITY",
                         parent_event,

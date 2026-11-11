@@ -480,3 +480,60 @@ async def test_internal_ip_disclosures_form_one_finding_with_five_pages_per_addr
     assert data["affected_endpoints"] == sorted(set(listed) | {"https://example.com/", "https://example.com/login"})
     assert data["affected_hosts"] == ["app.example.com", "example.com"]
     assert data["row_count"] == 2
+
+
+def takeover_event(h, host, module, event_type="FINDING", cname=None, **fields):
+    data = {"host": host, "title": f"Potential subdomain takeover on {host}", "category": "subdomain-takeover",
+            "description": "dangling DNS reference", **fields}
+    if event_type == "VULNERABILITY":
+        data["severity"] = "MEDIUM"
+    parent = h.scan.make_event(host, "DNS_NAME", parent=h.scan.root_event)
+    if cname:
+        parent.raw_dns_records = {"CNAME": {cname}}
+    return h.scan.make_event(data, event_type, parent=parent, module=h.scan._make_dummy_module(module))
+
+
+@pytest.mark.asyncio
+async def test_dangling_dns_leads_form_one_finding_with_a_row_per_hostname(bbot_scanner):
+    h = await harness(bbot_scanner)
+    generic = "_generic_cname_found_doesnt_resolve"
+    vpce = "vpce-05a1-vxet.vpce-svc-010b.us-east-1.vpce.amazonaws.com"
+    assert not await h.feed(takeover_event(h, "wbul-fix.prod.example.com", "dnsreaper", signature=generic,
+                                           confidence="POTENTIAL", cname_targets=[vpce]))
+    # The target comes from the hostname's DNS when the scanner does not report it.
+    assert not await h.feed(takeover_event(h, "securemail.example.com", "dnsreaper", signature=generic,
+                                           confidence="POTENTIAL", cname="pe-006a.gslb.pphosted.com."))
+    # A second scanner's lead on a listed hostname joins its row.
+    assert not await h.feed(takeover_event(h, "securemail.example.com", "nuclei_takeover"))
+    # A takeover fingerprint reported with confidence stays its own issue.
+    assert await h.feed(takeover_event(h, "inquiry.example.com", "dnsreaper", "VULNERABILITY",
+                                       signature="netlify", confidence="CONFIRMED"))
+    await h.finish_rounds()
+
+    event = h.by_category()["grouped:dangling_dns"]
+    assert event.type == "VULNERABILITY"
+    assert event.data["category"] == "grouped-hardening"
+    assert event.data["title"] == "Dangling DNS records pointing to missing provider resources"
+    assert event.data["severity"] == "INFO"
+    assert event.data["table"]["columns"] == ["Hostname", "Points to", "Detected by", "Why it is listed", "Severity"]
+    rows = event.data["table"]["rows"]
+    assert [row[:3] for row in rows] == [
+        ["securemail.example.com", "pe-006a.gslb.pphosted.com", f"dnsreaper ({generic}), nuclei_takeover"],
+        ["wbul-fix.prod.example.com", vpce, f"dnsreaper ({generic})"],
+    ]
+    assert f"The CNAME to {vpce} does not resolve" in rows[1][3]
+    assert "did not show that another account can claim" in rows[1][3]
+    assert event.data["affected_hosts"] == ["securemail.example.com", "wbul-fix.prod.example.com"]
+    assert event.data["description"].startswith("2 hostnames: securemail.example.com, wbul-fix.prod.example.com.")
+
+
+@pytest.mark.asyncio
+async def test_provider_fingerprint_lead_explains_its_fingerprint(bbot_scanner):
+    h = await harness(bbot_scanner)
+    assert not await h.feed(takeover_event(h, "shop.example.com", "dnsreaper", signature="shopify",
+                                           confidence="UNLIKELY", cname_targets=["shops.myshopify.com"]))
+    await h.finish_rounds()
+
+    (row,) = h.by_category()["grouped:dangling_dns"].data["table"]["rows"]
+    assert row[3] == ("Its DNS to shops.myshopify.com matches the shopify unclaimed-resource fingerprint with "
+                      "unlikely confidence; a takeover was not demonstrated.")
