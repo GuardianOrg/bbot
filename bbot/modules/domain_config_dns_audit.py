@@ -1153,6 +1153,26 @@ class domain_config_dns_audit(BaseModule):
         return [record.strip('"') for record in txt_records if re.match(r"^v=spf1(?: |$)", record.strip('"'), re.I)]
 
     @staticmethod
+    def receives_mail(mx_records):
+        # A null MX "0 ." (RFC 7505) says the domain accepts no mail.
+        return any(mx.split()[-1] != "." for mx in mx_records if mx.split())
+
+    @staticmethod
+    def spf_authorizes_senders(spf):
+        # Any mechanism other than all, or a redirect, names servers that send mail for the domain.
+        return bool(spf) and any(re.match(r"^[+?~-]?(?:ip4|ip6|a|mx|ptr|include|exists)(?=[:/]|$)|^redirect=", term, re.I)
+                                 for term in spf.split()[1:])
+
+    @staticmethod
+    def dmarc_tags(dmarc):
+        tags = {}
+        for tag in dmarc.lower().split(";"):
+            if "=" in tag:
+                name, value = tag.split("=", 1)
+                tags[name.strip()] = value.strip()
+        return tags
+
+    @staticmethod
     def spf_policy_terms(spf):
         terms = spf.split()[1:]
         for index, term in enumerate(terms):
@@ -1204,6 +1224,7 @@ class domain_config_dns_audit(BaseModule):
         dmarc = next((rec.strip('"') for rec in dmarc_records if "v=dmarc1" in rec.lower()), None) if success else None
         # A failed lookup says nothing about the policy; only an answer (or NXDOMAIN) shows it is missing.
         records["DMARC_LOOKUP_OK"] = success
+        records["DMARC_RECORDS"] = [rec.strip('"') for rec in dmarc_records if "v=dmarc1" in rec.lower()] if success else []
         if not dmarc:
             if records.get("MX"):
                 findings.append(AuditFinding(
@@ -1226,15 +1247,9 @@ class domain_config_dns_audit(BaseModule):
             return
         records["DMARC"] = dmarc
         lowered = dmarc.lower()
-        tags = {}
-        for tag in lowered.split(";"):
-            if "=" in tag:
-                name, value = tag.split("=", 1)
-                tags[name.strip()] = value.strip()
+        tags = self.dmarc_tags(dmarc)
         policy = tags.get("p")
         subdomain_policy = tags.get("sp", policy)
-        records["DMARC_POLICY"] = policy
-        records["DMARC_SUBDOMAIN_POLICY"] = subdomain_policy
         if policy in {"none", "quarantine"}:
             findings.append(AuditFinding(
                 f"DMARC Policy Set to {policy.capitalize()}",
@@ -1316,13 +1331,23 @@ class domain_config_dns_audit(BaseModule):
         """
         if not records.get("DMARC_LOOKUP_OK") or not (records.get("NS") or records.get("SOA")):
             return
-        # Like the other email checks, only a domain that receives mail; a null MX "0 ." (RFC 7505) receives none.
-        if not any(mx.split()[-1] != "." for mx in records.get("MX", []) if mx.split()):
+        spf = records.get("SPF")
+        if not self.receives_mail(records.get("MX", [])) and not self.spf_authorizes_senders(spf):
             return
-        dmarc = records.get("DMARC")
-        policy = records.get("DMARC_POLICY")
-        subdomain_policy = records.get("DMARC_SUBDOMAIN_POLICY")
-        if not dmarc:
+        # RFC 7489 6.6.3: receivers apply DMARC only from exactly one record that starts with v=DMARC1.
+        candidates = records.get("DMARC_RECORDS", [])
+        valid = [rec for rec in candidates if re.match(r"^\s*v\s*=\s*dmarc1\s*(?:;|$)", rec, re.I)]
+        dmarc = valid[0] if len(valid) == 1 else None
+        tags = self.dmarc_tags(dmarc) if dmarc else {}
+        policy = tags.get("p")
+        subdomain_policy = tags.get("sp", policy)
+        if len(valid) > 1:
+            reason = (f"_dmarc.{domain} publishes {len(valid)} DMARC records, so receivers ignore DMARC and have no "
+                      f"domain policy to reject or quarantine mail whose From: header forges {domain}.")
+        elif candidates and not valid:
+            reason = (f"The DMARC record at _dmarc.{domain} does not start with v=DMARC1, so receivers ignore it and "
+                      f"have no domain policy to reject or quarantine mail whose From: header forges {domain}.")
+        elif not dmarc:
             reason = (f"_dmarc.{domain} publishes no DMARC record, so receivers have no domain policy to "
                       f"reject or quarantine mail whose From: header forges {domain}.")
         elif policy == "none":
@@ -1334,9 +1359,11 @@ class domain_config_dns_audit(BaseModule):
         elif subdomain_policy == "none":
             reason = (f"DMARC protects {domain} itself but sets sp=none, so mail forging any of its subdomains "
                       f"(for example billing.{domain}) is still delivered.")
+        elif tags.get("pct", "").isdigit() and int(tags["pct"]) == 0:
+            reason = (f"DMARC sets pct=0, so receivers apply its p={policy} policy to none of the mail that forges "
+                      f"{domain}.")
         else:
             return
-        spf = records.get("SPF")
         if not spf:
             reason += " There is no SPF record either."
         else:
