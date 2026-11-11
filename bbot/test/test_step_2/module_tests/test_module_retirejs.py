@@ -116,9 +116,11 @@ return Handlebars;
         descriptions = [finding.data.get("description", "") for finding in retirejs_findings]
         all_descriptions = "\n".join(descriptions)
 
-        # Look for specific vulnerabilities we expect to find
-        expected_handlebars_vuln = "Vulnerable JavaScript library detected: handlebars v4.0.5 Severity: HIGH Summary: Regular Expression Denial of Service in Handlebars JavaScript URL: http://127.0.0.1:8888/handlebars.min.js CVE(s): CVE-2019-20922 Affected versions: [4.0.0 to 4.4.5)"
-        expected_jquery_vuln = "Vulnerable JavaScript library detected: jquery v3.4.1 Severity: MEDIUM Summary: Regex in its jQuery.htmlPrefilter sometimes may introduce XSS JavaScript URL: http://127.0.0.1:8888/jquery-3.4.1.min.js CVE(s): CVE-2020-11022 Affected versions: [1.2.0 to 3.5.0)"
+        # Each library version is one finding listing all of its advisories
+        components = [finding.data["component"] for finding in retirejs_findings]
+        assert len(components) == len(set(components)), f"Expected one finding per library, got {components}"
+        expected_handlebars_vuln = "[HIGH] Regular Expression Denial of Service in Handlebars CVE(s): CVE-2019-20922 Affected versions: [4.0.0 to 4.4.5)"
+        expected_jquery_vuln = "[MEDIUM] Regex in its jQuery.htmlPrefilter sometimes may introduce XSS CVE(s): CVE-2020-11022 Affected versions: [1.2.0 to 3.5.0)"
 
         # Verify at least one of the expected vulnerabilities is found
         handlebars_found = expected_handlebars_vuln in all_descriptions
