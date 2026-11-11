@@ -72,14 +72,14 @@ def test_missing_optional_forensic_reporting_is_not_a_vulnerability():
     assert not any(finding.title == "DMARC Forensic Reporting Not Configured" for finding in findings)
 
 
-def spoofing_findings(dmarc_answer, spf="v=spf1 include:_spf.google.com -all", lookup_ok=True):
+def spoofing_findings(dmarc_answer, spf="v=spf1 include:_spf.google.com -all", lookup_ok=True, mx=("10 mail.example.com",)):
     audit = object.__new__(domain_config_dns_audit)
 
     async def query_dns(name, rdtype):
         return lookup_ok, ([dmarc_answer] if dmarc_answer else []) if lookup_ok else ["timeout"]
 
     audit.query_dns = query_dns
-    records = {"NS": ["ns1.example.net"], "MX": ["10 mail.example.com"]}
+    records = {"NS": ["ns1.example.net"], "MX": list(mx)}
     if spf:
         records["SPF"] = spf
     findings = []
@@ -117,3 +117,10 @@ def test_enforced_dmarc_or_an_unknown_answer_is_not_reported_as_spoofable():
     assert spoofing_findings("v=DMARC1; p=reject") == []
     assert spoofing_findings("v=DMARC1; p=quarantine; sp=reject") == []
     assert spoofing_findings(None, lookup_ok=False) == []
+
+
+def test_a_domain_that_receives_no_mail_is_not_reported_as_spoofable():
+    assert spoofing_findings(None, spf=None, mx=()) == []
+    # A null MX (RFC 7505) says the domain accepts no mail.
+    assert spoofing_findings(None, spf=None, mx=("0 .",)) == []
+    assert len(spoofing_findings(None, spf=None, mx=("0 .", "10 mail.example.com"))) == 1
