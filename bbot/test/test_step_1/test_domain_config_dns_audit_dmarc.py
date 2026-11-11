@@ -76,7 +76,8 @@ def spoofing_findings(dmarc_answer, spf="v=spf1 include:_spf.google.com -all", l
     audit = object.__new__(domain_config_dns_audit)
 
     async def query_dns(name, rdtype):
-        return lookup_ok, ([dmarc_answer] if dmarc_answer else []) if lookup_ok else ["timeout"]
+        answers = dmarc_answer if isinstance(dmarc_answer, list) else [dmarc_answer] if dmarc_answer else []
+        return lookup_ok, answers if lookup_ok else ["timeout"]
 
     audit.query_dns = query_dns
     records = {"NS": ["ns1.example.net"], "MX": list(mx)}
@@ -124,3 +125,26 @@ def test_a_domain_that_receives_no_mail_is_not_reported_as_spoofable():
     # A null MX (RFC 7505) says the domain accepts no mail.
     assert spoofing_findings(None, spf=None, mx=("0 .",)) == []
     assert len(spoofing_findings(None, spf=None, mx=("0 .", "10 mail.example.com"))) == 1
+    assert spoofing_findings(None, spf="v=spf1 -all", mx=()) == []
+
+
+def test_a_domain_that_only_sends_mail_is_still_spoofable():
+    (finding,) = spoofing_findings(None, spf="v=spf1 include:amazonses.com -all", mx=())
+    assert "publishes no DMARC record" in finding.details["spoofing_reason"]
+    (redirected,) = spoofing_findings(None, spf="v=spf1 redirect=_spf.example.net", mx=("0 .",))
+    assert redirected.severity == "HIGH"
+
+
+def test_dmarc_records_that_receivers_ignore_are_spoofable():
+    # RFC 7489 6.6.3: several DMARC records, or one not starting with v=DMARC1, mean no policy applies.
+    (several,) = spoofing_findings(["v=DMARC1; p=reject", "v=DMARC1; p=none"])
+    assert "2 DMARC records" in several.details["spoofing_reason"]
+    (misplaced,) = spoofing_findings("p=reject; v=DMARC1")
+    assert "does not start with v=DMARC1" in misplaced.details["spoofing_reason"]
+    (unenforced,) = spoofing_findings("v=DMARC1; p=reject; pct=0")
+    assert "pct=0" in unenforced.details["spoofing_reason"]
+
+
+def test_a_valid_record_next_to_unrelated_txt_still_protects_the_domain():
+    assert spoofing_findings(["v=spf1 -all", "V=DMARC1;P=REJECT"]) == []
+    assert spoofing_findings("v=DMARC1; p=quarantine; pct=50") == []
