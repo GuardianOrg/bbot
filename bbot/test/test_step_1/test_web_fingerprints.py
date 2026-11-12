@@ -65,6 +65,10 @@ def test_normalized_technologies_keep_versionless_products_without_page_features
             "Google-Tag-Manager": {},
             "Google Tag Manager": {},
             "Google Cloud Trace": {},
+            "Allow": {"module": ["GET, HEAD"]},
+            "Content-Security-Policy": {"string": ["default-src 'self'"]},
+            "Modern-Security-Headers": {"string": ["Referrer Policy"]},
+            "Meta-Geo": {"string": ["40.0; -3.7"]},
             "Grafana": {},
             "jQuery": {"version": ["3.7.1"]},
         },
@@ -443,12 +447,26 @@ async def test_real_whatweb_offline_packet(tmp_path, status_line):
     plugins = await module.fingerprint(
         {
             "status_code": 200,
-            "raw_header": status_line + "\r\nServer: nginx/1.24.0",
-            "body": '<html><head><meta name="generator" content="WordPress 6.6.2" /></head><body></body></html>',
+            "raw_header": (
+                status_line
+                + "\r\nServer: nginx/1.24.0"
+                + "\r\nAllow: GET, HEAD"
+                + "\r\nContent-Security-Policy: default-src 'self'"
+                + "\r\nReferrer-Policy: strict-origin-when-cross-origin"
+            ),
+            "body": (
+                '<html><head><meta name="generator" content="WordPress 6.6.2" />'
+                '<meta name="geo.position" content="40.0;-3.7" /></head><body></body></html>'
+            ),
         }
     )
     assert plugins["WordPress"]["version"] == ["6.6.2"]
     assert plugins["nginx"]["version"] == ["1.24.0"]
+    assert {"Allow", "Content-Security-Policy", "Modern-Security-Headers", "Meta-Geo"} <= plugins.keys()
+    assert {(tech["name"], tech.get("version")) for tech in normalized_technologies([], plugins)} == {
+        ("nginx", "1.24.0"),
+        ("WordPress", "6.6.2"),
+    }
 
 
 @pytest.mark.asyncio
