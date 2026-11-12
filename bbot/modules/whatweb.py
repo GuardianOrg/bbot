@@ -169,7 +169,7 @@ class whatweb(BaseInterceptModule):
         "created_date": "2026-10-20",
         "author": "@carlospolop",
     }
-    options = {"version": "v0.6.4", "binary": "", "timeout": 20, "max_pages_per_origin": 3, "max_favicon_size": 262144}
+    options = {"version": "v0.6.4", "binary": "", "timeout": 20, "max_pages_per_origin": 20, "max_favicon_size": 262144}
     options_desc = {
         "version": "Pinned WhatWeb release",
         "binary": "Optional WhatWeb executable path",
@@ -195,7 +195,7 @@ class whatweb(BaseInterceptModule):
     async def setup(self):
         self.binary = str(self.config.get("binary") or self.helpers.tools_dir / "whatweb" / "whatweb")
         self.timeout = max(1, int(self.config.get("timeout", 20)))
-        self.max_pages = max(1, int(self.config.get("max_pages_per_origin", 3)))
+        self.max_pages = max(1, int(self.config.get("max_pages_per_origin", 20)))
         self.max_icon_size = max(1, int(self.config.get("max_favicon_size", 262144)))
         self.pages = {}
         self.icons = {}
@@ -219,9 +219,9 @@ class whatweb(BaseInterceptModule):
         plugins = {}
         if is_html and not challenge and self.pages.get(origin, 0) < self.max_pages:
             self.pages[origin] = self.pages.get(origin, 0) + 1
-            data["whatweb_checked"] = True
             try:
                 plugins = await self.fingerprint(data)
+                data["whatweb_checked"] = True
             except (TimeoutError, OSError, RuntimeError, ValueError) as error:
                 # A single slow or malformed response must not abort discovery.
                 # The required module's setup failure remains fatal.

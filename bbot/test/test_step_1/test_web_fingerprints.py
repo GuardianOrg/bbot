@@ -204,9 +204,38 @@ async def test_whatweb_response_timeout_keeps_discovery_and_httpx_evidence():
 
     assert await module.handle_event(event) is True
     assert event.data["technologies"][0]["name"] == "Next.js"
+    assert event.data.get("whatweb_checked") is not True
     module.emit_event.assert_awaited_once()
     assert module.warning.call_count == 2
     assert all("TimeoutError" in call.args[0] for call in module.warning.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budget():
+    module = make_module(whatweb)
+    module.run_process = AsyncMock(return_value=SimpleNamespace(returncode=0))
+    assert await module.setup() is True
+    module.fingerprint = AsyncMock(return_value={"Grafana": {}})
+    module.find_favicon = AsyncMock(return_value=None)
+    module.emit_event = AsyncMock()
+    events = [
+        SimpleNamespace(host="example.com", data={
+            "url": f"https://example.com/page/{index}",
+            "status_code": 200,
+            "contentType": "text/html",
+            "body": "<html></html>",
+        })
+        for index in range(21)
+    ]
+
+    for event in events:
+        assert await module.handle_event(event) is True
+
+    assert module.fingerprint.await_count == 20
+    assert all(event.data.get("whatweb_checked") is True for event in events[:20])
+    assert events[-1].data.get("whatweb_checked") is not True
+    assert all(event.data["technologies"][0]["name"] == "Grafana" for event in events[:20])
+    assert "technologies" not in events[-1].data
 
 
 @pytest.mark.asyncio
