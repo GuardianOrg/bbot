@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from bbot.modules.host_reputation import host_reputation
+from bbot.core.helpers import shared_infra
 
 from ..bbot_fixtures import *
 
@@ -60,3 +61,41 @@ def test_host_reputation_event_validates(bbot_scanner):
     )
     assert event.type == "HOST_REPUTATION"
     assert event.host == "example.com"
+
+
+async def test_shared_frontend_ip_is_rejected_before_reputation_lookup(bbot_scanner):
+    scan = bbot_scanner("example.com")
+    module = host_reputation(scan)
+    module._name = "host_reputation"
+
+    shared_ip = scan.make_event("104.16.1.1", "IP_ADDRESS", parent=scan.root_event)
+    shared_ip.scope_distance = 0
+    shared_ip.add_tag("shared-frontend")
+    assert (await module.filter_event(shared_ip)) is not True
+
+    # A later URL on the same edge can lose the event tag, but cloudcheck's
+    # scan-wide classification still prevents another reputation lookup.
+    shared_infra.remember_frontend(scan, "104.16.1.1", "cdn", "cloudflare")
+    shared_url = scan.make_event("https://104.16.1.1/", "URL", parent=scan.root_event, tags=["status-200"])
+    shared_url.scope_distance = 0
+    assert "shared-frontend" not in shared_url.tags
+    assert (await module.filter_event(shared_url)) is not True
+
+    owned_ip = scan.make_event("8.8.8.8", "IP_ADDRESS", parent=scan.root_event)
+    owned_ip.scope_distance = 0
+    assert await module.filter_event(owned_ip) is True
+
+    github_ip = scan.make_event("8.8.4.4", "IP_ADDRESS", parent=scan.root_event)
+    github_ip.scope_distance = 0
+    github_ip.add_tag("cdn-github")
+    assert await module.filter_event(github_ip) is True
+
+    shared_range = scan.make_event("104.16.0.0/16", "IP_RANGE", parent=scan.root_event)
+    shared_range.scope_distance = 0
+    shared_range.add_tag("shared-frontend")
+    assert (await module.filter_event(shared_range)) is not True
+
+    domain = scan.make_event("app.example.com", "DNS_NAME", parent=scan.root_event)
+    domain.scope_distance = 0
+    domain.add_tag("shared-frontend")
+    assert await module.filter_event(domain) is True
