@@ -65,6 +65,9 @@ NON_PRODUCT_SIGNATURES = {
     "via-proxy",
     "x-ua-compatible",
 }
+WHATWEB_COVERAGE_FIELDS = (
+    "responses", "html", "challenged", "attempted", "analyzed", "failed", "limited", "technologies",
+)
 
 
 def normalized_technologies(httpx_tech, plugins):
@@ -203,12 +206,16 @@ class whatweb(BaseInterceptModule):
         self.max_icon_size = max(1, int(self.config.get("max_favicon_size", 262144)))
         self.pages = {}
         self.icons = {}
+        self._coverage = {field: 0 for field in WHATWEB_COVERAGE_FIELDS}
         result = await self.run_process([self.binary, "--version"], idle_timeout=self.timeout)
         if result is None or result.returncode:
             return False, "WhatWeb or its Ruby dependencies are unavailable"
         return True
 
     async def handle_event(self, event, **kwargs):
+        if not hasattr(self, "_coverage"):
+            self._coverage = {field: 0 for field in WHATWEB_COVERAGE_FIELDS}
+        self._coverage["responses"] += 1
         data = event.data
         headers = data.get("header-dict", {})
         challenge = access_challenge(headers, data.get("status_code"))
@@ -220,13 +227,18 @@ class whatweb(BaseInterceptModule):
         body = data.get("body", "")
         content_type = str(data.get("contentType") or data.get("content_type") or "").lower()
         is_html = "html" in content_type or bool(re.match(r"\s*(?:<!doctype html[^>]*>\s*)?<html[\s>]", body, re.I))
+        if is_html:
+            self._coverage["html"] += 1
         plugins = {}
         if is_html and not challenge and self.pages.get(origin, 0) < self.max_pages:
             self.pages[origin] = self.pages.get(origin, 0) + 1
+            self._coverage["attempted"] += 1
             try:
                 plugins = await self.fingerprint(data)
                 data["whatweb_checked"] = True
+                self._coverage["analyzed"] += 1
             except (TimeoutError, OSError, RuntimeError, ValueError) as error:
+                self._coverage["failed"] += 1
                 # A single slow or malformed response must not abort discovery.
                 # The required module's setup failure remains fatal.
                 self.warning(f"WhatWeb fingerprint skipped on {origin}: {type(error).__name__}")
@@ -235,7 +247,12 @@ class whatweb(BaseInterceptModule):
                     self.icons[origin] = await self.find_favicon(url, body)
                 except (TimeoutError, OSError, RuntimeError, ValueError) as error:
                     self.warning(f"Favicon fingerprint skipped on {origin}: {type(error).__name__}")
+        elif is_html and challenge:
+            self._coverage["challenged"] += 1
+        elif is_html:
+            self._coverage["limited"] += 1
         technologies = normalized_technologies(data.get("tech", []), plugins)
+        self._coverage["technologies"] += len(technologies)
         if technologies:
             data["technologies"] = technologies
             for tech in technologies:
@@ -253,6 +270,10 @@ class whatweb(BaseInterceptModule):
         if self.icons.get(origin):
             data["favicon"] = self.icons[origin]
         return True
+
+    async def report(self):
+        coverage = getattr(self, "_coverage", {field: 0 for field in WHATWEB_COVERAGE_FIELDS})
+        self.info(f"WhatWeb coverage: {json.dumps(coverage, sort_keys=True, separators=(',', ':'))}")
 
     async def fingerprint(self, data):
         with TemporaryDirectory(prefix="bbot-whatweb-") as directory:

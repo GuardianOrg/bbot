@@ -181,6 +181,8 @@ async def test_challenged_response_is_forwarded_without_fetching_icons():
     )
     assert await module.handle_event(event) is True
     assert event.data["access_challenge"]["provider"] == "Cloudflare"
+    assert module._coverage["challenged"] == 1
+    assert module._coverage["attempted"] == 0
     module.fingerprint.assert_not_awaited()
     module.find_favicon.assert_not_awaited()
 
@@ -209,6 +211,8 @@ async def test_whatweb_response_timeout_keeps_discovery_and_httpx_evidence():
     assert await module.handle_event(event) is True
     assert event.data["technologies"][0]["name"] == "Next.js"
     assert event.data.get("whatweb_checked") is not True
+    assert module._coverage["failed"] == 1
+    assert module._coverage["analyzed"] == 0
     module.emit_event.assert_awaited_once()
     assert module.warning.call_count == 2
     assert all("TimeoutError" in call.args[0] for call in module.warning.call_args_list)
@@ -236,6 +240,10 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
         assert await module.handle_event(event) is True
 
     assert module.fingerprint.await_count == 20
+    assert module._coverage == {
+        "responses": 21, "html": 21, "challenged": 0, "attempted": 20,
+        "analyzed": 20, "failed": 0, "limited": 1, "technologies": 20,
+    }
     assert all(event.data.get("whatweb_checked") is True for event in events[:20])
     assert events[-1].data.get("whatweb_checked") is not True
     assert all(event.data["technologies"][0]["name"] == "Grafana" for event in events[:20])
