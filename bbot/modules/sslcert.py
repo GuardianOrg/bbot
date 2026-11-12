@@ -3,6 +3,7 @@ import datetime
 import ipaddress
 import ssl
 from OpenSSL import crypto
+from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, ed448, rsa
 from urllib3.util.ssl_match_hostname import CertificateError, match_hostname
 from contextlib import suppress
@@ -390,22 +391,15 @@ class sslcert(BaseModule):
 
     @staticmethod
     def get_cert_san_entries(cert):
-        sans = []
-        raw_sans = None
-        ext_count = cert.get_extension_count()
-        for i in range(0, ext_count):
-            ext = cert.get_extension(i)
-            short_name = str(ext.get_short_name())
-            if "subjectAltName" in short_name:
-                raw_sans = str(ext)
-        if raw_sans is not None:
-            for raw_san in raw_sans.split(","):
-                hostname = raw_san.split(":", 1)[-1].strip().lower()
-                # IPv6 addresses
-                if hostname.startswith("[") and hostname.endswith("]"):
-                    hostname = hostname.strip("[]")
-                sans.append(hostname)
-        return sans
+        try:
+            extension = cert.to_cryptography().extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        except x509.ExtensionNotFound:
+            return []
+        # URI/email SANs are identities of other kinds, not DNS names to discover
+        # or compare against the endpoint's hostname.
+        return [str(name).lower() for name in extension.get_values_for_type(x509.DNSName)] + [
+            str(address) for address in extension.get_values_for_type(x509.IPAddress)
+        ]
 
     @classmethod
     def get_cert_sans(cls, cert):

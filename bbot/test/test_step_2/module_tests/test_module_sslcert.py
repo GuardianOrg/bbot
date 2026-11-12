@@ -24,7 +24,12 @@ def test_sslcert_rechecks_scoped_san_host_with_sni_only_on_its_resolved_ip():
 
     async def visit_host(address, port, server_name=None):
         visited.append((address, port, server_name))
-        return [], [], {"certNotAfter": "2025-06-20T15:12:28+00:00", "certSanDomains": ["fix.bakkt.com"]}, (address, port)
+        return (
+            [],
+            [],
+            {"certNotAfter": "2025-06-20T15:12:28+00:00", "certSanDomains": ["fix.bakkt.com"]},
+            (address, port),
+        )
 
     async def emit_event(data, event_type, **kwargs):
         emitted.append((data, event_type, kwargs))
@@ -32,12 +37,14 @@ def test_sslcert_rechecks_scoped_san_host_with_sni_only_on_its_resolved_ip():
     mod.visit_host = visit_host
     mod.emit_event = emit_event
     parent = SimpleNamespace(host="34.54.2.96")
-    asyncio.run(mod.recheck_scoped_san_hosts(
-        parent,
-        {"certSanDomains": ["fix.bakkt.com", "other.bakkt.com", "external.example", "*.bakkt.com"]},
-        "34.54.2.96",
-        5556,
-    ))
+    asyncio.run(
+        mod.recheck_scoped_san_hosts(
+            parent,
+            {"certSanDomains": ["fix.bakkt.com", "other.bakkt.com", "external.example", "*.bakkt.com"]},
+            "34.54.2.96",
+            5556,
+        )
+    )
 
     assert visited == [("34.54.2.96", 5556, "fix.bakkt.com")]
     assert len(emitted) == 1
@@ -75,8 +82,12 @@ class TestSSLCert(ModuleTestBase):
         cert_events = [e for e in events if e.type == "TLS_CERTIFICATE" and str(e.module) == "sslcert"]
         assert cert_events, "Failed to emit TLS certificate metadata"
         assert any(e.data.get("certFingerprintSha256") for e in cert_events), "Failed to emit certificate SHA256"
-        assert any(e.data.get("certSubjectCn") == "test.notreal" for e in cert_events), "Failed to emit certificate subject CN"
-        assert any("www.bbottest.notreal" in e.data.get("certSanDomains", []) for e in cert_events), "Failed to emit SANs"
+        assert any(e.data.get("certSubjectCn") == "test.notreal" for e in cert_events), (
+            "Failed to emit certificate subject CN"
+        )
+        assert any("www.bbottest.notreal" in e.data.get("certSanDomains", []) for e in cert_events), (
+            "Failed to emit SANs"
+        )
 
 
 def test_sslcert_metadata_keeps_wildcard_sans():
@@ -102,7 +113,14 @@ def test_sslcert_metadata_keeps_wildcard_sans():
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(days=30))
         .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName("*.api.example.com"), x509.DNSName("api.example.com")]),
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("*.api.example.com"),
+                    x509.DNSName("api.example.com"),
+                    x509.UniformResourceIdentifier("https://identity.example.net/"),
+                    x509.RFC822Name("admin@example.net"),
+                ]
+            ),
             critical=False,
         )
         .sign(key, hashes.SHA256())
@@ -119,12 +137,18 @@ def test_sslcert_metadata_keeps_wildcard_sans():
     assert metadata["certificate"]["keyType"] == "ec"
     assert metadata["certificate"]["keyBits"] == 256
     from bbot.core.event import make_event
-    transported = make_event({"host": "api.example.com", "url": "https://api.example.com/", **metadata}, "TLS_CERTIFICATE", dummy=True)
+
+    transported = make_event(
+        {"host": "api.example.com", "url": "https://api.example.com/", **metadata}, "TLS_CERTIFICATE", dummy=True
+    )
     assert transported.data["certKeyType"] == "ec"
     assert transported.data["certKeyBits"] == 256
     pem = metadata["certificate"]["pem"]
     assert pem.startswith("-----BEGIN CERTIFICATE-----\n")
-    assert crypto.load_certificate(crypto.FILETYPE_PEM, pem).digest("sha256").decode().replace(":", "").lower() == metadata["certFingerprintSha256"]
+    assert (
+        crypto.load_certificate(crypto.FILETYPE_PEM, pem).digest("sha256").decode().replace(":", "").lower()
+        == metadata["certFingerprintSha256"]
+    )
     assert sslcert.get_cert_sans(cert) == ["api.example.com", "api.example.com"]
 
 
@@ -140,11 +164,17 @@ def test_sslcert_validation_distinguishes_trust_hostname_and_unknown_chain():
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "api.example.com")])
     now = datetime.datetime.now(datetime.timezone.utc)
-    leaf = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-            .serial_number(2).not_valid_before(now - datetime.timedelta(minutes=1))
-            .not_valid_after(now + datetime.timedelta(days=40))
-            .add_extension(x509.SubjectAlternativeName([x509.DNSName("api.example.com")]), critical=False)
-            .sign(key, hashes.SHA256()))
+    leaf = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(2)
+        .not_valid_before(now - datetime.timedelta(minutes=1))
+        .not_valid_after(now + datetime.timedelta(days=40))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("api.example.com")]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
     cert = crypto.X509.from_cryptography(leaf)
     empty_store = crypto.X509Store()
     untrusted = sslcert.get_cert_metadata(cert, host="api.example.com", peer_chain=[cert], trust_store=empty_store)
@@ -164,8 +194,11 @@ def test_sslcert_validation_distinguishes_trust_hostname_and_unknown_chain():
     assert unknown["certAuthorized"] is None
     assert unknown["certValidationError"] is None
     from types import SimpleNamespace
+
     raw = crypto.dump_certificate(crypto.FILETYPE_ASN1, cert)
-    for channel in (SimpleNamespace(get_unverified_chain=lambda: [raw]),
-                    SimpleNamespace(_sslobj=SimpleNamespace(get_unverified_chain=lambda: [raw]))):
+    for channel in (
+        SimpleNamespace(get_unverified_chain=lambda: [raw]),
+        SimpleNamespace(_sslobj=SimpleNamespace(get_unverified_chain=lambda: [raw])),
+    ):
         chain = sslcert.get_peer_chain(channel)
         assert [item.digest("sha256") for item in chain] == [cert.digest("sha256")]
