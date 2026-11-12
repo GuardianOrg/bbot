@@ -66,7 +66,14 @@ NON_PRODUCT_SIGNATURES = {
     "x-ua-compatible",
 }
 WHATWEB_COVERAGE_FIELDS = (
-    "responses", "html", "challenged", "attempted", "analyzed", "failed", "limited", "technologies",
+    "responses",
+    "html",
+    "challenged",
+    "attempted",
+    "analyzed",
+    "failed",
+    "limited",
+    "technologies",
 )
 
 
@@ -176,7 +183,13 @@ class whatweb(BaseInterceptModule):
         "created_date": "2026-10-20",
         "author": "@carlospolop",
     }
-    options = {"version": "v0.6.4", "binary": "", "timeout": 20, "max_pages_per_origin": 20, "max_favicon_size": 262144}
+    options = {
+        "version": "v0.6.4",
+        "binary": "",
+        "timeout": 20,
+        "max_pages_per_origin": 20,
+        "max_favicon_size": 262144,
+    }
     options_desc = {
         "version": "Pinned WhatWeb release",
         "binary": "Optional WhatWeb executable path",
