@@ -205,6 +205,7 @@ class whatweb(BaseInterceptModule):
         self.max_pages = max(1, int(self.config.get("max_pages_per_origin", 20)))
         self.max_icon_size = max(1, int(self.config.get("max_favicon_size", 262144)))
         self.pages = {}
+        self.fingerprint_cache = {}
         self.icons = {}
         self._coverage = {field: 0 for field in WHATWEB_COVERAGE_FIELDS}
         result = await self.run_process([self.binary, "--version"], idle_timeout=self.timeout)
@@ -230,27 +231,42 @@ class whatweb(BaseInterceptModule):
         if is_html:
             self._coverage["html"] += 1
         plugins = {}
-        if is_html and not challenge and self.pages.get(origin, 0) < self.max_pages:
-            self.pages[origin] = self.pages.get(origin, 0) + 1
-            self._coverage["attempted"] += 1
-            try:
-                plugins = await self.fingerprint(data)
+        if is_html and not challenge:
+            # WhatWeb analyzes a saved response packet, so identical packets on
+            # different paths have identical results. Reuse them without using
+            # another slot in the bounded per-origin subprocess budget.
+            if not hasattr(self, "fingerprint_cache"):
+                self.fingerprint_cache = {}
+            cache = self.fingerprint_cache.setdefault(origin, {})
+            packet = (data.get("status_code", 200), data.get("raw_header", ""), body)
+            digest = sha256(repr(packet).encode("utf-8")).digest()
+            if digest in cache:
+                plugins = cache[digest]
                 data["whatweb_checked"] = True
+                self._coverage["attempted"] += 1
                 self._coverage["analyzed"] += 1
-            except (TimeoutError, OSError, RuntimeError, ValueError) as error:
-                self._coverage["failed"] += 1
-                # A single slow or malformed response must not abort discovery.
-                # The required module's setup failure remains fatal.
-                self.warning(f"WhatWeb fingerprint skipped on {origin}: {type(error).__name__}")
-            if origin not in self.icons:
+            elif self.pages.get(origin, 0) < self.max_pages:
+                self.pages[origin] = self.pages.get(origin, 0) + 1
+                self._coverage["attempted"] += 1
                 try:
-                    self.icons[origin] = await self.find_favicon(url, body)
+                    plugins = await self.fingerprint(data)
+                    cache[digest] = plugins
+                    data["whatweb_checked"] = True
+                    self._coverage["analyzed"] += 1
                 except (TimeoutError, OSError, RuntimeError, ValueError) as error:
-                    self.warning(f"Favicon fingerprint skipped on {origin}: {type(error).__name__}")
+                    self._coverage["failed"] += 1
+                    # A single slow or malformed response must not abort discovery.
+                    # The required module's setup failure remains fatal.
+                    self.warning(f"WhatWeb fingerprint skipped on {origin}: {type(error).__name__}")
+                if origin not in self.icons:
+                    try:
+                        self.icons[origin] = await self.find_favicon(url, body)
+                    except (TimeoutError, OSError, RuntimeError, ValueError) as error:
+                        self.warning(f"Favicon fingerprint skipped on {origin}: {type(error).__name__}")
+            else:
+                self._coverage["limited"] += 1
         elif is_html and challenge:
             self._coverage["challenged"] += 1
-        elif is_html:
-            self._coverage["limited"] += 1
         technologies = normalized_technologies(data.get("tech", []), plugins)
         self._coverage["technologies"] += len(technologies)
         if technologies:
