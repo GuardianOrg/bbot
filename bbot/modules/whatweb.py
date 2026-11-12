@@ -43,13 +43,17 @@ METADATA_PLUGINS = {
     "Strict-Transport-Security",
     "Access-Control-Allow-Methods",
 }
-# These signatures describe a page feature, response header, protocol, or generic
-# text marker rather than an identifiable software product. Some WhatWeb plugins
-# put page metadata in their "version" field (for example, og:type=website).
+# These signatures describe a page feature, response header, protocol, telemetry
+# integration, or generic marker rather than customer-patchable software. Some
+# WhatWeb plugins put metadata in their "version" field (for example, og:type=website).
 NON_PRODUCT_SIGNATURES = {
     "basic",
     "content-language",
     "frame",
+    "google cloud trace",
+    "google tag manager",
+    "google-analytics",
+    "google-tag-manager",
     "hsts",
     "html5",
     "http/3",
