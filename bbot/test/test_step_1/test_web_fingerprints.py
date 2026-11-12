@@ -321,6 +321,7 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
 @pytest.mark.asyncio
 async def test_retirejs_cves_are_structured_and_string_url_parent_is_supported():
     module = make_module(retirejs, {"severity": "low"})
+    module._reported = set()
 
     async def download(url, **kwargs):
         Path(kwargs["filename"]).write_text("jQuery v3.4.1")
