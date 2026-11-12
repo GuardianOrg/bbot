@@ -1,6 +1,7 @@
 import yara
 import json
 import html
+from html.parser import HTMLParser
 import time
 import inspect
 import base64
@@ -112,6 +113,26 @@ class YaraRuleSettings:
         self.description = description
         self.tags = tags
         self.emit_match = emit_match
+
+
+class _ScriptSourceTag(HTMLParser):
+    """Identify a script's real src attribute, excluding lookalikes such as data-src."""
+
+    def __init__(self):
+        super().__init__()
+        self.src = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "script":
+            self.src = dict(attrs).get("src")
+
+
+def is_script_source_tag(tag, extracted_url):
+    if not re.match(r"\s*<\s*script\b", tag, re.I):
+        return False
+    parser = _ScriptSourceTag()
+    parser.feed(tag)
+    return parser.src == extracted_url
 
 
 # Files whose extracted text is prose (manuals, guides, slides): sample payloads and
@@ -1195,6 +1216,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                 )
                                 continue
                             unescaped_url = html.unescape(m.group(1))
+                            script_source = is_script_source_tag(url_str, unescaped_url)
                             source_url = event.parsed_url.geturl()
                             final_url = urldefrag(urljoin(source_url, unescaped_url)).url
                             if not await self.helpers.re.search(self.full_url_regex_strict, final_url):
@@ -1218,6 +1240,7 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                                 discovery_context,
                                 event_type="URL_UNVERIFIED",
                                 urls_found=urls_found,
+                                script_source=identifier == "url_attr" and script_source,
                             )
                     except (ValidationError, ValueError) as e:
                         self.excavate.debug(f"Invalid URL [{url_str if not final_url else final_url}]: {e}")
@@ -1228,11 +1251,14 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             if not event_draft:
                 return None
             url_in_scope = self.excavate.scan.in_scope(event_draft.host_filterable)
+            tags = list(tags)
             urls_found = kwargs.get("urls_found", None)
             if urls_found:
                 exceeds_max_links = urls_found > self.excavate.scan.web_spider_links_per_page and url_in_scope
                 if exceeds_max_links:
                     tags.append("spider-max")
+            if kwargs.get("script_source"):
+                tags.append("javascript-source")
             event_draft.add_tags(tags)
             return event_draft
 

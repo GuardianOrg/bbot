@@ -26,8 +26,15 @@ class RetireJSSeverity(IntEnum):
 RETIREJS_REPOSITORY_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json"
 EXPLOITABILITY_NOTE = "Version matched to public advisories; application exploitability has not been verified."
 COVERAGE_FIELDS = (
-    "offered", "downloaded", "download_failed", "oversized", "empty",
-    "no_output", "analysis_failed", "analyzed", "findings",
+    "offered",
+    "downloaded",
+    "download_failed",
+    "oversized",
+    "empty",
+    "no_output",
+    "analysis_failed",
+    "analyzed",
+    "findings",
 )
 
 
@@ -320,8 +327,8 @@ class retirejs(BaseModule):
         if not self.scan.in_scope(event):
             return False, "script is outside scan scope"
         url_extension = getattr(event, "url_extension", "")
-        if url_extension != "js":
-            return False, f"it is a {url_extension} URL but retirejs only accepts js URLs"
+        if url_extension not in {"js", "mjs", "cjs"} and "javascript-source" not in event.tags:
+            return False, f"it is a {url_extension} URL without a script src tag"
         return True
 
     @staticmethod

@@ -12,6 +12,8 @@ import pytest
 from bbot.core.event.base import make_event
 from bbot.modules.whatweb import access_challenge, favicon_fingerprint, icon_urls, normalized_technologies, whatweb
 from bbot.modules.retirejs import retirejs
+from bbot.modules.internal.excavate import YaraRuleSettings, excavate
+from urllib.parse import urlsplit
 
 
 def test_positive_challenge_signals_and_negative_controls():
@@ -116,9 +118,66 @@ def make_module(cls, config=None):
     module.scan = SimpleNamespace(
         config={"modules": {cls.__name__: config or {}}},
         in_scope=lambda value: True,
+        custom_http_headers={},
         helpers=SimpleNamespace(tools_dir=Path("/tmp/tools")),
     )
     return module
+
+
+@pytest.mark.asyncio
+async def test_script_sources_reach_retirejs_without_a_js_suffix():
+    async def search(pattern, value):
+        return pattern.search(value)
+
+    class Draft:
+        def __init__(self, url):
+            self.data = url
+            self.host_filterable = url
+            self.tags = set()
+
+        def add_tags(self, tags):
+            self.tags.update(tags)
+
+    fake_excavate = SimpleNamespace(
+        helpers=SimpleNamespace(
+            re=SimpleNamespace(search=search),
+            validators=SimpleNamespace(validate_url_parsed=Mock()),
+        ),
+        scan=SimpleNamespace(in_scope=lambda value: True, web_spider_links_per_page=10),
+        make_event=Mock(side_effect=lambda url, kind, parent: Draft(url)),
+        emit_event=AsyncMock(),
+        debug=Mock(),
+    )
+    extractor = excavate.URLExtractor(fake_excavate)
+    page = SimpleNamespace(parsed_url=urlsplit("https://example.com/page"))
+    settings = YaraRuleSettings("HTML attribute", ["spider-danger"], False)
+    await extractor.process(
+        {
+            "url_attr": [
+                '<script type="module" src="/runtime?x=1&amp;y=2"></script>',
+                '<script data-src="/lazy"></script>',
+                '<img src="/pixel">',
+            ]
+        },
+        page,
+        settings,
+        "page body",
+    )
+
+    drafts = {call.args[0].data: call.args[0] for call in fake_excavate.emit_event.await_args_list}
+    script = drafts["https://example.com/runtime?x=1&y=2"]
+    assert "javascript-source" in script.tags
+    assert "javascript-source" not in drafts["https://example.com/lazy"].tags
+    assert "javascript-source" not in drafts["https://example.com/pixel"].tags
+    assert settings.tags == ["spider-danger"]
+
+    module = make_module(retirejs)
+    assert await module.filter_event(script) is True
+    assert (await module.filter_event(drafts["https://example.com/lazy"]))[0] is False
+    assert (await module.filter_event(drafts["https://example.com/pixel"]))[0] is False
+    for extension in ("mjs", "cjs"):
+        event = SimpleNamespace(url_extension=extension, tags=set())
+        assert await module.filter_event(event) is True
 
 
 def test_retirejs_page_lookup_stops_at_self_parenting_scan_root():
@@ -227,12 +286,15 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
     module.find_favicon = AsyncMock(return_value=None)
     module.emit_event = AsyncMock()
     events = [
-        SimpleNamespace(host="example.com", data={
-            "url": f"https://example.com/page/{index}",
-            "status_code": 200,
-            "contentType": "text/html",
-            "body": "<html></html>",
-        })
+        SimpleNamespace(
+            host="example.com",
+            data={
+                "url": f"https://example.com/page/{index}",
+                "status_code": 200,
+                "contentType": "text/html",
+                "body": "<html></html>",
+            },
+        )
         for index in range(21)
     ]
 
@@ -241,8 +303,14 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
 
     assert module.fingerprint.await_count == 20
     assert module._coverage == {
-        "responses": 21, "html": 21, "challenged": 0, "attempted": 20,
-        "analyzed": 20, "failed": 0, "limited": 1, "technologies": 20,
+        "responses": 21,
+        "html": 21,
+        "challenged": 0,
+        "attempted": 20,
+        "analyzed": 20,
+        "failed": 0,
+        "limited": 1,
+        "technologies": 20,
     }
     assert all(event.data.get("whatweb_checked") is True for event in events[:20])
     assert events[-1].data.get("whatweb_checked") is not True
@@ -253,6 +321,7 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
 @pytest.mark.asyncio
 async def test_retirejs_cves_are_structured_and_string_url_parent_is_supported():
     module = make_module(retirejs, {"severity": "low"})
+    module._reported = set()
 
     async def download(url, **kwargs):
         Path(kwargs["filename"]).write_text("jQuery v3.4.1")
