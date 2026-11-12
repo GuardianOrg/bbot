@@ -85,8 +85,11 @@ class host_reputation(BaseModule):
                 "shared-frontend" in tags
                 or bool({"load-balancer", "fronted-proxy", "api-gateway", "proxy", "waf"} & tags)
                 or ("cdn" in tags and not any("github" in tag for tag in tags))
-                or any(tag.startswith(("shared-", "cdn-", "waf-", "load-balancer-", "proxy-"))
-                       and not tag.endswith("-github") for tag in tags)
+                or any(
+                    tag.startswith(("shared-", "cdn-", "waf-", "load-balancer-", "proxy-"))
+                    and not tag.endswith("-github")
+                    for tag in tags
+                )
             )
             if marked_shared or (is_ip and shared_infra.known_frontend(self.scan, host)):
                 return False, "shared frontend IP is not the scanned organization's reputation"
@@ -129,11 +132,6 @@ class host_reputation(BaseModule):
         mw_result = await self.check_malwareworld(host)
 
         risk_score, malicious, sources = mw_result["risk_score"], mw_result["malicious"], mw_result["sources"]
-        # An empty threat-intelligence result is an observation, not a security
-        # finding. In particular, an unavailable feed must not create a benign
-        # verdict or mask independent findings emitted by other modules.
-        if not malicious and risk_score == 0 and not sources:
-            return
         verdict = "malicious" if malicious else "not malicious"
         # The host's reputation is asset information in its own right; the FINDING below is
         # only an observation that is grouped with the others of the scan.
@@ -150,6 +148,11 @@ class host_reputation(BaseModule):
             event,
             context=f"{{module}} checked reputation sources for {host} and emitted {{event.type}}",
         )
+        # A completed clean lookup is a baseline observation, never a finding.
+        # check_malwareworld propagates failed/invalid feed reads, so those cannot
+        # be mistaken for a successful clean verdict.
+        if not malicious and risk_score == 0 and not sources:
+            return
         await self.emit_event(
             {
                 "host": host,

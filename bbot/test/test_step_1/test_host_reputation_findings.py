@@ -26,11 +26,18 @@ def emitted_for_result(result):
 
 def test_no_match_does_not_become_a_finding():
     result = {"risk_score": 0, "malicious": False, "sources": [], "malwareworld": {"matches": []}}
-    assert emitted_for_result(result) == []
+    output = emitted_for_result(result)
+    assert [kind for kind, _ in output] == ["HOST_REPUTATION"]
+    assert output[0][1]["malicious"] is False
 
 
 def test_positive_reputation_becomes_a_medium_finding_and_a_host_reputation_event():
-    result = {"risk_score": 80, "malicious": True, "sources": [{"source": "MalwareWorld"}], "malwareworld": {"matches": [1]}}
+    result = {
+        "risk_score": 80,
+        "malicious": True,
+        "sources": [{"source": "MalwareWorld"}],
+        "malwareworld": {"matches": [1]},
+    }
     output = emitted_for_result(result)
     assert [event_type for event_type, _ in output] == ["HOST_REPUTATION", "FINDING"]
     reputation = output[0][1]
@@ -44,7 +51,12 @@ def test_positive_reputation_becomes_a_medium_finding_and_a_host_reputation_even
 
 
 def test_non_malicious_signal_is_an_info_observation_with_reputation():
-    result = {"risk_score": 10, "malicious": False, "sources": [{"source": "MalwareWorld"}], "malwareworld": {"matches": [1]}}
+    result = {
+        "risk_score": 10,
+        "malicious": False,
+        "sources": [{"source": "MalwareWorld"}],
+        "malwareworld": {"matches": [1]},
+    }
     output = emitted_for_result(result)
     assert [event_type for event_type, _ in output] == ["HOST_REPUTATION", "FINDING"]
     assert output[0][1]["malicious"] is False
@@ -54,8 +66,14 @@ def test_non_malicious_signal_is_an_info_observation_with_reputation():
 def test_host_reputation_event_validates(bbot_scanner):
     scan = bbot_scanner("example.com")
     event = scan.make_event(
-        {"host": "example.com", "kind": "domain", "risk_score": 80, "malicious": True,
-         "sources": [{"source": "MalwareWorld", "type": "phishing"}], "malwareworld": {"matches": []}},
+        {
+            "host": "example.com",
+            "kind": "domain",
+            "risk_score": 80,
+            "malicious": True,
+            "sources": [{"source": "MalwareWorld", "type": "phishing"}],
+            "malwareworld": {"matches": []},
+        },
         "HOST_REPUTATION",
         parent=scan.root_event,
     )
