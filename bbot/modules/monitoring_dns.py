@@ -60,8 +60,6 @@ class monitoring_dns(BaseModule):
             if not all(success for success, _ in results):
                 return kind, None, "lookup-unavailable"
             answers = [values for _, values in results]
-            if kind in ("A", "AAAA"):
-                return kind, sorted(set().union(*map(set, answers))), None
             if self.comparison_values(kind, answers[0]) != self.comparison_values(kind, answers[1]):
                 return kind, None, "resolvers-disagree"
             return kind, answers[0], None

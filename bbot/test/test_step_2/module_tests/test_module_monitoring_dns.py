@@ -10,6 +10,8 @@ def test_initial_dns_preserves_absence_but_not_failed_or_conflicting_answers():
     captured = []
 
     async def query(host, kind, provider):
+        if kind == "AAAA":
+            return True, ["2606:4700:4700::1111"] if provider == "1.1.1.1" else []
         if kind == "SRV":
             return False, []
         if kind == "MX":
@@ -38,5 +40,10 @@ def test_initial_dns_preserves_absence_but_not_failed_or_conflicting_answers():
     assert data["monitoring_records"]["TXT"] == ["v=spf1 include:mail.example ~all"]
     assert "SOA" in data["monitoring_records"]
     assert "MX" not in data["monitoring_records"]
+    assert "AAAA" not in data["monitoring_records"]
     assert "SRV" not in data["monitoring_records"]
-    assert data["monitoring_errors"] == {"MX": "resolvers-disagree", "SRV": "lookup-unavailable"}
+    assert data["monitoring_errors"] == {
+        "AAAA": "resolvers-disagree",
+        "MX": "resolvers-disagree",
+        "SRV": "lookup-unavailable",
+    }
