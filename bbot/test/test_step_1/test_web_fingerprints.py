@@ -118,6 +118,7 @@ def make_module(cls, config=None):
     module.scan = SimpleNamespace(
         config={"modules": {cls.__name__: config or {}}},
         in_scope=lambda value: True,
+        custom_http_headers={},
         helpers=SimpleNamespace(tools_dir=Path("/tmp/tools")),
     )
     return module
