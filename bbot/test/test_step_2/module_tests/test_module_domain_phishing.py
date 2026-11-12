@@ -194,17 +194,26 @@ class TestDomainPhishingRegisteredWithoutAddress(ModuleTestBase):
         from bbot.modules.base import BaseModule
 
         async def fake_run_process(self_module, cmd, *args, **kwargs):
-            return SimpleNamespace(returncode=0, stdout=json.dumps([
-                {
-                    "domain": "coinbasef.com", "fuzzer": "addition",
-                    "dns_ns": ["jerome.ns.cloudflare.com"],
-                    "whois_created": datetime.now().date().isoformat(),
-                },
-                {
-                    "domain": "coinbases.com", "fuzzer": "addition",
-                    "dns_mx": ["route1.mx.cloudflare.net"], "dns_ns": ["damon.ns.cloudflare.com"],
-                },
-            ]), stderr="")
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "domain": "coinbasef.com",
+                            "fuzzer": "addition",
+                            "dns_ns": ["jerome.ns.cloudflare.com"],
+                            "whois_created": datetime.now().date().isoformat(),
+                        },
+                        {
+                            "domain": "coinbases.com",
+                            "fuzzer": "addition",
+                            "dns_mx": ["route1.mx.cloudflare.net"],
+                            "dns_ns": ["damon.ns.cloudflare.com"],
+                        },
+                    ]
+                ),
+                stderr="",
+            )
 
         module_test.monkeypatch.setattr(BaseModule, "run_process", fake_run_process)
         module_test.monkeypatch.setattr(
@@ -333,9 +342,12 @@ def test_domain_phishing_supplies_tld_dictionary_for_tld_swap(tmp_path):
         path.write_text("\n".join(contents))
         return path
 
-    mod.scan = SimpleNamespace(in_scope=lambda _domain: False, helpers=SimpleNamespace(
-        split_domain=lambda _domain: ("", "bitpay.com"), is_domain=lambda _domain: True, tempfile=tempfile
-    ))
+    mod.scan = SimpleNamespace(
+        in_scope=lambda _domain: False,
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "bitpay.com"), is_domain=lambda _domain: True, tempfile=tempfile
+        ),
+    )
 
     async def run_process(cmd, **_kwargs):
         command.extend(cmd)
@@ -377,7 +389,7 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
             tempfile=lambda _contents, pipe=False: Path("/tmp/tlds.txt"),
-        )
+        ),
     )
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout="[]"))
     mod._check_candidate_web = lambda *_args: asyncio.sleep(0, result=(False, True))
@@ -397,7 +409,8 @@ def test_domain_phishing_keeps_monitor_only_homoglyph_and_final_insertion():
         }
 
     async def emit_event(payload, event_type, **_kwargs):
-        emitted.append((payload["host"], event_type, payload.get("severity")))
+        if event_type == "FINDING":
+            emitted.append((payload["host"], event_type, payload.get("severity")))
         return payload
 
     mod._resolve_monitor_extra_candidate = resolve_extra
@@ -463,7 +476,7 @@ def test_domain_phishing_extra_candidates_do_not_displace_dnstwist_results(tmp_p
         helpers=SimpleNamespace(
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
-        )
+        ),
     )
     row = {"domain": "coinbases.com", "fuzzer": "addition", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
     extra = {
@@ -478,8 +491,9 @@ def test_domain_phishing_extra_candidates_do_not_displace_dnstwist_results(tmp_p
     mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
     emitted = []
 
-    async def emit_event(payload, *_args, **_kwargs):
-        emitted.append(payload["host"])
+    async def emit_event(payload, event_type, *_args, **_kwargs):
+        if event_type == "FINDING":
+            emitted.append(payload["host"])
         return payload
 
     mod.emit_event = emit_event
@@ -512,7 +526,7 @@ def test_domain_phishing_does_not_remember_an_event_that_failed_to_emit(tmp_path
         helpers=SimpleNamespace(
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
-        )
+        ),
     )
     row = {"domain": "coinbases.com", "fuzzer": "addition", "dns-mx": ["mx.example.com"], "dns-ns": ["ns.example.com"]}
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(0, result=SimpleNamespace(stdout=json.dumps([row])))
@@ -547,9 +561,13 @@ def test_domain_phishing_fails_when_dnstwist_output_is_unusable(returncode, stdo
     mod.threads = 1
     mod.fuzzers = []
     mod.nameservers = []
-    mod.scan = SimpleNamespace(in_scope=lambda _domain: False, helpers=SimpleNamespace(
-        split_domain=lambda _domain: ("", "coinbase.com"), is_domain=lambda _domain: True,
-    ))
+    mod.scan = SimpleNamespace(
+        in_scope=lambda _domain: False,
+        helpers=SimpleNamespace(
+            split_domain=lambda _domain: ("", "coinbase.com"),
+            is_domain=lambda _domain: True,
+        ),
+    )
     mod.run_process = lambda *_args, **_kwargs: asyncio.sleep(
         0, result=SimpleNamespace(returncode=returncode, stdout=stdout, stderr="dnstwist failed")
     )
@@ -701,7 +719,7 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected, tmp
             split_domain=lambda _domain: ("", "coinbase.com"),
             is_domain=lambda _domain: True,
             request=request,
-        )
+        ),
     )
     row = {
         "domain": "coinba5e.com",
@@ -720,15 +738,24 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected, tmp
 
     mod._lookup_ownership_fingerprint = fingerprint
     emitted = []
+    baselines = []
 
-    async def emit_event(payload, *_args, **_kwargs):
-        emitted.append(payload)
+    async def emit_event(payload, event_type, *_args, **_kwargs):
+        if event_type == "DOMAIN_PHISHING_BASELINE":
+            baselines.append(payload)
+        else:
+            emitted.append(payload)
         return payload
 
     mod.emit_event = emit_event
     mod.info = lambda *_args: None
     mod.debug = lambda *_args: None
     asyncio.run(mod.handle_event(SimpleNamespace(data="coinbase.com")))
+    assert len(baselines) == 1
+    assert baselines[0]["host"] == "coinbase.com"
+    assert baselines[0]["candidate"] == "coinba5e.com"
+    assert baselines[0]["observed_at"]
+    assert baselines[0]["web_active"] is (True if status is not None and 200 <= status < 210 else None)
     assert bool(emitted) is expected
     assert len(requested) <= 2
     assert bool(mod.known) is expected
@@ -868,8 +895,9 @@ def test_domain_phishing_skips_lookalikes_that_are_scanned_domains(tmp_path):
     mod._lookup_ownership_fingerprint = lambda _domain: asyncio.sleep(0, result=mod._empty_fingerprint())
     emitted = []
 
-    async def emit_event(payload, *_args, **_kwargs):
-        emitted.append(payload["host"])
+    async def emit_event(payload, event_type, *_args, **_kwargs):
+        if event_type == "FINDING":
+            emitted.append(payload["host"])
         return payload
 
     mod.emit_event = emit_event

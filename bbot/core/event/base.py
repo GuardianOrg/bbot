@@ -2103,6 +2103,11 @@ class DOMAIN_DNS_HISTORY(DictHostEvent):
     _quick_emit = True
 
 
+class DOMAIN_PHISHING_BASELINE(DictHostEvent):
+    _always_emit = True
+    _quick_emit = True
+
+
 class DOMAIN_CERTIFICATE_HISTORY(DictHostEvent):
     _always_emit = True
     _quick_emit = True
