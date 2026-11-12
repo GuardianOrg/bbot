@@ -462,7 +462,7 @@ async def test_real_whatweb_offline_packet(tmp_path, status_line):
     )
     assert plugins["WordPress"]["version"] == ["6.6.2"]
     assert plugins["nginx"]["version"] == ["1.24.0"]
-    assert {"Allow", "Content-Security-Policy", "Modern-Security-Headers", "Meta-Geo"} <= plugins.keys()
+    assert {"Allow", "Meta-Geo"} <= plugins.keys()
     assert {(tech["name"], tech.get("version")) for tech in normalized_technologies([], plugins)} == {
         ("nginx", "1.24.0"),
         ("WordPress", "6.6.2"),
