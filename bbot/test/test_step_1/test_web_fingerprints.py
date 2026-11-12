@@ -167,12 +167,12 @@ async def test_script_sources_reach_retirejs_without_a_js_suffix():
     assert settings.tags == ["spider-danger"]
 
     module = make_module(retirejs)
-    assert (await module.filter_event(script))[0] is True
+    assert await module.filter_event(script) is True
     assert (await module.filter_event(drafts["https://example.com/lazy"]))[0] is False
     assert (await module.filter_event(drafts["https://example.com/pixel"]))[0] is False
     for extension in ("mjs", "cjs"):
         event = SimpleNamespace(url_extension=extension, tags=set())
-        assert (await module.filter_event(event))[0] is True
+        assert await module.filter_event(event) is True
 
 
 def test_retirejs_page_lookup_stops_at_self_parenting_scan_root():
