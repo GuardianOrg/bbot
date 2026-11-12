@@ -72,6 +72,7 @@ NON_PRODUCT_SIGNATURES = {
 WHATWEB_COVERAGE_FIELDS = (
     "responses",
     "html",
+    "body_limit_reached",
     "challenged",
     "attempted",
     "analyzed",
@@ -220,6 +221,8 @@ class whatweb(BaseInterceptModule):
         self.binary = str(self.config.get("binary") or self.helpers.tools_dir / "whatweb" / "whatweb")
         self.timeout = max(1, int(self.config.get("timeout", 20)))
         self.max_pages = max(1, int(self.config.get("max_pages_per_origin", 20)))
+        httpx_config = self.scan.config.get("modules", {}).get("httpx", {})
+        self.httpx_body_cap = max(1, int(httpx_config.get("max_response_size", 5242880)))
         self.max_icon_size = max(1, int(self.config.get("max_favicon_size", 262144)))
         self.pages = {}
         self.fingerprint_cache = {}
@@ -247,6 +250,11 @@ class whatweb(BaseInterceptModule):
         is_html = "html" in content_type or bool(re.match(r"\s*(?:<!doctype html[^>]*>\s*)?<html[\s>]", body, re.I))
         if is_html:
             self._coverage["html"] += 1
+            # httpx can return a body truncated exactly at its read cap (also
+            # after decompression). Count limit hits without claiming that an
+            # exactly sized response was necessarily truncated.
+            if len(body.encode("utf-8")) >= getattr(self, "httpx_body_cap", 5242880):
+                self._coverage["body_limit_reached"] += 1
         plugins = {}
         if is_html and not challenge:
             # WhatWeb analyzes a saved response packet, so identical packets on

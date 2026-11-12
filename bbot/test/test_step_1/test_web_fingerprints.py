@@ -309,6 +309,7 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
     assert module._coverage == {
         "responses": 21,
         "html": 21,
+        "body_limit_reached": 0,
         "challenged": 0,
         "attempted": 20,
         "analyzed": 20,
@@ -356,6 +357,33 @@ async def test_whatweb_reuses_identical_packets_without_hiding_distinct_pages():
     assert limited.data.get("whatweb_checked") is not True
     assert module._coverage["analyzed"] == module._coverage["attempted"] == 21
     assert module._coverage["limited"] == 1
+
+
+@pytest.mark.asyncio
+async def test_whatweb_reports_html_that_reaches_httpx_body_limit():
+    module = make_module(whatweb)
+    module.scan.config["modules"]["httpx"] = {"max_response_size": 32}
+    module.run_process = AsyncMock(return_value=SimpleNamespace(returncode=0))
+    assert await module.setup() is True
+    module.fingerprint = AsyncMock(return_value={})
+    module.find_favicon = AsyncMock(return_value=None)
+    module.emit_event = AsyncMock()
+    responses = [
+        SimpleNamespace(
+            host="example.com",
+            data={
+                "url": f"https://example.com/{index}",
+                "status_code": 200,
+                "contentType": "text/html",
+                "body": body,
+            },
+        )
+        for index, body in enumerate(("<html>short</html>", "<html>" + "x" * 26, "<html>" + "y" * 30))
+    ]
+    for event in responses:
+        assert await module.handle_event(event) is True
+    assert module._coverage["html"] == 3
+    assert module._coverage["body_limit_reached"] == 2
 
 
 @pytest.mark.asyncio
