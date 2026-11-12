@@ -25,6 +25,10 @@ class RetireJSSeverity(IntEnum):
 # Advisory data the module reads; it is tooling input, never a scan target.
 RETIREJS_REPOSITORY_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json"
 EXPLOITABILITY_NOTE = "Version matched to public advisories; application exploitability has not been verified."
+COVERAGE_FIELDS = (
+    "offered", "downloaded", "download_failed", "oversized", "empty",
+    "no_output", "analysis_failed", "analyzed", "findings",
+)
 
 
 def affected_versions(vuln):
@@ -215,6 +219,7 @@ class retirejs(BaseModule):
     _module_threads = 4
 
     async def setup(self):
+        self._coverage = {field: 0 for field in COVERAGE_FIELDS}
         excavate_enabled = self.scan.config.get("excavate")
         if not excavate_enabled:
             return None, "retirejs will not function without excavate enabled"
@@ -237,6 +242,9 @@ class retirejs(BaseModule):
         return True
 
     async def handle_event(self, event):
+        if not hasattr(self, "_coverage"):
+            self._coverage = {field: 0 for field in COVERAGE_FIELDS}
+        self._coverage["offered"] += 1
         max_size = max(1, int(self.config.get("max_js_size", 5242880)))
         timeout = max(1, int(self.config.get("timeout", 30)))
         with TemporaryDirectory(prefix="bbot-retirejs-") as directory:
@@ -255,17 +263,38 @@ class retirejs(BaseModule):
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
+                self._coverage["download_failed"] += 1
                 self.warning(f"JavaScript download exceeded {timeout}s: {event.data}")
                 return
+            except Exception:
+                self._coverage["download_failed"] += 1
+                raise
             if not downloaded:
+                self._coverage["download_failed"] += 1
                 return
+            self._coverage["downloaded"] += 1
             if filename.stat().st_size > max_size:
+                self._coverage["oversized"] += 1
                 self.warning(f"Skipping JavaScript larger than {max_size} bytes: {event.data}")
                 return
             if not filename.stat().st_size:
+                self._coverage["empty"] += 1
                 return
-            results = await self.execute_retirejs(str(filename))
-            await self.report_results(event, results)
+            try:
+                results = await self.execute_retirejs(str(filename))
+                if not results:
+                    self._coverage["no_output"] += 1
+                    await self.report_results(event, results)
+                    return
+                await self.report_results(event, results)
+            except Exception:
+                self._coverage["analysis_failed"] += 1
+                raise
+            self._coverage["analyzed"] += 1
+
+    async def report(self):
+        coverage = getattr(self, "_coverage", {field: 0 for field in COVERAGE_FIELDS})
+        self.info(f"RetireJS coverage: {json.dumps(coverage, sort_keys=True, separators=(',', ':'))}")
 
     async def report_results(self, event, results):
         if not results:
@@ -285,6 +314,7 @@ class retirejs(BaseModule):
                 parent=event,
                 context=f"{{module}} identified vulnerable JavaScript library {data['component']} v{data['version']} ({data['severity']} severity)",
             )
+            self._coverage["findings"] += 1
 
     async def filter_event(self, event):
         if not self.scan.in_scope(event):

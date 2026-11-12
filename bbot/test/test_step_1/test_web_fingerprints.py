@@ -254,6 +254,11 @@ async def test_retirejs_cves_are_structured_and_string_url_parent_is_supported()
     assert "has not been verified" in finding["description"]
     module.scan.helpers.download.assert_awaited_once()
     assert module.scan.helpers.download.call_args.kwargs["follow_redirects"] is False
+    module.info = Mock()
+    await module.report()
+    coverage = json.loads(module.info.call_args.args[0].split("RetireJS coverage: ", 1)[1])
+    assert coverage["offered"] == coverage["downloaded"] == coverage["analyzed"] == coverage["findings"] == 1
+    assert coverage["download_failed"] == coverage["analysis_failed"] == 0
 
 
 @pytest.mark.asyncio
@@ -272,6 +277,8 @@ async def test_retirejs_does_not_scan_truncated_or_oversized_scripts():
     module.execute_retirejs = AsyncMock()
     await module.handle_event(SimpleNamespace(data="https://example.com/large.js"))
     module.execute_retirejs.assert_not_awaited()
+    assert module._coverage["offered"] == module._coverage["downloaded"] == module._coverage["oversized"] == 1
+    assert module._coverage["analyzed"] == 0
 
 
 @pytest.mark.asyncio
