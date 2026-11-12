@@ -151,12 +151,16 @@ async def test_script_sources_reach_retirejs_without_a_js_suffix():
     page = SimpleNamespace(parsed_url=urlsplit("https://example.com/page"))
     settings = YaraRuleSettings("HTML attribute", ["spider-danger"], False)
     await extractor.process(
-        {"url_attr": [
-            '<script type="module" src="/runtime?x=1&amp;y=2"></script>',
-            '<script data-src="/lazy"></script>',
-            '<img src="/pixel">',
-        ]},
-        page, settings, "page body",
+        {
+            "url_attr": [
+                '<script type="module" src="/runtime?x=1&amp;y=2"></script>',
+                '<script data-src="/lazy"></script>',
+                '<img src="/pixel">',
+            ]
+        },
+        page,
+        settings,
+        "page body",
     )
 
     drafts = {call.args[0].data: call.args[0] for call in fake_excavate.emit_event.await_args_list}
@@ -281,12 +285,15 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
     module.find_favicon = AsyncMock(return_value=None)
     module.emit_event = AsyncMock()
     events = [
-        SimpleNamespace(host="example.com", data={
-            "url": f"https://example.com/page/{index}",
-            "status_code": 200,
-            "contentType": "text/html",
-            "body": "<html></html>",
-        })
+        SimpleNamespace(
+            host="example.com",
+            data={
+                "url": f"https://example.com/page/{index}",
+                "status_code": 200,
+                "contentType": "text/html",
+                "body": "<html></html>",
+            },
+        )
         for index in range(21)
     ]
 
@@ -295,8 +302,14 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
 
     assert module.fingerprint.await_count == 20
     assert module._coverage == {
-        "responses": 21, "html": 21, "challenged": 0, "attempted": 20,
-        "analyzed": 20, "failed": 0, "limited": 1, "technologies": 20,
+        "responses": 21,
+        "html": 21,
+        "challenged": 0,
+        "attempted": 20,
+        "analyzed": 20,
+        "failed": 0,
+        "limited": 1,
+        "technologies": 20,
     }
     assert all(event.data.get("whatweb_checked") is True for event in events[:20])
     assert events[-1].data.get("whatweb_checked") is not True

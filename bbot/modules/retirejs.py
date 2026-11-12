@@ -26,8 +26,15 @@ class RetireJSSeverity(IntEnum):
 RETIREJS_REPOSITORY_URL = "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository-v4.json"
 EXPLOITABILITY_NOTE = "Version matched to public advisories; application exploitability has not been verified."
 COVERAGE_FIELDS = (
-    "offered", "downloaded", "download_failed", "oversized", "empty",
-    "no_output", "analysis_failed", "analyzed", "findings",
+    "offered",
+    "downloaded",
+    "download_failed",
+    "oversized",
+    "empty",
+    "no_output",
+    "analysis_failed",
+    "analyzed",
+    "findings",
 )
 
 
