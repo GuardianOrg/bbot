@@ -2013,6 +2013,10 @@ class DOMAIN_DNS_CONFIG(DictHostEvent):
         wildcard_ips: Optional[list[str]] = None
         wildcard_records: Optional[dict[str, list[str]]] = None
         optional_reporting: Optional[dict[str, bool]] = None
+        monitoring_records: Optional[dict[str, list[str]]] = None
+        monitoring_errors: Optional[dict[str, str]] = None
+        monitoring_resolvers: Optional[list[str]] = None
+        monitoring_observed_at: Optional[str] = None
         _validate_host = field_validator("host")(validators.validate_host)
 
 
@@ -2031,6 +2035,13 @@ class TLS_CERTIFICATE(DictHostEvent):
         certSanDomains: Optional[list[str]] = None
         certNotAfter: Optional[str] = None
         certIsExpired: Optional[bool] = None
+        certIssuerOrganization: Optional[str] = None
+        certKeyType: Optional[str] = None
+        certKeyBits: Optional[int] = None
+        certChainTrusted: Optional[bool] = None
+        certHostnameValid: Optional[bool] = None
+        certAuthorized: Optional[bool] = None
+        certValidationError: Optional[str] = None
         _validate_host = field_validator("host")(validators.validate_host)
         _validate_url = field_validator("url")(validators.validate_url)
         _validate_port = field_validator("port")(validators.validate_port)

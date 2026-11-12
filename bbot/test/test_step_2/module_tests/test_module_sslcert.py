@@ -113,7 +113,59 @@ def test_sslcert_metadata_keeps_wildcard_sans():
 
     assert metadata["certSanDomains"] == ["*.api.example.com", "api.example.com"]
     assert metadata["certificate"]["sanDomains"] == ["*.api.example.com", "api.example.com"]
+    assert metadata["certKeyType"] == "ec"
+    assert metadata["certKeyBits"] == 256
+    assert metadata["certChainTrusted"] is None
+    assert metadata["certificate"]["keyType"] == "ec"
+    assert metadata["certificate"]["keyBits"] == 256
+    from bbot.core.event import make_event
+    transported = make_event({"host": "api.example.com", "url": "https://api.example.com/", **metadata}, "TLS_CERTIFICATE", dummy=True)
+    assert transported.data["certKeyType"] == "ec"
+    assert transported.data["certKeyBits"] == 256
     pem = metadata["certificate"]["pem"]
     assert pem.startswith("-----BEGIN CERTIFICATE-----\n")
     assert crypto.load_certificate(crypto.FILETYPE_PEM, pem).digest("sha256").decode().replace(":", "").lower() == metadata["certFingerprintSha256"]
     assert sslcert.get_cert_sans(cert) == ["api.example.com", "api.example.com"]
+
+
+def test_sslcert_validation_distinguishes_trust_hostname_and_unknown_chain():
+    import datetime
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+    from OpenSSL import crypto
+    from bbot.modules.sslcert import sslcert
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "api.example.com")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    leaf = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(2).not_valid_before(now - datetime.timedelta(minutes=1))
+            .not_valid_after(now + datetime.timedelta(days=40))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName("api.example.com")]), critical=False)
+            .sign(key, hashes.SHA256()))
+    cert = crypto.X509.from_cryptography(leaf)
+    empty_store = crypto.X509Store()
+    untrusted = sslcert.get_cert_metadata(cert, host="api.example.com", peer_chain=[cert], trust_store=empty_store)
+    assert untrusted["certChainTrusted"] is False
+    assert untrusted["certHostnameValid"] is True
+    assert untrusted["certValidationError"] == "untrusted-chain"
+    trusted_store = crypto.X509Store()
+    trusted_store.add_cert(cert)
+    valid = sslcert.get_cert_metadata(cert, host="api.example.com", peer_chain=[cert], trust_store=trusted_store)
+    assert valid["certAuthorized"] is True
+    mismatch = sslcert.get_cert_metadata(cert, host="other.example.com", peer_chain=[cert], trust_store=trusted_store)
+    assert mismatch["certChainTrusted"] is True
+    assert mismatch["certHostnameValid"] is False
+    assert mismatch["certValidationError"] == "hostname-mismatch"
+    unknown = sslcert.get_cert_metadata(cert, host="api.example.com")
+    assert unknown["certChainTrusted"] is None
+    assert unknown["certAuthorized"] is None
+    assert unknown["certValidationError"] is None
+    from types import SimpleNamespace
+    raw = crypto.dump_certificate(crypto.FILETYPE_ASN1, cert)
+    for channel in (SimpleNamespace(get_unverified_chain=lambda: [raw]),
+                    SimpleNamespace(_sslobj=SimpleNamespace(get_unverified_chain=lambda: [raw]))):
+        chain = sslcert.get_peer_chain(channel)
+        assert [item.digest("sha256") for item in chain] == [cert.digest("sha256")]
