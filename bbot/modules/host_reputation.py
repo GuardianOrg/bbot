@@ -10,6 +10,7 @@ from urllib.parse import urlparse, unquote
 from urllib.parse import urljoin
 
 from bbot.modules.base import BaseModule
+from bbot.core.helpers import shared_infra
 from bbot.core.helpers.malwareworld import lookup as malwareworld_lookup
 from bbot.core.helpers.malwareworld import normalize_indicator
 from bbot.core.helpers.malwareworld import json_resident_bytes
@@ -76,6 +77,19 @@ class host_reputation(BaseModule):
             return False, "do not process reputation output recursively"
         if event.scope_distance != 0:
             return False, "reputation requires an in-scope observation"
+        host = self._event_host(event).strip("[]")
+        tags = {str(tag).lower() for tag in getattr(event, "tags", ())}
+        is_ip = self._is_ip(host)
+        if is_ip or event.type == "IP_RANGE":
+            marked_shared = (
+                "shared-frontend" in tags
+                or bool({"load-balancer", "fronted-proxy", "api-gateway", "proxy", "waf"} & tags)
+                or ("cdn" in tags and not any("github" in tag for tag in tags))
+                or any(tag.startswith(("shared-", "cdn-", "waf-", "load-balancer-", "proxy-"))
+                       and not tag.endswith("-github") for tag in tags)
+            )
+            if marked_shared or (is_ip and shared_infra.known_frontend(self.scan, host)):
+                return False, "shared frontend IP is not the scanned organization's reputation"
         if event.type == "IP_ADDRESS" and ipaddress.ip_address(str(event.data)).version != 4:
             return False, "MalwareWorld IP feeds cover IPv4 only"
         if event.type == "IP_RANGE" and ":" in str(event.data):
