@@ -12,6 +12,8 @@ import pytest
 from bbot.core.event.base import make_event
 from bbot.modules.whatweb import access_challenge, favicon_fingerprint, icon_urls, normalized_technologies, whatweb
 from bbot.modules.retirejs import retirejs
+from bbot.modules.internal.excavate import YaraRuleSettings, excavate
+from urllib.parse import urlsplit
 
 
 def test_positive_challenge_signals_and_negative_controls():
@@ -119,6 +121,58 @@ def make_module(cls, config=None):
         helpers=SimpleNamespace(tools_dir=Path("/tmp/tools")),
     )
     return module
+
+
+@pytest.mark.asyncio
+async def test_script_sources_reach_retirejs_without_a_js_suffix():
+    async def search(pattern, value):
+        return pattern.search(value)
+
+    class Draft:
+        def __init__(self, url):
+            self.data = url
+            self.host_filterable = url
+            self.tags = set()
+
+        def add_tags(self, tags):
+            self.tags.update(tags)
+
+    fake_excavate = SimpleNamespace(
+        helpers=SimpleNamespace(
+            re=SimpleNamespace(search=search),
+            validators=SimpleNamespace(validate_url_parsed=Mock()),
+        ),
+        scan=SimpleNamespace(in_scope=lambda value: True, web_spider_links_per_page=10),
+        make_event=Mock(side_effect=lambda url, kind, parent: Draft(url)),
+        emit_event=AsyncMock(),
+        debug=Mock(),
+    )
+    extractor = excavate.URLExtractor(fake_excavate)
+    page = SimpleNamespace(parsed_url=urlsplit("https://example.com/page"))
+    settings = YaraRuleSettings("HTML attribute", ["spider-danger"], False)
+    await extractor.process(
+        {"url_attr": [
+            '<script type="module" src="/runtime?x=1&amp;y=2"></script>',
+            '<script data-src="/lazy"></script>',
+            '<img src="/pixel">',
+        ]},
+        page, settings, "page body",
+    )
+
+    drafts = {call.args[0].data: call.args[0] for call in fake_excavate.emit_event.await_args_list}
+    script = drafts["https://example.com/runtime?x=1&y=2"]
+    assert "javascript-source" in script.tags
+    assert "javascript-source" not in drafts["https://example.com/lazy"].tags
+    assert "javascript-source" not in drafts["https://example.com/pixel"].tags
+    assert settings.tags == ["spider-danger"]
+
+    module = make_module(retirejs)
+    assert (await module.filter_event(script))[0] is True
+    assert (await module.filter_event(drafts["https://example.com/lazy"]))[0] is False
+    assert (await module.filter_event(drafts["https://example.com/pixel"]))[0] is False
+    for extension in ("mjs", "cjs"):
+        event = SimpleNamespace(url_extension=extension, tags=set())
+        assert (await module.filter_event(event))[0] is True
 
 
 def test_retirejs_page_lookup_stops_at_self_parenting_scan_root():
