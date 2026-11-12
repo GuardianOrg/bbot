@@ -47,8 +47,10 @@ METADATA_PLUGINS = {
 # integration, or generic marker rather than customer-patchable software. Some
 # WhatWeb plugins put metadata in their "version" field (for example, og:type=website).
 NON_PRODUCT_SIGNATURES = {
+    "allow",
     "basic",
     "content-language",
+    "content-security-policy",
     "frame",
     "google cloud trace",
     "google tag manager",
@@ -58,7 +60,9 @@ NON_PRODUCT_SIGNATURES = {
     "html5",
     "http/3",
     "metapoweredby",
+    "meta-geo",
     "meta-refresh-redirect",
+    "modern-security-headers",
     "open-graph-protocol",
     "poweredby",
     "script",
