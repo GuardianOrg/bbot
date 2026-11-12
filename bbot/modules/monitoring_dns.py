@@ -1,4 +1,5 @@
 """Initial DNS facts for later monitoring, including verified empty answers."""
+
 import asyncio
 from datetime import datetime, timezone
 
@@ -13,7 +14,11 @@ class monitoring_dns(BaseModule):
     watched_events = ["DNS_NAME"]
     produced_events = ["DOMAIN_DNS_CONFIG"]
     flags = ["passive", "safe"]
-    meta = {"description": "Record corroborated initial DNS monitoring values", "created_date": "2026-11-13", "author": "@carlospolop"}
+    meta = {
+        "description": "Record corroborated initial DNS monitoring values",
+        "created_date": "2026-11-13",
+        "author": "@carlospolop",
+    }
     in_scope_only = True
     per_host_only = True
     _module_threads = 4
@@ -62,15 +67,22 @@ class monitoring_dns(BaseModule):
             return kind, answers[0], None
 
         rows = await asyncio.gather(*(query(kind) for kind in self.RECORD_TYPES))
-        return {"host": host, "monitoring_records": {kind: values for kind, values, error in rows if error is None},
-                "monitoring_errors": {kind: error for kind, _, error in rows if error is not None},
-                "monitoring_resolvers": list(self.RESOLVERS),
-                "monitoring_observed_at": datetime.now(timezone.utc).isoformat()}
+        return {
+            "host": host,
+            "monitoring_records": {kind: values for kind, values, error in rows if error is None},
+            "monitoring_errors": {kind: error for kind, _, error in rows if error is not None},
+            "monitoring_resolvers": list(self.RESOLVERS),
+            "monitoring_observed_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     async def handle_event(self, event):
         host = str(event.host).lower().rstrip(".")
         payload = await self.collect(host)
-        emitted = await self.emit_event(payload, "DOMAIN_DNS_CONFIG", parent=event,
-                                        context=f'{{module}} recorded initial DNS monitoring observations for "{host}"')
+        emitted = await self.emit_event(
+            payload,
+            "DOMAIN_DNS_CONFIG",
+            parent=event,
+            context=f'{{module}} recorded initial DNS monitoring observations for "{host}"',
+        )
         if emitted is None:
             raise RuntimeError(f"Initial DNS monitoring facts were not persisted for {host}")

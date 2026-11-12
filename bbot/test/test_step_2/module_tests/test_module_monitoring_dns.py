@@ -17,8 +17,11 @@ def test_initial_dns_preserves_absence_but_not_failed_or_conflicting_answers():
         if kind == "TXT":
             return True, ["v=spf1 include:mail.example ~all"]
         if kind == "SOA":
-            return True, ["ns.example hostmaster.example 10 60 60 86400 60" if provider == "1.1.1.1"
-                          else "ns.example hostmaster.example 11 60 60 86400 60"]
+            return True, [
+                "ns.example hostmaster.example 10 60 60 86400 60"
+                if provider == "1.1.1.1"
+                else "ns.example hostmaster.example 11 60 60 86400 60"
+            ]
         return True, []
 
     async def emit(payload, kind, **kwargs):

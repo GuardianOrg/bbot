@@ -140,12 +140,16 @@ class sslcert(BaseModule):
 
     async def recheck_scoped_san_hosts(self, event, cert_data, address, port):
         """Recheck a discovered IP with SNI for in-scope names that still resolve to it."""
-        names = sorted({
-            normalized
-            for raw_name in cert_data.get("certSanDomains", [])
-            if isinstance(raw_name, str)
-            if (normalized := raw_name.lower().rstrip(".")) and "*" not in normalized and self.scan.in_scope(normalized)
-        })
+        names = sorted(
+            {
+                normalized
+                for raw_name in cert_data.get("certSanDomains", [])
+                if isinstance(raw_name, str)
+                if (normalized := raw_name.lower().rstrip("."))
+                and "*" not in normalized
+                and self.scan.in_scope(normalized)
+            }
+        )
         semaphore = asyncio.Semaphore(8)
 
         async def recheck(name):
@@ -275,8 +279,9 @@ class sslcert(BaseModule):
                 "chainTrusted": validation["certChainTrusted"],
                 "hostnameValid": validation["certHostnameValid"],
                 "validationError": validation["certValidationError"],
-                "chainPem": [crypto.dump_certificate(crypto.FILETYPE_PEM, item).decode("ascii")
-                             for item in peer_chain] if peer_chain is not None else None,
+                "chainPem": [crypto.dump_certificate(crypto.FILETYPE_PEM, item).decode("ascii") for item in peer_chain]
+                if peer_chain is not None
+                else None,
             },
             "certSubjectCn": subject_components.get("CN"),
             "certIssuerCn": issuer_components.get("CN"),
@@ -289,8 +294,10 @@ class sslcert(BaseModule):
     @staticmethod
     def public_key_metadata(key):
         for algorithm, kind, fallback_bits in (
-            (rsa.RSAPublicKey, "rsa", None), (ec.EllipticCurvePublicKey, "ec", None),
-            (dsa.DSAPublicKey, "dsa", None), (ed25519.Ed25519PublicKey, "ed25519", 256),
+            (rsa.RSAPublicKey, "rsa", None),
+            (ec.EllipticCurvePublicKey, "ec", None),
+            (dsa.DSAPublicKey, "dsa", None),
+            (ed25519.Ed25519PublicKey, "ed25519", 256),
             (ed448.Ed448PublicKey, "ed448", 448),
         ):
             if isinstance(key, algorithm):
@@ -331,7 +338,7 @@ class sslcert(BaseModule):
             try:
                 crypto.X509StoreContext(trust_store, cert, peer_chain[1:]).verify_certificate()
                 chain_trusted = True
-            except crypto.X509StoreContextError as error:
+            except crypto.X509StoreContextError:
                 chain_trusted = False
                 validation_error = "expired" if cert.has_expired() else "untrusted-chain"
         if host:
@@ -342,17 +349,22 @@ class sslcert(BaseModule):
                     names.append(("IP Address", name))
                 except ValueError:
                     names.append(("DNS", name))
-            peer = {"subjectAltName": names,
-                    "subject": ((("commonName", str(cert.get_subject().CN or "")),),)}
+            peer = {"subjectAltName": names, "subject": ((("commonName", str(cert.get_subject().CN or "")),),)}
             try:
                 match_hostname(peer, str(host), hostname_checks_common_name=True)
                 hostname_valid = True
             except CertificateError:
                 hostname_valid = False
                 validation_error = validation_error or "hostname-mismatch"
-        authorized = (chain_trusted and hostname_valid) if chain_trusted is not None and hostname_valid is not None else None
-        return {"certChainTrusted": chain_trusted, "certHostnameValid": hostname_valid,
-                "certAuthorized": authorized, "certValidationError": validation_error}
+        authorized = (
+            (chain_trusted and hostname_valid) if chain_trusted is not None and hostname_valid is not None else None
+        )
+        return {
+            "certChainTrusted": chain_trusted,
+            "certHostnameValid": hostname_valid,
+            "certAuthorized": authorized,
+            "certValidationError": validation_error,
+        }
 
     @staticmethod
     def name_components(name):
