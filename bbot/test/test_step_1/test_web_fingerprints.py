@@ -292,7 +292,7 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
                 "url": f"https://example.com/page/{index}",
                 "status_code": 200,
                 "contentType": "text/html",
-                "body": "<html></html>",
+                "body": f"<html>{index}</html>",
             },
         )
         for index in range(21)
@@ -316,6 +316,42 @@ async def test_whatweb_fingerprints_each_observed_page_up_to_bounded_origin_budg
     assert events[-1].data.get("whatweb_checked") is not True
     assert all(event.data["technologies"][0]["name"] == "Grafana" for event in events[:20])
     assert "technologies" not in events[-1].data
+
+
+@pytest.mark.asyncio
+async def test_whatweb_reuses_identical_packets_without_hiding_distinct_pages():
+    module = make_module(whatweb, {"max_pages_per_origin": 2})
+    module.run_process = AsyncMock(return_value=SimpleNamespace(returncode=0))
+    assert await module.setup() is True
+    module.fingerprint = AsyncMock(side_effect=[{}, {"WordPress": {"version": ["6.6.2"]}}])
+    module.find_favicon = AsyncMock(return_value=None)
+    module.emit_event = AsyncMock()
+
+    def response(path, body, host="example.com"):
+        return SimpleNamespace(
+            host=host,
+            data={
+                "url": f"https://{host}/{path}",
+                "status_code": 200,
+                "raw_header": "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n",
+                "contentType": "text/html",
+                "body": body,
+            },
+        )
+
+    repeated = [response(f"repeated/{index}", "<html>Same response</html>") for index in range(20)]
+    distinct = response("distinct", "<html>WordPress response</html>")
+    limited = response("limited", "<html>Another response</html>")
+    for event in [*repeated, distinct, limited]:
+        assert await module.handle_event(event) is True
+
+    assert module.fingerprint.await_count == module.pages["https://example.com"] == 2
+    assert all(event.data["whatweb_checked"] is True for event in repeated)
+    assert all("technologies" not in event.data for event in repeated)
+    assert distinct.data["technologies"][0]["name"] == "WordPress"
+    assert limited.data.get("whatweb_checked") is not True
+    assert module._coverage["analyzed"] == module._coverage["attempted"] == 21
+    assert module._coverage["limited"] == 1
 
 
 @pytest.mark.asyncio
