@@ -220,3 +220,4 @@ def test_free_form_registry_text_cannot_prove_a_missing_transfer_lock():
     assert initial_registration_findings({'host': 'example.uk', 'whois_status': ['Registered until expiry date.']}) == []
     findings = initial_registration_findings({'host': 'example.uk', 'whois_status': ['pendingDelete']})
     assert any(row['severity'] == 'CRITICAL' for row in findings)
+    assert any(row['monitor_value'] == 'lock:missing' for row in findings)

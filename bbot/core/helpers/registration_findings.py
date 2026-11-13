@@ -4,11 +4,14 @@ import re
 from datetime import datetime, timezone
 
 NON_EPP_REGISTRIES = {'ch', 'li', 'de', 'eu'}
+EPP_STATUS_EVIDENCE = {'ok', 'active', 'inactive', 'pendingcreate', 'pendingdelete', 'pendingrenew',
+                       'pendingrestore', 'pendingtransfer', 'pendingupdate', 'redemptionperiod',
+                       'addperiod', 'autorenewperiod', 'renewperiod', 'transferperiod'}
 
 
 def lock_statuses_published(host, statuses):
     tokens = [re.sub(r'[^a-z]', '', str(value).split(' http')[0].lower()) for value in (statuses or [])]
-    visible = any(value in {'ok', 'active'} or value.startswith(('client', 'server')) for value in tokens)
+    visible = any(value in EPP_STATUS_EVIDENCE or value.startswith(('client', 'server')) for value in tokens)
     return visible and (host.rsplit('.', 1)[-1].lower() not in NON_EPP_REGISTRIES
                             or any(value.startswith(('client', 'server')) for value in tokens))
 
