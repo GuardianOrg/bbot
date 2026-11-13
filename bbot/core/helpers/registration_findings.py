@@ -8,7 +8,8 @@ NON_EPP_REGISTRIES = {'ch', 'li', 'de', 'eu'}
 
 def lock_statuses_published(host, statuses):
     tokens = [re.sub(r'[^a-z]', '', str(value).split(' http')[0].lower()) for value in (statuses or [])]
-    return bool(tokens) and (host.rsplit('.', 1)[-1] not in NON_EPP_REGISTRIES
+    visible = any(value in {'ok', 'active'} or value.startswith(('client', 'server')) for value in tokens)
+    return visible and (host.rsplit('.', 1)[-1].lower() not in NON_EPP_REGISTRIES
                             or any(value.startswith(('client', 'server')) for value in tokens))
 
 
