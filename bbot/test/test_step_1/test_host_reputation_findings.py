@@ -117,3 +117,77 @@ async def test_shared_frontend_ip_is_rejected_before_reputation_lookup(bbot_scan
     domain.scope_distance = 0
     domain.add_tag("shared-frontend")
     assert await module.filter_event(domain) is True
+
+
+def test_configured_provider_verdict_is_part_of_the_initial_reputation_observation():
+    module = object.__new__(host_reputation)
+    module.virustotal_api_keys = ['test']
+    output = []
+    async def feed(*_):
+        return {'malicious': False, 'risk_score': 0, 'sources': [], 'malwareworld': {'matches': []}}
+    async def vt(*_):
+        return {'malicious': True, 'risk_score': 80, 'sources': [], 'provider': 'VirusTotal'}
+    async def emit(data, kind, *_args, **_kwargs):
+        output.append((kind, data))
+    module.check_malwareworld, module.check_vt_domain, module.emit_event = feed, vt, emit
+    asyncio.run(module.handle_event(SimpleNamespace(type='DNS_NAME', host='example.com', data='example.com')))
+    assert output[0][1]['malicious'] is True
+    assert output[0][1]['provider_coverage'] == ['MalwareWorld', 'VirusTotal']
+    assert output[1][0] == 'FINDING' and output[1][1]['severity'] == 'MEDIUM'
+
+
+def test_unavailable_configured_provider_cannot_become_a_clean_initial_reference():
+    module = object.__new__(host_reputation)
+    module.virustotal_api_keys = ['test']
+    output = []
+    async def feed(*_):
+        return {'malicious': False, 'risk_score': 0, 'sources': [], 'malwareworld': {'matches': []}}
+    async def vt(*_):
+        return {'error': 'rate limited', 'malicious': False}
+    async def emit(data, kind, *_args, **_kwargs):
+        output.append((kind, data))
+    module.check_malwareworld, module.check_vt_domain, module.emit_event = feed, vt, emit
+    with pytest.raises(RuntimeError, match='incomplete'):
+        asyncio.run(module.handle_event(SimpleNamespace(type='DNS_NAME', host='example.com', data='example.com')))
+    assert output == []
+
+
+async def test_provider_cdn_classification_is_persisted_before_other_reputation_sources(bbot_scanner):
+    scan = bbot_scanner('example.com')
+    module = host_reputation(scan)
+    module._name = 'host_reputation'
+    module.abuseipdb_api_key, module.virustotal_api_keys = 'test', ['test']
+    output = []
+    async def abuse(*_):
+        return {'shared': True, 'malicious': False, 'risk_score': 0}
+    async def forbidden(*_):
+        raise AssertionError('A shared CDN must not be checked for reputation')
+    async def emit(data, kind, *_args, **_kwargs):
+        scan.make_event(data, kind, parent=scan.root_event)
+        output.append((kind, data))
+    module.check_abuseipdb, module.check_malwareworld, module.check_vt_ip, module.emit_event = abuse, forbidden, forbidden, emit
+    event = scan.make_event('8.8.8.8', 'IP_ADDRESS', parent=scan.root_event)
+    await module.handle_event(event)
+    assert [kind for kind, _ in output] == ['GEOLOCATION']
+    assert output[0][1]['is_cdn'] is True
+    assert shared_infra.known_frontend(scan, '8.8.8.8') == ('cdn', 'AbuseIPDB')
+
+
+@pytest.mark.parametrize(('score', 'reports', 'expected'), [(89, 10, False), (90, 2, False), (90, 3, True)])
+def test_initial_abuse_evidence_uses_the_monitor_confidence_threshold(score, reports, expected):
+    module = object.__new__(host_reputation)
+    module.abuseipdb_api_key = 'test'
+    async def request(*_args, **_kwargs):
+        return {'data': {'abuseConfidenceScore': score, 'totalReports': reports}}
+    module.request_json = request
+    assert asyncio.run(module.check_abuseipdb('8.8.8.8'))['malicious'] is expected
+
+
+@pytest.mark.parametrize(('malicious', 'suspicious', 'expected'), [(2, 9, False), (3, 0, True)])
+def test_initial_virustotal_evidence_does_not_promote_suspicious_only_votes(malicious, suspicious, expected):
+    module = object.__new__(host_reputation)
+    module.virustotal_api_keys = ['test']
+    async def request(*_args, **_kwargs):
+        return {'data': {'attributes': {'last_analysis_stats': {'malicious': malicious, 'suspicious': suspicious}}}}
+    module.request_json = request
+    assert asyncio.run(module.check_vt('https://www.virustotal.com/api/v3/domains/example.com'))['malicious'] is expected
