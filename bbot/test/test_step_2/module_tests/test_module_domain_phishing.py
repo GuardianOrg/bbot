@@ -756,6 +756,7 @@ def test_domain_phishing_requires_web_20x_or_usable_mx(mx, status, expected, tmp
     assert baselines[0]["candidate"] == "coinba5e.com"
     assert baselines[0]["observed_at"]
     assert baselines[0]["web_active"] is (True if status is not None and 200 <= status < 210 else None)
+    assert baselines[0]["eligible"] is (True if expected else None)
     assert bool(emitted) is expected
     assert len(requested) <= 2
     assert bool(mod.known) is expected

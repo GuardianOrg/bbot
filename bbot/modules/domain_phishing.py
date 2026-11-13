@@ -606,6 +606,7 @@ class domain_phishing(BaseModule):
                 ],
                 "dns_ns": self._as_list(self._pick(candidate, "dns-ns", "dns_ns")),
                 "web_active": None,
+                "eligible": None,
                 "protected_redirect": None,
             }
             observations[candidate_domain] = observation
@@ -625,6 +626,7 @@ class domain_phishing(BaseModule):
             observation["web_active"] = True if web_active else None
             observation["protected_redirect"] = True if protected_redirect else None
             if protected_redirect:
+                observation["eligible"] = False
                 self.debug(
                     f"domain_phishing: suppressing {candidate_domain}; it redirects to protected domain {root_domain}"
                 )
@@ -642,6 +644,8 @@ class domain_phishing(BaseModule):
                 candidate_domain
             )
             observation["fingerprint"] = fingerprint
+            observation["eligible"] = True
+            observation["score"] = score
             tags = ["phishing", "typosquatting", f"fuzzer-{fuzzer.lower()}"]
             description = f"Look-alike domain {candidate_domain} was generated from {root_domain} using the {fuzzer} permutation technique."
             if reasons:
