@@ -2,6 +2,7 @@ from collections import Counter
 from urllib.parse import urlsplit
 
 from bbot.modules.base import BaseInterceptModule
+from bbot.core.helpers.shared_infra import known_frontend, classify_ip
 from bbot.modules.internal.base import BaseInternalModule
 
 # Known library vulnerabilities at high severity remain individual issues.
@@ -542,10 +543,14 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     def summaries(self, category):
         """The summaries of one category: one per library for retirejs, else at most one."""
         selected = self._rows[category]
+        if category == 'reputation':
+            selected = {key: row for key, row in selected.items()
+                        if not (known_frontend(self.scan, key[0]) or classify_ip(key[0]))}
         if not selected:
             return []
         if category != "retirejs":
-            return [self.summary(category, selected, self._hosts[category])]
+            hosts = Counter(key[0] for key in selected) if category == 'reputation' else self._hosts[category]
+            return [self.summary(category, selected, hosts)]
         by_library = {}
         for key, row in selected.items():
             by_library.setdefault(key[1].lower(), {})[key] = row

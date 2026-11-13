@@ -927,3 +927,20 @@ def test_https_content_is_not_hidden_by_a_different_http_redirect():
     candidate = {"dns-a": ["8.8.8.8"]}
     assert asyncio.run(mod._check_candidate_web("examp1e.com", "example.com", candidate)) == (False, True)
     assert visited == ["https://examp1e.com/"]
+
+
+@pytest.mark.parametrize('case', json.loads((Path(__file__).parent / 'fixtures/phishing-page-contract.json').read_text())['cases'], ids=lambda case: case['id'])
+def test_initial_phishing_uses_the_monitor_page_evidence_without_hiding_live_login_forms(case):
+    from urllib.parse import urlparse
+    from bbot.modules.domain_phishing import domain_phishing
+    mod = object.__new__(domain_phishing)
+    requested = []
+    async def request(url, **kwargs):
+        requested.append(url)
+        suffix = ' ' * case.get('padBeforeCredential', 0) + ('<input type="password">' if case.get('padBeforeCredential') else '')
+        return SimpleNamespace(status_code=200, headers={}, content=(case['responses'][urlparse(url).path] + suffix).encode())
+    async def resolve(*_args, **_kwargs):
+        return {'8.8.8.8'}
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request, resolve=resolve))
+    assert asyncio.run(mod._check_candidate_web('exampel.com', 'example.com', {'dns-a': ['8.8.8.8']})) == (False, case['servesContent'])
+    assert all(urlparse(url).hostname == 'exampel.com' for url in requested)

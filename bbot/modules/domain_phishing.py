@@ -12,6 +12,7 @@ import dns.resolver
 
 from bbot.core.helpers.whois import normalize_whois_ownership, whois_result_with_registrant
 from bbot.modules.base import BaseModule
+from bbot.core.helpers.phishing_web import classify_phishing_page, MAX_PAGE_BYTES
 
 
 class domain_phishing(BaseModule):
@@ -414,6 +415,8 @@ class domain_phishing(BaseModule):
         normalized_root = str(root_domain or "").strip().lower().rstrip(".")
         normalized_candidate = str(candidate_domain or "").strip().lower().rstrip(".")
 
+        body_unavailable = object()
+
         async def probe(scheme):
             current_url = f"{scheme}://{candidate_domain}/"
             for _redirect_count in range(self.MAX_REDIRECTS + 1):
@@ -426,8 +429,18 @@ class domain_phishing(BaseModule):
                     return None
                 status_code = int(getattr(response, "status_code", 0) or 0)
                 if 200 <= status_code < 300:
-                    return False, True
-                location = response.headers.get("location") if 300 <= status_code < 400 else None
+                    try:
+                        body = getattr(response, "content", b"")[:MAX_PAGE_BYTES]
+                        parked, redirect = classify_phishing_page(body)
+                    except Exception:
+                        return body_unavailable
+                    if parked:
+                        return False, False
+                    if not redirect:
+                        return False, True
+                    location = redirect
+                else:
+                    location = response.headers.get("location") if 300 <= status_code < 400 else None
                 if not location:
                     return False, False
                 next_url = urljoin(current_url, str(location))
@@ -454,6 +467,8 @@ class domain_phishing(BaseModule):
 
         for scheme in ("https", "http"):
             result = await bounded_probe(scheme)
+            if result is body_unavailable:
+                return False, False
             if result is not None:
                 return result
         return False, False
