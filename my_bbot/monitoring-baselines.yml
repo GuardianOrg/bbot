@@ -37,6 +37,9 @@ config:
   speculate: false
   interactsh_disable: true
   modules:
+    host_reputation:
+      abuseipdb_api_key: ${env:ABUSEIPDB_KEY,${env:ABUSEIPDB_API_KEY,""}}
+      virustotal_api_keys: ${env:VT_KEY_1,${env:VT_API_KEY,${env:VIRUSTOTAL_API_KEY,${env:VT_KEY,""}}}},${env:VT_KEY_2,""},${env:VT_KEY_3,""},${env:VT_KEY_4,""}
     httpx:
       threads: 10
       in_scope_only: true

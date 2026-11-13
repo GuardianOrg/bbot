@@ -38,7 +38,7 @@ class host_reputation(BaseModule):
         "FINDING",
         "VULNERABILITY",
     ]
-    produced_events = ["FINDING", "HOST_REPUTATION"]
+    produced_events = ["FINDING", "HOST_REPUTATION", "GEOLOCATION"]
     flags = ["passive", "safe", "ip-enum"]
     meta = {
         "description": "Check observed indicators against MalwareWorld threat intelligence",
@@ -66,6 +66,7 @@ class host_reputation(BaseModule):
             self.virustotal_api_keys = [k.strip() for k in raw_vt_keys.split(",") if k.strip()]
         else:
             self.virustotal_api_keys = [str(k).strip() for k in (raw_vt_keys or []) if str(k).strip()]
+        self.virustotal_api_keys = list(dict.fromkeys(self.virustotal_api_keys))
         self.otx_api_key = self.config.get("otx_api_key", "")
         self.malwareworld_base = self._normalize_base(
             self.config.get("malwareworld_base", "https://malwareworld.com/data/")
@@ -129,9 +130,14 @@ class host_reputation(BaseModule):
 
         is_ip = self._is_ip(host)
 
-        mw_result = await self.check_malwareworld(host)
-
-        risk_score, malicious, sources = mw_result["risk_score"], mw_result["malicious"], mw_result["sources"]
+        report = await self.collect_host_reputation(host, is_ip)
+        if report.get("shared"):
+            shared_infra.remember_frontend(self.scan, host, "cdn", "AbuseIPDB")
+            await self.emit_event({"host": host, "ip": host, "is_cdn": True, "isCdn": True,
+                                   "usageType": "Content Delivery Network", "provider": "AbuseIPDB"},
+                                  "GEOLOCATION", event, tags=["cdn", "shared-frontend"])
+            return
+        risk_score, malicious, sources = report["risk_score"], report["malicious"], report["sources"]
         verdict = "malicious" if malicious else "not malicious"
         # The host's reputation is asset information in its own right; the FINDING below is
         # only an observation that is grouped with the others of the scan.
@@ -142,15 +148,18 @@ class host_reputation(BaseModule):
                 "risk_score": int(risk_score or 0),
                 "malicious": bool(malicious),
                 "sources": sources,
-                "malwareworld": mw_result["malwareworld"],
+                "malwareworld": report["malwareworld"],
+                "provider_coverage": report["provider_coverage"],
+                "configured_providers": report["configured_providers"],
+                "provider_errors": report["provider_errors"],
+                "provider_verdicts": report["provider_verdicts"],
             },
             "HOST_REPUTATION",
             event,
             context=f"{{module}} checked reputation sources for {host} and emitted {{event.type}}",
         )
         # A completed clean lookup is a baseline observation, never a finding.
-        # check_malwareworld propagates failed/invalid feed reads, so those cannot
-        # be mistaken for a successful clean verdict.
+        # Incomplete negative observations fail before reaching this point.
         if not malicious and risk_score == 0 and not sources:
             return
         await self.emit_event(
@@ -170,7 +179,8 @@ class host_reputation(BaseModule):
                 "risk_score": risk_score,
                 "malicious": malicious,
                 "sources": sources,
-                "malwareworld": mw_result["malwareworld"],
+                "malwareworld": report["malwareworld"],
+                "provider_verdicts": report["provider_verdicts"],
                 "dedupe_key": f"host-reputation:{host}",
             },
             "FINDING",
@@ -247,6 +257,39 @@ class host_reputation(BaseModule):
     def app_indicator(data):
         return data.get("bundle_id") or data.get("bundleId") or data.get("id") or ""
 
+    async def collect_host_reputation(self, host, is_ip):
+        """Record the configured high-confidence providers; a failed provider is never a clean observation."""
+        results, errors, configured = {}, {}, []
+        checks = []
+        if is_ip and getattr(self, "abuseipdb_api_key", ""):
+            checks.append(("AbuseIPDB", self.check_abuseipdb))
+        checks.append(("MalwareWorld", self.check_malwareworld))
+        if getattr(self, "virustotal_api_keys", []):
+            checks.append(("VirusTotal", self.check_vt_ip if is_ip else self.check_vt_domain))
+        for name, check in checks:
+            configured.append(name)
+            try:
+                result = await check(host)
+                if result.get("error") or result.get("rate_limited") or type(result.get("malicious")) is not bool:
+                    raise RuntimeError("Incomplete provider verdict")
+                if result.get("shared"):
+                    return result
+                results[name] = result
+            except Exception as error:
+                errors[name] = type(error).__name__
+        malicious = any(result["malicious"] for result in results.values())
+        if not results or (errors and not malicious):
+            raise RuntimeError("Reputation provider coverage incomplete: " + ", ".join(errors))
+        verdicts = {name: {"malicious": result["malicious"], "risk_score": result.get("risk_score", 0),
+                           "evidence": {key: value for key, value in result.get("details", {}).items()
+                                        if key in {"abuseConfidenceScore", "totalReports", "lastReportedAt", "last_analysis_stats"}}}
+                    for name, result in results.items()}
+        return {"malicious": malicious, "risk_score": max(result.get("risk_score", 0) for result in results.values()),
+                "sources": [source for result in results.values() for source in result.get("sources", [])],
+                "malwareworld": results.get("MalwareWorld", {}).get("malwareworld"),
+                "provider_coverage": sorted(results), "configured_providers": sorted(configured), "provider_errors": errors,
+                "provider_verdicts": verdicts}
+
     async def check_abuseipdb(self, ip):
         if not self.abuseipdb_api_key:
             return {"error": "abuseipdb_api_key not set", "malicious": False}
@@ -256,10 +299,16 @@ class host_reputation(BaseModule):
             headers={"Key": self.abuseipdb_api_key, "Accept": "application/json"},
         )
         data = response.get("data", {}) if isinstance(response, dict) else {}
-        score = self._to_int(data.get("abuseConfidenceScore"))
+        if str(data.get("usageType") or "").strip().lower() == "content delivery network":
+            return {"shared": True, "malicious": False, "risk_score": 0}
+        score, reports = data.get("abuseConfidenceScore"), data.get("totalReports", 0)
+        if type(score) is not int or not 0 <= score <= 100 or type(reports) is not int or reports < 0:
+            raise RuntimeError("AbuseIPDB: invalid confidence counters")
+        malicious = score >= 90 and reports >= 3
         return {
-            "malicious": score > 20,
+            "malicious": malicious,
             "risk_score": score,
+            "sources": [{"source": "IP in AbuseIPDB", "type": "abuse", "listed_date": data.get("lastReportedAt")}] if malicious else [],
             "type": "abuse",
             "listed_date": data.get("lastReportedAt"),
             "details": {
@@ -291,8 +340,9 @@ class host_reputation(BaseModule):
             attributes = response.get("data", {}).get("attributes", {}) if isinstance(response, dict) else {}
             stats = attributes.get("last_analysis_stats", {}) or {}
             analysis_results = attributes.get("last_analysis_results", {}) or {}
-            malicious_count = self._to_int(stats.get("malicious"))
-            suspicious_count = self._to_int(stats.get("suspicious"))
+            malicious_count, suspicious_count = stats.get("malicious"), stats.get("suspicious", 0)
+            if type(malicious_count) is not int or malicious_count < 0 or type(suspicious_count) is not int or suspicious_count < 0:
+                raise RuntimeError("VirusTotal: invalid analysis counters")
             reputation = self._to_int(attributes.get("reputation"))
             risk_score = min(100, malicious_count * 20 + suspicious_count * 10 + max(0, -reputation))
             sources = []
@@ -311,11 +361,12 @@ class host_reputation(BaseModule):
                     }
                 )
             return {
-                "malicious": malicious_count > 1 or suspicious_count > 2,
+                "malicious": malicious_count >= 3,
                 "risk_score": risk_score,
                 "type": "malware-analysis",
                 "listed_date": None,
-                "sources": sources,
+                "sources": sources or ([{"source": "VirusTotal", "type": "malware-analysis", "listed_date": None}]
+                                       if malicious_count >= 3 else []),
                 "details": {
                     "last_analysis_stats": stats,
                     "last_analysis_results": analysis_results,

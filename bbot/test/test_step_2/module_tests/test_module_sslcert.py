@@ -17,6 +17,7 @@ def test_sslcert_rechecks_scoped_san_host_with_sni_only_on_its_resolved_ip():
         helpers=SimpleNamespace(
             resolve=lambda name: asyncio.sleep(0, result=resolved.get(name, [])),
             make_netloc=lambda name, port: f"{name}:{port}",
+            is_ip=lambda name: name == "34.54.2.96",
         ),
     )
     visited = []
@@ -47,7 +48,8 @@ def test_sslcert_rechecks_scoped_san_host_with_sni_only_on_its_resolved_ip():
     )
 
     assert visited == [("34.54.2.96", 5556, "fix.bakkt.com")]
-    assert len(emitted) == 1
+    assert [kind for _, kind, _ in emitted] == ["TLS_CERTIFICATE", "FINDING"]
+    assert emitted[1][0]["title"] == "TLS certificate is expired for fix.bakkt.com"
     data, event_type, kwargs = emitted[0]
     assert event_type == "TLS_CERTIFICATE"
     assert data["host"] == "fix.bakkt.com"

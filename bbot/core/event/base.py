@@ -1905,6 +1905,10 @@ class HOST_REPUTATION(DictHostEvent):
         malicious: bool
         sources: list[dict]
         malwareworld: Optional[dict] = None
+        provider_coverage: Optional[list[str]] = None
+        configured_providers: Optional[list[str]] = None
+        provider_errors: Optional[dict[str, str]] = None
+        provider_verdicts: Optional[dict[str, dict]] = None
         _validate_host = field_validator("host")(validators.validate_host)
 
     def _data_id(self):

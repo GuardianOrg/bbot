@@ -12,12 +12,13 @@ from urllib.parse import urlparse
 from bbot.errors import ValidationError
 from bbot.modules.base import BaseModule
 from bbot.core.helpers.async_helpers import NamedLock
+from bbot.core.helpers.certificate_findings import initial_certificate_findings
 from bbot.core.helpers.web.ssl_context import ssl_context_noverify
 
 
 class sslcert(BaseModule):
     watched_events = ["OPEN_TCP_PORT", "URL", "HTTP_RESPONSE"]
-    produced_events = ["DNS_NAME", "EMAIL_ADDRESS", "TLS_CERTIFICATE"]
+    produced_events = ["DNS_NAME", "EMAIL_ADDRESS", "TLS_CERTIFICATE", "FINDING"]
     flags = ["affiliates", "subdomain-enum", "email-enum", "active", "safe", "web-basic", "service-web"]
     meta = {
         "description": "Visit open ports and retrieve SSL certificates",
@@ -105,6 +106,7 @@ class sslcert(BaseModule):
                     parent=event,
                     context=f"{{module}} retrieved TLS certificate metadata from {cert_event_data['host']}:{port}",
                 )
+                await self.emit_initial_findings(cert_event_data, event)
                 if server_name is None:
                     await self.recheck_scoped_san_hosts(event, cert_data, str(host), port)
             if len(dns_names) > abort_threshold:
@@ -175,7 +177,27 @@ class sslcert(BaseModule):
                     context=f"{{module}} rechecked TLS certificate for {name}:{port} with SNI",
                 )
 
+                await self.emit_initial_findings(payload, event)
+
         await asyncio.gather(*(recheck(name) for name in names))
+
+    async def emit_initial_findings(self, data, parent):
+        host = str(data.get("host") or "")
+        if not self.scan.in_scope(host):
+            return
+        explicit_ip = False
+        if self.helpers.is_ip(host):
+            # A CIDR or a discovered edge address does not make its default leaf a target.
+            seeds = getattr(getattr(getattr(self.scan, "target", None), "seeds", None), "event_seeds", {})
+            for seed in seeds:
+                if seed.type == "IP_ADDRESS" and str(seed.data) == host:
+                    explicit_ip = True
+                elif seed.type in ("URL", "URL_UNVERIFIED"):
+                    url = urlparse(str(seed.data))
+                    explicit_ip |= url.scheme == "https" and url.hostname == host and (url.port or 443) == data.get("port", 443)
+        for finding in initial_certificate_findings(data, explicit_ip=explicit_ip):
+            await self.emit_event(finding, "FINDING", parent=parent,
+                                  context="{module} recorded a verified initial TLS certificate issue")
 
     async def visit_host(self, host, port, server_name=None):
         host = self.helpers.make_ip_type(host)
