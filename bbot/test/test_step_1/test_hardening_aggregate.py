@@ -679,3 +679,19 @@ async def test_a_lookalike_with_neither_website_nor_mail_is_passed_on(bbot_scann
     assert await h.feed(lookalike(h, "exampel.com", "example.com"))
     await h.finish_rounds()
     assert h.emitted == []
+
+
+def test_late_shared_frontend_classification_removes_reputation_row_without_hiding_dedicated_host():
+    import asyncio
+    from types import SimpleNamespace
+    from bbot.modules.internal.hardening_aggregate import hardening_aggregate
+    from bbot.core.helpers.shared_infra import remember_frontend
+    mod = object.__new__(hardening_aggregate)
+    mod.scan = SimpleNamespace()
+    asyncio.run(mod.setup())
+    for host in ('1.2.3.4', '1.2.3.5'):
+        mod._merge_row('reputation', (host, host), {'malicious': True, 'severity': 'MEDIUM',
+                       'risk_score': '100', 'sources': {'MalwareWorld:Phishing'}})
+    remember_frontend(mod.scan, '1.2.3.4', 'cdn', 'provider')
+    rows = mod.summaries('reputation')[0]['table']['rows']
+    assert [row[0] for row in rows] == ['1.2.3.5']
