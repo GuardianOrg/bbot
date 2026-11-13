@@ -47,3 +47,56 @@ def test_initial_dns_preserves_absence_but_not_failed_or_conflicting_answers():
         "MX": "resolvers-disagree",
         "SRV": "lookup-unavailable",
     }
+
+
+def test_initial_dangling_cname_requires_repeated_corroboration_and_emits_matching_finding():
+    from bbot.modules.monitoring_dns import monitoring_dns
+    module = object.__new__(monitoring_dns)
+    captured = []
+    current = {'target': 'deleted.example.net', 'missing': True}
+
+    async def query(host, kind, provider):
+        return True, [current['target']] if kind == 'CNAME' else []
+
+    async def missing(target, provider):
+        return current['missing']
+
+    async def emit(payload, kind, **kwargs):
+        captured.append((kind, payload))
+        return SimpleNamespace(data=payload)
+
+    module.query_record, module.target_nxdomain, module.emit_event = query, missing, emit
+    event = SimpleNamespace(host='app.example.com')
+    asyncio.run(module.handle_event(event))
+    assert not [row for row in captured if row[0] == 'FINDING']
+    asyncio.run(module.finish())
+    findings = [row[1] for row in captured if row[0] == 'FINDING']
+    assert len(findings) == 1
+    assert findings[0]['severity'] == 'HIGH'
+    assert findings[0]['monitor_targets'] == ['deleted.example.net']
+    asyncio.run(module.finish())
+    assert len([row for row in captured if row[0] == 'FINDING']) == 1
+    # A candidate that recovers before confirmation cannot become a finding.
+    current['target'] = 'recovered.example.net'
+    asyncio.run(module.handle_event(event))
+    current['missing'] = False
+    asyncio.run(module.finish())
+    assert len([row for row in captured if row[0] == 'FINDING']) == 1
+
+
+def test_target_existence_distinguishes_nxdomain_nodata_and_unavailable(monkeypatch):
+    import dns.resolver
+    import dns.exception
+    import bbot.modules.monitoring_dns as source
+    module = object.__new__(source.monitoring_dns)
+    outcome = {'error': None}
+    class Resolver:
+        async def resolve(self, *args, **kwargs):
+            if outcome['error']:
+                raise outcome['error']
+            return []
+    monkeypatch.setattr(source.dns.asyncresolver, 'Resolver', lambda **kwargs: Resolver())
+    for error, expected in [(None, False), (dns.resolver.NXDOMAIN(), True),
+                            (dns.resolver.NoAnswer(), False), (dns.exception.Timeout(), None)]:
+        outcome['error'] = error
+        assert asyncio.run(module.target_nxdomain('target.example.net', '1.1.1.1')) is expected
