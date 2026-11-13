@@ -670,7 +670,7 @@ def test_domain_phishing_does_not_follow_redirects_to_private_addresses():
         False,
         False,
     )
-    assert set(requested_urls) == {"https://guardian-audits.com/", "http://guardian-audits.com/"}
+    assert requested_urls == ["https://guardian-audits.com/"]
 
 
 @pytest.mark.parametrize(
@@ -906,3 +906,23 @@ def test_domain_phishing_skips_lookalikes_that_are_scanned_domains(tmp_path):
     asyncio.run(mod.handle_event(SimpleNamespace(data="bakkt.com")))
 
     assert emitted == ["bakkt.xyz"]
+
+
+def test_https_content_is_not_hidden_by_a_different_http_redirect():
+    from bbot.modules.domain_phishing import domain_phishing
+
+    mod = object.__new__(domain_phishing)
+    visited = []
+
+    async def request(url, **_kwargs):
+        visited.append(url)
+        return (
+            SimpleNamespace(status_code=200, headers={})
+            if url.startswith("https:")
+            else SimpleNamespace(status_code=302, headers={"location": "https://example.com/"})
+        )
+
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(request=request))
+    candidate = {"dns-a": ["8.8.8.8"]}
+    assert asyncio.run(mod._check_candidate_web("examp1e.com", "example.com", candidate)) == (False, True)
+    assert visited == ["https://examp1e.com/"]

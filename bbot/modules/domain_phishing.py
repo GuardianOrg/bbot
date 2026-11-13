@@ -423,9 +423,9 @@ class domain_phishing(BaseModule):
                     timeout=self.REDIRECT_TIMEOUT_SECONDS,
                 )
                 if response is None:
-                    return False, False
+                    return None
                 status_code = int(getattr(response, "status_code", 0) or 0)
-                if 200 <= status_code < 210:
+                if 200 <= status_code < 300:
                     return False, True
                 location = response.headers.get("location") if 300 <= status_code < 400 else None
                 if not location:
@@ -450,10 +450,13 @@ class domain_phishing(BaseModule):
                 # Bound the whole redirect chain, and check both schemes concurrently.
                 return await asyncio.wait_for(probe(scheme), timeout=self.REDIRECT_TIMEOUT_SECONDS)
             except Exception:
-                return False, False
+                return None
 
-        results = await asyncio.gather(*(bounded_probe(scheme) for scheme in ("https", "http")))
-        return any(protected for protected, _ in results), any(active for _, active in results)
+        for scheme in ("https", "http"):
+            result = await bounded_probe(scheme)
+            if result is not None:
+                return result
+        return False, False
 
     @staticmethod
     def _is_public_ip(address):
