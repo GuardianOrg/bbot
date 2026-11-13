@@ -213,3 +213,10 @@ def test_initial_registration_findings_preserve_expiry_lifecycle_and_registry_vi
     findings = initial_registration_findings({'host': 'example.ch', 'whois_status': ['pendingDelete'],
                                              'lock_statuses_published': False}, now=now)
     assert len(findings) == 1 and findings[0]['severity'] == 'CRITICAL'
+
+
+def test_free_form_registry_text_cannot_prove_a_missing_transfer_lock():
+    from bbot.core.helpers.registration_findings import initial_registration_findings
+    assert initial_registration_findings({'host': 'example.uk', 'whois_status': ['Registered until expiry date.']}) == []
+    findings = initial_registration_findings({'host': 'example.uk', 'whois_status': ['pendingDelete']})
+    assert any(row['severity'] == 'CRITICAL' for row in findings)
