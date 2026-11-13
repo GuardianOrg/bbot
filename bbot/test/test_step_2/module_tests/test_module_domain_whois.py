@@ -179,3 +179,37 @@ def test_domain_whois_rdap_bootstrap_preserves_registration_status():
     assert result["status"] == ["client transfer prohibited"]
     assert result["creation_date"] == "2016-07-24T00:36:56.017Z"
     assert result["registrar"] == "Example Registrar"
+
+
+def test_initial_whois_risk_is_reported_in_addition_to_baseline_metadata():
+    import asyncio
+    from types import SimpleNamespace
+    from bbot.modules.domain_whois import domain_whois
+    mod = object.__new__(domain_whois)
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(split_domain=lambda _: ('', 'example.com')))
+    mod.lookup_whois = lambda _: {'registrar': 'Example Registrar', 'status': ['pendingDelete']}
+    emitted = []
+    async def emit(data, kind, **kwargs):
+        emitted.append((kind, data))
+        return object()
+    mod.emit_event = emit
+    asyncio.run(mod.handle_event(SimpleNamespace(data='example.com')))
+    assert any(kind == 'DOMAIN_WHOIS' for kind, _ in emitted)
+    assert any(kind == 'FINDING' and data['severity'] == 'CRITICAL' and 'lifecycle' in data['title'] for kind, data in emitted)
+
+
+def test_initial_registration_findings_preserve_expiry_lifecycle_and_registry_visibility():
+    from datetime import timezone, timedelta
+    from bbot.core.helpers.registration_findings import initial_registration_findings
+    now = datetime(2026, 11, 13, tzinfo=timezone.utc)
+    secure = ['clientTransferProhibited', 'clientDeleteProhibited', 'clientUpdateProhibited']
+    for days, severity, window in [(20, 'HIGH', 30), (5, 'CRITICAL', 7), (-1, 'CRITICAL', 0)]:
+        findings = initial_registration_findings({'host': 'example.com', 'whois_status': secure,
+            'expiration_date': (now + timedelta(days=days)).isoformat()}, now=now)
+        assert len(findings) == 1 and findings[0]['severity'] == severity
+        assert findings[0]['monitor_value'] == f'expiry:{window}'
+    assert initial_registration_findings({'host': 'example.com', 'whois_status': []}, now=now) == []
+    assert initial_registration_findings({'host': 'example.ch', 'whois_status': ['active']}, now=now) == []
+    findings = initial_registration_findings({'host': 'example.ch', 'whois_status': ['pendingDelete'],
+                                             'lock_statuses_published': False}, now=now)
+    assert len(findings) == 1 and findings[0]['severity'] == 'CRITICAL'

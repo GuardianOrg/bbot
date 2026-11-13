@@ -4,12 +4,13 @@ from urllib.parse import quote, urljoin
 
 from bbot.core.helpers.whois import normalize_whois_ownership, whois_first_string, whois_result_with_registrant
 from bbot.modules.base import BaseModule
+from bbot.core.helpers.registration_findings import initial_registration_findings, lock_statuses_published
 
 
 class domain_whois(BaseModule):
     fatal_on_error = True
     watched_events = ["DNS_NAME"]
-    produced_events = ["DOMAIN_WHOIS"]
+    produced_events = ["DOMAIN_WHOIS", "FINDING"]
     flags = ["passive", "safe", "subdomain-enum"]
     meta = {
         "description": "Query domain WHOIS data and emit structured registrar/registrant metadata",
@@ -67,6 +68,12 @@ class domain_whois(BaseModule):
         )
         if emitted is None:
             raise RuntimeError(f"DOMAIN_WHOIS event was not delivered for {target}")
+
+        for finding in initial_registration_findings(payload):
+            delivered = await self.emit_event(finding, "FINDING", parent=event,
+                                             context="{module} recorded an initial registration issue")
+            if delivered is None:
+                raise RuntimeError(f"Initial registration finding was not delivered for {target}")
 
     def lookup_whois(self, domain):
         import whois
@@ -179,6 +186,7 @@ class domain_whois(BaseModule):
             "registrant_country": ownership["registrant_country"],
             "dnssec": self.parse_dnssec(result.get("dnssec")),
             "whois_status": self.string_list(result.get("status")),
+            "lock_statuses_published": lock_statuses_published(host, self.string_list(result.get("status"))),
             "raw": {k: self.json_safe(v) for k, v in result.items() if v is not None},
         }
 
