@@ -9,6 +9,7 @@ import dns.exception
 import dns.resolver
 
 from bbot.modules.base import BaseModule
+from bbot.core.helpers.misc import is_domain
 
 
 class monitoring_dns(BaseModule):
@@ -69,7 +70,7 @@ class monitoring_dns(BaseModule):
         # to the security-relevant SOA identity or timing values.
         return sorted(" ".join(parts[:2] + parts[3:]) if len(parts := row.split()) >= 7 else row for row in values)
 
-    async def collect(self, host):
+    async def collect(self, host, kinds=None):
         async def query(kind):
             results = await asyncio.gather(*(self.query_record(host, kind, provider) for provider in self.RESOLVERS))
             if not all(success for success, _ in results):
@@ -79,7 +80,7 @@ class monitoring_dns(BaseModule):
                 return kind, None, "resolvers-disagree"
             return kind, answers[0], None
 
-        rows = await asyncio.gather(*(query(kind) for kind in self.RECORD_TYPES))
+        rows = await asyncio.gather(*(query(kind) for kind in (kinds or self.RECORD_TYPES)))
         payload = {
             "host": host,
             "monitoring_records": {kind: values for kind, values, error in rows if error is None},
@@ -137,3 +138,13 @@ class monitoring_dns(BaseModule):
             candidates = getattr(self, "_dangling_candidates", {})
             candidates[host] = (targets, event)
             self._dangling_candidates = candidates
+        if is_domain(host) or "target" in getattr(event, "tags", set()):
+            policies = await asyncio.gather(*(self.collect(prefix + host, ("TXT",))
+                                              for prefix in ("_dmarc.", "_mta-sts.", "_smtp._tls.")))
+            for policy in policies:
+                policy["monitoring_owner"] = policy["host"]
+                policy["host"] = host  # Keep the asset host for scope/address validation; preserve the exact TXT owner separately.
+                delivered = await self.emit_event(policy, "DOMAIN_DNS_CONFIG", parent=event,
+                                                  context="{module} recorded an initial mail-policy comparison value")
+                if delivered is None:
+                    raise RuntimeError(f"Initial mail policy facts were not persisted for {policy['host']}")

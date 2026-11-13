@@ -36,7 +36,7 @@ def test_initial_dns_preserves_absence_but_not_failed_or_conflicting_answers():
     module.query_record = query
     module.emit_event = emit
     asyncio.run(module.handle_event(SimpleNamespace(host="example.com")))
-    assert len(captured) == 1
+    assert len(captured) == 4
     data = captured[0].data
     assert data["monitoring_records"]["A"] == []
     assert data["monitoring_records"]["TXT"] == ["v=spf1 include:mail.example ~all"]
@@ -133,3 +133,22 @@ class TestMonitoringDnsBrokenAlias(ModuleTestBase):
         assert findings[0].data['severity'] == 'HIGH'
         assert findings[0].data['monitor_targets'] == ['gone.example.net']
         assert any(event.type == 'DOMAIN_DNS_CONFIG' for event in events)
+
+
+class TestMonitoringDnsMailPolicies(TestMonitoringDnsBrokenAlias):
+    targets = ['example.com']
+
+    async def setup_after_prep(self, module_test):
+        await module_test.mock_dns({'example.com': {'A': ['8.8.8.8']}})
+        values = {'_dmarc.example.com': ['v=DMARC1; p=reject'],
+                  '_mta-sts.example.com': ['v=STSv1; id=original'],
+                  '_smtp._tls.example.com': ['v=TLSRPTv1; rua=mailto:reports@example.com']}
+        async def query(host, kind, provider):
+            return True, values.get(host, []) if kind == 'TXT' else ['8.8.8.8'] if kind == 'A' else []
+        module_test.monkeypatch.setattr(module_test.module, 'query_record', query)
+
+    def check(self, module_test, events):
+        facts = {event.data.get('monitoring_owner', event.data['host']): event.data for event in events if event.type == 'DOMAIN_DNS_CONFIG'}
+        assert facts['_dmarc.example.com']['monitoring_records'] == {'TXT': ['v=DMARC1; p=reject']}
+        assert facts['_mta-sts.example.com']['monitoring_records'] == {'TXT': ['v=STSv1; id=original']}
+        assert facts['_smtp._tls.example.com']['monitoring_records'] == {'TXT': ['v=TLSRPTv1; rua=mailto:reports@example.com']}
