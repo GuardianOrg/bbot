@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+from .base import ModuleTestBase
+
 
 def test_initial_dns_preserves_absence_but_not_failed_or_conflicting_answers():
     from bbot.modules.monitoring_dns import monitoring_dns
@@ -100,3 +102,34 @@ def test_target_existence_distinguishes_nxdomain_nodata_and_unavailable(monkeypa
                             (dns.resolver.NoAnswer(), False), (dns.exception.Timeout(), None)]:
         outcome['error'] = error
         assert asyncio.run(module.target_nxdomain('target.example.net', '1.1.1.1')) is expected
+
+
+
+class TestMonitoringDnsBrokenAlias(ModuleTestBase):
+    module_name = 'monitoring_dns'
+    targets = ['app.example.com']
+    config_overrides = {'deps': {'behavior': 'disable'}, 'dns': {'emit_unresolved': False},
+                        'omit_event_types': ['DNS_NAME_UNRESOLVED']}
+
+    async def setup_before_prep(self, module_test):
+        from bbot.core.helpers.depsinstaller.installer import DepsInstaller
+        async def fake_install_core_deps(self):
+            return None
+        module_test.monkeypatch.setattr(DepsInstaller, 'install_core_deps', fake_install_core_deps)
+
+    async def setup_after_prep(self, module_test):
+        await module_test.mock_dns({'app.example.com': {'CNAME': ['gone.example.net']}})
+        async def query(host, kind, provider):
+            return True, ['gone.example.net'] if kind == 'CNAME' else []
+        async def missing(target, provider):
+            return True
+        module_test.monkeypatch.setattr(module_test.module, 'query_record', query)
+        module_test.monkeypatch.setattr(module_test.module, 'target_nxdomain', missing)
+
+    def check(self, module_test, events):
+        findings = [event for event in events if event.type == 'FINDING'
+                    and event.data.get('title') == 'Dangling CNAME for app.example.com']
+        assert len(findings) == 1
+        assert findings[0].data['severity'] == 'HIGH'
+        assert findings[0].data['monitor_targets'] == ['gone.example.net']
+        assert any(event.type == 'DOMAIN_DNS_CONFIG' for event in events)
