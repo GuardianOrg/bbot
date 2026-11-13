@@ -93,6 +93,13 @@ class website_origin_policy(BaseInterceptModule):
     async def handle_event(self, event, **kwargs):
         if not self.origins or event.type in SCAN_LIFECYCLE_EVENT_TYPES:
             return True
+        if event.type == "TLS_CERTIFICATE":
+            # Keep the certificate of the supplied HTTPS endpoint, never SAN
+            # discoveries or an unbound certificate borrowed from an ancestor.
+            origin = url_origin(event)
+            if origin in self.origins and origin[0] == "https":
+                return True
+            return False, "certificate is not tied to an explicit HTTPS origin"
         if event.type in NON_WEBSITE_EVENT_TYPES:
             return False, "website-only scan does not discover around its origins"
         if self._is_grouped_summary(event):

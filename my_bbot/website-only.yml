@@ -6,6 +6,7 @@ modules:
   - website_origin_policy
   - offchain_scope_filter
   - httpx
+  - sslcert
   - whatweb
   - retirejs
   - badsecrets
@@ -26,7 +27,6 @@ config:
     - IP_RANGE
     - OPEN_TCP_PORT
     - OPEN_UDP_PORT
-    - TLS_CERTIFICATE
   scope:
     strict: true
     search_distance: 0
