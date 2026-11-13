@@ -1935,6 +1935,7 @@ class DOMAIN_WHOIS(DictHostEvent):
         registrant_country: Optional[str] = None
         dnssec: Optional[bool] = None
         whois_status: Optional[list[str]] = None
+        lock_statuses_published: Optional[bool] = None
         raw: Optional[dict] = None
         _validate_host = field_validator("host")(validators.validate_host)
 
@@ -2017,6 +2018,7 @@ class DOMAIN_DNS_CONFIG(DictHostEvent):
         wildcard_ips: Optional[list[str]] = None
         wildcard_records: Optional[dict[str, list[str]]] = None
         optional_reporting: Optional[dict[str, bool]] = None
+        monitoring_owner: Optional[str] = None
         monitoring_records: Optional[dict[str, list[str]]] = None
         monitoring_errors: Optional[dict[str, str]] = None
         monitoring_resolvers: Optional[list[str]] = None

@@ -221,3 +221,10 @@ def test_free_form_registry_text_cannot_prove_a_missing_transfer_lock():
     findings = initial_registration_findings({'host': 'example.uk', 'whois_status': ['pendingDelete']})
     assert any(row['severity'] == 'CRITICAL' for row in findings)
     assert any(row['monitor_value'] == 'lock:missing' for row in findings)
+
+
+def test_registration_lock_publication_provenance_survives_the_event_schema():
+    from bbot.core.event import make_event
+    event = make_event({'host': 'example.ch', 'whois_status': ['active'],
+                        'lock_statuses_published': False}, 'DOMAIN_WHOIS', dummy=True)
+    assert event.data.get('lock_statuses_published') is False
