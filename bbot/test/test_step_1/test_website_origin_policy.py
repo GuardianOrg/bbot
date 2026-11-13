@@ -49,6 +49,21 @@ def test_discovery_around_the_origins_is_refused():
         assert check(policy, kind, "example.com")[0] is False, kind
 
 
+def test_tls_baseline_is_kept_only_for_an_explicit_https_origin():
+    policy = make_policy()
+    assert (
+        check(policy, "TLS_CERTIFICATE", {"url": "https://example.com/", "host": "example.com", "port": 443}) is True
+    )
+    allowed_parent = SimpleNamespace(data="https://example.com/", parent=None)
+    for value in (
+        {"host": "example.com", "port": 443},
+        {"url": "https://child.example.com/", "host": "child.example.com", "port": 443},
+        {"url": "https://example.com:8443/", "host": "example.com", "port": 8443},
+        {"url": "http://www.example.com:8080/", "host": "www.example.com", "port": 8080},
+    ):
+        assert check(policy, "TLS_CERTIFICATE", value, allowed_parent)[0] is False
+
+
 def test_an_event_without_a_url_takes_the_origin_of_its_nearest_url_ancestor():
     policy = make_policy()
     root = SimpleNamespace(type="SCAN", data={"id": "scan"}, parent=None)
@@ -116,7 +131,7 @@ def test_website_only_preset_runs_the_policy_first_and_no_discovery_module():
     preset = Preset("https://example.com/login")
     preset.merge(Preset.from_yaml_file(path))
     baked = preset.bake()
-    assert {"website_origin_policy", "offchain_scope_filter", "httpx", "wafw00f"} <= set(baked.scan_modules)
+    assert {"website_origin_policy", "offchain_scope_filter", "httpx", "sslcert", "wafw00f"} <= set(baked.scan_modules)
     assert not {"naabu", "dnsbrute", "subfinder", "nuclei", "service_fingerprint"} & set(baked.scan_modules)
     assert baked.config.speculate is False and baked.config.cloudcheck is False
     assert baked.config.scope.strict is True

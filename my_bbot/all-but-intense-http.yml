@@ -25,6 +25,7 @@ modules:
   - dnsdumpster
   - offchain_scope_filter
   - domain_config_dns_audit
+  - monitoring_dns
   - domain_phishing
   - docker_pull
   - extractous

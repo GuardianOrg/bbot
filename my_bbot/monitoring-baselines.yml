@@ -1,0 +1,46 @@
+description: >-
+  Refresh initial monitoring observations using DNS, registration, CT, TLS,
+  root HTTP responses, look-alike ownership and reputation. No port scanning,
+  credential exposure, application crawling or vulnerability probing.
+
+modules:
+  - offchain_scope_filter
+  - monitoring_dns
+  - domain_whois
+  - crt
+  - httpx
+  - sslcert
+  - domain_phishing
+  - host_reputation
+
+# host_reputation consumes existing social observations during full scans;
+# that optional input must not enable URL discovery in a baseline refresh.
+exclude_modules:
+  - social
+
+output_modules:
+  - sqlite
+
+config:
+  omit_event_types:
+    - RAW_TEXT
+    - FILESYSTEM
+    - WEB_PARAMETER
+    - DNS_NAME_UNRESOLVED
+  scope:
+    search_distance: 0
+    report_distance: 0
+  dns:
+    emit_out_of_scope_children: false
+    emit_unresolved: false
+  aggregate: false
+  speculate: false
+  interactsh_disable: true
+  modules:
+    httpx:
+      threads: 10
+      in_scope_only: true
+      max_response_size: 1048576
+      store_responses: false
+      probe_all_ips: false
+      probe_dns_names: true
