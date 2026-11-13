@@ -13,6 +13,11 @@ modules:
   - domain_phishing
   - host_reputation
 
+# host_reputation consumes existing social observations during full scans;
+# that optional input must not enable URL discovery in a baseline refresh.
+exclude_modules:
+  - social
+
 output_modules:
   - sqlite
 
