@@ -193,11 +193,11 @@ async def fetch_website(address, host, port, tls, path="/", timeout=4, headers=N
         return None
     finally:
         if writer is not None:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+            # Abort instead of closing gracefully: the body is cut at 128 KiB, so part of the response can still be
+            # unread, and a graceful TLS close has to get past it. When the server closed while asyncio had paused
+            # reading (a full stream buffer), Python 3.11's SSL transport never finished that close, so
+            # wait_closed() never returned and the whole scan stalled.
+            writer.transport.abort()
 
 
 class originfinder(BaseModule):

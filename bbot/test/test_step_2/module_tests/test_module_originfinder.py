@@ -1,5 +1,8 @@
 import asyncio
+import socket
 import ssl
+import threading
+import time
 import zlib
 from collections import defaultdict
 from pathlib import Path
@@ -131,6 +134,59 @@ async def test_https_direct_probe_sends_hostname_as_tls_sni():
     assert len(result["cert_sha256"]) == 64
     assert observed["sni"] == "app.example.com"
     assert f"Host: app.example.com:{port}\r\n".encode() in observed["request"]
+
+
+@pytest.mark.asyncio
+async def test_https_probe_returns_when_server_closes_during_an_oversized_response():
+    # A 238 KB favicon, read on a busy scan loop, left originfinder waiting forever for the connection to close,
+    # so the whole scan stalled.
+    body = b"\x00" * 238654
+    wire = (
+        b"HTTP/1.1 200 OK\r\nContent-Type: image/vnd.microsoft.icon\r\n"
+        + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+        + body
+    )
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    fixture_dir = Path(__file__).parents[2]
+    context.load_cert_chain(fixture_dir / "testsslcert.pem", fixture_dir / "testsslkey.pem")
+    listener = socket.create_server(("127.0.0.1", 0))
+    release = threading.Event()
+
+    def serve():
+        raw, _ = listener.accept()
+        with context.wrap_socket(raw, server_side=True) as conn:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(4096)
+            # Two reads, as over a network: the first fills the probe's stream buffer past its limit, so asyncio
+            # pauses reading, and the server's FIN arrives while reading is still paused.
+            conn.sendall(wire[:205000])
+            time.sleep(0.01)
+            conn.sendall(wire[205000:])
+            conn.shutdown(socket.SHUT_WR)
+            release.wait(10)
+
+    async def busy():
+        # During a scan every await waits behind other modules' work.
+        while True:
+            time.sleep(0.002)
+            await asyncio.sleep(0)
+
+    server = threading.Thread(target=serve, daemon=True)
+    server.start()
+    load = [asyncio.create_task(busy()) for _ in range(8)]
+    try:
+        result = await asyncio.wait_for(
+            fetch_website("127.0.0.1", "app.example.com", listener.getsockname()[1], True, "/favicon.ico"), 5
+        )
+    finally:
+        for task in load:
+            task.cancel()
+        await asyncio.gather(*load, return_exceptions=True)
+        release.set()
+        listener.close()
+        server.join(5)
+    assert result["status"] == 200
 
 
 def fake_module(monkeypatch, origin_response):
