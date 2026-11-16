@@ -236,6 +236,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     }
     # run after the tagging intercept modules, right before the event is distributed
     _priority = 5
+    # Look-alike domains and the addresses of reported hosts are outside the scan's targets; group them too.
+    scope_distance_modifier = None
 
     async def setup(self):
         self._rows = {category: {} for category in CATEGORIES}

@@ -619,6 +619,18 @@ def lookalike(h, domain, protected, fuzzer="homoglyph", mx=(), web=False, severi
 
 
 @pytest.mark.asyncio
+async def test_out_of_scope_lookalikes_are_grouped_by_a_scan_that_does_not_search_beyond_its_targets(bbot_scanner):
+    # A look-alike is never one of the scanned domains, so its finding sits outside the scan's search distance.
+    h = await harness(bbot_scanner)
+    event = lookalike(h, "examp1e.com", "example.com", web=True)
+    assert event.scope_distance > h.scan.scope_search_distance
+    assert await h.module._event_postcheck(event) == (True, "")
+    assert not await h.feed(event)
+    await h.finish_rounds()
+    assert set(h.by_category()) == {"grouped:phishing_websites"}
+
+
+@pytest.mark.asyncio
 async def test_lookalike_websites_and_mail_domains_get_one_summary_each(bbot_scanner):
     h = await harness(bbot_scanner)
     assert not await h.feed(lookalike(h, "examp1e.com", "example.com", web=True, severity="LOW",
