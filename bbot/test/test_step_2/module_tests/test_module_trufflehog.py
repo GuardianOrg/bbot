@@ -1300,7 +1300,8 @@ class TestTrufflehog_HTTPResponse(ModuleTestBase):
     config_overrides = {"modules": {"trufflehog": {"only_verified": False}}}
 
     page_url = "http://127.0.0.1:8888/docs"
-    secret_body = '<script>const db = "https://admin:admin@internal.host.com";</script>'
+    secret = "https://admin:admin@internal.host.com"
+    secret_body = f'<script>const db = "{secret}";</script>'
     # Each response carries the same secret; only the in-scope text page may be scanned.
     responses = [
         (page_url, "text/html; charset=utf-8"),
@@ -1327,9 +1328,16 @@ class TestTrufflehog_HTTPResponse(ModuleTestBase):
     def check(self, module_test, events):
         findings = [e for e in events if e.type == "FINDING"]
         assert [e.data["url"] for e in findings] == [self.page_url], "Only the in-scope text page should be scanned"
-        description = findings[0].data["description"]
-        assert f"found in the web response from {self.page_url}" in description
-        assert "source code history" not in description
+        data = findings[0].data
+        # Reported as a secret, so Sentry groups every page serving the same value into one finding.
+        assert data["category"] == "secret"
+        assert data["title"] == "Leak of URI detected in a public artifact"
+        assert data["secretValue"] == data["secret_value"] == self.secret
+        assert data["dedupe_key"] == f"github-leak-secret:{data['secretFingerprint']}"
+        # The page is named instead of the temporary file it was scanned from.
+        assert data["path"] == self.page_url
+        assert f"in {self.page_url}:line " in data["description"]
+        assert "source code history" not in data["description"]
 
 
 class TestTrufflehog_RAWText(ModuleTestBase):
