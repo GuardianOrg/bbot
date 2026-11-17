@@ -1295,16 +1295,49 @@ class TestTrufflehog_NonVerified(TestTrufflehog):
 
 class TestTrufflehog_HTTPResponse(ModuleTestBase):
     targets = ["http://127.0.0.1:8888"]
-    modules_overrides = ["httpx", "trufflehog"]
+    module_name = "trufflehog"
+    modules_overrides = ["trufflehog"]
     config_overrides = {"modules": {"trufflehog": {"only_verified": False}}}
 
-    async def setup_before_prep(self, module_test):
-        expect_args = {"method": "GET", "uri": "/"}
-        respond_args = {"response_data": "https://admin:admin@internal.host.com"}
-        module_test.set_expect_requests(expect_args=expect_args, respond_args=respond_args)
+    page_url = "http://127.0.0.1:8888/docs"
+    secret = "https://admin:admin@internal.host.com"
+    secret_body = f'<script>const db = "{secret}";</script>'
+    # Each response carries the same secret; only the in-scope text page may be scanned.
+    responses = [
+        (page_url, "text/html; charset=utf-8"),
+        ("http://127.0.0.1:8888/logo.png", "image/png"),
+        ("http://127.0.0.2:8888/docs", "text/html"),
+    ]
+
+    async def setup_after_prep(self, module_test):
+        # HTTP execution is tested in the httpx module; inject saved responses into the real event pipeline.
+        for url, content_type in self.responses:
+            await module_test.module.emit_event(
+                {
+                    "url": url,
+                    "method": "GET",
+                    "status_code": 200,
+                    "raw_header": f"HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\n\r\n",
+                    "body": self.secret_body,
+                },
+                "HTTP_RESPONSE",
+                parent=module_test.scan.root_event,
+                context="Saved response fixture",
+            )
 
     def check(self, module_test, events):
-        assert any(e.type == "FINDING" for e in events)
+        findings = [e for e in events if e.type == "FINDING"]
+        assert [e.data["url"] for e in findings] == [self.page_url], "Only the in-scope text page should be scanned"
+        data = findings[0].data
+        # Reported as a secret, so Sentry groups every page serving the same value into one finding.
+        assert data["category"] == "secret"
+        assert data["title"] == "Leak of URI detected in a public artifact"
+        assert data["secretValue"] == data["secret_value"] == self.secret
+        assert data["dedupe_key"] == f"github-leak-secret:{data['secretFingerprint']}"
+        # The page is named instead of the temporary file it was scanned from.
+        assert data["path"] == self.page_url
+        assert f"in {self.page_url}:line " in data["description"]
+        assert "source code history" not in data["description"]
 
 
 class TestTrufflehog_RAWText(ModuleTestBase):

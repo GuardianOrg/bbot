@@ -374,6 +374,7 @@ class github_leak_formatter:
         verified=False,
         severity="",
         extra_fields=None,
+        artifact_name="",
     ):
         if (
             self.is_public_recaptcha_site_key(scan_path, file_path, line, leak, detector, verified)
@@ -386,7 +387,10 @@ class github_leak_formatter:
         ):
             return None
         source_url = self.get_artifact_source_url(event)
-        if Path(scan_path).is_file():
+        if artifact_name:
+            # The caller names what was scanned when scan_path is only a temporary copy of it.
+            artifact_path = artifact_name
+        elif Path(scan_path).is_file():
             # A scanned file reports its own path, or "<file>!<member>" inside an archive.
             reported = str(file_path or scan_path)
             suffix = reported[len(str(scan_path)) :] if reported.startswith(str(scan_path)) else ""

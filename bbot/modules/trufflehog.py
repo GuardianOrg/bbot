@@ -5,10 +5,14 @@ from bbot.modules.base import BaseModule
 from bbot.modules.templates.code_repository_scope import code_repository_scope
 from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
+# Web responses whose body is text a page or script can embed a secret in. Images, fonts and other binaries are not scanned.
+TEXT_MEDIA_TYPE_PREFIX = "text/"
+TEXT_APPLICATION_SUBTYPES = ("javascript", "ecmascript", "json", "xml")
+
 
 class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
     fatal_on_error = True
-    watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
+    watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
@@ -87,10 +91,25 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             else:
                 if "git" not in event.tags:
                     return False, "Module only accepts git CODE_REPOSITORY events"
+        elif event.type == "HTTP_RESPONSE":
+            if event.scope_distance > 0:
+                return False, "HTTP_RESPONSE is not in scope"
+            if not self.is_text_response(event):
+                return False, "HTTP_RESPONSE body is not text"
         else:
             if "unarchived-folder" in event.tags:
                 return False, "Not accepting unarchived-folder events"
         return True
+
+    @staticmethod
+    def is_text_response(event):
+        # The event always builds "header-dict" (lower-cased names, list of values) from the raw response headers.
+        content_types = event.data.get("header-dict", {}).get("content-type", [])
+        media_type = (content_types[0] if content_types else "").split(";")[0].strip().lower()
+        if media_type.startswith(TEXT_MEDIA_TYPE_PREFIX):
+            return True
+        kind, _, subtype = media_type.partition("/")
+        return kind == "application" and any(subtype.endswith(text) for text in TEXT_APPLICATION_SUBTYPES)
 
     async def handle_event(self, event):
         description = ""
@@ -172,6 +191,13 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                 self.debug(f"Skipping a {detector_name} leak in third-party code: {git_meta.get('file')}")
                 continue
             data = None
+            if event.type == "HTTP_RESPONSE":
+                data = self.format_web_response_leak(
+                    event, path, source_metadata, detector_name, decoder_name, raw_result, rawv2_result, verified
+                )
+                if data is None:
+                    self.debug(f"Skipping a public or example {detector_name} value in {event.data['url']}")
+                    continue
             if host == "github.com" and git_meta:
                 leak_value = rawv2_result or raw_result
                 data = await self.format_github_leak(
@@ -226,6 +252,26 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             path.unlink(missing_ok=True)
         elif cleanup_path is not None and cleanup_path.exists():
             self.helpers.rm_rf(cleanup_path, ignore_errors=True)
+
+    def format_web_response_leak(
+        self, event, path, source_metadata, detector_name, decoder_name, raw_result, rawv2_result, verified
+    ):
+        """A secret served in a web page, reported like any public artifact and named by the page URL."""
+        data_item = source_metadata.get("Data") if isinstance(source_metadata, dict) else None
+        filesystem_meta = data_item.get("Filesystem") if isinstance(data_item, dict) else None
+        filesystem_meta = filesystem_meta if isinstance(filesystem_meta, dict) else {}
+        return self.format_artifact_leak(
+            event,
+            path,
+            rawv2_result or raw_result,
+            detector=detector_name,
+            file_path=filesystem_meta.get("file") or "",
+            line=filesystem_meta.get("line"),
+            verified=verified,
+            severity="High" if verified else "Medium",
+            artifact_name=event.data["url"],
+            extra_fields={"decoder": decoder_name},
+        )
 
     async def execute_trufflehog(self, module, path=None, string=None, since_commit=None, branch=None):
         command = [
