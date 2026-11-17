@@ -5,8 +5,6 @@ from bbot.modules.base import BaseInterceptModule
 from bbot.core.helpers.shared_infra import known_frontend, classify_ip
 from bbot.modules.internal.base import BaseInternalModule
 
-# Known library vulnerabilities at high severity remain individual issues.
-RETIREJS_GROUPABLE_SEVERITIES = {"", "INFO", "LOW", "MEDIUM"}
 SEVERITY_RANK = {"": 0, "INFO": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "CRITICAL": 5}
 DEFAULT_SEVERITY = "INFO"
 # Threat-intelligence reputation is third-party context, not proof of compromise.
@@ -223,7 +221,8 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     and no more of them arrive, one summary per category is emitted. A summary is rated
     like the most severe finding it merged (reputation never above MEDIUM) and lists every
     affected asset. Anything that arrives after that is passed on unchanged. Explicit DNS,
-    header, cookie and reputation classifications join their summaries at any severity.
+    header, cookie and reputation classifications and outdated libraries join their summaries
+    at any severity.
     """
 
     watched_events = ["FINDING", "VULNERABILITY"]
@@ -311,7 +310,7 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
             return self._classify_nuclei(event, data, template, severity)
         if module == "domain_config_dns_audit" and template == DNS_AUDIT_TEMPLATE:
             return self._classify_dns_audit(event, data, severity)
-        if module == "retirejs" and severity in RETIREJS_GROUPABLE_SEVERITIES:
+        if module == "retirejs":
             return self._classify_retirejs(event, data, severity)
         return None
 
