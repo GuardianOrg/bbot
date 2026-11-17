@@ -5,10 +5,14 @@ from bbot.modules.base import BaseModule
 from bbot.modules.templates.code_repository_scope import code_repository_scope
 from bbot.modules.templates.github_leak_formatter import github_leak_formatter
 
+# Web responses whose body is text a page or script can embed a secret in. Images, fonts and other binaries are not scanned.
+TEXT_MEDIA_TYPE_PREFIX = "text/"
+TEXT_APPLICATION_SUBTYPES = ("javascript", "ecmascript", "json", "xml")
+
 
 class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
     fatal_on_error = True
-    watched_events = ["CODE_REPOSITORY", "FILESYSTEM"]
+    watched_events = ["CODE_REPOSITORY", "FILESYSTEM", "HTTP_RESPONSE"]
     produced_events = ["FINDING", "VULNERABILITY"]
     flags = ["passive", "safe", "code-enum"]
     meta = {
@@ -87,10 +91,25 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             else:
                 if "git" not in event.tags:
                     return False, "Module only accepts git CODE_REPOSITORY events"
+        elif event.type == "HTTP_RESPONSE":
+            if event.scope_distance > 0:
+                return False, "HTTP_RESPONSE is not in scope"
+            if not self.is_text_response(event):
+                return False, "HTTP_RESPONSE body is not text"
         else:
             if "unarchived-folder" in event.tags:
                 return False, "Not accepting unarchived-folder events"
         return True
+
+    @staticmethod
+    def is_text_response(event):
+        # The event always builds "header-dict" (lower-cased names, list of values) from the raw response headers.
+        content_types = event.data.get("header-dict", {}).get("content-type", [])
+        media_type = (content_types[0] if content_types else "").split(";")[0].strip().lower()
+        if media_type.startswith(TEXT_MEDIA_TYPE_PREFIX):
+            return True
+        kind, _, subtype = media_type.partition("/")
+        return kind == "application" and any(subtype.endswith(text) for text in TEXT_APPLICATION_SUBTYPES)
 
     async def handle_event(self, event):
         description = ""
@@ -190,17 +209,7 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
                     },
                 )
             if data is None:
-                verified_str = "Verified" if verified else "Possible"
-                data = {
-                    "description": (
-                        f"{verified_str} secret material matched the {detector_name} secret pattern. "
-                        "A credential, token, password, or API key connected to the target was found in source code history. "
-                        "Treat it as compromised even if the current branch no longer contains it, because Git history, forks, local clones, CI logs, build artifacts, and external caches may preserve older values. "
-                        "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
-                        "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration. "
-                        f"Decoder [{decoder_name}]; details [{source_metadata}]."
-                    ),
-                }
+                data = self.secret_finding_data(event, verified, detector_name, decoder_name, source_metadata)
                 if host:
                     data["host"] = host
                 if verified:
@@ -226,6 +235,32 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             path.unlink(missing_ok=True)
         elif cleanup_path is not None and cleanup_path.exists():
             self.helpers.rm_rf(cleanup_path, ignore_errors=True)
+
+    def secret_finding_data(self, event, verified, detector_name, decoder_name, source_metadata):
+        verified_str = "Verified" if verified else "Possible"
+        if event.type == "HTTP_RESPONSE":
+            url = event.data["url"]
+            return {
+                "url": url,
+                "description": (
+                    f"{verified_str} secret material matched the {detector_name} secret pattern. "
+                    f"A credential, token, password, or API key connected to the target was found in the web response from {url}. "
+                    "Anyone who can load the page can read it, so treat it as compromised even if the page is later changed, because browser caches, proxies, and web archives may preserve it. "
+                    "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, or lateral movement. "
+                    "Rotate or revoke the credential, review access logs for misuse, and keep secrets out of content served to browsers; serve only keys meant to be public, scoped to the least access they need. "
+                    f"Decoder [{decoder_name}]; details [{source_metadata}]."
+                ),
+            }
+        return {
+            "description": (
+                f"{verified_str} secret material matched the {detector_name} secret pattern. "
+                "A credential, token, password, or API key connected to the target was found in source code history. "
+                "Treat it as compromised even if the current branch no longer contains it, because Git history, forks, local clones, CI logs, build artifacts, and external caches may preserve older values. "
+                "Anyone who obtains a valid secret may authenticate as the affected account or service, causing account takeover, unauthorized data access, cloud resource abuse, source code access, or lateral movement. "
+                "Rotate or revoke the credential, review access logs for misuse, remove the secret from history where practical, and move future secrets to a managed secret store or deployment-time configuration. "
+                f"Decoder [{decoder_name}]; details [{source_metadata}]."
+            ),
+        }
 
     async def execute_trufflehog(self, module, path=None, string=None, since_commit=None, branch=None):
         command = [
