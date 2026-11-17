@@ -50,17 +50,13 @@ def test_positive_reputation_becomes_a_medium_finding_and_a_host_reputation_even
     assert output[1][1]["severity"] == "MEDIUM"
 
 
-def test_non_malicious_signal_is_an_info_observation_with_reputation():
-    result = {
-        "risk_score": 10,
-        "malicious": False,
-        "sources": [{"source": "MalwareWorld"}],
-        "malwareworld": {"matches": [1]},
-    }
+@pytest.mark.parametrize("risk_score, sources", [(10, [{"source": "MalwareWorld"}]), (40, [{"source": "VirusTotal:ESET"}]), (85, [])])
+def test_signals_below_every_malicious_threshold_stay_asset_information(risk_score, sources):
+    result = {"risk_score": risk_score, "malicious": False, "sources": sources, "malwareworld": {"matches": [1]}}
     output = emitted_for_result(result)
-    assert [event_type for event_type, _ in output] == ["HOST_REPUTATION", "FINDING"]
-    assert output[0][1]["malicious"] is False
-    assert output[1][1]["severity"] == "INFO"
+    assert [event_type for event_type, _ in output] == ["HOST_REPUTATION"]
+    assert output[0][1]["risk_score"] == risk_score
+    assert output[0][1]["sources"] == sources
 
 
 def test_host_reputation_event_validates(bbot_scanner):
