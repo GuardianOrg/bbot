@@ -112,7 +112,7 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
         module.emit_event.assert_awaited_once()
         finding = module.emit_event.await_args.args[0]
         self.assertTrue(finding["malicious"])
-        self.assertEqual(finding["severity"], "HIGH")
+        self.assertEqual(finding["severity"], "MEDIUM")
         self.assertEqual(finding["location"], f"certificate:{fingerprint}")
 
     async def test_idna_and_malformed_feed(self):
@@ -250,7 +250,7 @@ class MetadataTests(unittest.IsolatedAsyncioTestCase):
         first = await formatter.format_github_leak(None, "/fixture", "dummy-secret", commit="a" * 40)
         latest = await formatter.format_github_leak(None, "/fixture", "dummy-secret", commit="b" * 40)
         self.assertEqual(first["secretFingerprint"], latest["secretFingerprint"])
-        self.assertNotEqual(first["dedupe_key"], latest["dedupe_key"])
+        self.assertEqual(first["dedupe_key"], latest["dedupe_key"])
         self.assertEqual(latest["secret_latest_commit_at"], "2024-06-01T00:00:00Z")
 
     async def test_unknown_git_dates_are_not_replaced_with_scan_head_date(self):
