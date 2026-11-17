@@ -70,6 +70,10 @@ def library_findings(results_json, min_severity, javascript_url, page_url):
     One finding per library version a script bundles, listing every advisory at or above
     `min_severity` and rated by the most severe of them. Advisories of one library version
     are one fix (upgrade it), so they are one finding, not one each.
+
+    The finding is located at the website (`url`, its origin), not at the page that loaded the
+    script: crawl order decides which page is first, so a page URL would locate the same library
+    version somewhere else on every scan. The page stays in `page_url` and the description.
     """
     findings = []
     for file_result in results_json.get("data") or []:
@@ -94,7 +98,8 @@ def library_findings(results_json, min_severity, javascript_url, page_url):
             count = f"{len(advisories)} advisor{'y' if len(advisories) == 1 else 'ies'}"
             description = (
                 f"Vulnerable JavaScript library detected: {component} v{version} Severity: {severity.upper()} "
-                f"JavaScript URL: {javascript_url} {count}: {'; '.join(texts)}. {EXPLOITABILITY_NOTE}"
+                f"JavaScript URL: {javascript_url} Page URL: {page_url} {count}: {'; '.join(texts)}. "
+                f"{EXPLOITABILITY_NOTE}"
             )
             data = {
                 "title": f"Vulnerable JavaScript library {component} v{version}",
@@ -104,7 +109,8 @@ def library_findings(results_json, min_severity, javascript_url, page_url):
                 "version": version,
                 "cves": cves,
                 "javascript_url": javascript_url,
-                "url": page_url,
+                "url": url_origin(page_url),
+                "page_url": page_url,
             }
             if advisory_urls:
                 data["advisory_urls"] = advisory_urls
