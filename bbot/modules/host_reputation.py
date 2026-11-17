@@ -224,10 +224,8 @@ class host_reputation(BaseModule):
             )
         for kind, value in sorted(set(candidates)):
             result = await self.check_malwareworld(value, kind)
-            # MalwareWorld's explicit verdict is derived only from threat categories. Other
-            # catalogue matches are context, not evidence that the scanned asset is malicious;
-            # the original VULNERABILITY/FINDING event remains independently emitted and
-            # ingested. Only an explicit positive verdict becomes a reputation finding.
+            # Only a listing that counts as bad reputation becomes a finding; a CVE catalogue entry is
+            # not one, and the original VULNERABILITY/FINDING event remains independently emitted.
             if not result["malicious"]:
                 continue
             finding = {
