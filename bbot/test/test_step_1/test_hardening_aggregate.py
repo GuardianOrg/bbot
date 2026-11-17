@@ -151,12 +151,12 @@ async def test_severe_header_and_cookie_findings_group_while_unrelated_findings_
     grouped = [
         h.nuclei(url, "weak-csp-detect", "unsafe-script-src", severity="HIGH"),
         h.nuclei(url, "cookies-without-secure", "Cookies", severity="CRITICAL", poc="Extracted Data: SID"),
+        h.retire(url, "jquery", "1.2.3", "high", ["CVE-2020-11022"]),
     ]
     passing = [
         h.nuclei(url, "generic-env", "Env file disclosure", severity="MEDIUM"),
         h.nuclei(url, "robots-txt", "robots.txt"),
         h.nuclei(url, "unknown-severity", "Odd", severity="UNKNOWN"),
-        h.retire(url, "jquery", "1.2.3", "high", ["CVE-2020-11022"]),
     ]
     # a module other than nuclei reusing a grouped template id is not grouped either
     other = h.nuclei(url, "missing-security-headers", "x-frame-options")
@@ -170,9 +170,10 @@ async def test_severe_header_and_cookie_findings_group_while_unrelated_findings_
     assert [event.data for event in passing] == before
     await h.finish_rounds()
     summaries = h.by_category()
-    assert set(summaries) == {"grouped:security_headers", "grouped:cookies"}
+    assert set(summaries) == {"grouped:security_headers", "grouped:cookies", "grouped:retirejs:jquery"}
     assert summaries["grouped:security_headers"].data["severity"] == "HIGH"
     assert summaries["grouped:cookies"].data["severity"] == "CRITICAL"
+    assert summaries["grouped:retirejs:jquery"].data["severity"] == "HIGH"
 
 
 @pytest.mark.asyncio
@@ -395,6 +396,26 @@ async def test_retirejs_summarizes_each_library_across_websites_at_its_own_sever
     assert lodash["severity"] == "LOW"
     assert lodash["host"] == "b.example.com"
     assert lodash["table"]["rows"] == [["https://b.example.com", "lodash", "4.17.21", "LOW", "CVE-2025-13465"]]
+
+
+@pytest.mark.asyncio
+async def test_retirejs_critical_advisory_joins_its_library_summary(bbot_scanner):
+    h = await harness(bbot_scanner)
+    for event in [
+        h.retire("https://app.example.com/", "nextjs", "13.4.0", "critical", ["CVE-2025-29927"]),
+        h.retire("https://shop.example.com/", "nextjs", "14.2.3", "high", ["CVE-2024-46982"]),
+        h.retire("https://shop.example.com/", "nextjs", "14.2.3", "low", ["CVE-2024-47831"]),
+    ]:
+        assert not await h.feed(event)
+    await h.finish_rounds()
+    summaries = h.by_category()
+    assert list(summaries) == ["grouped:retirejs:nextjs"]
+    data = summaries["grouped:retirejs:nextjs"].data
+    assert data["severity"] == "CRITICAL"
+    assert data["table"]["rows"] == [
+        ["https://app.example.com", "nextjs", "13.4.0", "CRITICAL", "CVE-2025-29927"],
+        ["https://shop.example.com", "nextjs", "14.2.3", "HIGH", "CVE-2024-46982, CVE-2024-47831"],
+    ]
 
 
 @pytest.mark.asyncio
