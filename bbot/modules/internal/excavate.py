@@ -339,6 +339,11 @@ class ExcavateRule:
         # If a description is not set and is needed, provide a basic one
         if event_type == "FINDING" and "description" not in event_data.keys():
             event_data["description"] = f"{discovery_context} {yara_rule_settings['self.description']}"
+        # A finding's title names what the rule found, never the matched value: the value (a token,
+        # a URL) changes between pages and scans and would make each one a different finding.
+        # The value stays in the description.
+        if event_type == "FINDING" and "title" not in event_data and yara_rule_settings.description:
+            event_data["title"] = f"{discovery_context} {yara_rule_settings.description}"
         subject = ""
         if isinstance(event_data, str):
             subject = f" {event_data}"
@@ -941,13 +946,14 @@ class excavate(BaseInternalModule, BaseInterceptModule):
             for identifier in yara_results.keys():
                 for findings in yara_results[identifier]:
                     event_data = {
+                        "title": f"{discovery_context} {yara_rule_settings.description} ({identifier})",
                         "description": (
                             f"{discovery_context} {yara_rule_settings.description} ({identifier}). "
                             "The response appears to expose a verbose application, framework, database, or platform error. "
                             "Verbose errors are not always directly exploitable, but they often reveal implementation details such as file paths, class names, SQL fragments, package versions, stack traces, or internal service names. "
                             "Attackers can use those details to choose more accurate payloads, identify vulnerable components, and understand how the application handles unexpected input. "
                             "Production systems should return generic user-facing errors while logging detailed diagnostics privately."
-                        )
+                        ),
                     }
                     await self.report(event_data, event, yara_rule_settings, discovery_context, event_type="FINDING")
 
@@ -1033,13 +1039,14 @@ class excavate(BaseInternalModule, BaseInterceptModule):
                     if not self._is_serialized(identifier, findings):
                         continue
                     event_data = {
+                        "title": f"{discovery_context} {yara_rule_settings.description} ({identifier})",
                         "description": (
                             f"{discovery_context} {yara_rule_settings.description} ({identifier}). "
                             "The response contains data that resembles a serialized object or packed application state. "
                             "Serialized values are common in legitimate applications, but they become security-sensitive when clients can modify them and the server later trusts or deserializes them. "
                             "Unsafe deserialization can lead to object tampering, authentication bypass, denial of service, or remote code execution in vulnerable frameworks. "
                             "Confirm whether the value is user-controllable, protect it with strong integrity checks, and avoid deserializing native object formats from untrusted input."
-                        )
+                        ),
                     }
                     await self.report(event_data, event, yara_rule_settings, discovery_context, event_type="FINDING")
 

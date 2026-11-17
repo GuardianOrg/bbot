@@ -286,6 +286,33 @@ class TestExcavateRejectsMalformedJwtLookalikes(TestExcavate):
         assert "fixturesignature" in jwt_findings[0].data["description"]
 
 
+class TestExcavateJwtTitleOmitsToken(TestExcavate):
+    """Each token used to be its own finding because the title was the description with the token in it."""
+
+    targets = ["http://127.0.0.1:8888/"]
+    modules_overrides = ["excavate", "httpx"]
+
+    async def setup_before_prep(self, module_test):
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
+
+        def token(subject):
+            claims = base64.urlsafe_b64encode(json.dumps({"sub": subject}).encode()).decode().rstrip("=")
+            return f"{header}.{claims}.signature{subject}"
+
+        module_test.httpserver.expect_request("/").respond_with_data(f"{token('first')}\n{token('second')}")
+
+    def check(self, module_test, events):
+        jwt_findings = [
+            event for event in events
+            if event.type == "FINDING" and "JWT" in event.data.get("description", "") and str(event.module) == "excavate"
+        ]
+        assert len(jwt_findings) == 2
+        assert {event.data.get("title") for event in jwt_findings} == {"HTTP response (body) contains JSON Web Token (JWT)"}
+        # The token stays in the description (whose normalization spaces out its camel case).
+        for signature in ("signaturefirst", "signaturesecond"):
+            assert any(signature in event.data["description"] for event in jwt_findings)
+
+
 class TestExcavateRejectsExpiredJwt(TestExcavate):
     targets = ["http://127.0.0.1:8888/"]
     modules_overrides = ["excavate", "httpx"]
@@ -555,9 +582,12 @@ class TestExcavateSerializationPositive(TestExcavate):
 
     def check(self, module_test, events):
         for serialize_type in ["Java", "DOTNET", "PHP_Array", "PHP_String", "PHP_Object", "Possible_Compressed"]:
-            assert any(e.type == "FINDING" and serialize_type in e.data["description"] for e in events), (
-                f"Did not find {serialize_type} Serialized Object"
-            )
+            assert any(
+                e.type == "FINDING"
+                and e.data.get("title") == f"HTTP response (body) contains a possible serialized object ({serialize_type})"
+                and serialize_type in e.data["description"]
+                for e in events
+            ), f"Did not find {serialize_type} Serialized Object"
 
 
 class TestExcavateNonHttpScheme(TestExcavate):
