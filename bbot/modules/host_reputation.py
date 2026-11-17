@@ -158,15 +158,15 @@ class host_reputation(BaseModule):
             event,
             context=f"{{module}} checked reputation sources for {host} and emitted {{event.type}}",
         )
-        # A completed clean lookup is a baseline observation, never a finding.
-        # Incomplete negative observations fail before reaching this point.
-        if not malicious and risk_score == 0 and not sources:
+        # Below every provider's malicious threshold (see collect_host_reputation) the scores stay asset
+        # information in HOST_REPUTATION; only a malicious verdict is a finding.
+        if not malicious:
             return
         await self.emit_event(
             {
                 "host": host,
                 # Reputation is third-party context, not proof of compromise: never above MEDIUM.
-                "severity": "MEDIUM" if malicious else "INFO",
+                "severity": "MEDIUM",
                 "title": f"Host reputation: {host} is {verdict}",
                 "category": "host-reputation",
                 "description": (
