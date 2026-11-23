@@ -103,3 +103,25 @@ def test_large_parent_count_still_fits_the_round_budget():
         for reservation in batch:
             queue.complete(reservation)
     assert set(queue.positions.values()) == {1000}
+
+
+def test_dnsbrute_background_brute_force_counts_as_pending_work():
+    import asyncio
+    from bbot.modules.dnsbrute import dnsbrute
+
+    async def check():
+        module = object.__new__(dnsbrute)
+        module._task_counter = type("Counter", (), {"value": 0})()
+        module._incoming_event_queue = asyncio.Queue()
+        module._outgoing_event_queue = asyncio.Queue()
+        module.worker_task = None
+        assert module.has_pending_work is False
+        release = asyncio.Event()
+        module.worker_task = asyncio.create_task(release.wait())
+        await asyncio.sleep(0)
+        assert module.has_pending_work is True
+        release.set()
+        await module.worker_task
+        assert module.has_pending_work is False
+
+    asyncio.run(check())

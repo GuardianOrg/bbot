@@ -1294,6 +1294,13 @@ class BaseModule:
         return self.scan.helpers
 
     @property
+    def has_pending_work(self):
+        """Whether this module still holds work: a handler running, events queued in or out, or (where a module
+        overrides this) work it does in its own background task."""
+        outgoing = self.outgoing_event_queue.qsize() if self.outgoing_event_queue is not False else 0
+        return bool(self.running or self.num_incoming_events or outgoing)
+
+    @property
     def status(self):
         """
         Provides the current status of the module as a dictionary.

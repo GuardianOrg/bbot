@@ -12,14 +12,16 @@ CLEAN = {"data": {"attributes": {"last_analysis_stats": {"malicious": 0, "suspic
 class VirusTotal:
     """Answers like VirusTotal's public API: 4 lookups per minute and a daily quota per key, on a simulated clock."""
 
-    def __init__(self, monkeypatch, keys, daily=500, start=1_000.0):
+    def __init__(self, monkeypatch, keys, daily=500, start=1_000.0, other_work=True):
         self.now = start
         self.sent = []  # (time, key, url)
         self.daily = {key: daily for key in keys}
         self.cache = {}
         module = object.__new__(host_reputation)
         module.virustotal_api_keys = list(keys)
-        module.scan = types.SimpleNamespace(helpers=types.SimpleNamespace(quote=quote))
+        self.other = types.SimpleNamespace(has_pending_work=other_work)  # e.g. dnsbrute still brute-forcing
+        module.scan = types.SimpleNamespace(helpers=types.SimpleNamespace(quote=quote), num_queued_events=0,
+                                            modules={"host_reputation": module, "dnsbrute": self.other})
         module.request_json = self.request_json
         module.cached_api_response = self.cached_api_response
         self.module = module
@@ -101,3 +103,22 @@ def test_cached_answer_needs_no_key_and_no_turn(monkeypatch):
     results = vt.lookup(["cached.example.com"] * 20)
     assert all(result.get("malicious") is False for result in results)
     assert vt.sent == [] and vt.now == 1_000.0
+
+
+def test_once_nothing_else_keeps_discovery_running_no_lookup_waits_for_a_turn(monkeypatch):
+    vt = VirusTotal(monkeypatch, ["a", "b"], other_work=False)
+    results = vt.lookup([f"h{i}.example.com" for i in range(10)])
+    answered = [result for result in results if not result.get("rate_limited")]
+    # the free turn of each key is still used; the rest are left to monitoring instead of holding discovery open
+    assert len(answered) == 2 and len(vt.sent) == 2
+    assert vt.now == 1_000.0
+    assert vt.module.vt_deferred == 8
+
+
+def test_lookups_wait_for_turns_again_while_another_module_has_work(monkeypatch):
+    vt = VirusTotal(monkeypatch, ["a"], other_work=False)
+    assert vt.lookup(["first.example.com", "deferred.example.com"])[1].get("rate_limited")
+    vt.other.has_pending_work = True
+    results = vt.lookup(["waits.example.com"])
+    assert not results[0].get("rate_limited")
+    assert vt.now >= 1_015.0
