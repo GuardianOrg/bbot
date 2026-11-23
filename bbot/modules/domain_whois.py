@@ -20,7 +20,9 @@ class domain_whois(BaseModule):
     deps_pip = ["python-whois~=0.9.5"]
     in_scope_only = True
     per_domain_only = True
-    WHOIS_RETRY_DELAYS = (10, 30)
+    # A registry throttles the scan's address for minutes while look-alike checks query the same TLD (.io has no
+    # RDAP to fall back on), so the pauses grow to outlast it, still far inside module_handle_event_timeout.
+    WHOIS_RETRY_DELAYS = (10, 30, 90, 270, 600)
     RDAP_BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
     RDAP_HEADERS = {
         "Accept": "application/rdap+json, application/json",
