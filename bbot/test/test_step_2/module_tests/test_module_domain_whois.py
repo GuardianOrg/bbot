@@ -122,6 +122,46 @@ class TestDomainWhoisRetriesWhoisWithoutRdap(TestDomainWhoisRdapFallback):
         assert module_test.scan.finish_event().data["status"] == "FINISHED"
 
 
+def test_domain_whois_outlasts_a_registry_throttle_of_several_minutes():
+    import asyncio
+    from types import SimpleNamespace
+
+    from bbot.modules import domain_whois as module
+
+    mod = object.__new__(module.domain_whois)
+    waited = {"seconds": 0}
+    emitted = []
+
+    async def fake_sleep(seconds):
+        waited["seconds"] += seconds
+
+    def throttled_whois(_domain):
+        # The registry answers without registration data until it lifts its throttle five minutes later.
+        if waited["seconds"] < 5 * 60:
+            return {"domain_name": "gyzer.io"}
+        return {"registrar": "GoDaddy.com, LLC", "status": ["clientTransferProhibited"]}
+
+    async def no_rdap(domain):
+        raise ValueError(f"No authoritative RDAP service found for {domain}")
+
+    async def emit_event(data, event_type, **_kwargs):
+        emitted.append((event_type, data))
+        return object()
+
+    mod.lookup_whois, mod.lookup_rdap, mod.emit_event = throttled_whois, no_rdap, emit_event
+    mod.scan = SimpleNamespace(helpers=SimpleNamespace(split_domain=lambda host: ("", host)))
+    mod.debug = lambda *_: None
+    original_sleep = module.asyncio.sleep
+    module.asyncio.sleep = fake_sleep
+    try:
+        asyncio.run(mod.handle_event(SimpleNamespace(data="gyzer.io")))
+    finally:
+        module.asyncio.sleep = original_sleep
+    assert [kind for kind, _ in emitted][:1] == ["DOMAIN_WHOIS"]
+    assert emitted[0][1]["whois_status"] == ["clientTransferProhibited"]
+    assert waited["seconds"] < 3600
+
+
 def test_domain_whois_gives_up_after_the_last_whois_retry():
     import asyncio
     from types import SimpleNamespace
