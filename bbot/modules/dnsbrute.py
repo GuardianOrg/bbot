@@ -39,6 +39,11 @@ class dnsbrute(subdomain_enum):
     dedup_strategy = "lowest_parent"
     _qsize = 10000
 
+    @property
+    def has_pending_work(self):
+        # Brute-forcing runs in its own task after handle_event returns.
+        return super().has_pending_work or (self.worker_task is not None and not self.worker_task.done())
+
     def make_query(self, event):
         # The validated hostname itself is an eligible parent. The generic
         # subdomain_enum template instead chooses its nearest parent.

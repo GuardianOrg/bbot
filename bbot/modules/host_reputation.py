@@ -373,10 +373,26 @@ class host_reputation(BaseModule):
                 start = max(now, state["ready"][key])
                 state["ready"][key] = start + VT_KEY_INTERVAL_SECONDS
             if start > now:
+                if not self.scan_has_other_work():
+                    # Nothing else keeps discovery running: waiting for a turn would only delay its end.
+                    self.vt_deferred = getattr(self, "vt_deferred", 0) + 1
+                    state["ready"][key] = max(now, state["ready"][key] - VT_KEY_INTERVAL_SECONDS)
+                    return None
                 await asyncio.sleep(start - now)
             # Another lookup may have found this key's daily quota spent while this one waited.
             if state["spent"].get(key, 0) <= time.time():
                 return key
+
+    def scan_has_other_work(self):
+        """Whether discovery will run on anyway: events still queued in the scan, or another module with work."""
+        if getattr(self.scan, "num_queued_events", 0):
+            return True
+        return any(module is not self and module.has_pending_work for module in self.scan.modules.values())
+
+    async def report(self):
+        deferred = getattr(self, "vt_deferred", 0)
+        if deferred:
+            self.info(f"VirusTotal lookups left to monitoring because only reputation work remained: {deferred}")
 
     def vt_rest(self, key, daily=False):
         state = self.vt_keys()
