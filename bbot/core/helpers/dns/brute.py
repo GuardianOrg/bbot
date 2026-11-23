@@ -86,6 +86,11 @@ class DNSBrute:
         self.per_resolver_threads = int(self.dns_config.get("brute_threads_per_resolver", 50))
         if not 0 < self.parallel_batches <= 4 or not 0 < self.per_resolver_threads <= 100:
             raise ValueError("DNS parallel batches must be 1..4 and per-resolver concurrency 1..100")
+        # Concurrency halves on a batch with many transport errors and climbs back after clean ones,
+        # never above the configured value.
+        self.max_per_resolver_threads = self.per_resolver_threads
+        self.concurrency_cuts = 0
+        self.concurrency_raises = 0
         self.resolver_pool = ResolverPool()
         self.transport_failures = 0
         self.transport_retries = 0
@@ -401,9 +406,15 @@ class DNSBrute:
             self.transport_failures += len(retry_names)
             if len(retry_names) > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
                 self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
+                self.concurrency_cuts += 1
                 self.log.info(
                     f"DNS initial transport errors: {len(retry_names)}; reducing per-resolver concurrency to {self.per_resolver_threads}"
                 )
+            elif (len(retry_names) <= len(subdomains) // 200
+                  and self.per_resolver_threads < self.max_per_resolver_threads):
+                # At most 0.5% transport errors: the resolvers keep up, so take back one step.
+                self.per_resolver_threads = min(self.max_per_resolver_threads, self.per_resolver_threads + 5)
+                self.concurrency_raises += 1
             # Retry every failed candidate once. Truncating this list silently
             # left later names unchecked in large batches.
             remaining = None if timeout is None else timeout - (time.monotonic() - started)
