@@ -20,6 +20,10 @@ MAX_MALWAREWORLD_RESPONSE_BYTES = 160 * 1024 * 1024
 MAX_MALWAREWORLD_CACHE_RESIDENT_BYTES = 256 * 1024 * 1024
 MAX_MALWAREWORLD_CACHE_ENTRIES = 4
 MAX_MALWAREWORLD_PARALLEL_DOWNLOADS = 2
+# VirusTotal's public API allows 4 lookups a minute and 500 a day per key. Each key is paced to that rate;
+# a key throttled anyway rests a minute, and a key whose daily quota is spent rests until it resets at 00:00 UTC.
+VT_KEY_INTERVAL_SECONDS = 15.0
+VT_THROTTLE_REST_SECONDS = 60.0
 
 
 class host_reputation(BaseModule):
@@ -58,6 +62,8 @@ class host_reputation(BaseModule):
         "malwareworld_base": "MalwareWorld data base URL or local path",
     }
     scope_distance_modifier = 1
+    # Hosts wait on remote providers, mostly VirusTotal's per-key pace; several in flight keep every key busy.
+    _module_threads = 8
 
     async def setup(self):
         self.abuseipdb_api_key = self.config.get("abuseipdb_api_key", "")
@@ -328,51 +334,95 @@ class host_reputation(BaseModule):
         if not self.virustotal_api_keys:
             return {"error": "virustotal_api_keys not set", "malicious": False}
 
-        keys = list(self.virustotal_api_keys)
-        random.shuffle(keys)
+        cached = await self.cached_api_response(url=url, params=None, headers={}, timeout=10)
+        if cached is not None and 200 <= cached.status_code < 300:
+            return self.vt_verdict(cached.json())
         last_result = None
-        for key in keys:
+        # Every key gets a turn, plus one retry per key after a per-minute throttle.
+        for _attempt in range(2 * len(self.virustotal_api_keys)):
+            key = await self.vt_key()
+            if key is None:
+                break
             response = await self.request_json(url, headers={"x-apikey": key})
             if response.get("status") == 429 or response.get("rate_limited"):
+                self.vt_rest(key, daily=response.get("code") == "QuotaExceededError")
                 last_result = response
                 continue
-            attributes = response.get("data", {}).get("attributes", {}) if isinstance(response, dict) else {}
-            stats = attributes.get("last_analysis_stats", {}) or {}
-            analysis_results = attributes.get("last_analysis_results", {}) or {}
-            malicious_count, suspicious_count = stats.get("malicious"), stats.get("suspicious", 0)
-            if type(malicious_count) is not int or malicious_count < 0 or type(suspicious_count) is not int or suspicious_count < 0:
-                raise RuntimeError("VirusTotal: invalid analysis counters")
-            reputation = self._to_int(attributes.get("reputation"))
-            risk_score = min(100, malicious_count * 20 + suspicious_count * 10 + max(0, -reputation))
-            sources = []
-            for engine_name, engine_result in analysis_results.items():
-                if not isinstance(engine_result, dict):
-                    continue
-                category = str(engine_result.get("category") or "").lower()
-                if category not in ("malicious", "suspicious"):
-                    continue
-                result = engine_result.get("result") or category
-                sources.append(
-                    {
-                        "source": f"VirusTotal:{engine_name}",
-                        "type": str(result),
-                        "listed_date": None,
-                    }
-                )
-            return {
-                "malicious": malicious_count >= 3,
-                "risk_score": risk_score,
-                "type": "malware-analysis",
-                "listed_date": None,
-                "sources": sources or ([{"source": "VirusTotal", "type": "malware-analysis", "listed_date": None}]
-                                       if malicious_count >= 3 else []),
-                "details": {
-                    "last_analysis_stats": stats,
-                    "last_analysis_results": analysis_results,
-                    "reputation": reputation,
-                },
-            }
+            return self.vt_verdict(response)
         return last_result or {"rate_limited": True, "status": 429, "malicious": False}
+
+    def vt_keys(self):
+        state = getattr(self, "_vt_key_state", None)
+        if state is None:
+            keys = list(self.virustotal_api_keys)
+            random.shuffle(keys)
+            state = self._vt_key_state = {"ready": {key: 0.0 for key in keys}, "spent": {}, "lock": asyncio.Lock()}
+        return state
+
+    async def vt_key(self):
+        """Reserve the VirusTotal key that may send soonest and wait for its turn; None when every key's daily
+        quota is spent, so a host costs no request that is certain to be refused."""
+        state = self.vt_keys()
+        while True:
+            async with state["lock"]:
+                now = time.time()
+                usable = [key for key in state["ready"] if state["spent"].get(key, 0) <= now]
+                if not usable:
+                    return None
+                key = min(usable, key=state["ready"].get)
+                start = max(now, state["ready"][key])
+                state["ready"][key] = start + VT_KEY_INTERVAL_SECONDS
+            if start > now:
+                await asyncio.sleep(start - now)
+            # Another lookup may have found this key's daily quota spent while this one waited.
+            if state["spent"].get(key, 0) <= time.time():
+                return key
+
+    def vt_rest(self, key, daily=False):
+        state = self.vt_keys()
+        now = time.time()
+        if daily:
+            state["spent"][key] = now + 86400 - now % 86400
+        else:
+            state["ready"][key] = max(state["ready"][key], now + VT_THROTTLE_REST_SECONDS)
+
+    def vt_verdict(self, response):
+        attributes = response.get("data", {}).get("attributes", {}) if isinstance(response, dict) else {}
+        stats = attributes.get("last_analysis_stats", {}) or {}
+        analysis_results = attributes.get("last_analysis_results", {}) or {}
+        malicious_count, suspicious_count = stats.get("malicious"), stats.get("suspicious", 0)
+        if type(malicious_count) is not int or malicious_count < 0 or type(suspicious_count) is not int or suspicious_count < 0:
+            raise RuntimeError("VirusTotal: invalid analysis counters")
+        reputation = self._to_int(attributes.get("reputation"))
+        risk_score = min(100, malicious_count * 20 + suspicious_count * 10 + max(0, -reputation))
+        sources = []
+        for engine_name, engine_result in analysis_results.items():
+            if not isinstance(engine_result, dict):
+                continue
+            category = str(engine_result.get("category") or "").lower()
+            if category not in ("malicious", "suspicious"):
+                continue
+            result = engine_result.get("result") or category
+            sources.append(
+                {
+                    "source": f"VirusTotal:{engine_name}",
+                    "type": str(result),
+                    "listed_date": None,
+                }
+            )
+        return {
+            "malicious": malicious_count >= 3,
+            "risk_score": risk_score,
+            "type": "malware-analysis",
+            "listed_date": None,
+            "sources": sources or ([{"source": "VirusTotal", "type": "malware-analysis", "listed_date": None}]
+                                   if malicious_count >= 3 else []),
+            "details": {
+                "last_analysis_stats": stats,
+                "last_analysis_results": analysis_results,
+                "reputation": reputation,
+            },
+        }
 
     async def check_otx(self, hostname):
         if not self.otx_api_key:
@@ -492,7 +542,11 @@ class host_reputation(BaseModule):
             if response is None:
                 return {"error": "no response"}
             if response.status_code == 429:
-                return {"rate_limited": True, "status": 429}
+                try:
+                    code = response.json().get("error", {}).get("code")
+                except Exception:
+                    code = None
+                return {"rate_limited": True, "status": 429, "code": code}
             if response.status_code < 200 or response.status_code >= 300:
                 return {"error": response.text[:200], "status": response.status_code}
             return response.json()
