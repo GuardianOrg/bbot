@@ -140,17 +140,36 @@ def test_configured_provider_verdict_is_part_of_the_initial_reputation_observati
     assert output[1][0] == 'FINDING' and output[1][1]['severity'] == 'MEDIUM'
 
 
-def test_unavailable_configured_provider_cannot_become_a_clean_initial_reference():
-    module = object.__new__(host_reputation)
+async def test_answering_providers_are_kept_when_another_provider_is_unavailable(bbot_scanner):
+    scan = bbot_scanner('example.com')
+    module = host_reputation(scan)
+    module._name = 'host_reputation'
     module.virustotal_api_keys = ['test']
     output = []
     async def feed(*_):
         return {'malicious': False, 'risk_score': 0, 'sources': [], 'malwareworld': {'matches': []}}
-    async def vt(*_):
-        return {'error': 'rate limited', 'malicious': False}
+    async def quota_exhausted(*_):
+        return {'rate_limited': True, 'status': 429, 'malicious': False}
+    async def emit(data, kind, *_args, **_kwargs):
+        output.append(scan.make_event(data, kind, parent=scan.root_event))
+    module.check_malwareworld, module.check_vt_domain, module.emit_event = feed, quota_exhausted, emit
+    await module.handle_event(scan.make_event('example.com', 'DNS_NAME', parent=scan.root_event))
+    assert [event.type for event in output] == ['HOST_REPUTATION']
+    assert output[0].data['malicious'] is False
+    assert output[0].data['provider_coverage'] == ['MalwareWorld']
+    assert output[0].data['configured_providers'] == ['MalwareWorld', 'VirusTotal']
+    assert output[0].data['provider_errors'] == {'VirusTotal': 'RuntimeError'}
+
+
+def test_no_answering_provider_is_not_an_observation():
+    module = object.__new__(host_reputation)
+    module.virustotal_api_keys = ['test']
+    output = []
+    async def unavailable(*_):
+        return {'error': 'unavailable', 'malicious': False}
     async def emit(data, kind, *_args, **_kwargs):
         output.append((kind, data))
-    module.check_malwareworld, module.check_vt_domain, module.emit_event = feed, vt, emit
+    module.check_malwareworld, module.check_vt_domain, module.emit_event = unavailable, unavailable, emit
     with pytest.raises(RuntimeError, match='incomplete'):
         asyncio.run(module.handle_event(SimpleNamespace(type='DNS_NAME', host='example.com', data='example.com')))
     assert output == []

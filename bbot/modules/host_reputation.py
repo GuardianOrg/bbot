@@ -256,7 +256,8 @@ class host_reputation(BaseModule):
         return data.get("bundle_id") or data.get("bundleId") or data.get("id") or ""
 
     async def collect_host_reputation(self, host, is_ip):
-        """Record the configured high-confidence providers; a failed provider is never a clean observation."""
+        """Record every configured provider that answered. A failed provider stays in ``provider_errors`` and out
+        of ``provider_coverage``, so the observation is never a clean one for it; only no answer at all fails."""
         results, errors, configured = {}, {}, []
         checks = []
         if is_ip and getattr(self, "abuseipdb_api_key", ""):
@@ -275,9 +276,9 @@ class host_reputation(BaseModule):
                 results[name] = result
             except Exception as error:
                 errors[name] = type(error).__name__
-        malicious = any(result["malicious"] for result in results.values())
-        if not results or (errors and not malicious):
+        if not results:
             raise RuntimeError("Reputation provider coverage incomplete: " + ", ".join(errors))
+        malicious = any(result["malicious"] for result in results.values())
         verdicts = {name: {"malicious": result["malicious"], "risk_score": result.get("risk_score", 0),
                            "evidence": {key: value for key, value in result.get("details", {}).items()
                                         if key in {"abuseConfidenceScore", "totalReports", "lastReportedAt", "last_analysis_stats"}}}
