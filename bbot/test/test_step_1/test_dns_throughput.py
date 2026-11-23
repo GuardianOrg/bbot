@@ -401,3 +401,42 @@ async def test_real_scan_unlimited_budget_drains_ranked_words(bbot_scanner, tmp_
 
 async def _collect_scan(scan):
     return [event async for event in scan.async_start()]
+
+
+async def test_resolver_concurrency_recovers_after_clean_batches_up_to_the_configured_value(bbot_scanner):
+    scan = bbot_scanner("example.com")
+    helper = scan.helpers.dns.brute
+    helper.resolver_file = AsyncMock(return_value="fixture.txt")
+    helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
+    helper.resolver_pool.selected = ["192.0.2.53:53"]
+    assert helper.per_resolver_threads == helper.max_per_resolver_threads == 50
+
+    def massdns_output(names, failing):
+        return SimpleNamespace(stdout="\n".join(
+            json.dumps({"name": f"{name}.example.com.", "error": "TIMEOUT"}) if name in failing else
+            json.dumps({"name": f"{name}.example.com.", "status": "NXDOMAIN", "data": {}})
+            for name in names
+        ))
+
+    slots = []
+
+    async def batch(prefix, failing=0):
+        names = [f"{prefix}{i}" for i in range(1000)]
+        bad = set(names[:failing])
+        outputs = [massdns_output(names, bad)] + ([massdns_output(sorted(bad), set())] if bad else [])
+
+        async def run_process(*command, **_):
+            slots.append(command[command.index("-s") + 1])
+            return outputs.pop(0)
+
+        await helper(SimpleNamespace(name="dnsbrute", run_process=run_process), "example.com", names)
+
+    await batch("congested", failing=200)  # 20% transport errors halve concurrency
+    assert helper.per_resolver_threads == 25
+    for round_number in range(8):  # clean batches take it back five slots at a time
+        await batch(f"clean{round_number}-", failing=round_number % 2 * 5)
+    assert helper.per_resolver_threads == 50  # never above the configured value
+    assert slots[0] == 50 and slots[2] == 25 and slots[-1] == 50
+    await batch("mixed", failing=8)  # between 0.5% and 1% holds steady
+    assert helper.per_resolver_threads == 50
+    assert (helper.concurrency_cuts, helper.concurrency_raises) == (1, 5)
