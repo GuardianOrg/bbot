@@ -1458,8 +1458,25 @@ class BaseModule:
         cache = self._api_response_cache
         if cache is None:
             return await self.helpers.request(*args, **kwargs)
+        response, key = await self._api_cache_lookup(args, kwargs)
+        if response is not None:
+            return response
+        response = await self.helpers.request(*args, **kwargs)
+        if key is not None and self.api_cache_response_ok(response):
+            await cache.put(key, cache.response_entry(response))
+        return response
+
+    async def cached_api_response(self, *args, **kwargs):
+        """The API cache's response to this cached_api_request() call, or None; never sends a live request."""
+        if self._api_response_cache is None:
+            return None
+        return (await self._api_cache_lookup(args, kwargs))[0]
+
+    async def _api_cache_lookup(self, args, kwargs):
+        """(cached response or None, cache key or None) for cached_api_request() arguments."""
         from bbot.core.helpers.api_cache import request_kwargs_key_material
 
+        cache = self._api_response_cache
         key = None
         try:
             material = request_kwargs_key_material(args, kwargs)
@@ -1474,13 +1491,10 @@ class BaseModule:
                 try:
                     response = cache.build_response(entry, method, url)
                     self.debug(f"API cache hit for {self.name} {method} request")
-                    return response
+                    return response, key
                 except Exception as e:
                     self.debug(f"API cache entry unusable, querying live: {e}")
-        response = await self.helpers.request(*args, **kwargs)
-        if key is not None and self.api_cache_response_ok(response):
-            await cache.put(key, cache.response_entry(response))
-        return response
+        return None, key
 
     async def api_cache_get(self, method, url, body=None):
         """A JSON-serialisable result stored with api_cache_set() under 16 hours ago, else None."""

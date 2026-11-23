@@ -289,3 +289,18 @@ async def test_missing_object_hidden_as_access_denied_is_a_miss_not_an_outage(s3
     again, live = make_module(responses=[])
     assert (await again.cached_api_request("https://api.example.test/0")).json() == {"i": 0}
     assert live.await_count == 0
+
+
+async def test_cache_only_lookup_answers_from_the_cache_and_never_queries_live(s3):
+    from bbot.modules.host_reputation import host_reputation
+
+    url = "https://www.virustotal.com/api/v3/domains/example.com"
+    first, first_live = make_module(cls=host_reputation, responses=[ok({"data": {"id": "example.com"}})])
+    assert await first.cached_api_response(url=url, params=None, headers={}, timeout=10) is None
+    assert first_live.await_count == 0
+    await first.cached_api_request(url=url, params=None, headers={"x-apikey": "key-1"}, timeout=10)
+
+    second, second_live = make_module(cls=host_reputation, responses=[])
+    cached = await second.cached_api_response(url=url, params=None, headers={}, timeout=10)
+    assert second_live.await_count == 0
+    assert cached.status_code == 200 and cached.json() == {"data": {"id": "example.com"}}
