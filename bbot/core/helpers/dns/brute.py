@@ -56,6 +56,15 @@ class DNSQueryLedger:
             connection.close()
 
 
+# A parent is silent when at least 90% (and this many) of a massdns run's names got no answer while another
+# parent's run was answered within SILENT_HEALTHY_SECONDS, and none of SILENT_PROBE_NAMES of them answered retries.
+SILENT_MIN_NAMES = 50
+SILENT_PROBE_NAMES = 20
+SILENT_HEALTHY_SECONDS = 300
+# Retry passes keep at least this many queries per resolver in flight however far concurrency was cut.
+RETRY_MIN_PER_RESOLVER = 5
+
+
 class DNSBrute:
     """
     Helper for DNS brute-forcing.
@@ -104,6 +113,10 @@ class DNSBrute:
             raise ValueError("dns.brute_transport_retry_passes must be 0..5")
         self.unanswered = set()
         self.unanswered_queries = 0
+        # Parents whose DNS answered none of their names, retried sample included, while other parents' DNS
+        # answered: {parent: names left unanswered}. Brute force cannot find names there, so callers stop them.
+        self.silent_domains = {}
+        self.last_answered_at = None
         # A massdns process silent for this long is killed; its unfinished names stay unanswered.
         self.stall_timeout = float(self.dns_config.get("brute_stall_timeout", 180))
         if not 1 <= self.stall_timeout <= 3600:
@@ -204,6 +217,7 @@ class DNSBrute:
             "transport_unretried": self.transport_unretried,
             "unanswered_queries": self.unanswered_queries,
             "massdns_stalls": self.stalls,
+            "silent_domains": len(self.silent_domains),
             "servfail": self.response_status["SERVFAIL"],
             "refused": self.response_status["REFUSED"],
             "answered": sum(self.response_status.values()),
@@ -444,9 +458,30 @@ class DNSBrute:
                 failures += [name for name in subdomains if name not in answered]
             retry_names = [name for name in dict.fromkeys(failures) if name not in answered]
             self.transport_failures += len(retry_names)
-            # Timeouts and refusals both mean the resolvers are shedding load.
+            if len(retry_names) < len(subdomains) // 2:
+                self.last_answered_at = time.monotonic()
+            # Nearly nothing beneath this parent was answered while other parents' names were: its zone's DNS does
+            # not answer, which is not resolver load. Retry a sample on the full schedule before the whole batch.
+            silent = (len(retry_names) >= max(SILENT_MIN_NAMES, len(subdomains) * 9 // 10)
+                      and self.last_answered_at is not None
+                      and time.monotonic() - self.last_answered_at <= SILENT_HEALTHY_SECONDS)
+            retried = set()
+            if silent:
+                probe = retry_names[:SILENT_PROBE_NAMES]
+                await self._retry_passes(module, command, probe, answered, retried, output, resolvers, timeout, started)
+                if any(name in answered for name in probe):
+                    silent = False
+                    retry_names = [name for name in retry_names if name not in answered]
+                else:
+                    self.silent_domains[domain] = self.silent_domains.get(domain, 0) + len(retry_names)
+                    self.log.info(f"DNS beneath {domain} answered none of {len(retry_names):,} names, "
+                                  f"{len(probe)} of them retried; not brute-forcing it further")
+                    retry_names = []
+            # Timeouts and refusals both mean the resolvers are shedding load; a silent zone does not.
             pressure = len(retry_names)
-            if pressure > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
+            if silent:
+                pass
+            elif pressure > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
                 self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
                 self.concurrency_cuts += 1
                 self.log.info(
@@ -457,30 +492,8 @@ class DNSBrute:
                 # At most 0.5% transport errors: the resolvers keep up, so take back one step.
                 self.per_resolver_threads = min(self.max_per_resolver_threads, self.per_resolver_threads + 5)
                 self.concurrency_raises += 1
-            # Retry every unanswered name in bounded passes, each with half the concurrency and twice
-            # massdns' wait between tries of the previous one. Retry passes accept SERVFAIL as an answer;
-            # only REFUSED (a resolver shedding load) is retried inside massdns.
-            retried = set()
-            for retry_pass in range(1, self.transport_retry_passes + 1):
-                if not retry_names:
-                    break
-                remaining = None if timeout is None else timeout - (time.monotonic() - started)
-                if remaining is not None and remaining <= 0:
-                    break
-                retry_command = list(command)
-                retry_command[retry_command.index("-s") + 1] = min(
-                    self.max_resolvers, resolvers * max(1, self.per_resolver_threads >> retry_pass)
-                )
-                retry_command += ["-i", 500 << retry_pass, "--retry", "REFUSED"]
-                retry_output, stalled = await self._run_massdns(module, retry_command, retry_names, remaining)
-                self.transport_retries += len(retry_names)
-                retried.update(retry_names)
-                self._read_massdns_pass(retry_output, set(retry_names), answered, first=False)
-                output.extend(retry_output)
-                retry_names = [name for name in retry_names if name not in answered]
-                if not retry_output and not stalled:
-                    self.log.warning("massdns transport retry produced no output; its names stay unanswered")
-                    break
+            await self._retry_passes(module, command, retry_names, answered, retried, output, resolvers, timeout,
+                                     started)
             unanswered = [name for name in subdomains if name not in answered]
             failed = set(failures)
             self.transport_retry_failures += sum(name in retried for name in unanswered)
@@ -507,6 +520,35 @@ class DNSBrute:
                             if hostname_hash not in hosts_yielded:
                                 hosts_yielded.add(hostname_hash)
                                 yield hostname, data, answer_type
+
+    async def _retry_passes(self, module, command, retry_names, answered, retried, output, resolvers, timeout,
+                            started):
+        """Retry unanswered names in bounded passes, each with half the concurrency (at least
+        ``RETRY_MIN_PER_RESOLVER`` per resolver) and twice massdns' wait between tries of the previous one. Retry
+        passes accept SERVFAIL as an answer; only REFUSED (a resolver shedding load) is retried inside massdns.
+        Returns the names still unanswered."""
+        floor = min(RETRY_MIN_PER_RESOLVER, self.max_per_resolver_threads)
+        for retry_pass in range(1, self.transport_retry_passes + 1):
+            if not retry_names:
+                break
+            remaining = None if timeout is None else timeout - (time.monotonic() - started)
+            if remaining is not None and remaining <= 0:
+                break
+            retry_command = list(command)
+            retry_command[retry_command.index("-s") + 1] = min(
+                self.max_resolvers, resolvers * max(floor, self.per_resolver_threads >> retry_pass)
+            )
+            retry_command += ["-i", 500 << retry_pass, "--retry", "REFUSED"]
+            retry_output, stalled = await self._run_massdns(module, retry_command, retry_names, remaining)
+            self.transport_retries += len(retry_names)
+            retried.update(retry_names)
+            self._read_massdns_pass(retry_output, set(retry_names), answered, first=False)
+            output.extend(retry_output)
+            retry_names = [name for name in retry_names if name not in answered]
+            if not retry_output and not stalled:
+                self.log.warning("massdns transport retry produced no output; its names stay unanswered")
+                break
+        return retry_names
 
     async def _run_massdns(self, module, command, names, timeout):
         """Run massdns over ``names``; return its output lines and whether it was killed as stalled.

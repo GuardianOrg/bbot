@@ -12,6 +12,8 @@ class DNSBruteQueue:
         self.covered = {}
         self.limits = {}
         self.limited = set()
+        # Parents dropped before their limit: their remaining words are neither asked nor covered.
+        self.stopped = set()
         self._heap = []
         self._order = 0
 
@@ -61,8 +63,12 @@ class DNSBruteQueue:
             self.covered[parent] = end if answered is None else min(end, start + answered)
         if limited:
             self.limited.add(parent)
-        if end < self.limits[parent] and not limited:
+        if end < self.limits[parent] and not limited and parent not in self.stopped:
             heapq.heappush(self._heap, (end, order, parent))
+
+    def stop(self, parent):
+        """Ask no more words beneath ``parent``; call before completing its reservation."""
+        self.stopped.add(parent)
 
     def retry(self, reservation):
         parent, start, _end, _event, order = reservation
