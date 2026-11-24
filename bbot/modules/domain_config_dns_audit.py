@@ -36,6 +36,12 @@ RRSIG_STALLED_REMAINING_FRACTION = 0.1
 # grouped DNS and email hardening table.
 EMAIL_SPOOFING_CATEGORY = "Email-Spoofing"
 DMARC_ENFORCING_POLICIES = {"quarantine", "reject"}
+# A hostname whose CNAME chain ends at another registrable domain that answers NOERROR with no
+# A/AAAA (NODATA). It is a dangling alias, not a takeover: NXDOMAIN targets are left to the
+# takeover scanners (baddns cname, dnsreaper generic), which already report them.
+DANGLING_DNS_CATEGORY = "Dangling-DNS"
+CNAME_TARGET_NODATA_SIGNATURE = "cname_target_nodata"
+MAX_CNAME_CHAIN = 10
 
 
 @dataclass
@@ -63,7 +69,7 @@ class domain_config_dns_audit(BaseModule):
     produced_events = ["FINDING", "VULNERABILITY", "DOMAIN_DNS_CONFIG"]
     flags = ["active", "safe", "subdomain-enum"]
     meta = {
-        "description": "Audit DNS, DNSSEC, email-DNS, CAA, and MX domain configuration without external scripts.",
+        "description": "Audit DNS, DNSSEC, email-DNS, CAA, MX domain configuration, and CNAMEs whose foreign target has no address, without external scripts.",
         "created_date": "2026-02-26",
         "author": "@carlospolop + @codex",
     }
@@ -157,6 +163,7 @@ class domain_config_dns_audit(BaseModule):
         self.dns_full_cache = {}
         self.audited_domains = set()
         self.wildcard_checked_hosts = set()
+        self.cname_checked_hosts = set()
         if len(self.wildcard_nameservers) < 3:
             return False, "domain_config_dns_audit requires at least 3 wildcard_nameservers"
         return True
@@ -204,6 +211,94 @@ class domain_config_dns_audit(BaseModule):
                 continue
             self.wildcard_checked_hosts.add(host)
             await self.emit_wildcard_dns_config(parent_event, host)
+
+        for event in events:
+            host = str(event.host or "").strip().rstrip(".").lower()
+            if not host or host in self.cname_checked_hosts or not self.helpers.is_dns_name(host):
+                continue
+            self.cname_checked_hosts.add(host)
+            try:
+                await self.check_cname_target_nodata(event, host)
+            except Exception:
+                self.verbose(f"check_cname_target_nodata failed for {host}", trace=True)
+
+    async def check_cname_target_nodata(self, event, host):
+        """FINDING for a host whose CNAME chain ends at a foreign target with no A/AAAA (NODATA)."""
+        if "wildcard" in event.tags or "wildcard-child" in event.tags:
+            return
+        # resolved_hosts also lists CNAME targets; only an address means the host resolves.
+        if any(self.helpers.is_ip(resolved) for resolved in event.resolved_hosts):
+            return
+        raw_records = getattr(event, "raw_dns_records", None) or {}
+        if raw_records and not raw_records.get("CNAME"):
+            # The host was resolved with CNAME queried and has none.
+            return
+        chain = await self.follow_cname_chain(host)
+        if not chain:
+            return
+        target = chain[-1]
+        _, host_domain = self.helpers.split_domain(host)
+        _, target_domain = self.helpers.split_domain(target)
+        if (target_domain or target).lower() == (host_domain or host).lower():
+            return
+        if await self.cname_target_status(target, cached=True) != "NODATA":
+            return
+        for rdtype in ("A", "AAAA"):
+            success, answers = await self.query_dns(host, rdtype)
+            if not success or answers:
+                return
+        # Confirm with a fresh lookup so a transient empty answer is not reported.
+        if await self.cname_target_status(target, cached=False) != "NODATA":
+            return
+        rcode = "NOERROR (NODATA)"
+        await self.emit_finding(event, host, AuditFinding(
+            "CNAME Target Has No Address Records",
+            "INFO",
+            DANGLING_DNS_CATEGORY,
+            (
+                f"{host} is a CNAME alias of {target}, which answers {rcode}: the name exists but publishes no A or AAAA"
+                " record, so the hostname does not resolve to any address. This is a stale or unfinished alias to a"
+                " resource outside the domain; no takeover was shown."
+            ),
+            f"CNAME chain: {' -> '.join([host] + chain)}; {target} A/AAAA: {rcode} (confirmed twice)",
+            "Remove the CNAME if the integration is no longer used, or restore the provider resource it points to.",
+            f"dig A {target}",
+            details={
+                "signature": CNAME_TARGET_NODATA_SIGNATURE,
+                "confidence": "POSSIBLE",
+                "cname_targets": [target],
+                "rcode": rcode,
+            },
+        ))
+
+    async def follow_cname_chain(self, host):
+        """The CNAME targets from host to the end of its chain, [] when it has none or the chain loops."""
+        chain = []
+        current = host
+        for _ in range(MAX_CNAME_CHAIN):
+            success, answers = await self.query_dns(current, "CNAME")
+            if not success or not answers:
+                break
+            current = str(answers[0]).strip().rstrip(".").lower()
+            if not current or current == host or current in chain:
+                return []
+            chain.append(current)
+        else:
+            return []
+        return chain
+
+    async def cname_target_status(self, target, cached=True):
+        """NODATA when the target answers NOERROR with no A and no AAAA; ADDRESS, NXDOMAIN or ERROR otherwise."""
+        for rdtype in ("A", "AAAA"):
+            if cached:
+                success, answers = await self.query_dns(target, rdtype, raise_on_nxdomain=True)
+            else:
+                success, answers = await asyncio.to_thread(self._sync_query_dns, target, rdtype, None, True)
+            if not success:
+                return "NXDOMAIN" if answers == ["NXDOMAIN"] else "ERROR"
+            if answers:
+                return "ADDRESS"
+        return "NODATA"
 
     async def audit_domain(self, parent_event, domain):
         records = await self.collect_basic_dns(domain)
