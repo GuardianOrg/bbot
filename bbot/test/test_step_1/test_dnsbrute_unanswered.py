@@ -23,7 +23,7 @@ with open(here / "asked.log", "a") as log:
 
 def answer(name, address):
     data = {"answers": [{"name": name + ".", "type": "A", "data": address}]} if rdtype == "A" else {}
-    return {"name": name + ".", "status": "NOERROR" if data else "NXDOMAIN", "data": data}
+    return {"name": name + ".", "status": "NOERROR" if data else "NXDOMAIN", "data": data, "resolver": "192.0.2.53:53"}
 
 pending = False
 for name in names:
@@ -31,20 +31,22 @@ for name in names:
         pending = True
         if not plan["hang"]:
             print(json.dumps({"name": name + ".", "type": rdtype, "error": "TIMEOUT"}), flush=True)
+    elif name in plan["refused"]:
+        print(json.dumps({"name": name + ".", "status": "REFUSED", "data": {}, "resolver": "198.51.100.53:53"}), flush=True)
     elif name in plan["late"] or name in plan["found"]:
         print(json.dumps(answer(name, "192.0.2.7")), flush=True)
     else:
-        print(json.dumps({"name": name + ".", "status": "NXDOMAIN", "data": {}}), flush=True)
+        print(json.dumps({"name": name + ".", "status": "NXDOMAIN", "data": {}, "resolver": "192.0.2.53:53"}), flush=True)
 if plan["hang"] and pending:
     time.sleep(120)
 """
 
 
-def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False):
+def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False, refused=()):
     tools = tmp_path / "tools"
     tools.mkdir(exist_ok=True)
     (tools / "plan.json").write_text(
-        json.dumps({"never": list(never), "late": list(late), "found": list(found), "hang": hang})
+        json.dumps({"never": list(never), "late": list(late), "found": list(found), "hang": hang, "refused": list(refused)})
     )
     binary = tools / "massdns"
     binary.write_text(FAKE_MASSDNS)
@@ -137,3 +139,16 @@ async def test_a_hung_massdns_is_killed_and_its_unfinished_names_stay_unanswered
     metrics = helper.resolver_metrics()
     assert metrics["massdns_stalls"] == 4  # the first pass and all three retry passes
     assert metrics["unanswered_queries"] == 1
+
+
+async def test_answers_and_refusals_are_counted_per_resolver(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com")
+    helper = scan.helpers.dns.brute
+    install_fake_massdns(scan, tmp_path, refused=["busy.example.com"])
+    module = SimpleNamespace(name="dnsbrute", run_process_live=scan.helpers.run_live)
+    await helper(module, "example.com", ["api", "www", "busy"], type="A")
+    resolvers = helper.resolver_metrics()["resolvers"]
+    # Two words and the wildcard canaries answered by one resolver; the other word was refused on the
+    # first pass and on all three retry passes.
+    assert resolvers == {"192.0.2.53": [2 + helper.num_canaries, 0], "198.51.100.53": [0, 4]}
+    assert ("busy.example.com", "A") in helper.unanswered
