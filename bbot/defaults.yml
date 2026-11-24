@@ -44,7 +44,8 @@ dns:
   brute_max_candidates: 400000
   # One hard deadline for all brute-force modules and depths; seconds from first brute batch.
   brute_max_runtime: 7200
-  # Two fair-sized subprocess batches; concurrency is also capped per validated resolver.
+  # massdns first passes run at once (also capped per validated resolver). Retry passes leave the slot and
+  # wait in their own (8 per slot), and dnsbrute keeps two fair batches per slot in flight.
   brute_parallel_batches: 2
   brute_threads_per_resolver: 50
   # Extra massdns passes (half the concurrency, at least 5 per resolver, twice the retry interval each) over

@@ -9,6 +9,9 @@ from bbot.errors import WordlistError
 from bbot.modules.dnsbrute_queue import DNSBruteQueue
 from bbot.modules.templates.subdomain_enum import subdomain_enum
 
+# Fair batches in flight per massdns first-pass slot (dns.brute_parallel_batches).
+BATCHES_PER_SLOT = 2
+
 
 class dnsbrute(subdomain_enum):
     flags = ["subdomain-enum", "active", "aggressive"]
@@ -231,59 +234,91 @@ class dnsbrute(subdomain_enum):
         return reservation, names, limited, checked, answered
 
     async def _run_queue(self):
+        """Run fair batches, several at once: a batch's last parents wait out their retry passes while the
+        next batch's first passes use the free massdns slots. In-flight parents are off the queue, so batches
+        never share a parent."""
         brute = self.helpers.dns.brute
         if brute.deadline is None:
             brute.deadline = time.monotonic() + brute.max_runtime
-        while self.queue and time.monotonic() < brute.deadline:
-            remaining = brute.remaining_candidates(self)
-            if remaining == 0:
-                if len(brute.queries_tried) >= brute.max_candidates:
-                    break
-                await brute.reservations_released.wait()
-                continue
-            # When a query count limit is configured, A and AAAA count
-            # separately. Never reserve words that cannot be sent as both.
-            batch_size = self.dns_batch_size if remaining is None else min(self.dns_batch_size, remaining // 2)
-            if batch_size <= 0:
-                if len(brute.queries_tried) >= brute.max_candidates - 1:
-                    break
-                await brute.reservations_released.wait()
-                continue
-            reservations = self.queue.reserve(batch_size, self.max_batch_parents)
-            outcomes = await asyncio.gather(*(self._query_parent(entry) for entry in reservations),
-                                            return_exceptions=True)
-            failed = None
-            for reservation, outcome in zip(reservations, outcomes):
-                if isinstance(outcome, BaseException):
-                    self.queue.retry(reservation)
-                    failed = outcome
+        in_flight = set()
+        try:
+            while (self.queue or in_flight) and time.monotonic() < brute.deadline:
+                reserved = False
+                while (self.queue and len(in_flight) < brute.parallel_batches * BATCHES_PER_SLOT
+                       and time.monotonic() < brute.deadline):
+                    remaining = brute.remaining_candidates(self)
+                    # When a query count limit is configured, A and AAAA count
+                    # separately. Never reserve words that cannot be sent as both.
+                    batch_size = self.dns_batch_size if remaining is None else min(self.dns_batch_size, remaining // 2)
+                    if batch_size <= 0:
+                        break
+                    reservations = self.queue.reserve(batch_size, self.max_batch_parents)
+                    in_flight.add(asyncio.create_task(self._query_batch(reservations)))
+                    reserved = True
+                if in_flight:
+                    done, in_flight = await asyncio.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        await self._finish_batch(*task.result())
+                    if time.monotonic() - self.coverage_written >= 60:
+                        # A run stopped from outside still leaves its progress for the next one.
+                        self.write_coverage()
                     continue
-                _entry, names, limited, checked, answered = outcome
-                if time.monotonic() >= brute.deadline:
-                    self.queue.retry(reservation)
+                if not reserved:
+                    remaining = brute.remaining_candidates(self)
+                    if remaining is not None and len(brute.queries_tried) >= brute.max_candidates - (remaining == 1):
+                        break
+                    await brute.reservations_released.wait()
+        except asyncio.CancelledError:
+            for task in in_flight:
+                task.cancel()
+            in_flight = set()
+            raise
+        finally:
+            if in_flight:
+                # Stopped early (deadline or error): wait out the running batches so their words are
+                # recorded, never lost.
+                for task in asyncio.as_completed(in_flight):
+                    try:
+                        await self._finish_batch(*(await task))
+                    except Exception as error:
+                        self.warning(f"DNS batch failed while stopping: {error}")
+
+    async def _query_batch(self, reservations):
+        outcomes = await asyncio.gather(*(self._query_parent(entry) for entry in reservations),
+                                        return_exceptions=True)
+        return reservations, outcomes
+
+    async def _finish_batch(self, reservations, outcomes):
+        brute = self.helpers.dns.brute
+        failed = None
+        for reservation, outcome in zip(reservations, outcomes):
+            if isinstance(outcome, BaseException):
+                self.queue.retry(reservation)
+                failed = outcome
+                continue
+            _entry, names, limited, checked, answered = outcome
+            if time.monotonic() >= brute.deadline:
+                self.queue.retry(reservation)
+                continue
+            parent = reservation[0]
+            if parent in brute.silent_domains:
+                # Its DNS answered nothing, retries included, while other parents' DNS answered.
+                self.queue.stop(parent)
+                self.skipped_parents[parent] = (
+                    f"DNS answered none of {brute.silent_domains[parent]:,} queries beneath it, retries included, "
+                    "while other parents were answered")
+            self.queue.complete(reservation, limited=limited, checked=checked, answered=answered)
+            event = reservation[3]
+            for hostname in names:
+                if hostname in self.emitted_hosts:
                     continue
-                parent = reservation[0]
-                if parent in brute.silent_domains:
-                    # Its DNS answered nothing, retries included, while other parents' DNS answered.
-                    self.queue.stop(parent)
-                    self.skipped_parents[parent] = (
-                        f"DNS answered none of {brute.silent_domains[parent]:,} queries beneath it, retries included, "
-                        "while other parents were answered")
-                self.queue.complete(reservation, limited=limited, checked=checked, answered=answered)
-                event = reservation[3]
-                for hostname in names:
-                    if hostname in self.emitted_hosts:
-                        continue
-                    self.emitted_hosts.add(hostname)
-                    await self.emit_event(
-                        hostname, "DNS_NAME", parent=event,
-                        context=f'{{module}} checked ranked DNS words beneath "{reservation[0]}" and found {{event.type}}: {{event.data}}',
-                    )
-            if failed is not None:
-                raise failed
-            if time.monotonic() - self.coverage_written >= 60:
-                # A run stopped from outside still leaves its progress for the next one.
-                self.write_coverage()
+                self.emitted_hosts.add(hostname)
+                await self.emit_event(
+                    hostname, "DNS_NAME", parent=event,
+                    context=f'{{module}} checked ranked DNS words beneath "{reservation[0]}" and found {{event.type}}: {{event.data}}',
+                )
+        if failed is not None:
+            raise failed
 
     async def _resume_unseen_parents(self):
         """Queue resumed parents no DNS_NAME event delivered, e.g. names without records (dropped as unresolved)."""

@@ -9,7 +9,8 @@ from ..bbot_fixtures import *
 # "never" names get no DNS answer on any pass, "late" ones only on a retry pass (massdns -i),
 # "found" ones resolve on the first pass and everything else is NXDOMAIN. With "hang", the
 # unanswered names get no output at all and the process stops writing, as a hung massdns would.
-# Every name beneath a "silent" zone gets no answer on any pass. Each run is logged to runs.log.
+# Every name beneath a "silent" zone gets no answer on any pass. A retry pass with names left unanswered
+# takes "retry_wait" seconds, as massdns waiting out its retry interval does. Each run is logged to runs.log.
 FAKE_MASSDNS = """#!/usr/bin/env python3
 import json, sys, time
 from pathlib import Path
@@ -21,8 +22,7 @@ retry = "-i" in args
 names = [line.strip() for line in sys.stdin if line.strip()]
 with open(here / "asked.log", "a") as log:
     log.writelines(f"{name} {rdtype}\\n" for name in names)
-with open(here / "runs.log", "a") as log:
-    log.write(json.dumps({"s": int(args[args.index("-s") + 1]), "retry": retry, "names": names}) + "\\n")
+start = time.time()
 silent = tuple(plan["silent"])
 
 def answer(name, address):
@@ -43,15 +43,21 @@ for name in names:
         print(json.dumps({"name": name + ".", "status": "NXDOMAIN", "data": {}, "resolver": "192.0.2.53:53"}), flush=True)
 if plan["hang"] and pending:
     time.sleep(120)
+if retry and pending:
+    # A retry pass waits out massdns' interval for names that never answer.
+    time.sleep(plan["retry_wait"])
+with open(here / "runs.log", "a") as log:
+    log.write(json.dumps({"s": int(args[args.index("-s") + 1]), "retry": retry, "names": names,
+                          "start": start, "end": time.time()}) + "\\n")
 """
 
 
-def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False, refused=(), silent=()):
+def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False, refused=(), silent=(), retry_wait=0):
     tools = tmp_path / "tools"
     tools.mkdir(exist_ok=True)
     (tools / "plan.json").write_text(
         json.dumps({"never": list(never), "late": list(late), "found": list(found), "hang": hang, "refused": list(refused),
-                    "silent": [f".{zone}" for zone in silent]})
+                    "silent": [f".{zone}" for zone in silent], "retry_wait": retry_wait})
     )
     binary = tools / "massdns"
     binary.write_text(FAKE_MASSDNS)
@@ -225,3 +231,40 @@ async def test_a_parent_whose_zone_answers_nothing_is_stopped_and_reported(bbot_
     asked = [line.split()[0] for line in (tmp_path / "tools" / "asked.log").read_text().splitlines()]
     # Once given up, its later words are asked at most once each and never retried.
     assert all(asked.count(f"w{i}.dead.example.com") <= 4 for i in range(10))
+
+
+async def test_other_parents_are_queried_while_a_parent_waits_out_its_retries(bbot_scanner, tmp_path):
+    coverage = tmp_path / "coverage.json"
+    resume = tmp_path / "resume.json"
+    resume.write_text(json.dumps({"parents": {"example.com": [0, 10], "other.example.com": [0, 10]}}))
+    words = tmp_path / "words.txt"
+    words.write_text("\n".join(f"w{i}" for i in range(10)))
+    scan = bbot_scanner(
+        "example.com",
+        modules=["dnsbrute"],
+        config={
+            "deps": {"behavior": "disable"},
+            # One massdns slot, one parent per batch: only the scheduling can overlap their work.
+            "dns": {"brute_max_candidates": 0, "brute_max_runtime": 60, "brute_parallel_batches": 1},
+            "modules": {"dnsbrute": {"wordlist": str(words), "dns_batch_size": 5, "max_batch_parents": 1,
+                                     "coverage_file": str(coverage), "resume_file": str(resume),
+                                     "resume_only": True}},
+        },
+    )
+    install_fake_massdns(scan, tmp_path, never=["w1.example.com"], found=["w2.other.example.com"], retry_wait=1)
+    await scan.helpers._mock_dns({"example.com": {"A": ["192.0.2.10"]}, "other.example.com": {"A": ["192.0.2.11"]},
+                                  "w2.other.example.com": {"A": ["192.0.2.7"]}})
+    events = await asyncio.wait_for(_collect(scan), 60)
+    runs = massdns_runs(tmp_path)
+    waits = [run for run in runs if run["retry"] and "w1.example.com" in run["names"]]
+    assert waits
+    # A first pass ran while w1.example.com's retry pass was waiting, instead of queueing behind it.
+    assert any(not run["retry"] and wait["start"] < run["start"] < wait["end"] for wait in waits for run in runs)
+    assert "w2.other.example.com" in {event.data for event in events if event.type == "DNS_NAME"}
+    # Coverage stays exact: example.com stops before its unanswered word, the other parent is fully covered.
+    result = json.loads(coverage.read_text())
+    assert result["parents"]["example.com"][0] == 1
+    assert result["parents"]["other.example.com"] == [10, 10, False]
+    asked = [line.split()[0] for line in (tmp_path / "tools" / "asked.log").read_text().splitlines()]
+    # Overlapping batches never ask a word twice: once per record type.
+    assert all(asked.count(f"w{i}.other.example.com") == 2 for i in range(10))
