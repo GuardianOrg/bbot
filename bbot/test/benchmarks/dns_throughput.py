@@ -24,7 +24,7 @@ async def run(parallel, endpoint, threads=25):
     helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
     await helper.resolver_pool.validate([endpoint])
     helper._resolver_file = scan.helpers.tempfile([endpoint], pipe=False)
-    module = SimpleNamespace(name="benchmark", run_process=scan.helpers.run)
+    module = SimpleNamespace(name="benchmark", run_process_live=scan.helpers.run_live)
     started = time.monotonic()
     groups = await asyncio.gather(
         *(helper(module, "example.com", [f"n{i}" for i in range(2000)], type=kind) for kind in ("A", "AAAA"))

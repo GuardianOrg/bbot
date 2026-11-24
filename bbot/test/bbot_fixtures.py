@@ -18,6 +18,18 @@ from bbot.core.helpers.misc import mkdir, rand_string
 from bbot.core.helpers.async_helpers import get_event_loop
 
 
+def massdns_module(run, name="dnsbrute"):
+    """A module whose massdns runs return ``(await run(*command, **kwargs)).stdout`` line by line."""
+    from types import SimpleNamespace
+
+    async def run_process_live(*command, **kwargs):
+        result = await run(*command, **kwargs)
+        for line in (result.stdout if result is not None else "").splitlines():
+            yield line
+
+    return SimpleNamespace(name=name, run_process=run, run_process_live=run_process_live)
+
+
 log = logging.getLogger("bbot.test.fixtures")
 
 

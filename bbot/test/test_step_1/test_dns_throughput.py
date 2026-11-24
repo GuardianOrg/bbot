@@ -149,11 +149,11 @@ async def test_two_massdns_processes_overlap_and_never_exceed_the_scan_cap(bbot_
         peak = max(peak, active)
         try:
             await asyncio.sleep(0.03)
-            return SimpleNamespace(stdout="")
+            return SimpleNamespace(stdout='{"name":"api.example.com.","status":"NXDOMAIN"}')
         finally:
             active -= 1
 
-    module = SimpleNamespace(run_process=run)
+    module = massdns_module(run)
 
     async def query(kind):
         return [value async for value in brute._massdns(module, "example.com", ["api"], kind, timeout=1)]
@@ -265,7 +265,7 @@ async def test_native_massdns_discovers_ipv6_and_reconfirms_results(bbot_scanner
     results = await asyncio.gather(
         *(
             helper(
-                SimpleNamespace(name="native-fixture", run_process=scan.helpers.run),
+                SimpleNamespace(name="native-fixture", run_process_live=scan.helpers.run_live),
                 "example.com",
                 ["both", "v6", "missing"],
                 type=kind,
@@ -299,7 +299,7 @@ async def test_transport_failures_retry_every_failed_name_in_large_batch(bbot_sc
     )
     run = AsyncMock(side_effect=[SimpleNamespace(stdout=errors), SimpleNamespace(stdout=answers)])
     results = await helper(
-        SimpleNamespace(name="dnsbrute", run_process=run), "example.com", [f"n{i}" for i in range(150)]
+        massdns_module(run), "example.com", [f"n{i}" for i in range(150)]
     )
     assert set(results) == set(failed)
     assert helper.per_resolver_threads == 25
@@ -316,14 +316,21 @@ async def test_transport_metrics_separate_initial_and_retry_errors(bbot_scanner)
     helper = scan.helpers.dns.brute
     helper.resolver_file = AsyncMock(return_value="fixture.txt")
     helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
-    first = json.dumps({"name": "api.example.com.", "error": "TIMEOUT"})
-    retry = json.dumps({"name": "api.example.com.", "error": "TIMEOUT"})
-    run = AsyncMock(side_effect=[SimpleNamespace(stdout=first), SimpleNamespace(stdout=retry)])
-    await helper(SimpleNamespace(name="dnsbrute", run_process=run), "example.com", ["api"], type="A")
+    helper.resolver_pool.selected = ["192.0.2.53:53"]
+    timeout = json.dumps({"name": "api.example.com.", "error": "TIMEOUT"})
+    run = AsyncMock(return_value=SimpleNamespace(stdout=timeout))
+    await helper(massdns_module(run), "example.com", ["api"], type="A")
+    # One first pass, then three bounded retry passes: less concurrency, longer wait between tries.
+    assert run.await_count == 4
+    retries = [call.args for call in run.await_args_list[1:]]
+    assert [command[command.index("-s") + 1] for command in retries] == [25, 12, 6]
+    assert [command[command.index("-i") + 1] for command in retries] == [1000, 2000, 4000]
+    assert all(call.kwargs["input"] == ["api.example.com"] for call in run.await_args_list[1:])
     assert helper.transport_failures == 1
-    assert helper.transport_retries == 1
+    assert helper.transport_retries == 3
     assert helper.transport_retry_failures == 1
     assert helper.transport_unretried == 0
+    assert ("api.example.com", "A") in helper.unanswered
 
 
 async def test_real_scan_releases_priority_reserves_and_resumes_deferred_ipv6_work(bbot_scanner, tmp_path):
@@ -426,17 +433,18 @@ async def test_resolver_concurrency_recovers_after_clean_batches_up_to_the_confi
         outputs = [massdns_output(names, bad)] + ([massdns_output(sorted(bad), set())] if bad else [])
 
         async def run_process(*command, **_):
-            slots.append(command[command.index("-s") + 1])
+            if "-i" not in command:  # first passes only; retry passes use fewer slots
+                slots.append(command[command.index("-s") + 1])
             return outputs.pop(0)
 
-        await helper(SimpleNamespace(name="dnsbrute", run_process=run_process), "example.com", names)
+        await helper(massdns_module(run_process), "example.com", names)
 
     await batch("congested", failing=200)  # 20% transport errors halve concurrency
     assert helper.per_resolver_threads == 25
     for round_number in range(8):  # clean batches take it back five slots at a time
         await batch(f"clean{round_number}-", failing=round_number % 2 * 5)
     assert helper.per_resolver_threads == 50  # never above the configured value
-    assert slots[0] == 50 and slots[2] == 25 and slots[-1] == 50
+    assert slots[0] == 50 and slots[1] == 25 and slots[-1] == 50
     await batch("mixed", failing=8)  # between 0.5% and 1% holds steady
     assert helper.per_resolver_threads == 50
     assert (helper.concurrency_cuts, helper.concurrency_raises) == (1, 5)

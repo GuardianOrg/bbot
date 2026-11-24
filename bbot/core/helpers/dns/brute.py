@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import asyncio
 import logging
@@ -96,6 +97,18 @@ class DNSBrute:
         self.transport_retries = 0
         self.transport_retry_failures = 0
         self.transport_unretried = 0
+        # Bounded extra massdns passes over names without a DNS answer. Names still unanswered after
+        # them are kept in ``unanswered`` as (name, rdtype) so callers never count them as checked.
+        self.transport_retry_passes = int(self.dns_config.get("brute_transport_retry_passes", 3))
+        if not 0 <= self.transport_retry_passes <= 5:
+            raise ValueError("dns.brute_transport_retry_passes must be 0..5")
+        self.unanswered = set()
+        self.unanswered_queries = 0
+        # A massdns process silent for this long is killed; its unfinished names stay unanswered.
+        self.stall_timeout = float(self.dns_config.get("brute_stall_timeout", 180))
+        if not 1 <= self.stall_timeout <= 3600:
+            raise ValueError("dns.brute_stall_timeout must be 1..3600 seconds")
+        self.stalls = 0
         # Final response codes of brute-forced names; REFUSED after massdns' own retries signals rate limiting.
         self.response_status = Counter()
         self.started = None
@@ -185,6 +198,8 @@ class DNSBrute:
             "transport_failures": self.transport_failures,
             "transport_retry_failures": self.transport_retry_failures,
             "transport_unretried": self.transport_unretried,
+            "unanswered_queries": self.unanswered_queries,
+            "massdns_stalls": self.stalls,
             "servfail": self.response_status["SERVFAIL"],
             "refused": self.response_status["REFUSED"],
             "answered": sum(self.response_status.values()),
@@ -231,7 +246,15 @@ class DNSBrute:
                 self._budget_reported = True
             return []
 
-        wildcard_domains = await self.parent_helper.dns.is_wildcard_domain(domain, (type, "CNAME"))
+        try:
+            # The DNS engine reply has no deadline of its own; never let one parent hang the batch.
+            wildcard_domains = await asyncio.wait_for(
+                self.parent_helper.dns.is_wildcard_domain(domain, (type, "CNAME")), self.stall_timeout
+            )
+        except asyncio.TimeoutError:
+            # The canaries sandwiching every batch still reject a wildcard parent.
+            self.log.warning(f"Wildcard check of {domain} took over {self.stall_timeout:.0f}s; relying on canaries")
+            wildcard_domains = {}
         wildcard_rdtypes = set()
         for wildcard_domain, rdtypes in wildcard_domains.items():
             wildcard_rdtypes.update(rdtypes)
@@ -401,35 +424,22 @@ class DNSBrute:
         subdomains = [f"{prefix}.{domain}" if domain else prefix for prefix in subdomains]
         hosts_yielded = set()
         requested = set(subdomains)
-        retry_names = []
+        resolvers = max(1, len(self.resolver_pool.selected))
         started = time.monotonic()
         async with self.dnsbrute_lock:
-            result = await module.run_process(
-                *command, stderr=subprocess.DEVNULL, input=subdomains, idle_timeout=timeout
-            )
-            if result is None or getattr(result, "returncode", 0) != 0:
+            output, stalled = await self._run_massdns(module, command, subdomains, timeout)
+            if not output and not stalled:
+                self._leave_unanswered(subdomains, rdtype)
                 raise DNSError("massdns failed to execute; DNS discovery results are incomplete")
-            output = result.stdout.splitlines()
-            failures = []
-            refused = 0
-            for line in output:
-                try:
-                    record = json.loads(line)
-                except json.decoder.JSONDecodeError:
-                    continue
-                name = str(record.get("name", "")).lower().rstrip(".")
-                if name not in requested:
-                    continue
-                if record.get("error"):
-                    failures.append(name)
-                elif record.get("status"):
-                    status = str(record["status"]).upper()
-                    self.response_status[status] += 1
-                    refused += status == "REFUSED"
-            retry_names = list(dict.fromkeys(failures))
+            answered = set()
+            failures, refused = self._read_massdns_pass(output, requested, answered)
+            if stalled:
+                # A killed process never reported the names it had not finished.
+                failures += [name for name in subdomains if name not in answered]
+            retry_names = [name for name in dict.fromkeys(failures) if name not in answered]
             self.transport_failures += len(retry_names)
             # Timeouts and refusals both mean the resolvers are shedding load.
-            pressure = len(retry_names) + refused
+            pressure = len(retry_names)
             if pressure > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
                 self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
                 self.concurrency_cuts += 1
@@ -441,30 +451,35 @@ class DNSBrute:
                 # At most 0.5% transport errors: the resolvers keep up, so take back one step.
                 self.per_resolver_threads = min(self.max_per_resolver_threads, self.per_resolver_threads + 5)
                 self.concurrency_raises += 1
-            # Retry every failed candidate once. Truncating this list silently
-            # left later names unchecked in large batches.
-            remaining = None if timeout is None else timeout - (time.monotonic() - started)
-            if retry_names and (remaining is None or remaining > 0):
+            # Retry every unanswered name in bounded passes, each with half the concurrency and twice
+            # massdns' wait between tries of the previous one. Retry passes accept SERVFAIL as an answer;
+            # only REFUSED (a resolver shedding load) is retried inside massdns.
+            retried = set()
+            for retry_pass in range(1, self.transport_retry_passes + 1):
+                if not retry_names:
+                    break
+                remaining = None if timeout is None else timeout - (time.monotonic() - started)
+                if remaining is not None and remaining <= 0:
+                    break
                 retry_command = list(command)
                 retry_command[retry_command.index("-s") + 1] = min(
-                    self.max_resolvers, max(1, len(self.resolver_pool.selected)) * self.per_resolver_threads
+                    self.max_resolvers, resolvers * max(1, self.per_resolver_threads >> retry_pass)
                 )
-                retry = await module.run_process(
-                    *retry_command, stderr=subprocess.DEVNULL, input=retry_names, idle_timeout=remaining
-                )
+                retry_command += ["-i", 500 << retry_pass, "--retry", "REFUSED"]
+                retry_output, stalled = await self._run_massdns(module, retry_command, retry_names, remaining)
                 self.transport_retries += len(retry_names)
-                if retry is None or getattr(retry, "returncode", 0) != 0:
-                    raise DNSError("massdns transport retry failed to execute")
-                retry_set = set(retry_names)
-                self.transport_retry_failures += len({
-                    record.get("name", "").lower().rstrip(".")
-                    for line in retry.stdout.splitlines()
-                    for record in (self._parse_massdns_line(line),)
-                    if record.get("error") and record.get("name", "").lower().rstrip(".") in retry_set
-                })
-                output.extend(retry.stdout.splitlines())
-            else:
-                self.transport_unretried += len(retry_names)
+                retried.update(retry_names)
+                self._read_massdns_pass(retry_output, set(retry_names), answered, first=False)
+                output.extend(retry_output)
+                retry_names = [name for name in retry_names if name not in answered]
+                if not retry_output and not stalled:
+                    self.log.warning("massdns transport retry produced no output; its names stay unanswered")
+                    break
+            unanswered = [name for name in subdomains if name not in answered]
+            failed = set(failures)
+            self.transport_retry_failures += sum(name in retried for name in unanswered)
+            self.transport_unretried += sum(name in failed and name not in retried for name in unanswered)
+            self._leave_unanswered(unanswered, rdtype)
             for line in output:
                 try:
                     j = json.loads(line)
@@ -486,6 +501,58 @@ class DNSBrute:
                             if hostname_hash not in hosts_yielded:
                                 hosts_yielded.add(hostname_hash)
                                 yield hostname, data, answer_type
+
+    async def _run_massdns(self, module, command, names, timeout):
+        """Run massdns over ``names``; return its output lines and whether it was killed as stalled.
+
+        massdns is killed after ``stall_timeout`` seconds without output (or at ``timeout``), so a hung
+        process costs a bounded wait. The lines it wrote before that are kept.
+        """
+        idle = self.stall_timeout if timeout is None else min(self.stall_timeout, timeout)
+        if os.environ.get("BBOT_THREADED_COMMANDS") == "1":
+            # Threaded commands only support a timeout on the whole run.
+            idle = timeout
+        lines = []
+        try:
+            async for line in module.run_process_live(
+                *command, stderr=subprocess.DEVNULL, input=names, idle_timeout=idle
+            ):
+                lines.append(line)
+        except asyncio.TimeoutError:
+            self.stalls += 1
+            self.log.warning(
+                f"massdns gave no output for {idle:.0f}s and was killed; {len(names) - len(lines):,} of "
+                f"{len(names):,} names may be unanswered"
+            )
+            return lines, True
+        return lines, False
+
+    def _leave_unanswered(self, names, rdtype):
+        self.unanswered_queries += len(names)
+        self.unanswered.update((name, rdtype) for name in names)
+
+    def _read_massdns_pass(self, lines, requested, answered, first=True):
+        """Record the names one massdns run answered; return its unanswered names and refusal count.
+
+        Any response code is an answer except REFUSED, which a resolver sends when shedding load.
+        """
+        failures = []
+        refused = 0
+        for line in lines:
+            record = self._parse_massdns_line(line)
+            name = str(record.get("name", "")).lower().rstrip(".")
+            if name not in requested:
+                continue
+            status = str(record.get("status") or "").upper()
+            if record.get("error") or status in ("", "REFUSED"):
+                failures.append(name)
+                refused += status == "REFUSED"
+                if status and first:
+                    self.response_status[status] += 1
+            elif name not in answered:
+                answered.add(name)
+                self.response_status[status] += 1
+        return failures, refused
 
     @staticmethod
     def _parse_massdns_line(line):

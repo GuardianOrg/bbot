@@ -181,12 +181,13 @@ class dnsbrute(subdomain_enum):
         query, start, end, event, _order = reservation
         end = min(end, self.queue.limits[query])
         if start >= end:
-            return reservation, [], False, None
+            return reservation, [], False, None, None
         words = self.subdomain_list[start:end]
         brute = self.helpers.dns.brute
         wildcard_before = brute.wildcard_candidates[query]
         results = await asyncio.gather(*(brute(self, query, words, type=kind) for kind in ("A", "AAAA")))
         limited = query in brute.wildcard_domains
+        answered = None
         if limited:
             checked = brute.wildcard_candidates[query] - wildcard_before
         else:
@@ -198,7 +199,15 @@ class dnsbrute(subdomain_enum):
                 if not all((hostname, kind) in brute.queries_tried for kind in ("A", "AAAA")):
                     break
                 checked += 1
-        return reservation, list(dict.fromkeys(host for group in results for host in group)), limited, checked
+            # A word is covered only when every query for it got a DNS answer.
+            answered = checked
+            for index, word in enumerate(words[:checked]):
+                keys = [(f"{word}.{query}", kind) for kind in ("A", "AAAA")]
+                if answered == checked and any(key in brute.unanswered for key in keys):
+                    answered = index
+                brute.unanswered.difference_update(keys)
+        names = list(dict.fromkeys(host for group in results for host in group))
+        return reservation, names, limited, checked, answered
 
     async def _run_queue(self):
         brute = self.helpers.dns.brute
@@ -228,11 +237,11 @@ class dnsbrute(subdomain_enum):
                     self.queue.retry(reservation)
                     failed = outcome
                     continue
-                _entry, names, limited, checked = outcome
+                _entry, names, limited, checked, answered = outcome
                 if time.monotonic() >= brute.deadline:
                     self.queue.retry(reservation)
                     continue
-                self.queue.complete(reservation, limited=limited, checked=checked)
+                self.queue.complete(reservation, limited=limited, checked=checked, answered=answered)
                 event = reservation[3]
                 for hostname in names:
                     if hostname in self.emitted_hosts:
@@ -272,8 +281,9 @@ class dnsbrute(subdomain_enum):
             "word_count": self.wordlist_size,
             "resumed_parents": len(self.resume_parents),
             "resume_matched": self.resume_matched,
-            # Per parent: words checked, words it may check, and whether wildcard DNS stopped it early.
-            "parents": {parent: [self.queue.positions[parent], self.queue.limits[parent], parent in self.queue.limited]
+            # Per parent: words checked (every word before it got a DNS answer), words it may check,
+            # and whether wildcard DNS stopped it early.
+            "parents": {parent: [self.queue.covered[parent], self.queue.limits[parent], parent in self.queue.limited]
                         for parent in sorted(self.queue.positions)},
             "queries": metrics.get("queries", 0),
             "call_seconds": metrics.get("call_seconds", 0),
@@ -293,12 +303,12 @@ class dnsbrute(subdomain_enum):
     async def report(self):
         self.write_coverage()
         self.info(f"DNS discovery metrics: {self.helpers.dns.brute.metrics()}")
-        positions = sorted(self.queue.positions.values())
+        positions = sorted(self.queue.covered.values())
         if positions:
             self.info(f"Ranked DNS coverage: {len(positions)} parents; words checked per parent min/median/max "
                       f"{positions[0]}/{positions[len(positions) // 2]}/{positions[-1]}; "
                       f"wildcard-limited parents {len(self.queue.limited)}")
         helper = self.helpers.dns.brute
         self.info(
-            f"DNS resolver metrics: {len(helper.resolver_pool.selected)} validated, {helper.resolver_pool.confirmations} confirmations, {helper.resolver_pool.rejected} rejected names, {helper.transport_failures} initial transport errors, {helper.transport_retries} bounded retries, {helper.transport_retry_failures} errors after retry, {helper.transport_unretried} not retried before deadline, {helper.per_resolver_threads} slots/resolver/process, {helper.concurrency_cuts} concurrency cuts, {helper.concurrency_raises} raises, {helper.response_status['SERVFAIL']} SERVFAIL, {helper.response_status['REFUSED']} REFUSED"
+            f"DNS resolver metrics: {len(helper.resolver_pool.selected)} validated, {helper.resolver_pool.confirmations} confirmations, {helper.resolver_pool.rejected} rejected names, {helper.transport_failures} initial transport errors, {helper.transport_retries} bounded retries, {helper.transport_retry_failures} errors after retry, {helper.transport_unretried} not retried before deadline, {helper.unanswered_queries} left unanswered, {helper.per_resolver_threads} slots/resolver/process, {helper.concurrency_cuts} concurrency cuts, {helper.concurrency_raises} raises, {helper.response_status['SERVFAIL']} SERVFAIL, {helper.response_status['REFUSED']} REFUSED"
         )

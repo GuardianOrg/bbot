@@ -1,0 +1,139 @@
+import json
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from ..bbot_fixtures import *
+
+# A stand-in massdns binary: it answers from a plan file and never touches the network.
+# "never" names get no DNS answer on any pass, "late" ones only on a retry pass (massdns -i),
+# "found" ones resolve on the first pass and everything else is NXDOMAIN. With "hang", the
+# unanswered names get no output at all and the process stops writing, as a hung massdns would.
+FAKE_MASSDNS = """#!/usr/bin/env python3
+import json, sys, time
+from pathlib import Path
+here = Path(__file__).parent
+plan = json.loads((here / "plan.json").read_text())
+args = sys.argv[1:]
+rdtype = args[args.index("-t") + 1]
+retry = "-i" in args
+names = [line.strip() for line in sys.stdin if line.strip()]
+with open(here / "asked.log", "a") as log:
+    log.writelines(f"{name} {rdtype}\\n" for name in names)
+
+def answer(name, address):
+    data = {"answers": [{"name": name + ".", "type": "A", "data": address}]} if rdtype == "A" else {}
+    return {"name": name + ".", "status": "NOERROR" if data else "NXDOMAIN", "data": data}
+
+pending = False
+for name in names:
+    if name in plan["never"] or (name in plan["late"] and not retry):
+        pending = True
+        if not plan["hang"]:
+            print(json.dumps({"name": name + ".", "type": rdtype, "error": "TIMEOUT"}), flush=True)
+    elif name in plan["late"] or name in plan["found"]:
+        print(json.dumps(answer(name, "192.0.2.7")), flush=True)
+    else:
+        print(json.dumps({"name": name + ".", "status": "NXDOMAIN", "data": {}}), flush=True)
+if plan["hang"] and pending:
+    time.sleep(120)
+"""
+
+
+def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False):
+    tools = tmp_path / "tools"
+    tools.mkdir(exist_ok=True)
+    (tools / "plan.json").write_text(
+        json.dumps({"never": list(never), "late": list(late), "found": list(found), "hang": hang})
+    )
+    binary = tools / "massdns"
+    binary.write_text(FAKE_MASSDNS)
+    binary.chmod(0o755)
+    scan.helpers.tools_dir = tools
+    helper = scan.helpers.dns.brute
+    helper.resolver_file = AsyncMock(return_value=str(tmp_path / "resolvers.txt"))
+    helper.parent_helper.dns.is_wildcard_domain = AsyncMock(return_value={})
+    return tools / "asked.log"
+
+
+def dnsbrute_scan(bbot_scanner, tmp_path, coverage, resume=None):
+    words = tmp_path / "words.txt"
+    words.write_text("\n".join(f"w{i}" for i in range(10)))
+    config = {"wordlist": str(words), "dns_batch_size": 10, "coverage_file": str(coverage)}
+    if resume is not None:
+        config.update(resume_file=str(resume), resume_only=True)
+    return bbot_scanner(
+        "example.com",
+        modules=["dnsbrute"],
+        config={
+            "deps": {"behavior": "disable"},
+            "dns": {"brute_max_candidates": 0, "brute_max_runtime": 60},
+            "modules": {"dnsbrute": config},
+        },
+    )
+
+
+async def run_scan(scan):
+    await scan.helpers._mock_dns({"example.com": {"A": ["192.0.2.10"]}, "w5.example.com": {"A": ["192.0.2.7"]}})
+    events = await asyncio.wait_for(_collect(scan), 60)
+    return {event.data for event in events if event.type == "DNS_NAME" and str(event.module) == "dnsbrute"}
+
+
+async def _collect(scan):
+    return [event async for event in scan.async_start()]
+
+
+async def test_words_without_a_dns_answer_are_never_counted_as_checked(bbot_scanner, tmp_path):
+    coverage = tmp_path / "first.json"
+    scan = dnsbrute_scan(bbot_scanner, tmp_path, coverage)
+    install_fake_massdns(scan, tmp_path, never=["w3.example.com"], late=["w5.example.com"])
+    found = await run_scan(scan)
+    # A name answered only on a retry pass is still found.
+    assert "w5.example.com" in found
+    first = json.loads(coverage.read_text())
+    # w3 never got an answer: coverage stops right before it although later words were asked.
+    assert first["parents"]["example.com"] == [3, 10, False]
+    assert first["resolver"]["unanswered_queries"] == 2  # w3 for A and AAAA
+    assert first["resolver"]["transport_retry_failures"] == 2
+    assert first["resolver"]["transport_unretried"] == 0
+
+    # A resumed run asks again from the first unanswered word and, once answered, covers the rest.
+    second_coverage = tmp_path / "second.json"
+    resumed = dnsbrute_scan(bbot_scanner, tmp_path, second_coverage, resume=coverage)
+    asked = install_fake_massdns(resumed, tmp_path)
+    asked.unlink(missing_ok=True)
+    await run_scan(resumed)
+    wordlist = {f"w{i}.example.com" for i in range(10)}
+    words = {line.split()[0] for line in asked.read_text().splitlines()} & wordlist
+    assert words == {f"w{i}.example.com" for i in range(3, 10)}
+    final = json.loads(second_coverage.read_text())
+    assert final["parents"] == {"example.com": [10, 10, False]}
+    assert final["resolver"]["unanswered_queries"] == 0
+
+
+async def test_batches_answered_on_some_pass_advance_coverage_fully(bbot_scanner, tmp_path):
+    coverage = tmp_path / "coverage.json"
+    scan = dnsbrute_scan(bbot_scanner, tmp_path, coverage)
+    install_fake_massdns(scan, tmp_path, late=["w5.example.com", "w8.example.com"])
+    assert "w5.example.com" in await run_scan(scan)
+    result = json.loads(coverage.read_text())
+    assert result["parents"]["example.com"] == [10, 10, False]
+    assert result["resolver"]["unanswered_queries"] == 0
+    assert result["resolver"]["transport_failures"] == 4  # w5 and w8, A and AAAA, first pass only
+
+
+async def test_a_hung_massdns_is_killed_and_its_unfinished_names_stay_unanswered(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com", config={"dns": {"brute_stall_timeout": 1}})
+    helper = scan.helpers.dns.brute
+    install_fake_massdns(scan, tmp_path, never=["never.example.com"], late=["late.example.com"], hang=True)
+    module = SimpleNamespace(name="dnsbrute", run_process_live=scan.helpers.run_live)
+    started = time.monotonic()
+    results = await helper(module, "example.com", ["api", "late", "never"], type="A")
+    # Each hung pass costs about the stall timeout, not the whole runtime budget.
+    assert time.monotonic() - started < 30
+    assert results == ["late.example.com"]
+    assert ("never.example.com", "A") in helper.unanswered
+    assert ("api.example.com", "A") not in helper.unanswered
+    metrics = helper.resolver_metrics()
+    assert metrics["massdns_stalls"] == 4  # the first pass and all three retry passes
+    assert metrics["unanswered_queries"] == 1

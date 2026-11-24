@@ -47,6 +47,11 @@ dns:
   # Two fair-sized subprocess batches; concurrency is also capped per validated resolver.
   brute_parallel_batches: 2
   brute_threads_per_resolver: 50
+  # Extra massdns passes (half the concurrency, twice the retry interval each) over names left without
+  # a DNS answer. Names still unanswered never count as checked, so a resumed run asks them again.
+  brute_transport_retry_passes: 3
+  # Seconds a massdns process may go without output before it is killed; its unfinished names stay unanswered.
+  brute_stall_timeout: 180
   # Wildcard exploration only accepts stable non-address evidence distinct from three controls.
   brute_wildcard_max_candidates: 100
   brute_wildcard_max_domains: 20
