@@ -96,6 +96,9 @@ class DNSBrute:
         self.transport_retries = 0
         self.transport_retry_failures = 0
         self.transport_unretried = 0
+        # Final response codes of brute-forced names; REFUSED after massdns' own retries signals rate limiting.
+        self.response_status = Counter()
+        self.started = None
         self._resolver_lock = asyncio.Lock()
         self.max_candidates = int(self.dns_config.get("brute_max_candidates", 400000))
         if self.max_candidates < 0:
@@ -177,7 +180,22 @@ class DNSBrute:
             for name, count in self.strategy_queries.items()
         }
 
+    def resolver_metrics(self):
+        return {
+            "transport_failures": self.transport_failures,
+            "transport_retry_failures": self.transport_retry_failures,
+            "transport_unretried": self.transport_unretried,
+            "servfail": self.response_status["SERVFAIL"],
+            "refused": self.response_status["REFUSED"],
+            "answered": sum(self.response_status.values()),
+            "concurrency_cuts": self.concurrency_cuts,
+            "concurrency_raises": self.concurrency_raises,
+            "per_resolver_threads": self.per_resolver_threads,
+        }
+
     async def dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
+        if self.started is None:
+            self.started = time.monotonic()
         if self.deadline is None:
             self.deadline = time.monotonic() + self.max_runtime
         remaining = self.deadline - time.monotonic()
@@ -393,24 +411,32 @@ class DNSBrute:
                 raise DNSError("massdns failed to execute; DNS discovery results are incomplete")
             output = result.stdout.splitlines()
             failures = []
+            refused = 0
             for line in output:
                 try:
                     record = json.loads(line)
                 except json.decoder.JSONDecodeError:
                     continue
+                name = str(record.get("name", "")).lower().rstrip(".")
+                if name not in requested:
+                    continue
                 if record.get("error"):
-                    name = record.get("name", "").lower().rstrip(".")
-                    if name in requested:
-                        failures.append(name)
+                    failures.append(name)
+                elif record.get("status"):
+                    status = str(record["status"]).upper()
+                    self.response_status[status] += 1
+                    refused += status == "REFUSED"
             retry_names = list(dict.fromkeys(failures))
             self.transport_failures += len(retry_names)
-            if len(retry_names) > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
+            # Timeouts and refusals both mean the resolvers are shedding load.
+            pressure = len(retry_names) + refused
+            if pressure > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
                 self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
                 self.concurrency_cuts += 1
                 self.log.info(
-                    f"DNS initial transport errors: {len(retry_names)}; reducing per-resolver concurrency to {self.per_resolver_threads}"
+                    f"DNS initial transport errors: {len(retry_names)}, refusals: {refused}; reducing per-resolver concurrency to {self.per_resolver_threads}"
                 )
-            elif (len(retry_names) <= len(subdomains) // 200
+            elif (pressure <= len(subdomains) // 200
                   and self.per_resolver_threads < self.max_per_resolver_threads):
                 # At most 0.5% transport errors: the resolvers keep up, so take back one step.
                 self.per_resolver_threads = min(self.max_per_resolver_threads, self.per_resolver_threads + 5)

@@ -1,0 +1,43 @@
+description: >-
+  Continue ranked subdomain brute-forcing for the parents named in
+  modules.dnsbrute.resume_file, after the words an earlier run already checked.
+  Only dnsbrute runs; new names are resolved and emitted, nothing else probes them.
+
+modules:
+  - dnsbrute
+
+output_modules:
+  - sqlite
+
+config:
+  omit_event_types:
+    - RAW_TEXT
+    - FILESYSTEM
+    - WEB_PARAMETER
+    - DNS_NAME_UNRESOLVED
+  scope:
+    report_distance: 0
+  dns:
+    emit_out_of_scope_children: false
+    emit_unresolved: false
+    brute_max_candidates: 0
+    brute_max_runtime: 14400
+    brute_parallel_batches: 3
+    brute_threads_per_resolver: 50
+    brute_nameservers: ''
+    brute_wildcard_max_candidates: 100
+    brute_wildcard_max_domains: 20
+    brute_wildcard_max_results: 50
+    brute_wildcard_max_runtime: 60
+  aggregate: false
+  speculate: false
+  interactsh_disable: true
+  modules:
+    dnsbrute:
+      wordlist: ''
+      max_words: 107178
+      child_words: 107178
+      dns_batch_size: 5000
+      max_batch_parents: 5
+      max_depth: 6
+      resume_only: true

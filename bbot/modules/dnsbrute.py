@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import json
+import os
 import time
 from pathlib import Path
 
@@ -24,6 +27,9 @@ class dnsbrute(subdomain_enum):
         "max_depth": 5,
         "dns_batch_size": 5000,
         "max_batch_parents": 5,
+        "resume_file": "",
+        "resume_only": False,
+        "coverage_file": "",
     }
     options_desc = {
         "wordlist": "Wordlist path/URL; empty uses the bundled ranked list without HTTP",
@@ -33,6 +39,9 @@ class dnsbrute(subdomain_enum):
         "max_depth": "How many subdomains deep to brute force, i.e. 5.4.3.2.1.evilcorp.com",
         "dns_batch_size": "Maximum labels across all parents in one fair scheduling round",
         "max_batch_parents": "Maximum parents sharing one scheduling round",
+        "resume_file": "JSON of an earlier run's coverage; its parents continue after the words it already checked",
+        "resume_only": "Brute-force only the parents named in resume_file",
+        "coverage_file": "Where to write words checked per parent, the wordlist hash and resolver metrics as JSON",
     }
     deps_common = ["massdns"]
     reject_wildcards = False
@@ -102,7 +111,25 @@ class dnsbrute(subdomain_enum):
                 break
         self.subdomain_list = list(ordered)
         self.wordlist_size = len(self.subdomain_list)
+        # Offsets are only meaningful for the exact same ordered list.
+        self.wordlist_sha256 = hashlib.sha256("\n".join(self.subdomain_list).encode()).hexdigest()
         self.queue = DNSBruteQueue(self.wordlist_size)
+        self.coverage_file = str(self.config.get("coverage_file") or "")
+        self.coverage_written = 0.0
+        self.resume_only = bool(self.config.get("resume_only", False))
+        self.resume_parents, self.resume_matched = {}, False
+        resume_file = str(self.config.get("resume_file") or "")
+        if resume_file:
+            resume = json.loads(Path(resume_file).read_text())
+            self.resume_matched = resume.get("wordlist_sha256") == self.wordlist_sha256
+            for parent, entry in (resume.get("parents") or {}).items():
+                offset, limit = (list(entry) + [None])[:2]
+                self.resume_parents[str(parent).lower().rstrip(".")] = (
+                    int(offset) if self.resume_matched else 0, int(limit) if limit else None)
+            if not self.resume_matched:
+                self.warning("dnsbrute resume file was made with a different wordlist; its parents start from the first word")
+        if self.resume_only and not self.resume_parents:
+            return False, "resume_only needs a resume_file naming parents"
         return await super().setup()
 
     async def filter_event(self, event):
@@ -119,6 +146,8 @@ class dnsbrute(subdomain_enum):
             return False, "host has no independently validated DNS name"
         if "_wildcard" in query.split("."):
             return False, "wildcard placeholder is not a DNS parent"
+        if self.resume_only and query not in self.resume_parents:
+            return False, "not a parent this resumed run continues"
 
         # limit brute force depth
         subdomain_depth = self.helpers.subdomain_depth(query) + 1
@@ -137,7 +166,10 @@ class dnsbrute(subdomain_enum):
         query = self.make_query(event)
         root = self.helpers.split_domain(query)[1]
         limit = self.wordlist_size if query == root else min(self.child_words, self.wordlist_size)
-        added = self.queue.add(query, event, limit=limit)
+        start, resumed_limit = self.resume_parents.get(query, (0, None))
+        if resumed_limit:
+            limit = min(limit, resumed_limit)
+        added = self.queue.add(query, event, limit=limit, start=start)
         if added:
             self.info(f"Queued {query} for ranked DNS discovery (source: {event.data})")
         if added and (self.worker_task is None or self.worker_task.done()):
@@ -212,6 +244,9 @@ class dnsbrute(subdomain_enum):
                     )
             if failed is not None:
                 raise failed
+            if time.monotonic() - self.coverage_written >= 60:
+                # A run stopped from outside still leaves its progress for the next one.
+                self.write_coverage()
 
     async def finish(self):
         brute = self.helpers.dns.brute
@@ -229,7 +264,34 @@ class dnsbrute(subdomain_enum):
             await asyncio.gather(self.worker_task, return_exceptions=True)
         await super().cleanup()
 
+    def coverage(self):
+        brute = self.helpers.dns.brute
+        metrics = brute.metrics().get(self.name, {})
+        return {
+            "wordlist_sha256": self.wordlist_sha256,
+            "word_count": self.wordlist_size,
+            "resumed_parents": len(self.resume_parents),
+            "resume_matched": self.resume_matched,
+            # Per parent: words checked, words it may check, and whether wildcard DNS stopped it early.
+            "parents": {parent: [self.queue.positions[parent], self.queue.limits[parent], parent in self.queue.limited]
+                        for parent in sorted(self.queue.positions)},
+            "queries": metrics.get("queries", 0),
+            "call_seconds": metrics.get("call_seconds", 0),
+            "elapsed_seconds": round(time.monotonic() - brute.started, 3) if brute.started is not None else 0,
+            "resolver": brute.resolver_metrics(),
+        }
+
+    def write_coverage(self):
+        self.coverage_written = time.monotonic()
+        if not self.coverage_file:
+            return
+        path = Path(self.coverage_file)
+        temporary = path.with_name(f".{path.name}.tmp")
+        temporary.write_text(json.dumps(self.coverage(), separators=(",", ":")))
+        os.replace(temporary, path)
+
     async def report(self):
+        self.write_coverage()
         self.info(f"DNS discovery metrics: {self.helpers.dns.brute.metrics()}")
         positions = sorted(self.queue.positions.values())
         if positions:
@@ -238,5 +300,5 @@ class dnsbrute(subdomain_enum):
                       f"wildcard-limited parents {len(self.queue.limited)}")
         helper = self.helpers.dns.brute
         self.info(
-            f"DNS resolver metrics: {len(helper.resolver_pool.selected)} validated, {helper.resolver_pool.confirmations} confirmations, {helper.resolver_pool.rejected} rejected names, {helper.transport_failures} initial transport errors, {helper.transport_retries} bounded retries, {helper.transport_retry_failures} errors after retry, {helper.transport_unretried} not retried before deadline, {helper.per_resolver_threads} slots/resolver/process, {helper.concurrency_cuts} concurrency cuts, {helper.concurrency_raises} raises"
+            f"DNS resolver metrics: {len(helper.resolver_pool.selected)} validated, {helper.resolver_pool.confirmations} confirmations, {helper.resolver_pool.rejected} rejected names, {helper.transport_failures} initial transport errors, {helper.transport_retries} bounded retries, {helper.transport_retry_failures} errors after retry, {helper.transport_unretried} not retried before deadline, {helper.per_resolver_threads} slots/resolver/process, {helper.concurrency_cuts} concurrency cuts, {helper.concurrency_raises} raises, {helper.response_status['SERVFAIL']} SERVFAIL, {helper.response_status['REFUSED']} REFUSED"
         )
