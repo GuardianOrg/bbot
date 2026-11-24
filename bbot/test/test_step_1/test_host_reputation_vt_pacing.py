@@ -44,6 +44,8 @@ class VirusTotal:
     async def request_json(self, url, headers=None):
         key = headers["x-apikey"]
         self.sent.append((self.now, key, url))
+        if "unknown" in url:
+            return {"error": "NotFoundError", "status": 404}
         if self.daily[key] <= 0:
             return {"rate_limited": True, "status": 429, "code": "QuotaExceededError"}
         if len([1 for at, used, _ in self.sent[:-1] if used == key and self.now - at < 60]) >= 4:
@@ -122,3 +124,10 @@ def test_lookups_wait_for_turns_again_while_another_module_has_work(monkeypatch)
     results = vt.lookup(["waits.example.com"])
     assert not results[0].get("rate_limited")
     assert vt.now >= 1_015.0
+
+
+def test_a_name_virustotal_never_saw_is_an_answer_not_a_provider_error(monkeypatch):
+    vt = VirusTotal(monkeypatch, ["a", "b"])
+    result = vt.lookup(["unknown.example.com"])[0]
+    assert result["malicious"] is False and not result.get("rate_limited") and not result.get("error")
+    assert len(vt.sent) == 1  # one answer, no retry on the other key

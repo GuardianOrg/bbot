@@ -287,7 +287,7 @@ class host_reputation(BaseModule):
         malicious = any(result["malicious"] for result in results.values())
         verdicts = {name: {"malicious": result["malicious"], "risk_score": result.get("risk_score", 0),
                            "evidence": {key: value for key, value in result.get("details", {}).items()
-                                        if key in {"abuseConfidenceScore", "totalReports", "lastReportedAt", "last_analysis_stats"}}}
+                                        if key in {"abuseConfidenceScore", "totalReports", "lastReportedAt", "last_analysis_stats", "not_found"}}}
                     for name, result in results.items()}
         return {"malicious": malicious, "risk_score": max(result.get("risk_score", 0) for result in results.values()),
                 "sources": [source for result in results.values() for source in result.get("sources", [])],
@@ -324,6 +324,12 @@ class host_reputation(BaseModule):
             },
         }
 
+    def api_cache_credential(self):
+        """Reputation lookups answer the same whichever key asks, so their cache entries do not depend on the keys:
+        every scan of the tenant, and the post-scan VirusTotal backfill, reuse them. The cache prefix keeps tenants
+        apart."""
+        return ""
+
     async def check_vt_ip(self, ip):
         return await self.check_vt(f"https://www.virustotal.com/api/v3/ip_addresses/{self.helpers.quote(ip)}")
 
@@ -344,6 +350,9 @@ class host_reputation(BaseModule):
             if key is None:
                 break
             response = await self.request_json(url, headers={"x-apikey": key})
+            if response.get("status") == 404:
+                # VirusTotal never saw this name: no engine flagged it and the provider answered.
+                return {"malicious": False, "risk_score": 0, "sources": [], "details": {"not_found": True}}
             if response.get("status") == 429 or response.get("rate_limited"):
                 self.vt_rest(key, daily=response.get("code") == "QuotaExceededError")
                 last_result = response
