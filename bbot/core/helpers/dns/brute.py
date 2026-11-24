@@ -63,6 +63,9 @@ SILENT_PROBE_NAMES = 20
 SILENT_HEALTHY_SECONDS = 300
 # Retry passes keep at least this many queries per resolver in flight however far concurrency was cut.
 RETRY_MIN_PER_RESOLVER = 5
+# Retry passes in flight per first-pass slot. A retry pass mostly waits out massdns' intervals on a few names at
+# reduced concurrency (at most half, down to RETRY_MIN_PER_RESOLVER), so several overlap without adding load.
+RETRY_SLOTS_PER_BATCH = 8
 
 
 class DNSBrute:
@@ -109,6 +112,7 @@ class DNSBrute:
         # Bounded extra massdns passes over names without a DNS answer. Names still unanswered after
         # them are kept in ``unanswered`` as (name, rdtype) so callers never count them as checked.
         self.transport_retry_passes = int(self.dns_config.get("brute_transport_retry_passes", 3))
+        self._retry_lock = None
         if not 0 <= self.transport_retry_passes <= 5:
             raise ValueError("dns.brute_transport_retry_passes must be 0..5")
         self.unanswered = set()
@@ -171,6 +175,12 @@ class DNSBrute:
         if self._dnsbrute_lock is None:
             self._dnsbrute_lock = asyncio.Semaphore(self.parallel_batches)
         return self._dnsbrute_lock
+
+    @property
+    def retry_lock(self):
+        if self._retry_lock is None:
+            self._retry_lock = asyncio.Semaphore(self.parallel_batches * RETRY_SLOTS_PER_BATCH)
+        return self._retry_lock
 
     def remaining_candidates(self, module):
         if self.max_candidates == 0:
@@ -446,6 +456,8 @@ class DNSBrute:
         requested = set(subdomains)
         resolvers = max(1, len(self.resolver_pool.selected))
         started = time.monotonic()
+        # The slot covers the full-concurrency first pass only. Retry passes mostly wait out massdns' growing
+        # intervals at low concurrency, so they take a retry slot instead and other first passes keep running.
         async with self.dnsbrute_lock:
             output, stalled = await self._run_massdns(module, command, subdomains, timeout)
             if not output and not stalled:
@@ -465,61 +477,61 @@ class DNSBrute:
             silent = (len(retry_names) >= max(SILENT_MIN_NAMES, len(subdomains) * 9 // 10)
                       and self.last_answered_at is not None
                       and time.monotonic() - self.last_answered_at <= SILENT_HEALTHY_SECONDS)
-            retried = set()
-            if silent:
-                probe = retry_names[:SILENT_PROBE_NAMES]
-                await self._retry_passes(module, command, probe, answered, retried, output, resolvers, timeout, started)
-                if any(name in answered for name in probe):
-                    silent = False
-                    retry_names = [name for name in retry_names if name not in answered]
-                else:
-                    self.silent_domains[domain] = self.silent_domains.get(domain, 0) + len(retry_names)
-                    self.log.info(f"DNS beneath {domain} answered none of {len(retry_names):,} names, "
-                                  f"{len(probe)} of them retried; not brute-forcing it further")
-                    retry_names = []
-            # Timeouts and refusals both mean the resolvers are shedding load; a silent zone does not.
-            pressure = len(retry_names)
-            if silent:
-                pass
-            elif pressure > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
-                self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
-                self.concurrency_cuts += 1
-                self.log.info(
-                    f"DNS initial transport errors: {len(retry_names)}, refusals: {refused}; reducing per-resolver concurrency to {self.per_resolver_threads}"
-                )
-            elif (pressure <= len(subdomains) // 200
-                  and self.per_resolver_threads < self.max_per_resolver_threads):
-                # At most 0.5% transport errors: the resolvers keep up, so take back one step.
-                self.per_resolver_threads = min(self.max_per_resolver_threads, self.per_resolver_threads + 5)
-                self.concurrency_raises += 1
-            await self._retry_passes(module, command, retry_names, answered, retried, output, resolvers, timeout,
-                                     started)
-            unanswered = [name for name in subdomains if name not in answered]
-            failed = set(failures)
-            self.transport_retry_failures += sum(name in retried for name in unanswered)
-            self.transport_unretried += sum(name in failed and name not in retried for name in unanswered)
-            self._leave_unanswered(unanswered, rdtype)
-            for line in output:
-                try:
-                    j = json.loads(line)
-                except json.decoder.JSONDecodeError:
-                    self.log.debug(f"Failed to decode line: {line}")
-                    continue
-                answers = j.get("data", {}).get("answers", [])
-                if type(answers) == list and len(answers) > 0:
-                    for answer in answers:
-                        hostname = answer.get("name", "").strip(".").lower()
-                        if not hostname.endswith(f".{domain}"):
-                            continue
-                        answer_type = answer.get("type", "").upper()
-                        if answer_type not in {rdtype, "CNAME"}:
-                            continue
-                        data = answer.get("data", "")
-                        if data and answer_type:
-                            hostname_hash = hash((hostname, answer_type))
-                            if hostname_hash not in hosts_yielded:
-                                hosts_yielded.add(hostname_hash)
-                                yield hostname, data, answer_type
+        retried = set()
+        if silent:
+            probe = retry_names[:SILENT_PROBE_NAMES]
+            await self._retry_passes(module, command, probe, answered, retried, output, resolvers, timeout, started)
+            if any(name in answered for name in probe):
+                silent = False
+                retry_names = [name for name in retry_names if name not in answered]
+            else:
+                self.silent_domains[domain] = self.silent_domains.get(domain, 0) + len(retry_names)
+                self.log.info(f"DNS beneath {domain} answered none of {len(retry_names):,} names, "
+                              f"{len(probe)} of them retried; not brute-forcing it further")
+                retry_names = []
+        # Timeouts and refusals both mean the resolvers are shedding load; a silent zone does not.
+        pressure = len(retry_names)
+        if silent:
+            pass
+        elif pressure > max(5, len(subdomains) // 100) and self.per_resolver_threads > 5:
+            self.per_resolver_threads = max(5, self.per_resolver_threads // 2)
+            self.concurrency_cuts += 1
+            self.log.info(
+                f"DNS initial transport errors: {len(retry_names)}, refusals: {refused}; reducing per-resolver concurrency to {self.per_resolver_threads}"
+            )
+        elif (pressure <= len(subdomains) // 200
+              and self.per_resolver_threads < self.max_per_resolver_threads):
+            # At most 0.5% transport errors: the resolvers keep up, so take back one step.
+            self.per_resolver_threads = min(self.max_per_resolver_threads, self.per_resolver_threads + 5)
+            self.concurrency_raises += 1
+        await self._retry_passes(module, command, retry_names, answered, retried, output, resolvers, timeout,
+                                 started)
+        unanswered = [name for name in subdomains if name not in answered]
+        failed = set(failures)
+        self.transport_retry_failures += sum(name in retried for name in unanswered)
+        self.transport_unretried += sum(name in failed and name not in retried for name in unanswered)
+        self._leave_unanswered(unanswered, rdtype)
+        for line in output:
+            try:
+                j = json.loads(line)
+            except json.decoder.JSONDecodeError:
+                self.log.debug(f"Failed to decode line: {line}")
+                continue
+            answers = j.get("data", {}).get("answers", [])
+            if type(answers) == list and len(answers) > 0:
+                for answer in answers:
+                    hostname = answer.get("name", "").strip(".").lower()
+                    if not hostname.endswith(f".{domain}"):
+                        continue
+                    answer_type = answer.get("type", "").upper()
+                    if answer_type not in {rdtype, "CNAME"}:
+                        continue
+                    data = answer.get("data", "")
+                    if data and answer_type:
+                        hostname_hash = hash((hostname, answer_type))
+                        if hostname_hash not in hosts_yielded:
+                            hosts_yielded.add(hostname_hash)
+                            yield hostname, data, answer_type
 
     async def _retry_passes(self, module, command, retry_names, answered, retried, output, resolvers, timeout,
                             started):
@@ -539,7 +551,8 @@ class DNSBrute:
                 self.max_resolvers, resolvers * max(floor, self.per_resolver_threads >> retry_pass)
             )
             retry_command += ["-i", 500 << retry_pass, "--retry", "REFUSED"]
-            retry_output, stalled = await self._run_massdns(module, retry_command, retry_names, remaining)
+            async with self.retry_lock:
+                retry_output, stalled = await self._run_massdns(module, retry_command, retry_names, remaining)
             self.transport_retries += len(retry_names)
             retried.update(retry_names)
             self._read_massdns_pass(retry_output, set(retry_names), answered, first=False)
