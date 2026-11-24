@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 from bbot.core.helpers import api_cache
 from bbot.core.helpers.misc import safe_format
 from bbot.modules.base import BaseModule
+from bbot.modules.host_reputation import host_reputation
 from bbot.modules.securitytrails import securitytrails
 from bbot.modules.templates.osintverse import OSINTverseClient
 
@@ -304,3 +305,16 @@ async def test_cache_only_lookup_answers_from_the_cache_and_never_queries_live(s
     cached = await second.cached_api_response(url=url, params=None, headers={}, timeout=10)
     assert second_live.await_count == 0
     assert cached.status_code == 200 and cached.json() == {"data": {"id": "example.com"}}
+
+
+async def test_reputation_lookups_are_shared_whatever_key_asked(s3):
+    """A VirusTotal answer cached by a scan holding one set of keys is reused by one holding other keys."""
+    url = "https://www.virustotal.com/api/v3/domains/shared.example.com"
+    first, first_live = make_module(cls=host_reputation, responses=[ok({"data": {"attributes": {}}})], api_key="vt-a")
+    await first.cached_api_request(url=url, params=None, headers={"x-apikey": "vt-a"}, timeout=10)
+    assert first_live.await_count == 1
+
+    second, second_live = make_module(cls=host_reputation, responses=[], api_key="vt-b")
+    cached = await second.cached_api_response(url=url, params=None, headers={}, timeout=10)
+    assert cached is not None and cached.json() == {"data": {"attributes": {}}}
+    assert second_live.await_count == 0
