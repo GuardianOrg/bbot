@@ -13,13 +13,15 @@ class DNSBruteQueue:
         self._heap = []
         self._order = 0
 
-    def add(self, parent, event, *, limit=None):
+    def add(self, parent, event, *, limit=None, start=0):
+        """Queue ``parent``; ``start`` resumes after words an earlier run already checked."""
         if parent in self.events:
             return False
         self.events[parent] = event
-        self.positions[parent] = 0
         self.limits[parent] = min(self.word_count, limit or self.word_count)
-        heapq.heappush(self._heap, (0, self._order, parent))
+        self.positions[parent] = min(max(0, int(start)), self.limits[parent])
+        if self.positions[parent] < self.limits[parent]:
+            heapq.heappush(self._heap, (self.positions[parent], self._order, parent))
         self._order += 1
         return True
 
