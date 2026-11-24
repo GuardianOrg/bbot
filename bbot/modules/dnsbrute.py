@@ -119,6 +119,7 @@ class dnsbrute(subdomain_enum):
         self.resume_only = bool(self.config.get("resume_only", False))
         self.resume_parents, self.resume_matched = {}, False
         self.skipped_parents = {}
+        self.resume_checked = False
         resume_file = str(self.config.get("resume_file") or "")
         if resume_file:
             resume = json.loads(Path(resume_file).read_text())
@@ -156,12 +157,16 @@ class dnsbrute(subdomain_enum):
             return False, "host is not in scope"
         if any(tag.startswith("cloud-") for tag in event.tags) and event not in self.scan.target.whitelist:
             return False, "Event is a cloud resource and not a direct target"
-        if "unresolved" in event.tags or ("wildcard-child" in event.tags and "wildcard-dns-verified" not in event.tags):
-            return False, "host has no independently validated DNS name"
         if "_wildcard" in query.split("."):
             return False, "wildcard placeholder is not a DNS parent"
-        if self.resume_only and query not in self.resume_parents:
-            return False, "not a parent this resumed run continues"
+        if self.resume_only:
+            # An earlier run already accepted every parent it names; only NXDOMAIN (checked in finish) or the
+            # runtime budget stops one. A name without records may be an empty non-terminal with children.
+            if query not in self.resume_parents:
+                return False, "not a parent this resumed run continues"
+            return True, ""
+        if "unresolved" in event.tags or ("wildcard-child" in event.tags and "wildcard-dns-verified" not in event.tags):
+            return False, "host has no independently validated DNS name"
 
         # limit brute force depth
         subdomain_depth = self.helpers.subdomain_depth(query) + 1
@@ -177,7 +182,9 @@ class dnsbrute(subdomain_enum):
         return True, ""
 
     async def handle_event(self, event):
-        query = self.make_query(event)
+        await self._queue_parent(self.make_query(event), event)
+
+    async def _queue_parent(self, query, event):
         root = self.helpers.split_domain(query)[1]
         limit = self.wordlist_size if query == root else min(self.child_words, self.wordlist_size)
         start, resumed_limit = self.resume_parents.get(query, (0, None))
@@ -271,8 +278,48 @@ class dnsbrute(subdomain_enum):
                 # A run stopped from outside still leaves its progress for the next one.
                 self.write_coverage()
 
+    async def _resume_unseen_parents(self):
+        """Queue resumed parents no DNS_NAME event delivered, e.g. names without records (dropped as unresolved)."""
+        brute = self.helpers.dns.brute
+        pending = []
+        for parent in self.resume_parents:
+            if parent in self.queue.positions or parent in self.skipped_parents:
+                continue
+            if "_wildcard" in parent.split("."):
+                self.skipped_parents[parent] = "wildcard placeholder is not a DNS parent"
+            elif not self.scan.in_scope(parent):
+                self.skipped_parents[parent] = "host is not in scope"
+            else:
+                pending.append(parent)
+        if not pending or (brute.deadline is not None and time.monotonic() >= brute.deadline):
+            return
+
+        async def status(parent):
+            try:
+                response = await asyncio.wait_for(self.helpers.dns.resolve_status(parent, type="A", timeout=3), 5)
+                return response.get("status")
+            except Exception:
+                # Timeouts and errors do not prove absence: brute-force the parent.
+                return None
+
+        statuses = await asyncio.gather(*(status(parent) for parent in pending))
+        for parent, rcode in zip(pending, statuses):
+            if rcode == "NXDOMAIN":
+                # RFC 8020: nothing exists beneath an NXDOMAIN name.
+                self.skipped_parents[parent] = "NXDOMAIN: nothing exists beneath it"
+                continue
+            event = self.make_event(parent, "DNS_NAME", parent=self.scan.root_event)
+            if event is None:
+                self.skipped_parents[parent] = "not a valid DNS name"
+                continue
+            event.scope_distance = 0
+            await self._queue_parent(parent, event)
+
     async def finish(self):
         brute = self.helpers.dns.brute
+        if self.resume_only and not self.resume_checked:
+            self.resume_checked = True
+            await self._resume_unseen_parents()
         # Priority modules release unused reservations at their first finish.
         for name in list(brute.reservations):
             module = self.scan.modules.get(name)
@@ -299,7 +346,7 @@ class dnsbrute(subdomain_enum):
             # and whether wildcard DNS stopped it early.
             "parents": {parent: [self.queue.covered[parent], self.queue.limits[parent], parent in self.queue.limited]
                         for parent in sorted(self.queue.positions)},
-            # Resumed parents dnsbrute rejected (unresolved, too deep, PTR-like...) and why.
+            # Resumed parents dnsbrute rejected (NXDOMAIN, out of scope, wildcard placeholder) and why.
             "skipped_parents": dict(sorted(self.skipped_parents.items())),
             "queries": metrics.get("queries", 0),
             "call_seconds": metrics.get("call_seconds", 0),

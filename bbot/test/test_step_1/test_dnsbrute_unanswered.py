@@ -109,7 +109,8 @@ async def test_words_without_a_dns_answer_are_never_counted_as_checked(bbot_scan
     words = {line.split()[0] for line in asked.read_text().splitlines()} & wordlist
     assert words == {f"w{i}.example.com" for i in range(3, 10)}
     final = json.loads(second_coverage.read_text())
-    assert final["parents"] == {"example.com": [10, 10, False]}
+    # w5.example.com, a parent the first run found, is continued too although this run never finds it again.
+    assert final["parents"] == {"example.com": [10, 10, False], "w5.example.com": [10, 10, False]}
     assert final["resolver"]["unanswered_queries"] == 0
 
 
