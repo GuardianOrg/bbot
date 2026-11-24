@@ -589,6 +589,47 @@ async def test_provider_fingerprint_lead_explains_its_fingerprint(bbot_scanner):
                       "unlikely confidence; a takeover was not demonstrated.")
 
 
+@pytest.mark.asyncio
+async def test_cname_target_nodata_joins_dangling_dns_and_is_never_a_vulnerability(bbot_scanner):
+    import dns.resolver
+
+    from bbot.modules.domain_config_dns_audit import domain_config_dns_audit
+
+    h = await harness(bbot_scanner)
+    audit = domain_config_dns_audit(h.scan)
+    audit._name = "domain_config_dns_audit"
+    assert await audit.setup() is True
+
+    class Resolver:
+        def resolve(self, name, rdtype):
+            name = str(name).rstrip(".")
+            if name == "app.example.com" and rdtype == "CNAME":
+                return ["perpendicular-loon-1234.herokudns.com."]
+            raise dns.resolver.NoAnswer
+
+    audit.get_resolver = lambda nameserver=None: Resolver()
+    emitted = []
+
+    async def emit_event(data, event_type, parent=None, **kwargs):
+        emitted.append(h.scan.make_event(data, event_type, parent=parent, tags=kwargs.get("tags"), module=audit))
+
+    audit.emit_event = emit_event
+    host_event = h.scan.make_event("app.example.com", "DNS_NAME", parent=h.scan.root_event)
+    await audit.check_cname_target_nodata(host_event, "app.example.com")
+    (finding,) = emitted
+    assert finding.type == "FINDING"
+
+    assert not await h.feed(finding)
+    await h.finish_rounds()
+    summaries = h.by_category()
+    assert set(summaries) == {"grouped:dangling_dns"}
+    (row,) = summaries["grouped:dangling_dns"].data["table"]["rows"]
+    assert row[:3] == ["app.example.com", "perpendicular-loon-1234.herokudns.com",
+                       "domain_config_dns_audit (cname_target_nodata)"]
+    assert "NODATA" in row[3] and "not a takeover" in row[3]
+    assert row[4] == "INFO"
+
+
 def spoofing_event(h, domain, reason, spf, dmarc):
     data = {"host": domain, "severity": "HIGH", "category": "Email-Spoofing", "title": "Email Spoofing Possible",
             "description": reason, "template": "domain-config-dns-audit", "spoofing_reason": reason,

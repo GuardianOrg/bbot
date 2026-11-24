@@ -31,6 +31,9 @@ DNS_AUDIT_TEMPLATE = "domain-config-dns-audit"
 # or unclaimed. As a FINDING (no takeover shown) it is a dangling reference, grouped with the
 # others; a VULNERABILITY (a takeover fingerprint with confidence) stays its own issue.
 TAKEOVER_CATEGORY = "subdomain-takeover"
+# A CNAME whose foreign target exists but publishes no address (NODATA): dangling, never a takeover.
+DANGLING_DNS_CATEGORY = "dangling-dns"
+CNAME_TARGET_NODATA_SIGNATURE = "cname_target_nodata"
 GENERIC_SIGNATURE_PREFIX = "_generic_"
 
 # Load balancer stickiness cookies carry a backend-routing token and never a session, so
@@ -175,6 +178,9 @@ def highest_severity(severities):
 def dangling_reason(targets, signature, confidence):
     """One sentence on why a takeover scanner listed a hostname, for its table row."""
     target = ", ".join(sorted(targets)) or "a provider resource"
+    if signature == CNAME_TARGET_NODATA_SIGNATURE:
+        return (f"The CNAME to {target} answers NOERROR with no A or AAAA record (NODATA), so the hostname is a "
+                "stale or unfinished alias that resolves to no address; it is not a takeover.")
     if not signature or signature.startswith(GENERIC_SIGNATURE_PREFIX):
         return (f"The CNAME to {target} does not resolve, so the hostname is a stale or unfinished alias; "
                 "the scan did not show that another account can claim the target.")
@@ -213,7 +219,8 @@ def extracted_values(data):
 class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
     """
     Folds web hardening advice, DNS/email policy, domains whose email can be spoofed, reputation
-    observations, outdated JavaScript libraries, and dangling DNS records (takeover leads with no takeover shown) into one summary
+    observations, outdated JavaScript libraries, and dangling DNS records (takeover leads with no takeover shown, and CNAMEs whose
+    target answers NODATA) into one summary
     per category before event ingestion. Outdated JavaScript libraries get one summary per library,
     listing every website and version that serves it, so each library is scored on its own advisories.
 
@@ -301,7 +308,9 @@ class hardening_aggregate(BaseInternalModule, BaseInterceptModule):
         module = str(getattr(event, "module", "") or "")
         if module == "host_reputation" and str(data.get("category") or "") in REPUTATION_CATEGORIES:
             return self._classify_reputation(event, data)
-        if event.type == "FINDING" and str(data.get("category") or "").strip().lower() == TAKEOVER_CATEGORY:
+        if event.type == "FINDING" and str(data.get("category") or "").strip().lower() in (
+            TAKEOVER_CATEGORY, DANGLING_DNS_CATEGORY
+        ):
             return self._classify_dangling_dns(event, data, module)
         if module == PHISHING_MODULE and str(data.get("category") or "").strip().lower() == PHISHING_CATEGORY:
             return self._classify_phishing(event, data, severity)

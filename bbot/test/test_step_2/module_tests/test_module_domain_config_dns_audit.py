@@ -360,3 +360,89 @@ class TestDomainConfigDnsAuditRecognizesKeyDkimSelectors(TestDomainConfigDnsAudi
         titles = {e.data.get("title") for e in events if e.type in ("FINDING", "VULNERABILITY")}
 
         assert "No DKIM Records Found" not in titles
+
+
+class FakeNoAnswerResolver:
+    """dnspython-like resolver over a table: name -> {rdtype: [answers]}, "NXDOMAIN", or missing (NODATA)."""
+
+    def __init__(self, records, calls):
+        self.records = records
+        self.calls = calls
+
+    def resolve(self, name, rdtype):
+        import dns.resolver
+
+        name = str(name).rstrip(".").lower()
+        self.calls.append((name, str(rdtype)))
+        entry = self.records.get(name)
+        if entry == "NXDOMAIN":
+            raise dns.resolver.NXDOMAIN
+        answers = (entry or {}).get(str(rdtype))
+        if not answers:
+            raise dns.resolver.NoAnswer
+        return answers
+
+
+class TestDomainConfigDnsAuditCnameTargetNodata(ModuleTestBase):
+    module_name = "domain_config_dns_audit"
+    targets = [
+        "nodata.blacklanternsecurity.com",
+        "gone.blacklanternsecurity.com",
+        "live.blacklanternsecurity.com",
+        "internal.blacklanternsecurity.com",
+    ]
+    config_overrides = TestDomainConfigDnsAudit.config_overrides
+    # CNAME chains as the module's own resolver sees them; a missing name or type answers NODATA.
+    audit_records = {
+        "nodata.blacklanternsecurity.com": {"CNAME": ["edge.legacy-cdn.net."]},
+        "edge.legacy-cdn.net": {"CNAME": ["perpendicular-loon-1234.herokudns.com."]},
+        "gone.blacklanternsecurity.com": {"CNAME": ["missing.azurewebsites.net."]},
+        "missing.azurewebsites.net": "NXDOMAIN",
+        "live.blacklanternsecurity.com": {"CNAME": ["live.herokudns.com."]},
+        "live.herokudns.com": {"A": ["192.0.2.10"]},
+        "internal.blacklanternsecurity.com": {"CNAME": ["empty.blacklanternsecurity.com."]},
+    }
+
+    async def setup_before_prep(self, module_test):
+        await TestDomainConfigDnsAudit.setup_before_prep(self, module_test)
+        # The scan's own resolver: every host is a CNAME and none resolves to an address.
+        await module_test.mock_dns(
+            {
+                host: {"CNAME": [records["CNAME"][0].rstrip(".")]}
+                for host, records in self.audit_records.items()
+                if host.endswith("blacklanternsecurity.com")
+            }
+        )
+
+    async def setup_after_prep(self, module_test):
+        module = module_test.module
+        self.calls = []
+        resolver = FakeNoAnswerResolver(self.audit_records, self.calls)
+        module_test.monkeypatch.setattr(module, "get_resolver", lambda nameserver=None: resolver)
+
+        async def skip_domain_audit(parent_event, domain):
+            return None
+
+        async def no_wildcard(host):
+            return {"is_wildcard": False, "wildcard_ips": [], "wildcard_records": {}}
+
+        module_test.monkeypatch.setattr(module, "audit_domain", skip_domain_audit)
+        module_test.monkeypatch.setattr(module, "check_wildcard", no_wildcard)
+
+    def check(self, module_test, events):
+        findings = [e for e in events if e.type == "FINDING" and e.data.get("signature") == "cname_target_nodata"]
+        assert [e.type for e in events if e.type == "VULNERABILITY"] == []
+        assert len(findings) == 1
+        data = findings[0].data
+        assert data["host"] == "nodata.blacklanternsecurity.com"
+        assert data["cname_targets"] == ["perpendicular-loon-1234.herokudns.com"]
+        assert data["rcode"] == "NOERROR (NODATA)"
+        assert data["confidence"] == "POSSIBLE"
+        assert data["category"] == "Dangling-DNS"
+        assert "nodata.blacklanternsecurity.com -> edge.legacy-cdn.net -> perpendicular-loon-1234.herokudns.com" in (
+            data["evidence"]
+        )
+        # The empty answer was confirmed by a second, uncached lookup before reporting.
+        assert self.calls.count(("perpendicular-loon-1234.herokudns.com", "A")) == 2
+        # The same-domain target is never looked up for addresses.
+        assert ("empty.blacklanternsecurity.com", "A") not in self.calls
