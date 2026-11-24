@@ -9,6 +9,7 @@ from ..bbot_fixtures import *
 # "never" names get no DNS answer on any pass, "late" ones only on a retry pass (massdns -i),
 # "found" ones resolve on the first pass and everything else is NXDOMAIN. With "hang", the
 # unanswered names get no output at all and the process stops writing, as a hung massdns would.
+# Every name beneath a "silent" zone gets no answer on any pass. Each run is logged to runs.log.
 FAKE_MASSDNS = """#!/usr/bin/env python3
 import json, sys, time
 from pathlib import Path
@@ -20,6 +21,9 @@ retry = "-i" in args
 names = [line.strip() for line in sys.stdin if line.strip()]
 with open(here / "asked.log", "a") as log:
     log.writelines(f"{name} {rdtype}\\n" for name in names)
+with open(here / "runs.log", "a") as log:
+    log.write(json.dumps({"s": int(args[args.index("-s") + 1]), "retry": retry, "names": names}) + "\\n")
+silent = tuple(plan["silent"])
 
 def answer(name, address):
     data = {"answers": [{"name": name + ".", "type": "A", "data": address}]} if rdtype == "A" else {}
@@ -27,7 +31,7 @@ def answer(name, address):
 
 pending = False
 for name in names:
-    if name in plan["never"] or (name in plan["late"] and not retry):
+    if name in plan["never"] or name.endswith(silent) or (name in plan["late"] and not retry):
         pending = True
         if not plan["hang"]:
             print(json.dumps({"name": name + ".", "type": rdtype, "error": "TIMEOUT"}), flush=True)
@@ -42,11 +46,12 @@ if plan["hang"] and pending:
 """
 
 
-def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False, refused=()):
+def install_fake_massdns(scan, tmp_path, never=(), late=(), found=(), hang=False, refused=(), silent=()):
     tools = tmp_path / "tools"
     tools.mkdir(exist_ok=True)
     (tools / "plan.json").write_text(
-        json.dumps({"never": list(never), "late": list(late), "found": list(found), "hang": hang, "refused": list(refused)})
+        json.dumps({"never": list(never), "late": list(late), "found": list(found), "hang": hang, "refused": list(refused),
+                    "silent": [f".{zone}" for zone in silent]})
     )
     binary = tools / "massdns"
     binary.write_text(FAKE_MASSDNS)
@@ -153,3 +158,70 @@ async def test_answers_and_refusals_are_counted_per_resolver(bbot_scanner, tmp_p
     # first pass and on all three retry passes.
     assert resolvers == {"192.0.2.53": [2 + helper.num_canaries, 0], "198.51.100.53": [0, 4]}
     assert ("busy.example.com", "A") in helper.unanswered
+
+
+def massdns_runs(tmp_path):
+    path = tmp_path / "tools" / "runs.log"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+async def test_a_zone_that_answers_nothing_is_probed_with_a_sample_and_given_up(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com")
+    helper = scan.helpers.dns.brute
+    install_fake_massdns(scan, tmp_path, silent=["dead.example.com"], found=["api.example.com"])
+    module = SimpleNamespace(name="dnsbrute", run_process_live=scan.helpers.run_live)
+    assert await helper(module, "example.com", ["api", "www"], type="A") == ["api.example.com"]
+    words = [f"w{i}" for i in range(200)]
+    started = len(massdns_runs(tmp_path))
+    assert await helper(module, "dead.example.com", words, type="A") == []
+    runs = massdns_runs(tmp_path)[started:]
+    # One full pass, then the retry passes only over a small sample.
+    assert [run["retry"] for run in runs] == [False, True, True, True]
+    assert all(len(run["names"]) <= 20 for run in runs[1:])
+    assert set(helper.silent_domains) == {"dead.example.com"}
+    # Nothing beneath it counts as checked.
+    assert all((f"{word}.dead.example.com", "A") in helper.unanswered for word in words)
+    # A zone that does not answer is not resolver load: concurrency is left alone.
+    assert helper.concurrency_cuts == 0
+
+
+async def test_when_no_parent_is_answered_every_name_is_retried_and_none_given_up(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com")
+    helper = scan.helpers.dns.brute
+    # Resolvers that answer nothing at all look the same from every parent: that is no reason to stop one.
+    install_fake_massdns(scan, tmp_path, silent=["example.com"])
+    module = SimpleNamespace(name="dnsbrute", run_process_live=scan.helpers.run_live)
+    words = [f"w{i}" for i in range(60)]
+    await helper(module, "example.com", words, type="A")
+    runs = massdns_runs(tmp_path)
+    assert not helper.silent_domains
+    assert [len(run["names"]) for run in runs] == [len(words) + helper.num_canaries] * 4
+
+
+async def test_retry_passes_keep_a_concurrency_floor_after_cuts(bbot_scanner, tmp_path):
+    scan = bbot_scanner("example.com")
+    helper = scan.helpers.dns.brute
+    install_fake_massdns(scan, tmp_path, never=["slow.example.com"])
+    module = SimpleNamespace(name="dnsbrute", run_process_live=scan.helpers.run_live)
+    helper.per_resolver_threads = 5  # cut to its floor by earlier batches
+    await helper(module, "example.com", ["api", "slow"], type="A")
+    resolvers = max(1, len(helper.resolver_pool.selected))
+    assert [run["s"] for run in massdns_runs(tmp_path) if run["retry"]] == [5 * resolvers] * 3
+
+
+async def test_a_parent_whose_zone_answers_nothing_is_stopped_and_reported(bbot_scanner, tmp_path):
+    coverage = tmp_path / "coverage.json"
+    resume = tmp_path / "resume.json"
+    resume.write_text(json.dumps({"parents": {"example.com": [0, 10], "dead.example.com": [0, 10]}}))
+    scan = dnsbrute_scan(bbot_scanner, tmp_path, coverage, resume=resume)
+    install_fake_massdns(scan, tmp_path, silent=["dead.example.com"])
+    await scan.helpers._mock_dns({"example.com": {"A": ["192.0.2.10"]}, "dead.example.com": {"A": ["192.0.2.11"]}})
+    await asyncio.wait_for(_collect(scan), 60)
+    result = json.loads(coverage.read_text())
+    assert result["parents"]["example.com"] == [10, 10, False]
+    # Its words were never answered, so none counts as checked, and it is reported with why it stopped.
+    assert result["parents"]["dead.example.com"][0] == 0
+    assert "answered none" in result["skipped_parents"]["dead.example.com"]
+    asked = [line.split()[0] for line in (tmp_path / "tools" / "asked.log").read_text().splitlines()]
+    # Once given up, its later words are asked at most once each and never retried.
+    assert all(asked.count(f"w{i}.dead.example.com") <= 4 for i in range(10))

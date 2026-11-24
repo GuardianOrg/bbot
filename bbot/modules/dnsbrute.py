@@ -262,6 +262,13 @@ class dnsbrute(subdomain_enum):
                 if time.monotonic() >= brute.deadline:
                     self.queue.retry(reservation)
                     continue
+                parent = reservation[0]
+                if parent in brute.silent_domains:
+                    # Its DNS answered nothing, retries included, while other parents' DNS answered.
+                    self.queue.stop(parent)
+                    self.skipped_parents[parent] = (
+                        f"DNS answered none of {brute.silent_domains[parent]:,} queries beneath it, retries included, "
+                        "while other parents were answered")
                 self.queue.complete(reservation, limited=limited, checked=checked, answered=answered)
                 event = reservation[3]
                 for hostname in names:
