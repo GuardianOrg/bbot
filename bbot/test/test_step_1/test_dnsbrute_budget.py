@@ -80,6 +80,6 @@ async def test_brute_passes_remaining_budget_to_massdns_subprocess(bbot_scanner)
     scan = bbot_scanner("example.com")
     helper = scan.helpers.dns.brute
     helper.resolver_file = AsyncMock(return_value="fixture-resolvers.txt")
-    module = SimpleNamespace(run_process=AsyncMock(return_value=SimpleNamespace(stdout="")))
+    module = massdns_module(AsyncMock(return_value=SimpleNamespace(stdout='{"name":"api.example.com.","status":"NXDOMAIN"}')))
     assert [result async for result in helper._massdns(module, "example.com", ["api"], "A", timeout=0.5)] == []
     assert module.run_process.await_args.kwargs["idle_timeout"] == 0.5

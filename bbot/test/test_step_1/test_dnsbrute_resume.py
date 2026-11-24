@@ -97,7 +97,7 @@ async def test_resolver_refusals_cut_concurrency_and_are_counted(bbot_scanner):
     async def run_process(*command, **_):
         return output
 
-    await helper(SimpleNamespace(name="dnsbrute", run_process=run_process), "example.com", names)
+    await helper(massdns_module(run_process), "example.com", names)
     assert helper.per_resolver_threads == 25 and helper.concurrency_cuts == 1
     metrics = helper.resolver_metrics()
     assert (metrics["refused"], metrics["servfail"], metrics["answered"]) == (100, 3, 1000)

@@ -8,6 +8,8 @@ class DNSBruteQueue:
         self.word_count = word_count
         self.events = {}
         self.positions = {}
+        # Words before this offset all got a DNS answer: the safe point to resume from.
+        self.covered = {}
         self.limits = {}
         self.limited = set()
         self._heap = []
@@ -20,6 +22,7 @@ class DNSBruteQueue:
         self.events[parent] = event
         self.limits[parent] = min(self.word_count, limit or self.word_count)
         self.positions[parent] = min(max(0, int(start)), self.limits[parent])
+        self.covered[parent] = self.positions[parent]
         if self.positions[parent] < self.limits[parent]:
             heapq.heappush(self._heap, (self.positions[parent], self._order, parent))
         self._order += 1
@@ -45,12 +48,17 @@ class DNSBruteQueue:
         end = min(self.word_count, lowest + width)
         return [(parent, lowest, end, self.events[parent], order) for _, order, parent in lagging]
 
-    def complete(self, reservation, *, limited=False, checked=None):
+    def complete(self, reservation, *, limited=False, checked=None, answered=None):
+        """Advance past ``checked`` submitted words; ``answered`` leading ones of them got a DNS answer."""
         parent, start, end, _event, order = reservation
         if checked is not None:
             end = min(end, start + checked)
         end = min(end, self.limits[parent])
         self.positions[parent] = end
+        # Coverage stops at the first unanswered word and stays there; later words still advance
+        # the scan, and a resumed run repeats them rather than skipping the unanswered one.
+        if self.covered[parent] == start:
+            self.covered[parent] = end if answered is None else min(end, start + answered)
         if limited:
             self.limited.add(parent)
         if end < self.limits[parent] and not limited:
