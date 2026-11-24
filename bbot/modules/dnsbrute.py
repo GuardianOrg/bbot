@@ -118,6 +118,7 @@ class dnsbrute(subdomain_enum):
         self.coverage_written = 0.0
         self.resume_only = bool(self.config.get("resume_only", False))
         self.resume_parents, self.resume_matched = {}, False
+        self.skipped_parents = {}
         resume_file = str(self.config.get("resume_file") or "")
         if resume_file:
             resume = json.loads(Path(resume_file).read_text())
@@ -133,6 +134,19 @@ class dnsbrute(subdomain_enum):
         return await super().setup()
 
     async def filter_event(self, event):
+        accepted, reason = await self._filter_parent(event)
+        query = self.make_query(event)
+        if accepted:
+            self.skipped_parents.pop(query, None)
+        elif (query in self.resume_parents and query not in self.queue.positions
+              and not (self.helpers.dns.brute.deadline is not None
+                       and time.monotonic() >= self.helpers.dns.brute.deadline)):
+            # A parent a resumed run was asked to continue but never brute-forces is reported, so whoever
+            # planned it does not ask again.
+            self.skipped_parents[query] = reason
+        return accepted, reason
+
+    async def _filter_parent(self, event):
         brute = self.helpers.dns.brute
         if brute.deadline is not None and time.monotonic() >= brute.deadline:
             return False, "shared brute-force runtime budget exhausted"
@@ -285,6 +299,8 @@ class dnsbrute(subdomain_enum):
             # and whether wildcard DNS stopped it early.
             "parents": {parent: [self.queue.covered[parent], self.queue.limits[parent], parent in self.queue.limited]
                         for parent in sorted(self.queue.positions)},
+            # Resumed parents dnsbrute rejected (unresolved, too deep, PTR-like...) and why.
+            "skipped_parents": dict(sorted(self.skipped_parents.items())),
             "queries": metrics.get("queries", 0),
             "call_seconds": metrics.get("call_seconds", 0),
             "elapsed_seconds": round(time.monotonic() - brute.started, 3) if brute.started is not None else 0,
