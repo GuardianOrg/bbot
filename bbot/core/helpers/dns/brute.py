@@ -111,6 +111,10 @@ class DNSBrute:
         self.stalls = 0
         # Final response codes of brute-forced names; REFUSED after massdns' own retries signals rate limiting.
         self.response_status = Counter()
+        # Per resolver address: responses that answered a name, and responses that did not (REFUSED, or a
+        # SERVFAIL massdns gave up on). Timeouts name no resolver.
+        self.resolver_answers = Counter()
+        self.resolver_failures = Counter()
         self.started = None
         self._resolver_lock = asyncio.Lock()
         self.max_candidates = int(self.dns_config.get("brute_max_candidates", 400000))
@@ -206,6 +210,8 @@ class DNSBrute:
             "concurrency_cuts": self.concurrency_cuts,
             "concurrency_raises": self.concurrency_raises,
             "per_resolver_threads": self.per_resolver_threads,
+            "resolvers": {address: [self.resolver_answers[address], self.resolver_failures[address]]
+                          for address in sorted(set(self.resolver_answers) | set(self.resolver_failures))},
         }
 
     async def dnsbrute(self, module, domain, subdomains, type=None, timeout=None):
@@ -544,14 +550,19 @@ class DNSBrute:
             if name not in requested:
                 continue
             status = str(record.get("status") or "").upper()
+            address = str(record.get("resolver") or "").rsplit(":", 1)[0]
             if record.get("error") or status in ("", "REFUSED"):
                 failures.append(name)
+                if address:
+                    self.resolver_failures[address] += 1
                 refused += status == "REFUSED"
                 if status and first:
                     self.response_status[status] += 1
             elif name not in answered:
                 answered.add(name)
                 self.response_status[status] += 1
+                if address:
+                    self.resolver_answers[address] += 1
         return failures, refused
 
     @staticmethod
