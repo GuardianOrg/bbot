@@ -73,7 +73,8 @@ class git_clone(github):
             "transfer.fsckObjects=true",
         ]
         command = ["git"] + safe_flags + ["-C", folder, "clone", "--", repository_url]
-        env = {"GIT_TERMINAL_PROMPT": "0"}
+        # A repository hosted on a scan target gets the scan's custom HTTP headers.
+        env = {"GIT_TERMINAL_PROMPT": "0", **self.git_http_header_environment(repository_url)}
 
         try:
             hostname = self.helpers.urlparse(repository_url).hostname

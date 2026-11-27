@@ -350,7 +350,9 @@ async def test_service_fingerprint_stands_down_when_the_scan_has_headers(bbot_sc
     from bbot.modules.service_fingerprint import service_fingerprint
 
     # Nerva's HTTP plugins send requests that cannot carry the headers.
-    status = await make(service_fingerprint, header_scan(bbot_scanner, "service_fingerprint"), "service_fingerprint").setup()
+    status = await make(
+        service_fingerprint, header_scan(bbot_scanner, "service_fingerprint"), "service_fingerprint"
+    ).setup()
     assert status[0] is None
 
 
@@ -365,3 +367,103 @@ async def test_wafw00f_keeps_a_custom_user_agent_on_the_probe_that_drops_it(bbot
     requests = [request for request, _ in bbot_httpserver.log]
     assert len(requests) >= 4
     assert all(request.headers.get("User-Agent") == "scanner42" for request in requests)
+
+
+class GitServer:
+    """A dumb-HTTP git server for one repository that records the custom header of every request."""
+
+    def __init__(self, root):
+        import subprocess
+        from functools import partial
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+        work = root / "work"
+        subprocess.run(["git", "init", "-q", str(work)], check=True)
+        (work / "README").write_text("hello")
+        subprocess.run(["git", "-C", str(work), "add", "README"], check=True)
+        subprocess.run(
+            ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], check=True
+        )
+        subprocess.run(
+            ["git", "clone", "-q", "--bare", str(work), str(root / "served" / "org" / "repo.git")], check=True
+        )
+        subprocess.run(["git", "-C", str(root / "served" / "org" / "repo.git"), "update-server-info"], check=True)
+        self.seen = []
+        server = self
+
+        class Handler(SimpleHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                server.seen.append(self.headers.get("X-Assessment"))
+                super().do_GET()
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(root / "served")))
+        self.url = f"http://127.0.0.1:{self.httpd.server_port}/org/repo.git"
+        import threading
+
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.httpd.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("headers", [HEADERS, {}])
+async def test_git_clone_sends_the_scan_headers_to_a_repository_on_a_target(bbot_scanner, headers, tmp_path):
+    from bbot.modules.git_clone import git_clone
+
+    server = GitServer(tmp_path)
+    try:
+        scan = bbot_scanner("127.0.0.1", modules=["git_clone"])
+        scan.web_config = {**scan.web_config, "http_headers": dict(headers)}
+        module = make(git_clone, scan, "git_clone")
+        module.output_dir, module.api_key = tmp_path / "clones", None
+        module.output_dir.mkdir()
+        cloned = await module.clone_git_repository(server.url)
+        assert (cloned / "README").read_text() == "hello"
+        assert server.seen and set(server.seen) == {headers.get("X-Assessment")}
+    finally:
+        server.close()
+
+
+@pytest.mark.asyncio
+async def test_git_header_environment_is_empty_for_a_repository_outside_the_scope(bbot_scanner):
+    from bbot.modules.git_clone import git_clone
+
+    scan = header_scan(bbot_scanner, "git_clone")
+    module = make(git_clone, scan, "git_clone")
+    assert module.git_http_header_environment("https://github.com/acme/repo") == {}
+    assert module.git_http_header_environment("https://git.example.com/acme/repo")["GIT_CONFIG_VALUE_0"] == (
+        "X-Assessment: assess42"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("headers", [HEADERS, {}])
+async def test_trufflehog_lets_its_git_clone_of_a_target_repository_carry_the_scan_headers(
+    bbot_scanner, headers, tmp_path, monkeypatch
+):
+    from bbot.modules.trufflehog import trufflehog
+
+    server = GitServer(tmp_path)
+    # TruffleHog clones a remote repository with the system git; this stand-in does exactly that.
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    fake = tools / "trufflehog"
+    fake.write_text('#!/bin/sh\nfor last; do :; done\nexec git clone -q "$last" "$HOME/clone" >&2\n')
+    fake.chmod(0o755)
+    try:
+        scan = bbot_scanner("127.0.0.1", modules=["trufflehog"])
+        scan.web_config = {**scan.web_config, "http_headers": dict(headers)}
+        module = make(trufflehog, scan, "trufflehog")
+        module.verified, module.config_file, module.concurrency = False, None, 1
+        monkeypatch.setattr(module.helpers, "tools_dir", tools)
+        monkeypatch.setattr(scan, "home", tmp_path / "home")
+        (tmp_path / "home").mkdir()
+        assert [result async for result in module.execute_trufflehog("git", server.url)] == []
+        assert (tmp_path / "home" / "clone" / "README").read_text() == "hello"
+        assert server.seen and set(server.seen) == {headers.get("X-Assessment")}
+    finally:
+        server.close()

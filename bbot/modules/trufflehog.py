@@ -268,6 +268,12 @@ class trufflehog(code_repository_scope, github_leak_formatter, BaseModule):
             env={
                 "HOME": str(self.scan.home),
                 "PATH": f"{self.helpers.tools_dir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                # TruffleHog clones a remote repository with git: one on a scan target gets the custom headers.
+                **(
+                    self.git_http_header_environment(path)
+                    if module == "git" and str(path).startswith(("http://", "https://"))
+                    else {}
+                ),
             },
             _log_stderr=False,
         )

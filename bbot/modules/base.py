@@ -1352,6 +1352,18 @@ class BaseModule:
         """
         return not self.running and self.num_incoming_events <= 0 and self.outgoing_event_queue.qsize() <= 0
 
+    def git_http_header_environment(self, url):
+        """``GIT_CONFIG_*`` variables that make a git process (git itself, or a tool that runs it) send the scan's
+        custom HTTP headers as ``http.extraHeader`` when ``url`` is in scope; empty otherwise."""
+        headers = getattr(self.scan, "custom_http_headers", None) or {}
+        if not headers or not self.scan.in_scope(str(url)):
+            return {}
+        environment = {"GIT_CONFIG_COUNT": str(len(headers))}
+        for index, (name, value) in enumerate(headers.items()):
+            environment[f"GIT_CONFIG_KEY_{index}"] = "http.extraHeader"
+            environment[f"GIT_CONFIG_VALUE_{index}"] = f"{name}: {value}"
+        return environment
+
     async def run_process(self, *args, **kwargs):
         kwargs["_proc_tracker"] = self._proc_tracker
         return await self.helpers.run(*args, **kwargs)
